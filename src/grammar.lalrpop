@@ -1,0 +1,138 @@
+use crate::*;
+
+grammar<'input>;
+
+extern {
+    type Location = usize;
+
+    enum Token<'input> {
+        "Atom" => Token::Atom(<&'input str>),
+        "LineBreak" => Token::LineBreak(<&'input str>),
+        "WhiteSpace" => Token::WhiteSpace(<&'input str>),
+        "@" => Token::At,
+        "@@" => Token::AtAt,
+        "@@@" => Token::AtAtAt(<usize>),
+        "#" => Token::Hash,
+        "@end" => Token::AtEnd,
+        "(" => Token::ParenOpen,
+        ")" => Token::ParenClose,
+        "[" => Token::BracketOpen,
+        "]" => Token::BracketClose,
+        "{" => Token::BraceOpen,
+        "}" => Token::BraceClose,
+        "Unknown" => Token::Unknown(<&'input str>),
+    }
+}
+
+SepByDelim<Start, Sep, T, End>: Vec<T> = {
+    Start Sep? <mut v: (<T> Sep)*> <last: T?> End => {
+        match last {
+            None => { },
+            Some(t) => { v.push(t); }
+        };
+        v
+    }
+};
+
+pub Atom: Atom = {
+    <"Atom"> => Atom::from(<>.to_string())
+};
+
+pub LineBreak: Raw = "LineBreak" => <>.to_string().into();
+pub WhiteSpace: Raw = "WhiteSpace" => <>.to_string().into();
+pub White: Raw = { LineBreak, WhiteSpace };
+pub AnnotationSymbols: Raw = {
+    "(" => <>.to_string().into(),
+    ")" => <>.to_string().into(),
+    "[" => <>.to_string().into(),
+    "]" => <>.to_string().into(),
+};
+pub Unknown: Raw = "Unknown" => <>.to_string().into();
+pub RawAtom: Raw = "Atom" => <>.to_string().into();
+
+pub Annotation: Annotation = {
+    <elements:SepByDelim<"(",WhiteSpace,Element,")">> => Annotation {
+        delimiter: Delimiter::Paren,
+        elements,
+    },
+    <elements:SepByDelim<"[",WhiteSpace,Element,"]">> => Annotation {
+        delimiter: Delimiter::Bracket,
+        elements,
+    },
+};
+
+pub Element: Element = {
+    <Atom> => <>.into(),
+    <Annotation> => <>.into(),
+};
+
+Annotated<T>: Annotated<T> = {
+    <inner:T> => Annotated {
+        attached: VecDeque::new(),
+        inner,
+    },
+    "@" <ann:Annotation> White? <mut this:Annotated<T>> => {
+        this.attached.push_front(ann); this
+    }
+};
+
+pub Entity: Entity = {
+    <LineBreak> => <>.into(),
+    <NonBreakEntity> => <>.into(),
+};
+
+pub NonBreakEntity: Entity = {
+    <RawAtom> => <>.into(),
+    <WhiteSpace> => <>.into(),
+    <AnnotationSymbols> => <>.into(),
+    <Unknown> => <>.into(),
+    "@@" <Annotation> => <>.into(),
+    <Annotated<Item>> => <>.into(),
+    <Annotated<Blob>> => <>.into(),
+    <Annotated<Block>> => <>.into(),
+};
+
+pub Item: Item = {
+    "#" <name:Atom> <annotation:Annotation> => Item {
+        name,
+        annotation,
+    },
+};
+
+// Todo: change atom to any; change at * 3 to at * n
+pub Blob: Blob = {
+    "@@@" <"Unknown"> "@@@" => Blob {
+        content: <>.to_string(),
+    },
+};
+
+pub Block: Block = {
+    "@" <name:Atom>
+        <top:Top>
+    "@end" => Block {
+        style: BlockStyle::Delimited,
+        name,
+        top,
+    },
+    "@@" <name:Atom>
+        <top:NonBreak>
+    "LineBreak" => Block {
+        style: BlockStyle::Incontext,
+        name,
+        top,
+    },
+    "@" <name:Atom> "{" <top:Top> "}" => Block {
+        style: BlockStyle::Braced,
+        name,
+        top,
+    },
+};
+
+NonBreak: Top = {
+    <entities:NonBreakEntity*> => Top { entities },
+};
+
+pub Top: Top = {
+    <entities:Entity*> => Top { entities },
+};
+
