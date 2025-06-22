@@ -1,5 +1,5 @@
 [package]
-name = "bb-alas"
+name = "bb-ui-iced"
 version = { workspace = true }
 edition = { workspace = true }
 publish = false

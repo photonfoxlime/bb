@@ -1,0 +1,11 @@
+[package]
+name = "bb-pdf"
+version = { workspace = true }
+edition = { workspace = true }
+
+[dependencies]
+anyhow = { workspace = true }
+pdfium-render = "0.8"
+image = { version = "0.25", default-features = false, features = [
+    "jpeg",
+] }
