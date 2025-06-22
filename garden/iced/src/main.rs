@@ -13,11 +13,12 @@ pub fn main() -> iced::Result {
     #[cfg(not(target_arch = "wasm32"))]
     tracing_subscriber::fmt::init();
 
-    iced::application(Todos::title, Todos::update, Todos::view)
+    iced::application(Todos::new, Todos::update, Todos::view)
+        .title(Todos::title)
         .subscription(Todos::subscription)
         .font(include_bytes!("../fonts/icons.ttf").as_slice())
         .window_size((500.0, 800.0))
-        .run_with(Todos::new)
+        .run()
 }
 
 #[derive(Debug)]
@@ -143,8 +144,9 @@ impl Todos {
                             widget::focus_next()
                         }
                     }
-                    Message::ToggleFullscreen(mode) => window::get_latest()
-                        .and_then(move |window| window::change_mode(window, mode)),
+                    Message::ToggleFullscreen(mode) => {
+                        window::get_latest().and_then(move |window| window::set_mode(window, mode))
+                    }
                     Message::Loaded(_) => Command::none(),
                 };
 
@@ -488,11 +490,11 @@ impl SavedState {
     }
 
     async fn load() -> Result<SavedState, LoadError> {
-        use async_std::prelude::*;
+        use tokio::io::AsyncReadExt as _;
 
         let mut contents = String::new();
 
-        let mut file = async_std::fs::File::open(Self::path())
+        let mut file = tokio::fs::File::open(Self::path())
             .await
             .map_err(|_| LoadError::File)?;
 
@@ -504,20 +506,18 @@ impl SavedState {
     }
 
     async fn save(self) -> Result<(), SaveError> {
-        use async_std::prelude::*;
+        use tokio::io::AsyncWriteExt as _;
 
         let json = serde_json::to_string_pretty(&self).map_err(|_| SaveError::Format)?;
-
         let path = Self::path();
-
         if let Some(dir) = path.parent() {
-            async_std::fs::create_dir_all(dir)
+            tokio::fs::create_dir_all(dir)
                 .await
                 .map_err(|_| SaveError::File)?;
         }
 
         {
-            let mut file = async_std::fs::File::create(path)
+            let mut file = tokio::fs::File::create(path)
                 .await
                 .map_err(|_| SaveError::File)?;
 
@@ -527,7 +527,7 @@ impl SavedState {
         }
 
         // This is a simple way to save at most once every couple seconds
-        async_std::task::sleep(std::time::Duration::from_secs(2)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
 
         Ok(())
     }
@@ -561,7 +561,7 @@ impl SavedState {
             .set_item("state", &json)
             .map_err(|_| SaveError::Write)?;
 
-        let _ = wasm_timer::Delay::new(std::time::Duration::from_secs(2)).await;
+        let _ = wasmtimer::Delay::new(std::time::Duration::from_secs(2)).await;
 
         Ok(())
     }
