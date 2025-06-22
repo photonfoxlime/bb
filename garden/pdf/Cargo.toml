@@ -6,6 +6,6 @@ edition = { workspace = true }
 [dependencies]
 anyhow = { workspace = true }
 pdfium-render = "0.8"
-image = { version = "0.25", default-features = false, features = [
-    "jpeg",
-] }
+image = { version = "0.25", default-features = false, features = ["jpeg"] }
+log = { workspace = true }
+env_logger = { workspace = true }

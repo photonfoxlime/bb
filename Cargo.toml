@@ -6,6 +6,9 @@ version = "0.1.0"
 edition = "2024"
 
 [workspace.dependencies]
+# bb
+bb = { path = "." }
+
 # derive
 derive_more = { version = "2.0", features = ["from"] }
 impl-tools = "0.11"
@@ -14,6 +17,10 @@ educe = "0.6.0"
 # error handling
 thiserror = "2.0"
 anyhow = "1.0"
+
+# logging
+log = "0.4"
+env_logger = "0.11"
 
 # lexer and parser
 logos = "0.15"

@@ -56,21 +56,21 @@ pub enum Token<'input> {
 impl<'input> fmt::Display for Token<'input> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Token::Atom(s) => write!(f, "{}", s),
-            Token::LineBreak(s) => write!(f, "{}", s),
-            Token::WhiteSpace(s) => write!(f, "{}", s),
-            Token::At => write!(f, "@"),
-            Token::AtAt => write!(f, "@@"),
-            Token::AtAtAt(n) => write!(f, "{}", "@".repeat(*n)),
-            Token::Hash => write!(f, "#"),
-            Token::AtEnd => write!(f, "@end"),
-            Token::ParenOpen => write!(f, "("),
-            Token::ParenClose => write!(f, ")"),
-            Token::BracketOpen => write!(f, "["),
-            Token::BracketClose => write!(f, "]"),
-            Token::BraceOpen => write!(f, "{{"),
-            Token::BraceClose => write!(f, "}}"),
-            Token::Unknown(s) => write!(f, "{}", s),
+            | Token::Atom(s) => write!(f, "{}", s),
+            | Token::LineBreak(s) => write!(f, "{}", s),
+            | Token::WhiteSpace(s) => write!(f, "{}", s),
+            | Token::At => write!(f, "@"),
+            | Token::AtAt => write!(f, "@@"),
+            | Token::AtAtAt(n) => write!(f, "{}", "@".repeat(*n)),
+            | Token::Hash => write!(f, "#"),
+            | Token::AtEnd => write!(f, "@end"),
+            | Token::ParenOpen => write!(f, "("),
+            | Token::ParenClose => write!(f, ")"),
+            | Token::BracketOpen => write!(f, "["),
+            | Token::BracketClose => write!(f, "]"),
+            | Token::BraceOpen => write!(f, "{{"),
+            | Token::BraceClose => write!(f, "}}"),
+            | Token::Unknown(s) => write!(f, "{}", s),
         }
     }
 }
@@ -146,12 +146,16 @@ pub struct Annotated<Inner> {
 pub enum Entity {
     #[educe(Debug(name = false))]
     Raw(Raw),
+
     #[educe(Debug(name = true))]
     IncontextAnnotation(Annotation),
+
     #[educe(Debug(name = false))]
     Item(Annotated<Item>),
+
     #[educe(Debug(name = false))]
     Blob(Annotated<Blob>),
+
     #[educe(Debug(name = false))]
     Block(Annotated<Block>),
 }

@@ -50,16 +50,13 @@ enum Message {
 
 impl Todos {
     fn new() -> (Self, Command<Message>) {
-        (
-            Self::Loading,
-            Command::perform(SavedState::load(), Message::Loaded),
-        )
+        (Self::Loading, Command::perform(SavedState::load(), Message::Loaded))
     }
 
     fn title(&self) -> String {
         let dirty = match self {
-            Todos::Loading => false,
-            Todos::Loaded(state) => state.dirty,
+            | Todos::Loading => false,
+            | Todos::Loaded(state) => state.dirty,
         };
 
         format!("Todos{} - Iced", if dirty { "*" } else { "" })
@@ -67,9 +64,9 @@ impl Todos {
 
     fn update(&mut self, message: Message) -> Command<Message> {
         match self {
-            Todos::Loading => {
+            | Todos::Loading => {
                 match message {
-                    Message::Loaded(Ok(state)) => {
+                    | Message::Loaded(Ok(state)) => {
                         *self = Todos::Loaded(State {
                             input_value: state.input_value,
                             filter: state.filter,
@@ -77,24 +74,24 @@ impl Todos {
                             ..State::default()
                         });
                     }
-                    Message::Loaded(Err(_)) => {
+                    | Message::Loaded(Err(_)) => {
                         *self = Todos::Loaded(State::default());
                     }
-                    _ => {}
+                    | _ => {}
                 }
 
                 text_input::focus("new-task")
             }
-            Todos::Loaded(state) => {
+            | Todos::Loaded(state) => {
                 let mut saved = false;
 
                 let command = match message {
-                    Message::InputChanged(value) => {
+                    | Message::InputChanged(value) => {
                         state.input_value = value;
 
                         Command::none()
                     }
-                    Message::CreateTask => {
+                    | Message::CreateTask => {
                         if !state.input_value.is_empty() {
                             state.tasks.push(Task::new(state.input_value.clone()));
                             state.input_value.clear();
@@ -102,17 +99,17 @@ impl Todos {
 
                         Command::none()
                     }
-                    Message::FilterChanged(filter) => {
+                    | Message::FilterChanged(filter) => {
                         state.filter = filter;
 
                         Command::none()
                     }
-                    Message::TaskMessage(i, TaskMessage::Delete) => {
+                    | Message::TaskMessage(i, TaskMessage::Delete) => {
                         state.tasks.remove(i);
 
                         Command::none()
                     }
-                    Message::TaskMessage(i, task_message) => {
+                    | Message::TaskMessage(i, task_message) => {
                         if let Some(task) = state.tasks.get_mut(i) {
                             let should_focus = matches!(task_message, TaskMessage::Edit);
 
@@ -131,23 +128,23 @@ impl Todos {
                             Command::none()
                         }
                     }
-                    Message::Saved(_result) => {
+                    | Message::Saved(_result) => {
                         state.saving = false;
                         saved = true;
 
                         Command::none()
                     }
-                    Message::TabPressed { shift } => {
+                    | Message::TabPressed { shift } => {
                         if shift {
                             widget::focus_previous()
                         } else {
                             widget::focus_next()
                         }
                     }
-                    Message::ToggleFullscreen(mode) => {
+                    | Message::ToggleFullscreen(mode) => {
                         window::get_latest().and_then(move |window| window::set_mode(window, mode))
                     }
-                    Message::Loaded(_) => Command::none(),
+                    | Message::Loaded(_) => Command::none(),
                 };
 
                 if !saved {
@@ -178,18 +175,10 @@ impl Todos {
 
     fn view(&self) -> Element<Message> {
         match self {
-            Todos::Loading => loading_message(),
-            Todos::Loaded(State {
-                input_value,
-                filter,
-                tasks,
-                ..
-            }) => {
-                let title = text("todos")
-                    .width(Fill)
-                    .size(100)
-                    .color([0.5, 0.5, 0.5])
-                    .align_x(Center);
+            | Todos::Loading => loading_message(),
+            | Todos::Loaded(State { input_value, filter, tasks, .. }) => {
+                let title =
+                    text("todos").width(Fill).size(100).color([0.5, 0.5, 0.5]).align_x(Center);
 
                 let input = text_input("What needs to be done?", input_value)
                     .id("new-task")
@@ -204,31 +193,27 @@ impl Todos {
 
                 let tasks: Element<_> = if filtered_tasks.count() > 0 {
                     keyed_column(
-                        tasks
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, task)| filter.matches(task))
-                            .map(|(i, task)| {
+                        tasks.iter().enumerate().filter(|(_, task)| filter.matches(task)).map(
+                            |(i, task)| {
                                 (
                                     task.id,
                                     task.view(i)
                                         .map(move |message| Message::TaskMessage(i, message)),
                                 )
-                            }),
+                            },
+                        ),
                     )
                     .spacing(10)
                     .into()
                 } else {
                     empty_message(match filter {
-                        Filter::All => "You have not created a task yet...",
-                        Filter::Active => "All your tasks are done! :D",
-                        Filter::Completed => "You have not completed a task yet...",
+                        | Filter::All => "You have not created a task yet...",
+                        | Filter::Active => "All your tasks are done! :D",
+                        | Filter::Completed => "You have not completed a task yet...",
                     })
                 };
 
-                let content = column![title, input, controls, tasks]
-                    .spacing(20)
-                    .max_width(800);
+                let content = column![title, input, controls, tasks].spacing(20).max_width(800);
 
                 scrollable(container(content).center_x(Fill).padding(40)).into()
             }
@@ -244,16 +229,14 @@ impl Todos {
             };
 
             match (key, modifiers) {
-                (key::Named::Tab, _) => Some(Message::TabPressed {
-                    shift: modifiers.shift(),
-                }),
-                (key::Named::ArrowUp, keyboard::Modifiers::SHIFT) => {
+                | (key::Named::Tab, _) => Some(Message::TabPressed { shift: modifiers.shift() }),
+                | (key::Named::ArrowUp, keyboard::Modifiers::SHIFT) => {
                     Some(Message::ToggleFullscreen(window::Mode::Fullscreen))
                 }
-                (key::Named::ArrowDown, keyboard::Modifiers::SHIFT) => {
+                | (key::Named::ArrowDown, keyboard::Modifiers::SHIFT) => {
                     Some(Message::ToggleFullscreen(window::Mode::Windowed))
                 }
-                _ => None,
+                | _ => None,
             }
         })
     }
@@ -297,37 +280,32 @@ impl Task {
     }
 
     fn new(description: String) -> Self {
-        Task {
-            id: Uuid::new_v4(),
-            description,
-            completed: false,
-            state: TaskState::Idle,
-        }
+        Task { id: Uuid::new_v4(), description, completed: false, state: TaskState::Idle }
     }
 
     fn update(&mut self, message: TaskMessage) {
         match message {
-            TaskMessage::Completed(completed) => {
+            | TaskMessage::Completed(completed) => {
                 self.completed = completed;
             }
-            TaskMessage::Edit => {
+            | TaskMessage::Edit => {
                 self.state = TaskState::Editing;
             }
-            TaskMessage::DescriptionEdited(new_description) => {
+            | TaskMessage::DescriptionEdited(new_description) => {
                 self.description = new_description;
             }
-            TaskMessage::FinishEdition => {
+            | TaskMessage::FinishEdition => {
                 if !self.description.is_empty() {
                     self.state = TaskState::Idle;
                 }
             }
-            TaskMessage::Delete => {}
+            | TaskMessage::Delete => {}
         }
     }
 
     fn view(&self, i: usize) -> Element<TaskMessage> {
         match &self.state {
-            TaskState::Idle => {
+            | TaskState::Idle => {
                 let checkbox = checkbox(&self.description, self.completed)
                     .on_toggle(TaskMessage::Completed)
                     .width(Fill)
@@ -336,16 +314,13 @@ impl Task {
 
                 row![
                     checkbox,
-                    button(edit_icon())
-                        .on_press(TaskMessage::Edit)
-                        .padding(10)
-                        .style(button::text),
+                    button(edit_icon()).on_press(TaskMessage::Edit).padding(10).style(button::text),
                 ]
                 .spacing(20)
                 .align_y(Center)
                 .into()
             }
-            TaskState::Editing => {
+            | TaskState::Editing => {
                 let text_input = text_input("Describe your task...", &self.description)
                     .id(Self::text_input_id(i))
                     .on_input(TaskMessage::DescriptionEdited)
@@ -383,11 +358,7 @@ fn view_controls(tasks: &[Task], current_filter: Filter) -> Element<Message> {
     };
 
     row![
-        text!(
-            "{tasks_left} {} left",
-            if tasks_left == 1 { "task" } else { "tasks" }
-        )
-        .width(Fill),
+        text!("{tasks_left} {} left", if tasks_left == 1 { "task" } else { "tasks" }).width(Fill),
         row![
             filter_button("All", Filter::All, current_filter),
             filter_button("Active", Filter::Active, current_filter),
@@ -411,9 +382,9 @@ pub enum Filter {
 impl Filter {
     fn matches(self, task: &Task) -> bool {
         match self {
-            Filter::All => true,
-            Filter::Active => !task.completed,
-            Filter::Completed => task.completed,
+            | Filter::All => true,
+            | Filter::Active => !task.completed,
+            | Filter::Completed => task.completed,
         }
     }
 }
@@ -423,25 +394,16 @@ fn loading_message<'a>() -> Element<'a, Message> {
 }
 
 fn empty_message(message: &str) -> Element<'_, Message> {
-    center(
-        text(message)
-            .width(Fill)
-            .size(25)
-            .align_x(Center)
-            .color([0.7, 0.7, 0.7]),
-    )
-    .height(200)
-    .into()
+    center(text(message).width(Fill).size(25).align_x(Center).color([0.7, 0.7, 0.7]))
+        .height(200)
+        .into()
 }
 
 // Fonts
 const ICONS: Font = Font::with_name("Iced-Todos-Icons");
 
 fn icon(unicode: char) -> Text<'static> {
-    text(unicode.to_string())
-        .font(ICONS)
-        .width(20)
-        .align_x(Center)
+    text(unicode.to_string()).font(ICONS).width(20).align_x(Center)
 }
 
 fn edit_icon() -> Text<'static> {
@@ -494,13 +456,9 @@ impl SavedState {
 
         let mut contents = String::new();
 
-        let mut file = tokio::fs::File::open(Self::path())
-            .await
-            .map_err(|_| LoadError::File)?;
+        let mut file = tokio::fs::File::open(Self::path()).await.map_err(|_| LoadError::File)?;
 
-        file.read_to_string(&mut contents)
-            .await
-            .map_err(|_| LoadError::File)?;
+        file.read_to_string(&mut contents).await.map_err(|_| LoadError::File)?;
 
         serde_json::from_str(&contents).map_err(|_| LoadError::Format)
     }
@@ -511,19 +469,13 @@ impl SavedState {
         let json = serde_json::to_string_pretty(&self).map_err(|_| SaveError::Format)?;
         let path = Self::path();
         if let Some(dir) = path.parent() {
-            tokio::fs::create_dir_all(dir)
-                .await
-                .map_err(|_| SaveError::File)?;
+            tokio::fs::create_dir_all(dir).await.map_err(|_| SaveError::File)?;
         }
 
         {
-            let mut file = tokio::fs::File::create(path)
-                .await
-                .map_err(|_| SaveError::File)?;
+            let mut file = tokio::fs::File::create(path).await.map_err(|_| SaveError::File)?;
 
-            file.write_all(json.as_bytes())
-                .await
-                .map_err(|_| SaveError::Write)?;
+            file.write_all(json.as_bytes()).await.map_err(|_| SaveError::Write)?;
         }
 
         // This is a simple way to save at most once every couple seconds
@@ -544,10 +496,8 @@ impl SavedState {
     async fn load() -> Result<SavedState, LoadError> {
         let storage = Self::storage().ok_or(LoadError::File)?;
 
-        let contents = storage
-            .get_item("state")
-            .map_err(|_| LoadError::File)?
-            .ok_or(LoadError::File)?;
+        let contents =
+            storage.get_item("state").map_err(|_| LoadError::File)?.ok_or(LoadError::File)?;
 
         serde_json::from_str(&contents).map_err(|_| LoadError::Format)
     }
@@ -557,9 +507,7 @@ impl SavedState {
 
         let json = serde_json::to_string_pretty(&self).map_err(|_| SaveError::Format)?;
 
-        storage
-            .set_item("state", &json)
-            .map_err(|_| SaveError::Write)?;
+        storage.set_item("state", &json).map_err(|_| SaveError::Write)?;
 
         let _ = wasmtimer::Delay::new(std::time::Duration::from_secs(2)).await;
 
