@@ -1,67 +1,82 @@
-use leptos::task::spawn_local;
-use leptos::{ev::SubmitEvent, prelude::*};
-use serde::{Deserialize, Serialize};
-use wasm_bindgen::prelude::*;
+use leptos::prelude::*;
 
-#[wasm_bindgen]
-extern "C" {
-    #[wasm_bindgen(js_namespace = ["window", "__TAURI__", "core"])]
-    async fn invoke(cmd: &str, args: JsValue) -> JsValue;
-}
-
-#[derive(Serialize, Deserialize)]
-struct GreetArgs<'a> {
-    name: &'a str,
+#[derive(Clone)]
+struct BlockData {
+    point: String,
+    children: Vec<BlockData>,
+    is_root: bool,
 }
 
 #[component]
 pub fn App() -> impl IntoView {
-    let (name, set_name) = signal(String::new());
-    let (greet_msg, set_greet_msg) = signal(String::new());
-
-    let update_name = move |ev| {
-        let v = event_target_value(&ev);
-        set_name.set(v);
-    };
-
-    let greet = move |ev: SubmitEvent| {
-        ev.prevent_default();
-        spawn_local(async move {
-            let name = name.get_untracked();
-            if name.is_empty() {
-                return;
-            }
-
-            let args = serde_wasm_bindgen::to_value(&GreetArgs { name: &name }).unwrap();
-            // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
-            let new_msg = invoke("greet", args).await.as_string().unwrap();
-            set_greet_msg.set(new_msg);
-        });
-    };
+    let tree = vec![BlockData {
+        point: "Notes on liberating productivity".into(),
+        is_root: true,
+        children: vec![
+            BlockData { point: "马克思：《资本论》".into(), children: vec![], is_root: false },
+            BlockData {
+                point: "马克思·韦伯：《新教伦理与资本主义精神》".into(),
+                children: vec![],
+                is_root: false,
+            },
+            BlockData {
+                point: "Ivan Zhao: Steam, Steel, and Invisible Minds".into(),
+                children: vec![],
+                is_root: false,
+            },
+        ],
+    }];
 
     view! {
-        <main class="container">
-            <h1>"Welcome to Tauri + Leptos"</h1>
-
-            <div class="row">
-                <a href="https://tauri.app" target="_blank">
-                    <img src="public/tauri.svg" class="logo tauri" alt="Tauri logo"/>
-                </a>
-                <a href="https://docs.rs/leptos/" target="_blank">
-                    <img src="public/leptos.svg" class="logo leptos" alt="Leptos logo"/>
-                </a>
+        <main class="app">
+            <div class="canvas">
+                <Line blocks=tree />
             </div>
-            <p>"Click on the Tauri and Leptos logos to learn more."</p>
-
-            <form class="row" on:submit=greet>
-                <input
-                    id="greet-input"
-                    placeholder="Enter a name..."
-                    on:input=update_name
-                />
-                <button type="submit">"Greet"</button>
-            </form>
-            <p>{ move || greet_msg.get() }</p>
         </main>
+    }
+}
+
+#[component]
+fn Line(blocks: Vec<BlockData>) -> impl IntoView {
+    view! {
+        <section class="line">
+            <ul class="children">
+                {blocks
+                    .into_iter()
+                    .map(|block| view! { <Block block /> })
+                    .collect_view()}
+            </ul>
+        </section>
+    }
+    .into_any()
+}
+
+#[component]
+fn Block(block: BlockData) -> impl IntoView {
+    let BlockData { point, children, is_root } = block;
+    let block_class = if is_root { "block root" } else { "block" };
+    let children_view =
+        if children.is_empty() { None } else { Some(view! { <Line blocks=children /> }) };
+
+    view! {
+        <li class=block_class>
+            <span class="dot" aria-hidden="true"></span>
+            <div class="content">
+                <span class="point">{point}</span>
+                <Actions />
+            </div>
+            {children_view}
+        </li>
+    }
+}
+
+#[component]
+fn Actions() -> impl IntoView {
+    view! {
+        <div class="actions" aria-hidden="true">
+            <button class="action" type="button">"+"</button>
+            <button class="action" type="button">"-"</button>
+            <button class="action" type="button">"o"</button>
+        </div>
     }
 }

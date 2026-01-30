@@ -32,3 +32,19 @@ The root is just a block. Higher-order blocks are naturally implemented as sub-b
    retrieve more inspirations from the LLM, and then back to step 3.
 6. Alternatively, the user can summarize a verbose point to a concise one,
    by clicking the *reduce* button that's attached to each block.
+
+## UI Draft
+
+The UI renders the document as a calm, handwritten-feeling tree. Each level is a
+vertical line (a structural spine), and every block is marked by the same simple
+dot placed on that line. The text for each block sits to the right of its dot,
+with small inline actions that feel like annotations rather than heavy controls.
+
+Multiple spines are expected: nested blocks appear as a second (or third) column
+to the right, showing the tree structure through alignment and spacing instead
+of changing dot styles. The lines are not timelines; they are visual hints for
+parent/child structure only.
+
+The overall aesthetic is light and airy: soft blue ink, a paper-like background,
+and generous whitespace. The interface prioritizes legibility and flow so the
+structure of ideas is more prominent than chrome.
