@@ -133,7 +133,17 @@ body {
 }
 
 .point {
+  font: inherit;
   font-weight: 500;
+  color: inherit;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  outline: none;
+  min-width: 1ch;
+  width: auto;
+  flex: auto;
 }
 
 .actions {

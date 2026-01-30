@@ -2,30 +2,22 @@ use leptos::prelude::*;
 
 #[derive(Clone)]
 struct BlockData {
-    point: String,
+    point: RwSignal<String>,
     children: Vec<BlockData>,
     is_root: bool,
 }
 
 #[component]
 pub fn App() -> impl IntoView {
-    let tree = vec![BlockData {
-        point: "Notes on liberating productivity".into(),
-        is_root: true,
-        children: vec![
-            BlockData { point: "马克思：《资本论》".into(), children: vec![], is_root: false },
-            BlockData {
-                point: "马克思·韦伯：《新教伦理与资本主义精神》".into(),
-                children: vec![],
-                is_root: false,
-            },
-            BlockData {
-                point: "Ivan Zhao: Steam, Steel, and Invisible Minds".into(),
-                children: vec![],
-                is_root: false,
-            },
+    let tree = vec![BlockData::new(
+        "Notes on liberating productivity",
+        true,
+        vec![
+            BlockData::new("马克思：《资本论》", false, vec![]),
+            BlockData::new("马克思·韦伯：《新教伦理与资本主义精神》", false, vec![]),
+            BlockData::new("Ivan Zhao: Steam, Steel, and Invisible Minds", false, vec![]),
         ],
-    }];
+    )];
 
     view! {
         <main class="app">
@@ -62,11 +54,23 @@ fn Block(block: BlockData) -> impl IntoView {
         <li class=block_class>
             <span class="dot" aria-hidden="true"></span>
             <div class="content">
-                <span class="point">{point}</span>
+                <input
+                    class="point"
+                    type="text"
+                    prop:value=move || point.get()
+                    style:width=move || format!("{}ch", point.get().chars().count().max(1))
+                    on:input=move |ev| point.set(event_target_value(&ev))
+                />
                 <Actions />
             </div>
             {children_view}
         </li>
+    }
+}
+
+impl BlockData {
+    fn new(point: impl ToString, is_root: bool, children: Vec<BlockData>) -> Self {
+        Self { point: RwSignal::new(point.to_string()), children, is_root }
     }
 }
 
