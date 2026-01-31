@@ -2,6 +2,16 @@
 use dioxus::{logger::tracing, prelude::*};
 use uuid::Uuid;
 
+static APP_CSS: Asset = asset!("/assets/app.css");
+static FONTS_CSS: Asset = asset!("/assets/fonts.css");
+
+const _: Asset = asset!("/assets/fonts/Inter-300.woff2");
+const _: Asset = asset!("/assets/fonts/Inter-400.woff2");
+const _: Asset = asset!("/assets/fonts/Inter-500.woff2");
+const _: Asset = asset!("/assets/fonts/LXGWWenKai-Light.ttf");
+const _: Asset = asset!("/assets/fonts/LXGWWenKai-Regular.ttf");
+const _: Asset = asset!("/assets/fonts/LXGWWenKai-Medium.ttf");
+
 #[derive(Clone, PartialEq)]
 struct BlockData {
     point: String,
@@ -26,10 +36,9 @@ pub fn App() -> Element {
             BlockData::new("Ivan Zhao: Steam, Steel, and Invisible Minds", false, vec![]),
         ],
     )];
-    let stylesheet = include_str!("../styles.css");
-
     rsx! {
-        style { "{stylesheet}" }
+        document::Stylesheet { href: APP_CSS }
+        document::Stylesheet { href: FONTS_CSS }
         main { class: "app",
             div { class: "canvas",
                 Line { blocks: tree }
