@@ -1,14 +1,22 @@
-use leptos::prelude::*;
+#[allow(unused)]
+use dioxus::{logger::tracing, prelude::*};
+use uuid::Uuid;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct BlockData {
-    point: RwSignal<String>,
+    point: String,
     children: Vec<BlockData>,
     is_root: bool,
 }
 
 #[component]
-pub fn App() -> impl IntoView {
+pub fn App() -> Element {
+    use_effect(|| {
+        dioxus::desktop::window().devtool(); // opens the webview devtools
+        dioxus::desktop::window().set_maximized(true);
+        dioxus::desktop::window().set_always_on_top(false);
+    });
+
     let tree = vec![BlockData::new(
         "Notes on liberating productivity",
         true,
@@ -18,69 +26,105 @@ pub fn App() -> impl IntoView {
             BlockData::new("Ivan Zhao: Steam, Steel, and Invisible Minds", false, vec![]),
         ],
     )];
+    let stylesheet = include_str!("../styles.css");
 
-    view! {
-        <main class="app">
-            <div class="canvas">
-                <Line blocks=tree />
-            </div>
-        </main>
+    rsx! {
+        style { "{stylesheet}" }
+        main { class: "app",
+            div { class: "canvas",
+                Line { blocks: tree }
+            }
+        }
     }
 }
 
 #[component]
-fn Line(blocks: Vec<BlockData>) -> impl IntoView {
-    view! {
-        <section class="line">
-            <ul class="children">
-                {blocks
-                    .into_iter()
-                    .map(|block| view! { <Block block /> })
-                    .collect_view()}
-            </ul>
-        </section>
+fn Line(blocks: Vec<BlockData>) -> Element {
+    rsx! {
+        section { class: "line",
+            ul { class: "children",
+                for (index, block) in blocks.into_iter().enumerate() {
+                    Block { key: "{index}", block }
+                }
+            }
+        }
     }
-    .into_any()
 }
 
 #[component]
-fn Block(block: BlockData) -> impl IntoView {
+fn Block(block: BlockData) -> Element {
     let BlockData { point, children, is_root } = block;
     let block_class = if is_root { "block root" } else { "block" };
-    let children_view =
-        if children.is_empty() { None } else { Some(view! { <Line blocks=children /> }) };
+    let mut point = use_signal(|| point);
+    let point_text = point.read().clone();
 
-    view! {
-        <li class=block_class>
-            <span class="dot" aria-hidden="true"></span>
-            <div class="content">
-                <input
-                    class="point"
-                    type="text"
-                    prop:value=move || point.get()
-                    style:width=move || format!("{}ch", point.get().chars().count().max(1))
-                    on:input=move |ev| point.set(event_target_value(&ev))
-                />
-                <Actions />
-            </div>
-            {children_view}
-        </li>
+    let id = use_hook(|| format!("ta-{}", Uuid::new_v4()));
+    
+    fn update_height(id: &str) {
+        document::eval(&format!(
+            r#"
+            const ta = document.getElementById("{id}");
+            if (ta) {{
+              ta.style.height = "auto";
+              ta.style.height = ta.scrollHeight + "px";
+            }}
+            "#
+        ));
+    }
+
+    {
+        let id = id.clone();
+        use_effect(move || {
+            // run once on mount
+            update_height(&id);
+        });
+    }
+
+    {
+        let id = id.clone();
+        let point = point.clone();
+        use_effect(move || {
+            // rerun when value changes
+            let _point = point.read();
+            update_height(&id);
+        });
+    }
+
+    rsx! {
+        li { class: "{block_class}",
+            span { class: "dot", "aria-hidden": "true" }
+            div { class: "content",
+                textarea {
+                    id,
+                    class: "point",
+                    rows: 1,
+                    value: point_text,
+                    oninput: move |evt| {
+                        point.set(evt.value());
+                    },
+                }
+                Actions {}
+            }
+            if !children.is_empty() {
+                Line { blocks: children }
+            }
+        }
     }
 }
 
 impl BlockData {
     fn new(point: impl ToString, is_root: bool, children: Vec<BlockData>) -> Self {
-        Self { point: RwSignal::new(point.to_string()), children, is_root }
+        Self { point: point.to_string(), children, is_root }
     }
 }
 
 #[component]
-fn Actions() -> impl IntoView {
-    view! {
-        <div class="actions" aria-hidden="true">
-            <button class="action" type="button">"+"</button>
-            <button class="action" type="button">"-"</button>
-            <button class="action" type="button">"o"</button>
-        </div>
+fn Actions() -> Element {
+    rsx! {
+        div { class: "actions", "aria-hidden": "true",
+            button { class: "action", r#type: "button", "+" }
+            button { class: "action", r#type: "button", "-" }
+            button { class: "action", r#type: "button", "o" }
+        }
     }
 }

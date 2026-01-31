@@ -1,13 +1,7 @@
 mod app;
 
-use app::*;
-use leptos::prelude::*;
-
 fn main() {
-    console_error_panic_hook::set_once();
-    mount_to_body(|| {
-        view! {
-            <App/>
-        }
-    })
+    dioxus::logger::initialize_default();
+    let config = dioxus::desktop::Config::new();
+    dioxus::LaunchBuilder::new().with_cfg(config).launch(app::App);
 }

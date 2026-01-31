@@ -128,7 +128,7 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   font-size: 18px;
 }
 
@@ -141,9 +141,17 @@ body {
   padding: 0;
   margin: 0;
   outline: none;
-  min-width: 1ch;
+  min-width: 0;
   width: auto;
-  flex: auto;
+  flex: 1 1 auto;
+}
+
+textarea.point {
+  display: block;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  resize: none;
+  overflow: hidden;
 }
 
 .actions {
