@@ -21,10 +21,13 @@ struct BlockData {
 
 #[component]
 pub fn App() -> Element {
+    #[css_module("/assets/app.module.css")]
+    struct AppStyles;
+
     use_effect(|| {
-        dioxus::desktop::window().devtool(); // opens the webview devtools
-        dioxus::desktop::window().set_maximized(true);
         dioxus::desktop::window().set_always_on_top(false);
+        dioxus::desktop::window().set_maximized(true);
+        dioxus::desktop::window().devtool(); // opens the webview devtools
     });
 
     let tree = vec![BlockData::new(
@@ -39,8 +42,8 @@ pub fn App() -> Element {
     rsx! {
         document::Stylesheet { href: APP_CSS }
         document::Stylesheet { href: FONTS_CSS }
-        main { class: "app",
-            div { class: "canvas",
+        main { class: AppStyles::app,
+            div { class: AppStyles::canvas,
                 Line { blocks: tree }
             }
         }
@@ -49,9 +52,12 @@ pub fn App() -> Element {
 
 #[component]
 fn Line(blocks: Vec<BlockData>) -> Element {
+    #[css_module("/assets/line.module.css")]
+    struct LineStyles;
+
     rsx! {
-        section { class: "line",
-            ul { class: "children",
+        section { class: LineStyles::line,
+            ul { class: LineStyles::children,
                 for (index, block) in blocks.into_iter().enumerate() {
                     Block { key: "{index}", block }
                 }
@@ -62,8 +68,15 @@ fn Line(blocks: Vec<BlockData>) -> Element {
 
 #[component]
 fn Block(block: BlockData) -> Element {
+    #[css_module("/assets/block.module.css")]
+    struct BlockStyles;
+
     let BlockData { point, children, is_root } = block;
-    let block_class = if is_root { "block root" } else { "block" };
+    let block_class = if is_root {
+        format!("{} {}", BlockStyles::block, BlockStyles::root)
+    } else {
+        BlockStyles::block.to_string()
+    };
     let mut point = use_signal(|| point);
     let point_text = point.read().clone();
 
@@ -101,11 +114,11 @@ fn Block(block: BlockData) -> Element {
 
     rsx! {
         li { class: "{block_class}",
-            span { class: "dot", "aria-hidden": "true" }
-            div { class: "content",
+            span { class: BlockStyles::dot, "aria-hidden": "true" }
+            div { class: BlockStyles::content,
                 textarea {
                     id,
-                    class: "point",
+                    class: BlockStyles::point,
                     rows: 1,
                     value: point_text,
                     oninput: move |evt| {
@@ -129,11 +142,14 @@ impl BlockData {
 
 #[component]
 fn Actions() -> Element {
+    #[css_module("/assets/actions.module.css")]
+    struct ActionsStyles;
+
     rsx! {
-        div { class: "actions", "aria-hidden": "true",
-            button { class: "action", r#type: "button", "+" }
-            button { class: "action", r#type: "button", "-" }
-            button { class: "action", r#type: "button", "o" }
+        div { class: ActionsStyles::actions, "aria-hidden": "true",
+            button { class: ActionsStyles::action, r#type: "button", "+" }
+            button { class: ActionsStyles::action, r#type: "button", "-" }
+            button { class: ActionsStyles::action, r#type: "button", "o" }
         }
     }
 }

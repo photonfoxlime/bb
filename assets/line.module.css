@@ -1,0 +1,41 @@
+.line {
+  position: relative;
+  --line-gap: 20px;
+  --line-pad: calc(var(--spine-x) + var(--line-gap));
+  --spine-x: 20px;
+  --line-offset: calc(var(--spine-x) - var(--line-pad));
+  padding-left: var(--line-pad);
+  max-width: 900px;
+}
+
+.line::before {
+  content: "";
+  position: absolute;
+  left: var(--spine-x);
+  top: 0;
+  bottom: 0;
+  width: var(--line-width);
+  background: var(--ink);
+  border-radius: 999px;
+}
+
+.children {
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  list-style: none;
+}
+
+@media (max-width: 720px) {
+  .line {
+    --line-gap: 16px;
+    --spine-x: 16px;
+    padding-left: var(--line-pad);
+  }
+
+  .line::before {
+    left: var(--spine-x);
+  }
+}
