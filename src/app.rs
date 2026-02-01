@@ -1,3 +1,4 @@
+use crate::llm;
 #[allow(unused)]
 use dioxus::{logger::tracing, prelude::*};
 use directories::ProjectDirs;
@@ -68,6 +69,19 @@ impl BlockForest {
             return;
         }
         Self::update_point_in(&mut node.children, tail, value);
+    }
+
+    fn lineage_points(&self, path: &[usize]) -> Vec<String> {
+        let mut lineage = Vec::new();
+        let mut cursor = self.blocks.as_slice();
+        for index in path {
+            let Some(node) = cursor.get(*index) else {
+                break;
+            };
+            lineage.push(node.point.clone());
+            cursor = node.children.as_slice();
+        }
+        lineage
     }
 
     fn data_file_path() -> Option<PathBuf> {
@@ -167,6 +181,7 @@ fn Block(block: BlockData, path: Vec<usize>, tree: Signal<BlockForest>) -> Eleme
     let point_text = point.clone();
 
     let id = use_hook(|| format!("ta-{}", Uuid::new_v4()));
+    let mut summary_state = use_signal(SummaryState::default);
 
     fn update_height(id: &str) {
         document::eval(&format!(
@@ -189,7 +204,16 @@ fn Block(block: BlockData, path: Vec<usize>, tree: Signal<BlockForest>) -> Eleme
     }
 
     let path_for_children = path.clone();
+    let path_for_input = path.clone();
+    let path_for_summarize = path.clone();
     let id_for_input = id.clone();
+    let id_for_summary = id.clone();
+    let summarize_disabled = matches!(*summary_state.read(), SummaryState::Loading);
+    let summarize_title = match &*summary_state.read() {
+        SummaryState::Idle => "Summarize this point".to_string(),
+        SummaryState::Loading => "Summarizing...".to_string(),
+        SummaryState::Error(message) => format!("Summary failed: {message}"),
+    };
     rsx! {
         li { class: "{block_class}",
             span { class: "bb-dot", "aria-hidden": "true" }
@@ -201,11 +225,37 @@ fn Block(block: BlockData, path: Vec<usize>, tree: Signal<BlockForest>) -> Eleme
                     value: point_text,
                     oninput: move |evt| {
                         let next_value = evt.value();
-                        tree.with_mut(|tree| tree.update_point(&path, next_value.clone()));
+                        tree.with_mut(|tree| tree.update_point(&path_for_input, next_value.clone()));
                         update_height(&id);
                     },
                 }
-                Actions {}
+                Actions {
+                    summarize_disabled,
+                    summarize_title,
+                    on_summarize: move |_| {
+                        if matches!(*summary_state.read(), SummaryState::Loading) {
+                            return;
+                        }
+                        summary_state.set(SummaryState::Loading);
+                        let lineage = tree.read().lineage_points(&path_for_summarize);
+                        let mut tree = tree.clone();
+                        let path = path_for_summarize.clone();
+                        let mut summary_state = summary_state.clone();
+                        let id = id_for_summary.clone();
+                        spawn(async move {
+                            match llm::summarize_lineage(&lineage).await {
+                                Ok(summary) => {
+                                    tree.with_mut(|tree| tree.update_point(&path, summary));
+                                    update_height(&id);
+                                    summary_state.set(SummaryState::Idle);
+                                }
+                                Err(err) => {
+                                    summary_state.set(SummaryState::Error(err.to_string()));
+                                }
+                            }
+                        });
+                    },
+                }
             }
             if !children.is_empty() {
                 Line { blocks: children, path: path_for_children, tree }
@@ -231,12 +281,36 @@ impl BlockData {
     }
 }
 
+#[derive(Clone, PartialEq)]
+enum SummaryState {
+    Idle,
+    Loading,
+    Error(String),
+}
+
+impl Default for SummaryState {
+    fn default() -> Self {
+        Self::Idle
+    }
+}
+
 #[component]
-fn Actions() -> Element {
+fn Actions(
+    on_summarize: EventHandler<MouseEvent>,
+    summarize_disabled: bool,
+    summarize_title: String,
+) -> Element {
     rsx! {
         div { class: "bb-actions", "aria-hidden": "true",
             button { class: "bb-action-btn", r#type: "button", "+" }
-            button { class: "bb-action-btn", r#type: "button", "-" }
+            button {
+                class: "bb-action-btn",
+                r#type: "button",
+                disabled: summarize_disabled,
+                title: summarize_title,
+                onclick: on_summarize,
+                "-"
+            }
             button { class: "bb-action-btn", r#type: "button", "o" }
         }
     }
