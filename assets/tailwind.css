@@ -1,4 +1,5 @@
 /*! tailwindcss v4.1.5 | MIT License | https://tailwindcss.com */
+@layer properties;
 @layer theme, base, components, utilities;
 @layer theme {
   :root, :host {
@@ -6,6 +7,11 @@
     'Noto Color Emoji';
     --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New',
     monospace;
+    --spacing: 0.25rem;
+    --font-weight-medium: 500;
+    --ease-in-out: cubic-bezier(0.4, 0, 0.2, 1);
+    --default-transition-duration: 150ms;
+    --default-transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
     --default-font-family: var(--font-sans);
     --default-mono-font-family: var(--font-mono);
   }
@@ -167,5 +173,246 @@
   }
   .inline {
     display: inline;
+  }
+  .min-h-screen {
+    min-height: 100vh;
+  }
+}
+@layer components {
+  .bb-canvas {
+    padding-inline: calc(var(--spacing) * 8);
+    padding-top: calc(var(--spacing) * 20);
+    padding-bottom: 140px;
+    @media (width < 720px) {
+      padding-inline: calc(var(--spacing) * 5);
+    }
+    @media (width < 720px) {
+      padding-top: calc(var(--spacing) * 16);
+    }
+    @media (width < 720px) {
+      padding-bottom: 120px;
+    }
+  }
+  .bb-line {
+    position: relative;
+    max-width: 900px;
+    padding-left: var(--line-pad);
+    --line-gap: 20px;
+    --line-offset: calc(var(--spine-x) - var(--line-pad));
+    --line-pad: calc(var(--spine-x) + var(--line-gap));
+    --spine-x: 20px;
+    &::before {
+      content: var(--tw-content);
+      position: absolute;
+    }
+    &::before {
+      content: var(--tw-content);
+      top: calc(var(--spacing) * 0);
+    }
+    &::before {
+      content: var(--tw-content);
+      bottom: calc(var(--spacing) * 0);
+    }
+    &::before {
+      content: var(--tw-content);
+      left: var(--spine-x);
+    }
+    &::before {
+      content: var(--tw-content);
+      width: var(--line-width);
+    }
+    &::before {
+      content: var(--tw-content);
+      border-radius: calc(infinity * 1px);
+    }
+    &::before {
+      content: var(--tw-content);
+      background-color: var(--ink);
+    }
+    &::before {
+      content: var(--tw-content);
+      --tw-content: '';
+      content: var(--tw-content);
+    }
+    @media (width < 720px) {
+      --line-gap: 16px;
+    }
+    @media (width < 720px) {
+      --spine-x: 16px;
+    }
+  }
+  .bb-children {
+    margin-top: calc(var(--spacing) * 2);
+    display: flex;
+    list-style-type: none;
+    flex-direction: column;
+    gap: calc(var(--spacing) * 4);
+    padding: calc(var(--spacing) * 0);
+  }
+  .bb-block {
+    position: relative;
+    margin-top: calc(var(--spacing) * 3);
+    animation: rise 600ms ease-out both;
+    font-size: 15px;
+    color: var(--muted);
+  }
+  .bb-block-root {
+    margin-top: calc(var(--spacing) * 0);
+    font-size: 18px;
+    color: var(--text);
+  }
+  .bb-dot {
+    position: absolute;
+    top: 6px;
+    left: calc(var(--line-offset) + (var(--line-width) / 2));
+    height: var(--dot-size);
+    width: var(--dot-size);
+    --tw-translate-x: calc(calc(1/2 * 100%) * -1);
+    translate: var(--tw-translate-x) var(--tw-translate-y);
+    border-radius: calc(infinity * 1px);
+    border-style: var(--tw-border-style);
+    border-width: 2px;
+    border-color: var(--ink);
+    background-color: var(--paper);
+  }
+  .bb-content {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: calc(var(--spacing) * 3);
+    font-size: 18px;
+  }
+  .bb-point {
+    margin: calc(var(--spacing) * 0);
+    display: block;
+    width: auto;
+    min-width: calc(var(--spacing) * 0);
+    flex: 1;
+    resize: none;
+    overflow: hidden;
+    border-style: var(--tw-border-style);
+    border-width: 0px;
+    background-color: transparent;
+    padding: calc(var(--spacing) * 0);
+    font-family: inherit;
+    --tw-font-weight: var(--font-weight-medium);
+    font-weight: var(--font-weight-medium);
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+    color: inherit;
+    --tw-outline-style: none;
+    outline-style: none;
+  }
+  .bb-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: calc(var(--spacing) * 1.5);
+  }
+  .bb-action-btn {
+    display: grid;
+    height: 22px;
+    width: 22px;
+    place-items: center;
+    border-radius: calc(infinity * 1px);
+    border-style: var(--tw-border-style);
+    border-width: 1px;
+    border-color: var(--ink-soft);
+    background-color: var(--paper);
+    font-size: 12px;
+    --tw-leading: 1;
+    line-height: 1;
+    --tw-font-weight: var(--font-ui);
+    font-weight: var(--font-ui);
+    color: var(--ink);
+    transition-property: border-color,transform;
+    transition-timing-function: var(--tw-ease, var(--default-transition-timing-function));
+    transition-duration: var(--tw-duration, var(--default-transition-duration));
+    --tw-duration: 200ms;
+    transition-duration: 200ms;
+    --tw-ease: var(--ease-in-out);
+    transition-timing-function: var(--ease-in-out);
+    &:hover {
+      @media (hover: hover) {
+        --tw-translate-y: calc(1px * -1);
+        translate: var(--tw-translate-x) var(--tw-translate-y);
+      }
+    }
+    &:hover {
+      @media (hover: hover) {
+        border-color: var(--ink);
+      }
+    }
+    &:focus-visible {
+      outline-style: var(--tw-outline-style);
+      outline-width: 2px;
+    }
+    &:focus-visible {
+      outline-offset: 2px;
+    }
+    &:focus-visible {
+      outline-color: rgba(44,94,214,0.4);
+    }
+  }
+}
+@property --tw-content {
+  syntax: "*";
+  initial-value: "";
+  inherits: false;
+}
+@property --tw-translate-x {
+  syntax: "*";
+  inherits: false;
+  initial-value: 0;
+}
+@property --tw-translate-y {
+  syntax: "*";
+  inherits: false;
+  initial-value: 0;
+}
+@property --tw-translate-z {
+  syntax: "*";
+  inherits: false;
+  initial-value: 0;
+}
+@property --tw-border-style {
+  syntax: "*";
+  inherits: false;
+  initial-value: solid;
+}
+@property --tw-font-weight {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-leading {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-duration {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-ease {
+  syntax: "*";
+  inherits: false;
+}
+@property --tw-outline-style {
+  syntax: "*";
+  inherits: false;
+  initial-value: solid;
+}
+@layer properties {
+  @supports ((-webkit-hyphens: none) and (not (margin-trim: inline))) or ((-moz-orient: inline) and (not (color:rgb(from red r g b)))) {
+    *, ::before, ::after, ::backdrop {
+      --tw-content: "";
+      --tw-translate-x: 0;
+      --tw-translate-y: 0;
+      --tw-translate-z: 0;
+      --tw-border-style: solid;
+      --tw-font-weight: initial;
+      --tw-leading: initial;
+      --tw-duration: initial;
+      --tw-ease: initial;
+      --tw-outline-style: solid;
+    }
   }
 }
