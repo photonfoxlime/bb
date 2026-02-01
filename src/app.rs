@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 static APP_CSS: Asset = asset!("/assets/app.css");
 static FONTS_CSS: Asset = asset!("/assets/fonts.css");
+static TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
 const _: Asset = asset!("/assets/fonts/Inter-300.woff2");
 const _: Asset = asset!("/assets/fonts/Inter-400.woff2");
@@ -40,6 +41,7 @@ pub fn App() -> Element {
         ],
     )];
     rsx! {
+        document::Stylesheet { href: TAILWIND_CSS }
         document::Stylesheet { href: APP_CSS }
         document::Stylesheet { href: FONTS_CSS }
         main { class: AppStyles::app,
