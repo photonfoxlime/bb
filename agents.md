@@ -1,4 +1,19 @@
+## Documentation and Language
+
+Actively write documentation for the program. 
+All written documentation must be concise, clear, and accurate.
+No emojis unless strictly necessary.
+All documentation should be written in English unless explicitly stated.
+
 ## Rust Code Style Guideline
+
+Prefer declaration instead of manual implementation. For example,
+- Utilize `thiserror` crate for error messages instead of manual implementations.
+- Encode invariants into Rust's type system, so that they are enforced by the compiler.
+  - Write documentation about invariants per struct, field, function, and method.
+  - Use "constructor" or "builder" pattern for creating instances that satisfy the invariants.
+- Prefer `serde` for serialization and deserialization instead of manual parsing and pretty printing.
+- Prefer derive-style `clap` for command-line argument parsing.
 
 Always prefer typed data structures over strings + parsers, and
 Never be afraid of defining too many types.
@@ -33,3 +48,8 @@ If build can borrow,
 - Prefer a finalizer `fn build(&self) -> T` so the builder can be reused.
 Expose an associated entry point `fn new(required, ...)`,
 and use `with_*/set_*` names consistently for optional configuration.
+
+Add concise yet critical documentation for structs, fields, and methods.
+Ensure that documentation is clear, concise, and accurate. No emojis unless strictly necessary.
+
+When adding new features, record and observe details with the `tracing` crate.
