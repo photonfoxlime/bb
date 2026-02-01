@@ -2,57 +2,57 @@
 @source "./src/**/*.{rs,html,css}";
 
 @layer components {
-  .bb-canvas {
-    @apply px-8 pt-20 pb-[140px] max-[720px]:px-5 max-[720px]:pt-16 max-[720px]:pb-[120px];
-  }
+    .bb-canvas {
+        @apply px-8 pt-20 pb-[140px] max-[720px]:px-5 max-[720px]:pt-16 max-[720px]:pb-[120px];
+    }
 
-  .bb-line {
-    @apply relative max-w-[900px] pl-[var(--line-pad)]
-      [--line-gap:20px] [--spine-x:20px]
-      [--line-pad:calc(var(--spine-x)+var(--line-gap))]
-      [--line-offset:calc(var(--spine-x)-var(--line-pad))]
-      before:content-[''] before:absolute before:left-[var(--spine-x)] before:top-0 before:bottom-0
-      before:w-[var(--line-width)] before:bg-[var(--ink)] before:rounded-full
-      max-[720px]:[--line-gap:16px] max-[720px]:[--spine-x:16px];
-  }
+    .bb-line {
+        @apply relative max-w-[900px] pl-(--line-pad)
+        [--line-gap:20px] [--spine-x:20px]
+        [--line-pad:calc(var(--spine-x)+var(--line-gap))]
+        [--line-offset:calc(var(--spine-x)-var(--line-pad))]
+        before:content-[''] before:absolute before:left-(--spine-x) before:top-0 before:bottom-0
+        before:w-(--line-width) before:bg-(--ink) before:rounded-full
+        max-[720px]:[--line-gap:16px] max-[720px]:[--spine-x:16px];
+    }
 
-  .bb-children {
-    @apply mt-2 flex flex-col gap-4 list-none p-0;
-  }
+    .bb-children {
+        @apply mt-2 flex flex-col gap-2.5 list-none p-0;
+    }
 
-  .bb-block {
-    @apply relative mt-3 text-[15px] text-[var(--muted)] animate-[rise_600ms_ease-out_both];
-  }
+    .bb-block {
+        @apply relative mt-2 text-[15px] text-(--muted) animate-[rise_600ms_ease-out_both];
+    }
 
-  .bb-block-root {
-    @apply mt-0 text-[18px] text-[var(--text)];
-  }
+    .bb-block-root {
+        @apply mt-0 text-[18px] text-(--text);
+    }
 
-  .bb-dot {
-    @apply absolute left-[calc(var(--line-offset)+(var(--line-width)/2))] top-[6px]
-      h-[var(--dot-size)] w-[var(--dot-size)] -translate-x-1/2 rounded-full
-      border-2 border-[var(--ink)] bg-[var(--paper)];
-  }
+    .bb-dot {
+        @apply absolute left-[calc(var(--line-offset)+(var(--line-width)/2))] top-1.5
+        h-(--dot-size) w-(--dot-size) -translate-x-1/2 rounded-full
+        border-2 border-(--ink) bg-(--paper);
+    }
 
-  .bb-content {
-    @apply flex items-center gap-3 flex-nowrap text-[18px];
-  }
+    .bb-content {
+        @apply flex items-center gap-3 flex-nowrap text-[18px];
+    }
 
-  .bb-point {
-    @apply font-[inherit] font-medium text-[inherit] border-0 bg-transparent p-0 m-0 outline-none
-      min-w-0 w-auto flex-1 block whitespace-pre-wrap [overflow-wrap:anywhere]
-      resize-none overflow-hidden;
-  }
+    .bb-point {
+        @apply font-[inherit] font-medium text-inherit border-0 bg-transparent p-0 m-0 outline-none
+        min-w-0 w-auto flex-1 block whitespace-pre-wrap wrap-anywhere
+        resize-none overflow-hidden;
+    }
 
-  .bb-actions {
-    @apply inline-flex items-center gap-1.5;
-  }
+    .bb-actions {
+        @apply inline-flex items-center gap-1.5;
+    }
 
-  .bb-action-btn {
-    @apply grid h-[22px] w-[22px] place-items-center rounded-full border border-[var(--ink-soft)]
-      bg-[var(--paper)] text-[12px] leading-none text-[var(--ink)] font-[var(--font-ui)]
-      transition-[border-color,transform] duration-200 ease-in-out hover:border-[var(--ink)]
-      hover:-translate-y-[1px] focus-visible:outline-2
+    .bb-action-btn {
+        @apply grid h-[22px] w-[22px] place-items-center rounded-full border border-(--ink-soft)
+        bg-(--paper) text-[12px] leading-none text-(--ink) font-(--font-ui)
+        transition-[border-color,transform] duration-200 ease-in-out hover:border-(--ink)
+        hover:-translate-y-px focus-visible:outline-2
       focus-visible:outline-[rgba(44,94,214,0.4)] focus-visible:outline-offset-2;
-  }
+    }
 }

@@ -246,12 +246,12 @@
     display: flex;
     list-style-type: none;
     flex-direction: column;
-    gap: calc(var(--spacing) * 4);
+    gap: calc(var(--spacing) * 2.5);
     padding: calc(var(--spacing) * 0);
   }
   .bb-block {
     position: relative;
-    margin-top: calc(var(--spacing) * 3);
+    margin-top: calc(var(--spacing) * 2);
     animation: rise 600ms ease-out both;
     font-size: 15px;
     color: var(--muted);
@@ -263,7 +263,7 @@
   }
   .bb-dot {
     position: absolute;
-    top: 6px;
+    top: calc(var(--spacing) * 1.5);
     left: calc(var(--line-offset) + (var(--line-width) / 2));
     height: var(--dot-size);
     width: var(--dot-size);
@@ -333,7 +333,7 @@
     transition-timing-function: var(--ease-in-out);
     &:hover {
       @media (hover: hover) {
-        --tw-translate-y: calc(1px * -1);
+        --tw-translate-y: -1px;
         translate: var(--tw-translate-x) var(--tw-translate-y);
       }
     }
