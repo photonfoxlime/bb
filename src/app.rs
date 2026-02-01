@@ -34,7 +34,11 @@ pub fn App() -> Element {
         vec![
             BlockData::new("马克思：《资本论》", false, vec![]),
             BlockData::new("马克思·韦伯：《新教伦理与资本主义精神》", false, vec![]),
-            BlockData::new("Ivan Zhao: Steam, Steel, and Invisible Minds", false, vec![]),
+            BlockData::new(
+                "Ivan Zhao: Steam, Steel, and Invisible Minds",
+                false,
+                vec![],
+            ),
         ],
     )];
     rsx! {
@@ -64,7 +68,11 @@ fn Line(blocks: Vec<BlockData>) -> Element {
 
 #[component]
 fn Block(block: BlockData) -> Element {
-    let BlockData { point, children, is_root } = block;
+    let BlockData {
+        point,
+        children,
+        is_root,
+    } = block;
     let block_class = if is_root {
         "bb-block bb-block-root"
     } else {
@@ -129,7 +137,11 @@ fn Block(block: BlockData) -> Element {
 
 impl BlockData {
     fn new(point: impl ToString, is_root: bool, children: Vec<BlockData>) -> Self {
-        Self { point: point.to_string(), children, is_root }
+        Self {
+            point: point.to_string(),
+            children,
+            is_root,
+        }
     }
 }
 
