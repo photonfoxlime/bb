@@ -71,7 +71,7 @@ impl BlockForest {
         Self::update_point_in(&mut node.children, tail, value);
     }
 
-    fn lineage_points(&self, path: &[usize]) -> Vec<String> {
+    fn lineage_points(&self, path: &[usize]) -> llm::Lineage {
         let mut lineage = Vec::new();
         let mut cursor = self.blocks.as_slice();
         for index in path {
@@ -81,7 +81,7 @@ impl BlockForest {
             lineage.push(node.point.clone());
             cursor = node.children.as_slice();
         }
-        lineage
+        llm::Lineage::from_points(lineage)
     }
 
     fn data_file_path() -> Option<PathBuf> {
@@ -115,7 +115,7 @@ struct AppState {
 
 impl AppState {
     fn load() -> Self {
-        Self { tree: BlockForest::load(), llm_config: llm::load_config() }
+        Self { tree: BlockForest::load(), llm_config: llm::LlmConfig::load() }
     }
 
     fn save_tree(&self) -> io::Result<()> {
@@ -126,9 +126,7 @@ impl AppState {
 #[component]
 pub fn App() -> Element {
     use_effect(|| {
-        dioxus::desktop::window().set_always_on_top(false);
-        dioxus::desktop::window().set_maximized(true);
-        dioxus::desktop::window().devtool(); // opens the webview devtools
+        // dioxus::desktop::window().devtool(); // opens the webview devtools
     });
 
     let app_state = use_signal(AppState::load);
@@ -232,18 +230,21 @@ fn Block(block: BlockData, path: Vec<usize>, app_state: Signal<AppState>) -> Ele
         let id = id_for_summary.clone();
         spawn(async move {
             match config {
-                | Ok(config) => match llm::summarize_lineage(&config, &lineage).await {
-                    | Ok(summary) => {
-                        app_state.with_mut(|state| {
-                            state.tree.update_point(&path, summary);
-                        });
-                        update_height(&id);
-                        summary_state.set(SummaryState::Idle);
+                | Ok(config) => {
+                    let client = llm::LlmClient::new(config);
+                    match client.summarize_lineage(&lineage).await {
+                        | Ok(summary) => {
+                            app_state.with_mut(|state| {
+                                state.tree.update_point(&path, summary);
+                            });
+                            update_height(&id);
+                            summary_state.set(SummaryState::Idle);
+                        }
+                        | Err(err) => {
+                            summary_state.set(SummaryState::Error(err.to_string()));
+                        }
                     }
-                    | Err(err) => {
-                        summary_state.set(SummaryState::Error(err.to_string()));
-                    }
-                },
+                }
                 | Err(err) => {
                     summary_state.set(SummaryState::Error(err.to_string()));
                 }

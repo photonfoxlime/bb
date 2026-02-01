@@ -1,6 +1,7 @@
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
-use std::{env, error::Error, fmt, fs, io, path::PathBuf, sync::LazyLock};
+use std::{env, fs, io, path::PathBuf, sync::LazyLock};
+use thiserror::Error;
 
 static PROJECT_DIRS: LazyLock<Option<ProjectDirs>> =
     LazyLock::new(|| ProjectDirs::from("app", "miorin", "bb"));
@@ -23,34 +24,30 @@ impl Default for LlmConfig {
 }
 
 impl LlmConfig {
+    pub fn load() -> Result<Self, LlmConfigError> {
+        Self::from_env_or_file()
+    }
+
     fn from_file() -> Result<Option<Self>, LlmConfigError> {
         let Some(path) = Self::config_path() else {
             return Ok(None);
         };
         match fs::read_to_string(&path) {
-            | Ok(contents) => toml::from_str(&contents).map(Some).map_err(|err| {
-                LlmConfigError::ConfigFile(format!("failed to parse {}: {err}", path.display()))
-            }),
+            | Ok(contents) => toml::from_str(&contents)
+                .map(Some)
+                .map_err(|err| ConfigFileError::parse(path.clone(), err).into()),
             | Err(err) if err.kind() == io::ErrorKind::NotFound => {
                 if let Some(parent) = path.parent() {
                     fs::create_dir_all(parent).map_err(|err| {
-                        LlmConfigError::ConfigFile(format!(
-                            "failed to create config directory {}: {err}",
-                            parent.display()
-                        ))
+                        LlmConfigError::from(ConfigFileError::create_dir(parent.to_path_buf(), err))
                     })?;
                 }
                 fs::write(&path, Self::default_template()).map_err(|err| {
-                    LlmConfigError::ConfigFile(format!(
-                        "failed to create config file {}: {err}",
-                        path.display()
-                    ))
+                    LlmConfigError::from(ConfigFileError::write(path.clone(), err))
                 })?;
                 Ok(None)
             }
-            | Err(err) => {
-                Err(LlmConfigError::ConfigFile(format!("failed to read {}: {err}", path.display())))
-            }
+            | Err(err) => Err(LlmConfigError::from(ConfigFileError::read(path.clone(), err))),
         }
     }
 
@@ -86,13 +83,13 @@ impl LlmConfig {
         let model = model.trim().to_string();
 
         if !base_url.starts_with("https://") {
-            return Err(LlmConfigError::InvalidConfig("LLM_BASE_URL must start with https://"));
+            return Err(LlmConfigError::InvalidConfig(InvalidConfigReason::BaseUrlNotHttps));
         }
         if api_key.is_empty() {
-            return Err(LlmConfigError::InvalidConfig("LLM_API_KEY is empty"));
+            return Err(LlmConfigError::InvalidConfig(InvalidConfigReason::ApiKeyEmpty));
         }
         if model.is_empty() {
-            return Err(LlmConfigError::InvalidConfig("LLM_MODEL is empty"));
+            return Err(LlmConfigError::InvalidConfig(InvalidConfigReason::ModelEmpty));
         }
 
         Ok(Self { base_url, api_key, model })
@@ -114,59 +111,166 @@ impl LlmConfig {
     }
 }
 
-pub fn load_config() -> Result<LlmConfig, LlmConfigError> {
-    LlmConfig::from_env_or_file()
-}
-
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum LlmConfigError {
+    #[error("missing LLM config (env vars or config file)")]
     MissingConfig,
-    InvalidConfig(&'static str),
-    ConfigFile(String),
+    #[error("invalid LLM config: {0}")]
+    InvalidConfig(InvalidConfigReason),
+    #[error("LLM config file error: {0}")]
+    ConfigFile(ConfigFileError),
 }
 
-impl fmt::Display for LlmConfigError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            | LlmConfigError::MissingConfig => {
-                write!(f, "missing LLM config (env vars or config file)")
-            }
-            | LlmConfigError::InvalidConfig(message) => write!(f, "invalid LLM config: {message}"),
-            | LlmConfigError::ConfigFile(message) => write!(f, "LLM config file error: {message}"),
-        }
-    }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+pub enum InvalidConfigReason {
+    #[error("LLM_BASE_URL must start with https://")]
+    BaseUrlNotHttps,
+    #[error("LLM_API_KEY is empty")]
+    ApiKeyEmpty,
+    #[error("LLM_MODEL is empty")]
+    ModelEmpty,
 }
 
-impl Error for LlmConfigError {}
-
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub enum LlmError {
-    Config(LlmConfigError),
-    Http(reqwest::Error),
+    #[error(transparent)]
+    Config(#[from] LlmConfigError),
+    #[error("request failed: {0}")]
+    Http(#[from] reqwest::Error),
+    #[error("invalid response")]
     InvalidResponse,
 }
 
-impl fmt::Display for LlmError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            | LlmError::Config(err) => write!(f, "{err}"),
-            | LlmError::Http(err) => write!(f, "request failed: {err}"),
-            | LlmError::InvalidResponse => write!(f, "invalid response"),
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("{kind} ({path})")]
+pub struct ConfigFileError {
+    path: PathBuf,
+    kind: ConfigFileErrorKind,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ConfigFileErrorKind {
+    #[error("failed to read config file: {0:?}")]
+    Read(io::ErrorKind),
+    #[error("failed to create config directory: {0:?}")]
+    CreateDir(io::ErrorKind),
+    #[error("failed to create config file: {0:?}")]
+    Write(io::ErrorKind),
+    #[error("failed to parse config file: {0}")]
+    Parse(String),
+}
+
+impl ConfigFileError {
+    fn read(path: PathBuf, err: io::Error) -> Self {
+        Self { path, kind: ConfigFileErrorKind::Read(err.kind()) }
+    }
+
+    fn create_dir(path: PathBuf, err: io::Error) -> Self {
+        Self { path, kind: ConfigFileErrorKind::CreateDir(err.kind()) }
+    }
+
+    fn write(path: PathBuf, err: io::Error) -> Self {
+        Self { path, kind: ConfigFileErrorKind::Write(err.kind()) }
+    }
+
+    fn parse(path: PathBuf, err: toml::de::Error) -> Self {
+        Self { path, kind: ConfigFileErrorKind::Parse(err.to_string()) }
+    }
+}
+
+impl From<ConfigFileError> for LlmConfigError {
+    fn from(err: ConfigFileError) -> Self {
+        Self::ConfigFile(err)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Lineage {
+    items: Vec<LineageItem>,
+}
+
+impl Lineage {
+    pub fn new(items: Vec<LineageItem>) -> Self {
+        Self { items }
+    }
+
+    pub fn from_points(points: Vec<String>) -> Self {
+        Self::new(points.into_iter().map(LineageItem::new).collect())
+    }
+
+    fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &LineageItem> {
+        self.items.iter()
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LineageItem {
+    point: String,
+}
+
+impl LineageItem {
+    pub fn new(point: String) -> Self {
+        Self { point }
+    }
+
+    fn point(&self) -> &str {
+        &self.point
+    }
+}
+
+pub struct LlmClient {
+    config: LlmConfig,
+    http: reqwest::Client,
+}
+
+impl LlmClient {
+    pub fn new(config: LlmConfig) -> Self {
+        Self { config, http: reqwest::Client::new() }
+    }
+
+    pub async fn summarize_lineage(&self, lineage: &Lineage) -> Result<String, LlmError> {
+        if lineage.is_empty() {
+            return Err(LlmError::InvalidResponse);
         }
+
+        let url = self.chat_url();
+        let prompt = Prompt::from_lineage(lineage);
+        let request = ChatRequest {
+            model: self.config.model.clone(),
+            messages: vec![
+                Message { role: Role::System, content: prompt.system },
+                Message { role: Role::User, content: prompt.user },
+            ],
+            temperature: 0.2,
+            max_tokens: 200,
+        };
+
+        let response: ChatResponse = self
+            .http
+            .post(url)
+            .bearer_auth(self.config.api_key.clone())
+            .json(&request)
+            .send()
+            .await?
+            .error_for_status()?
+            .json()
+            .await?;
+
+        response
+            .choices
+            .into_iter()
+            .next()
+            .map(|choice| choice.message.content.trim().to_string())
+            .filter(|content| !content.is_empty())
+            .ok_or(LlmError::InvalidResponse)
     }
-}
 
-impl Error for LlmError {}
-
-impl From<LlmConfigError> for LlmError {
-    fn from(err: LlmConfigError) -> Self {
-        Self::Config(err)
-    }
-}
-
-impl From<reqwest::Error> for LlmError {
-    fn from(err: reqwest::Error) -> Self {
-        Self::Http(err)
+    fn chat_url(&self) -> String {
+        format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'))
     }
 }
 
@@ -180,10 +284,16 @@ struct ChatRequest {
 
 #[derive(Serialize)]
 struct Message {
-    role: String,
+    role: Role,
     content: String,
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "lowercase")]
+enum Role {
+    System,
+    User,
+}
 #[derive(Deserialize)]
 struct ChatResponse {
     choices: Vec<Choice>,
@@ -199,56 +309,24 @@ struct ResponseMessage {
     content: String,
 }
 
-pub async fn summarize_lineage(config: &LlmConfig, lineage: &[String]) -> Result<String, LlmError> {
-    if lineage.is_empty() {
-        return Err(LlmError::InvalidResponse);
-    }
-
-    let url = format!("{}/chat/completions", config.base_url.trim_end_matches('/'));
-
-    let (system, user) = build_prompt(lineage);
-    let request = ChatRequest {
-        model: config.model.clone(),
-        messages: vec![
-            Message { role: "system".to_string(), content: system },
-            Message { role: "user".to_string(), content: user },
-        ],
-        temperature: 0.2,
-        max_tokens: 200,
-    };
-
-    let client = reqwest::Client::new();
-    let response: ChatResponse = client
-        .post(url)
-        .bearer_auth(config.api_key.clone())
-        .json(&request)
-        .send()
-        .await?
-        .error_for_status()?
-        .json()
-        .await?;
-
-    response
-        .choices
-        .into_iter()
-        .next()
-        .map(|choice| choice.message.content.trim().to_string())
-        .filter(|content| !content.is_empty())
-        .ok_or(LlmError::InvalidResponse)
+struct Prompt {
+    system: String,
+    user: String,
 }
 
-fn build_prompt(lineage: &[String]) -> (String, String) {
-    let mut context_lines = String::new();
-    for (index, item) in lineage.iter().enumerate() {
-        let label = if index + 1 == lineage.len() { "Target" } else { "Parent" };
-        context_lines.push_str(&format!("{label}: {item}\n"));
-    }
+impl Prompt {
+    fn from_lineage(lineage: &Lineage) -> Self {
+        let mut context_lines = String::new();
+        let total = lineage.items.len();
+        for (index, item) in lineage.iter().enumerate() {
+            let label = if index + 1 == total { "Target" } else { "Parent" };
+            context_lines.push_str(&format!("{label}: {}\n", item.point()));
+        }
 
-    (
-        "You summarize a bullet point using its ancestors as context. Output a single concise sentence. No quotes, no extra bullet points."
-            .to_string(),
-        format!(
-            "Summarize the target point with context:\n{context_lines}"
-        ),
-    )
+        Self {
+            system: "You summarize a bullet point using its ancestors as context. Output a single concise sentence. No quotes, no extra bullet points."
+                .to_string(),
+            user: format!("Summarize the target point with context:\n{context_lines}"),
+        }
+    }
 }
