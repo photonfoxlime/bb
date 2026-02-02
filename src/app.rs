@@ -216,6 +216,41 @@ fn Block(block: BlockData, path: Vec<usize>, app_state: Signal<AppState>) -> Ele
         | SummaryState::Loading => "Summarizing...".to_string(),
         | SummaryState::Error(message) => format!("Summary failed: {message}"),
     };
+
+    let on_summarize = move |_| {
+        if matches!(*summary_state.read(), SummaryState::Loading) {
+            return;
+        }
+        summary_state.set(SummaryState::Loading);
+        let (lineage, config) = {
+            let snapshot = app_state.read();
+            (snapshot.tree.lineage_points(&path_for_summarize), snapshot.llm_config.clone())
+        };
+        let mut app_state = app_state.clone();
+        let path = path_for_summarize.clone();
+        let mut summary_state = summary_state.clone();
+        let id = id_for_summary.clone();
+        spawn(async move {
+            match config {
+                | Ok(config) => match llm::summarize_lineage(&config, &lineage).await {
+                    | Ok(summary) => {
+                        app_state.with_mut(|state| {
+                            state.tree.update_point(&path, summary);
+                        });
+                        update_height(&id);
+                        summary_state.set(SummaryState::Idle);
+                    }
+                    | Err(err) => {
+                        summary_state.set(SummaryState::Error(err.to_string()));
+                    }
+                },
+                | Err(err) => {
+                    summary_state.set(SummaryState::Error(err.to_string()));
+                }
+            }
+        });
+    };
+
     rsx! {
         li { class: "{block_class}",
             span { class: "bb-dot", "aria-hidden": "true" }
@@ -236,42 +271,7 @@ fn Block(block: BlockData, path: Vec<usize>, app_state: Signal<AppState>) -> Ele
                 Actions {
                     summarize_disabled,
                     summarize_title,
-                    on_summarize: move |_| {
-                        if matches!(*summary_state.read(), SummaryState::Loading) {
-                            return;
-                        }
-                        summary_state.set(SummaryState::Loading);
-                        let (lineage, config) = {
-                            let snapshot = app_state.read();
-                            (
-                                snapshot.tree.lineage_points(&path_for_summarize),
-                                snapshot.llm_config.clone(),
-                            )
-                        };
-                        let mut app_state = app_state.clone();
-                        let path = path_for_summarize.clone();
-                        let mut summary_state = summary_state.clone();
-                        let id = id_for_summary.clone();
-                        spawn(async move {
-                            match config {
-                                Ok(config) => match llm::summarize_lineage(&config, &lineage).await {
-                                    Ok(summary) => {
-                                        app_state.with_mut(|state| {
-                                            state.tree.update_point(&path, summary);
-                                        });
-                                        update_height(&id);
-                                        summary_state.set(SummaryState::Idle);
-                                    }
-                                    Err(err) => {
-                                        summary_state.set(SummaryState::Error(err.to_string()));
-                                    }
-                                },
-                                Err(err) => {
-                                    summary_state.set(SummaryState::Error(err.to_string()));
-                                }
-                            }
-                        });
-                    },
+                    on_summarize,
                 }
             }
             if !children.is_empty() {
