@@ -34,8 +34,8 @@ impl BlockForest {
             return Self::default();
         };
         match fs::read_to_string(&path) {
-            Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
-            Err(_) => Self::default(),
+            | Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
+            | Err(_) => Self::default(),
         }
     }
 
@@ -85,9 +85,7 @@ impl BlockForest {
     }
 
     fn data_file_path() -> Option<PathBuf> {
-        PROJECT_DIRS
-            .as_ref()
-            .map(|project| project.data_dir().join("blocks.json"))
+        PROJECT_DIRS.as_ref().map(|project| project.data_dir().join("blocks.json"))
     }
 
     fn default_blocks() -> Vec<BlockData> {
@@ -97,11 +95,7 @@ impl BlockForest {
             vec![
                 BlockData::new("马克思：《资本论》", false, vec![]),
                 BlockData::new("马克思·韦伯：《新教伦理与资本主义精神》", false, vec![]),
-                BlockData::new(
-                    "Ivan Zhao: Steam, Steel, and Invisible Minds",
-                    false,
-                    vec![],
-                ),
+                BlockData::new("Ivan Zhao: Steam, Steel, and Invisible Minds", false, vec![]),
             ],
         )]
     }
@@ -113,6 +107,22 @@ impl Default for BlockForest {
     }
 }
 
+#[derive(Clone)]
+struct AppState {
+    tree: BlockForest,
+    llm_config: Result<llm::LlmConfig, llm::LlmConfigError>,
+}
+
+impl AppState {
+    fn load() -> Self {
+        Self { tree: BlockForest::load(), llm_config: llm::load_config() }
+    }
+
+    fn save_tree(&self) -> io::Result<()> {
+        self.tree.save()
+    }
+}
+
 #[component]
 pub fn App() -> Element {
     use_effect(|| {
@@ -121,31 +131,31 @@ pub fn App() -> Element {
         dioxus::desktop::window().devtool(); // opens the webview devtools
     });
 
-    let tree = use_signal(BlockForest::load);
+    let app_state = use_signal(AppState::load);
 
     {
-        let tree = tree.clone();
+        let app_state = app_state.clone();
         use_effect(move || {
-            let snapshot = tree.read().clone();
-            let _ = snapshot.save();
+            let snapshot = app_state.read().clone();
+            let _ = snapshot.save_tree();
         });
     }
 
-    let tree_snapshot = tree.read().clone();
+    let tree_snapshot = app_state.read().tree.clone();
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
         document::Stylesheet { href: APP_CSS }
         document::Stylesheet { href: FONTS_CSS }
         main { class: "min-h-screen",
             div { class: "bb-canvas",
-                Line { blocks: tree_snapshot.blocks, path: vec![], tree }
+                Line { blocks: tree_snapshot.blocks, path: vec![], app_state }
             }
         }
     }
 }
 
 #[component]
-fn Line(blocks: Vec<BlockData>, path: Vec<usize>, tree: Signal<BlockForest>) -> Element {
+fn Line(blocks: Vec<BlockData>, path: Vec<usize>, app_state: Signal<AppState>) -> Element {
     let items: Vec<(usize, BlockData, Vec<usize>)> = blocks
         .into_iter()
         .enumerate()
@@ -159,7 +169,7 @@ fn Line(blocks: Vec<BlockData>, path: Vec<usize>, tree: Signal<BlockForest>) -> 
         section { class: "bb-line",
             ul { class: "bb-children",
                 for (index, block, next_path) in items {
-                    Block { key: "{index}", block, path: next_path, tree }
+                    Block { key: "{index}", block, path: next_path, app_state }
                 }
             }
         }
@@ -167,17 +177,9 @@ fn Line(blocks: Vec<BlockData>, path: Vec<usize>, tree: Signal<BlockForest>) -> 
 }
 
 #[component]
-fn Block(block: BlockData, path: Vec<usize>, tree: Signal<BlockForest>) -> Element {
-    let BlockData {
-        point,
-        children,
-        is_root,
-    } = block;
-    let block_class = if is_root {
-        "bb-block bb-block-root"
-    } else {
-        "bb-block"
-    };
+fn Block(block: BlockData, path: Vec<usize>, app_state: Signal<AppState>) -> Element {
+    let BlockData { point, children, is_root } = block;
+    let block_class = if is_root { "bb-block bb-block-root" } else { "bb-block" };
     let point_text = point.clone();
 
     let id = use_hook(|| format!("ta-{}", Uuid::new_v4()));
@@ -210,9 +212,9 @@ fn Block(block: BlockData, path: Vec<usize>, tree: Signal<BlockForest>) -> Eleme
     let id_for_summary = id.clone();
     let summarize_disabled = matches!(*summary_state.read(), SummaryState::Loading);
     let summarize_title = match &*summary_state.read() {
-        SummaryState::Idle => "Summarize this point".to_string(),
-        SummaryState::Loading => "Summarizing...".to_string(),
-        SummaryState::Error(message) => format!("Summary failed: {message}"),
+        | SummaryState::Idle => "Summarize this point".to_string(),
+        | SummaryState::Loading => "Summarizing...".to_string(),
+        | SummaryState::Error(message) => format!("Summary failed: {message}"),
     };
     rsx! {
         li { class: "{block_class}",
@@ -225,7 +227,9 @@ fn Block(block: BlockData, path: Vec<usize>, tree: Signal<BlockForest>) -> Eleme
                     value: point_text,
                     oninput: move |evt| {
                         let next_value = evt.value();
-                        tree.with_mut(|tree| tree.update_point(&path_for_input, next_value.clone()));
+                        app_state.with_mut(|state| {
+                            state.tree.update_point(&path_for_input, next_value.clone());
+                        });
                         update_height(&id);
                     },
                 }
@@ -237,18 +241,31 @@ fn Block(block: BlockData, path: Vec<usize>, tree: Signal<BlockForest>) -> Eleme
                             return;
                         }
                         summary_state.set(SummaryState::Loading);
-                        let lineage = tree.read().lineage_points(&path_for_summarize);
-                        let mut tree = tree.clone();
+                        let (lineage, config) = {
+                            let snapshot = app_state.read();
+                            (
+                                snapshot.tree.lineage_points(&path_for_summarize),
+                                snapshot.llm_config.clone(),
+                            )
+                        };
+                        let mut app_state = app_state.clone();
                         let path = path_for_summarize.clone();
                         let mut summary_state = summary_state.clone();
                         let id = id_for_summary.clone();
                         spawn(async move {
-                            match llm::summarize_lineage(&lineage).await {
-                                Ok(summary) => {
-                                    tree.with_mut(|tree| tree.update_point(&path, summary));
-                                    update_height(&id);
-                                    summary_state.set(SummaryState::Idle);
-                                }
+                            match config {
+                                Ok(config) => match llm::summarize_lineage(&config, &lineage).await {
+                                    Ok(summary) => {
+                                        app_state.with_mut(|state| {
+                                            state.tree.update_point(&path, summary);
+                                        });
+                                        update_height(&id);
+                                        summary_state.set(SummaryState::Idle);
+                                    }
+                                    Err(err) => {
+                                        summary_state.set(SummaryState::Error(err.to_string()));
+                                    }
+                                },
                                 Err(err) => {
                                     summary_state.set(SummaryState::Error(err.to_string()));
                                 }
@@ -258,7 +275,7 @@ fn Block(block: BlockData, path: Vec<usize>, tree: Signal<BlockForest>) -> Eleme
                 }
             }
             if !children.is_empty() {
-                Line { blocks: children, path: path_for_children, tree }
+                Line { blocks: children, path: path_for_children, app_state }
             }
         }
     }
@@ -273,11 +290,7 @@ struct BlockData {
 
 impl BlockData {
     fn new(point: impl ToString, is_root: bool, children: Vec<BlockData>) -> Self {
-        Self {
-            point: point.to_string(),
-            children,
-            is_root,
-        }
+        Self { point: point.to_string(), children, is_root }
     }
 }
 
@@ -296,9 +309,7 @@ impl Default for SummaryState {
 
 #[component]
 fn Actions(
-    on_summarize: EventHandler<MouseEvent>,
-    summarize_disabled: bool,
-    summarize_title: String,
+    on_summarize: EventHandler<MouseEvent>, summarize_disabled: bool, summarize_title: String,
 ) -> Element {
     rsx! {
         div { class: "bb-actions", "aria-hidden": "true",
