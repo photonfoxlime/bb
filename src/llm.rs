@@ -1,6 +1,6 @@
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
-use std::{env, error::Error, fmt, fs, path::PathBuf, sync::LazyLock};
+use std::{env, error::Error, fmt, fs, io, path::PathBuf, sync::LazyLock};
 
 static PROJECT_DIRS: LazyLock<Option<ProjectDirs>> =
     LazyLock::new(|| ProjectDirs::from("app", "miorin", "bb"));
@@ -12,11 +12,52 @@ struct LlmConfig {
     model: String,
 }
 
+impl Default for LlmConfig {
+    fn default() -> Self {
+        Self {
+            base_url: "https://api.example.com/v1".to_string(),
+            api_key: String::new(),
+            model: String::new(),
+        }
+    }
+}
+
 impl LlmConfig {
-    fn from_file() -> Option<Self> {
-        let path = Self::config_path()?;
-        let contents = fs::read_to_string(path).ok()?;
-        toml::from_str(&contents).ok()
+    fn from_file() -> Result<Option<Self>, LlmError> {
+        let Some(path) = Self::config_path() else {
+            return Ok(None);
+        };
+        match fs::read_to_string(&path) {
+            Ok(contents) => toml::from_str(&contents)
+                .map(Some)
+                .map_err(|err| {
+                    LlmError::ConfigFile(format!(
+                        "failed to parse {}: {err}",
+                        path.display()
+                    ))
+                }),
+            Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                if let Some(parent) = path.parent() {
+                    fs::create_dir_all(parent).map_err(|err| {
+                        LlmError::ConfigFile(format!(
+                            "failed to create config directory {}: {err}",
+                            parent.display()
+                        ))
+                    })?;
+                }
+                fs::write(&path, Self::default_template()).map_err(|err| {
+                    LlmError::ConfigFile(format!(
+                        "failed to create config file {}: {err}",
+                        path.display()
+                    ))
+                })?;
+                Ok(None)
+            }
+            Err(err) => Err(LlmError::ConfigFile(format!(
+                "failed to read {}: {err}",
+                path.display()
+            ))),
+        }
     }
 
     fn from_env_or_file() -> Result<Self, LlmError> {
@@ -24,7 +65,7 @@ impl LlmConfig {
         let mut api_key = env::var("LLM_API_KEY").ok();
         let mut model = env::var("LLM_MODEL").ok();
 
-        if let Some(file_config) = Self::from_file() {
+        if let Some(file_config) = Self::from_file()? {
             if base_url.is_none() {
                 base_url = Some(file_config.base_url);
             }
@@ -74,12 +115,23 @@ impl LlmConfig {
             .as_ref()
             .map(|project| project.config_dir().join("llm.toml"))
     }
+
+    fn default_template() -> String {
+        let mut rendered = String::from("# LLM config\n");
+        let body = toml::to_string_pretty(&Self::default()).expect("failed to render default config");
+        rendered.push_str(&body);
+        if !rendered.ends_with('\n') {
+            rendered.push('\n');
+        }
+        rendered
+    }
 }
 
 #[derive(Debug)]
 pub enum LlmError {
     MissingConfig,
     InvalidConfig(&'static str),
+    ConfigFile(String),
     Http(reqwest::Error),
     InvalidResponse,
 }
@@ -89,6 +141,7 @@ impl fmt::Display for LlmError {
         match self {
             LlmError::MissingConfig => write!(f, "missing LLM config (env vars or config file)"),
             LlmError::InvalidConfig(message) => write!(f, "invalid LLM config: {message}"),
+            LlmError::ConfigFile(message) => write!(f, "LLM config file error: {message}"),
             LlmError::Http(err) => write!(f, "request failed: {err}"),
             LlmError::InvalidResponse => write!(f, "invalid response"),
         }
