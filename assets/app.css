@@ -1,36 +1,53 @@
 :root {
-  --ink: #2c5ed6;
-  --ink-soft: rgba(44, 94, 214, 0.25);
-  --paper: #fbfbfe;
-  --paper-deep: #eef2fb;
-  --text: #1c243f;
-  --muted: #5f6b8a;
-  --dot-size: 12px;
-  --line-width: 2px;
-  --font-body: "Inter", "LXGW WenKai", sans-serif;
-  --font-ui: "Avenir Next", "Gill Sans", "Trebuchet MS", sans-serif;
+    --ink: #2c5ed6;
+    --ink-soft: rgba(44, 94, 214, 0.25);
+    --paper: #fbfbfe;
+    --paper-deep: #eef2fb;
+    --text: #1c243f;
+    --muted: #5f6b8a;
+    --dot-size: 12px;
+    --line-width: 2px;
+    --font-body: "Inter", "LXGW WenKai", sans-serif;
+    --font-ui: "Avenir Next", "Gill Sans", "Trebuchet MS", sans-serif;
 }
 
 * {
-  box-sizing: border-box;
+    box-sizing: border-box;
 }
 
 body {
-  margin: 0;
-  min-height: 100vh;
-  color: var(--text);
-  background: radial-gradient(1200px 700px at 10% -10%, #ffffff 0%, #f3f6ff 45%, var(--paper-deep) 100%);
-  font-family: var(--font-body);
-  letter-spacing: 0.1px;
+    margin: 0;
+    min-height: 100vh;
+    color: var(--text);
+    background: radial-gradient(
+        1200px 700px at 10% -10%,
+        #ffffff 0%,
+        #f3f6ff 45%,
+        var(--paper-deep) 100%
+    );
+    font-family: var(--font-body);
+    letter-spacing: 0.1px;
+}
+
+.bb-message-bar {
+    position: sticky;
+    top: 0;
+    z-index: 5;
+    padding: 12px 24px;
+    background: #fff1f1;
+    color: #7d1e1e;
+    border-bottom: 1px solid rgba(125, 30, 30, 0.2);
+    font-family: var(--font-ui);
+    font-size: 14px;
 }
 
 @keyframes rise {
-  from {
-    opacity: 0;
-    transform: translateY(12px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+    from {
+        opacity: 0;
+        transform: translateY(12px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
 }

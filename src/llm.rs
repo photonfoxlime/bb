@@ -1,3 +1,4 @@
+use dioxus::logger::tracing;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::{env, fs, io, path::PathBuf, sync::LazyLock};
@@ -6,7 +7,7 @@ use thiserror::Error;
 static PROJECT_DIRS: LazyLock<Option<ProjectDirs>> =
     LazyLock::new(|| ProjectDirs::from("app", "miorin", "bb"));
 
-#[derive(Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConfig {
     base_url: String,
     api_key: String,
@@ -52,9 +53,17 @@ impl LlmConfig {
     }
 
     fn from_env_or_file() -> Result<Self, LlmConfigError> {
-        let mut base_url = env::var("LLM_BASE_URL").ok();
-        let mut api_key = env::var("LLM_API_KEY").ok();
-        let mut model = env::var("LLM_MODEL").ok();
+        fn retrieve_non_empty_env_var(var_name: &str) -> Option<String> {
+            match env::var(var_name) {
+                | Err(_) => None,
+                | Ok(value) if value.is_empty() => None,
+                | Ok(value) => Some(value),
+            }
+        }
+
+        let mut base_url = retrieve_non_empty_env_var("LLM_BASE_URL");
+        let mut api_key = retrieve_non_empty_env_var("LLM_API_KEY");
+        let mut model = retrieve_non_empty_env_var("LLM_MODEL");
 
         if let Some(file_config) = Self::from_file()? {
             if base_url.is_none() {
@@ -133,12 +142,26 @@ pub enum InvalidConfigReason {
 
 #[derive(Debug, Error)]
 pub enum LlmError {
+    #[error("invalid request")]
+    InvalidRequest,
     #[error(transparent)]
     Config(#[from] LlmConfigError),
+    #[error(transparent)]
+    Api(#[from] ApiError),
     #[error("request failed: {0}")]
     Http(#[from] reqwest::Error),
     #[error("invalid response")]
     InvalidResponse,
+}
+
+/// Structured API error details returned by the upstream LLM endpoint.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("api error: status {status}: {body}")]
+pub struct ApiError {
+    /// HTTP status returned by the LLM endpoint.
+    status: reqwest::StatusCode,
+    /// Raw response body to help diagnose request failures.
+    body: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -234,11 +257,12 @@ impl LlmClient {
 
     pub async fn summarize_lineage(&self, lineage: &Lineage) -> Result<String, LlmError> {
         if lineage.is_empty() {
-            return Err(LlmError::InvalidResponse);
+            return Err(LlmError::InvalidRequest);
         }
 
         let url = self.chat_url();
         let prompt = Prompt::from_lineage(lineage);
+        tracing::info!(model = %self.config.model, url = %url, "llm summarize request");
         let request = ChatRequest {
             model: self.config.model.clone(),
             messages: vec![
@@ -246,27 +270,34 @@ impl LlmClient {
                 Message { role: Role::User, content: prompt.user },
             ],
             temperature: 0.2,
-            max_tokens: 200,
+            max_completion_tokens: 200,
         };
 
-        let response: ChatResponse = self
+        let response = self
             .http
             .post(url)
             .bearer_auth(self.config.api_key.clone())
             .json(&request)
             .send()
-            .await?
-            .error_for_status()?
-            .json()
             .await?;
+        let status = response.status();
+        let body = response.text().await?;
+        if !status.is_success() {
+            return Err(ApiError { status, body }.into());
+        }
+        let response: ChatResponse =
+            serde_json::from_str(&body).map_err(|_| LlmError::InvalidResponse)?;
 
-        response
+        let content = response
             .choices
             .into_iter()
             .next()
             .map(|choice| choice.message.content.trim().to_string())
             .filter(|content| !content.is_empty())
-            .ok_or(LlmError::InvalidResponse)
+            .ok_or(LlmError::InvalidResponse)?;
+
+        tracing::info!(chars = content.len(), "llm summarize response");
+        Ok(content)
     }
 
     fn chat_url(&self) -> String {
@@ -279,7 +310,7 @@ struct ChatRequest {
     model: String,
     messages: Vec<Message>,
     temperature: f32,
-    max_tokens: u32,
+    max_completion_tokens: u32,
 }
 
 #[derive(Serialize)]

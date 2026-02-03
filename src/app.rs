@@ -111,11 +111,14 @@ impl Default for BlockForest {
 struct AppState {
     tree: BlockForest,
     llm_config: Result<llm::LlmConfig, llm::LlmConfigError>,
+    error_message: Option<String>,
 }
 
 impl AppState {
     fn load() -> Self {
-        Self { tree: BlockForest::load(), llm_config: llm::LlmConfig::load() }
+        let llm_config = llm::LlmConfig::load();
+        let error_message = llm_config.as_ref().err().map(|err| err.to_string());
+        Self { tree: BlockForest::load(), llm_config, error_message }
     }
 
     fn save_tree(&self) -> io::Result<()> {
@@ -140,11 +143,15 @@ pub fn App() -> Element {
     }
 
     let tree_snapshot = app_state.read().tree.clone();
+    let error_message = app_state.read().error_message.clone();
     rsx! {
         document::Stylesheet { href: TAILWIND_CSS }
         document::Stylesheet { href: APP_CSS }
         document::Stylesheet { href: FONTS_CSS }
         main { class: "min-h-screen",
+            if let Some(message) = error_message {
+                div { class: "bb-message-bar", role: "alert", "Error: {message}" }
+            }
             div { class: "bb-canvas",
                 Line { blocks: tree_snapshot.blocks, path: vec![], app_state }
             }
@@ -241,11 +248,18 @@ fn Block(block: BlockData, path: Vec<usize>, app_state: Signal<AppState>) -> Ele
                             summary_state.set(SummaryState::Idle);
                         }
                         | Err(err) => {
+                            tracing::error!("llm summarize error: {}", err);
+                            app_state.with_mut(|state| {
+                                state.error_message = Some(err.to_string());
+                            });
                             summary_state.set(SummaryState::Error(err.to_string()));
                         }
                     }
                 }
                 | Err(err) => {
+                    app_state.with_mut(|state| {
+                        state.error_message = Some(err.to_string());
+                    });
                     summary_state.set(SummaryState::Error(err.to_string()));
                 }
             }
