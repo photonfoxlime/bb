@@ -1,23 +1,13 @@
+//! Application state, messages, update and view for the iced UI.
+
 use crate::llm;
-#[allow(unused)]
-use dioxus::{logger::tracing, prelude::*};
-use directories::ProjectDirs;
+use iced::widget::{button, column, container, row, scrollable, text, text_input};
+use iced::{Element, Fill, Length, Task};
 use serde::{Deserialize, Serialize};
 use std::{fs, io, path::PathBuf, sync::LazyLock};
-use uuid::Uuid;
 
-static APP_CSS: Asset = asset!("/assets/app.css");
-static FONTS_CSS: Asset = asset!("/assets/fonts.css");
-static TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
-static PROJECT_DIRS: LazyLock<Option<ProjectDirs>> =
-    LazyLock::new(|| ProjectDirs::from("app", "miorin", "bb"));
-
-const _: Asset = asset!("/assets/fonts/Inter-300.woff2");
-const _: Asset = asset!("/assets/fonts/Inter-400.woff2");
-const _: Asset = asset!("/assets/fonts/Inter-500.woff2");
-const _: Asset = asset!("/assets/fonts/LXGWWenKai-Light.ttf");
-const _: Asset = asset!("/assets/fonts/LXGWWenKai-Regular.ttf");
-const _: Asset = asset!("/assets/fonts/LXGWWenKai-Medium.ttf");
+static PROJECT_DIRS: LazyLock<Option<directories::ProjectDirs>> =
+    LazyLock::new(|| directories::ProjectDirs::from("app", "miorin", "bb"));
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
 struct BlockForest {
@@ -108,192 +98,158 @@ impl Default for BlockForest {
 }
 
 #[derive(Clone)]
-struct AppState {
+pub struct AppState {
     tree: BlockForest,
     llm_config: Result<llm::LlmConfig, llm::LlmConfigError>,
     error_message: Option<String>,
+    /// Tracks which block is currently summarizing (path) or error message.
+    summary_state: SummaryState,
+}
+
+#[derive(Clone, PartialEq)]
+enum SummaryState {
+    Idle,
+    Loading(Vec<usize>),
+    Error(String),
+}
+
+impl Default for SummaryState {
+    fn default() -> Self {
+        Self::Idle
+    }
 }
 
 impl AppState {
-    fn load() -> Self {
+    pub fn load() -> Self {
         let llm_config = llm::LlmConfig::load();
         let error_message = llm_config.as_ref().err().map(|err| err.to_string());
-        Self { tree: BlockForest::load(), llm_config, error_message }
+        Self {
+            tree: BlockForest::load(),
+            llm_config,
+            error_message,
+            summary_state: SummaryState::Idle,
+        }
     }
 
     fn save_tree(&self) -> io::Result<()> {
         self.tree.save()
     }
+
+    fn is_summarizing(&self, path: &[usize]) -> bool {
+        matches!(&self.summary_state, SummaryState::Loading(p) if p == path)
+    }
 }
 
-#[component]
-pub fn App() -> Element {
-    use_effect(|| {
-        // dioxus::desktop::window().devtool(); // opens the webview devtools
-    });
+#[derive(Debug, Clone)]
+pub enum Message {
+    PointChanged(Vec<usize>, String),
+    Summarize(Vec<usize>),
+    SummarizeDone(Vec<usize>, Result<String, String>),
+}
 
-    let app_state = use_signal(AppState::load);
-
-    {
-        let app_state = app_state.clone();
-        use_effect(move || {
-            let snapshot = app_state.read().clone();
-            let _ = snapshot.save_tree();
-        });
-    }
-
-    let tree_snapshot = app_state.read().tree.clone();
-    let error_message = app_state.read().error_message.clone();
-    rsx! {
-        document::Stylesheet { href: TAILWIND_CSS }
-        document::Stylesheet { href: APP_CSS }
-        document::Stylesheet { href: FONTS_CSS }
-        main { class: "min-h-screen",
-            if let Some(message) = error_message {
-                div { class: "bb-message-bar", role: "alert", "Error: {message}" }
-            }
-            div { class: "bb-canvas",
-                Line { blocks: tree_snapshot.blocks, path: vec![], app_state }
-            }
+pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
+    match message {
+        | Message::PointChanged(path, value) => {
+            state.tree.update_point(&path, value);
+            let _ = state.save_tree();
+            Task::none()
         }
-    }
-}
-
-#[component]
-fn Line(blocks: Vec<BlockData>, path: Vec<usize>, app_state: Signal<AppState>) -> Element {
-    let items: Vec<(usize, BlockData, Vec<usize>)> = blocks
-        .into_iter()
-        .enumerate()
-        .map(|(index, block)| {
-            let mut next_path = path.clone();
-            next_path.push(index);
-            (index, block, next_path)
-        })
-        .collect();
-    rsx! {
-        section { class: "bb-line",
-            ul { class: "bb-children",
-                for (index, block, next_path) in items {
-                    Block { key: "{index}", block, path: next_path, app_state }
+        | Message::Summarize(path) => {
+            if state.is_summarizing(&path) {
+                return Task::none();
+            }
+            let lineage = state.tree.lineage_points(&path);
+            let config = match &state.llm_config {
+                | Ok(c) => c.clone(),
+                | Err(e) => {
+                    let msg = e.to_string();
+                    state.error_message = Some(msg.clone());
+                    state.summary_state = SummaryState::Error(msg);
+                    return Task::none();
+                }
+            };
+            state.summary_state = SummaryState::Loading(path.clone());
+            let path_done = path.clone();
+            Task::perform(
+                async move {
+                    let client = llm::LlmClient::new(config);
+                    client.summarize_lineage(&lineage).await.map_err(|e| e.to_string())
+                },
+                move |result| Message::SummarizeDone(path_done, result),
+            )
+        }
+        | Message::SummarizeDone(path, result) => {
+            state.summary_state = SummaryState::Idle;
+            match result {
+                | Ok(summary) => {
+                    state.tree.update_point(&path, summary);
+                    let _ = state.save_tree();
+                }
+                | Err(e) => {
+                    tracing::error!("llm summarize error: {}", e);
+                    state.error_message = Some(e.clone());
+                    state.summary_state = SummaryState::Error(e);
                 }
             }
+            Task::none()
         }
     }
 }
 
-#[component]
-fn Block(block: BlockData, path: Vec<usize>, app_state: Signal<AppState>) -> Element {
-    let BlockData { point, children, is_root } = block;
-    let block_class = if is_root { "bb-block bb-block-root" } else { "bb-block" };
-    let point_text = point.clone();
-
-    let id = use_hook(|| format!("ta-{}", Uuid::new_v4()));
-    let mut summary_state = use_signal(SummaryState::default);
-
-    fn update_height(id: &str) {
-        document::eval(&format!(
-            r#"
-            const ta = document.getElementById("{id}");
-            if (ta) {{
-              ta.style.height = "auto";
-              ta.style.height = ta.scrollHeight + "px";
-            }}
-            "#
-        ));
+pub fn view(state: &AppState) -> Element<'_, Message> {
+    let mut col = column![].spacing(8);
+    if let Some(msg) = &state.error_message {
+        col = col
+            .push(container(text(format!("Error: {}", msg))).style(container::danger).padding(8));
     }
+    let content = view_line(state, &state.tree.blocks, vec![]);
+    col = col
+        .push(scrollable(container(content).padding(16).width(Fill).center_x(Fill)).height(Fill));
+    container(col).width(Fill).height(Fill).into()
+}
 
-    {
-        let id = id.clone();
-        use_effect(move || {
-            // run once on mount
-            update_height(&id);
-        });
+fn view_line<'a>(
+    state: &'a AppState, blocks: &'a [BlockData], path: Vec<usize>,
+) -> Element<'a, Message> {
+    let mut col = column![].spacing(4);
+    for (index, block) in blocks.iter().enumerate() {
+        let mut next_path = path.clone();
+        next_path.push(index);
+        col = col.push(view_block(state, block, next_path));
     }
+    col.into()
+}
 
-    let path_for_children = path.clone();
+fn view_block<'a>(
+    state: &'a AppState, block: &'a BlockData, path: Vec<usize>,
+) -> Element<'a, Message> {
     let path_for_input = path.clone();
     let path_for_summarize = path.clone();
-    let id_for_input = id.clone();
-    let id_for_summary = id.clone();
-    let summarize_disabled = matches!(*summary_state.read(), SummaryState::Loading);
-    let summarize_title = match &*summary_state.read() {
-        | SummaryState::Idle => "Summarize this point".to_string(),
-        | SummaryState::Loading => "Summarizing...".to_string(),
-        | SummaryState::Error(message) => format!("Summary failed: {message}"),
-    };
-
-    let on_summarize = move |_| {
-        if matches!(*summary_state.read(), SummaryState::Loading) {
-            return;
+    let _summarizing = state.is_summarizing(&path);
+    let summary_label = match &state.summary_state {
+        | SummaryState::Loading(p) if p == &path => "Summarizing...",
+        | SummaryState::Error(e) if state.error_message.as_deref() == Some(e.as_str()) => {
+            "Summary failed"
         }
-        summary_state.set(SummaryState::Loading);
-        let (lineage, config) = {
-            let snapshot = app_state.read();
-            (snapshot.tree.lineage_points(&path_for_summarize), snapshot.llm_config.clone())
-        };
-        let mut app_state = app_state.clone();
-        let path = path_for_summarize.clone();
-        let mut summary_state = summary_state.clone();
-        let id = id_for_summary.clone();
-        spawn(async move {
-            match config {
-                | Ok(config) => {
-                    let client = llm::LlmClient::new(config);
-                    match client.summarize_lineage(&lineage).await {
-                        | Ok(summary) => {
-                            app_state.with_mut(|state| {
-                                state.tree.update_point(&path, summary);
-                            });
-                            update_height(&id);
-                            summary_state.set(SummaryState::Idle);
-                        }
-                        | Err(err) => {
-                            tracing::error!("llm summarize error: {}", err);
-                            app_state.with_mut(|state| {
-                                state.error_message = Some(err.to_string());
-                            });
-                            summary_state.set(SummaryState::Error(err.to_string()));
-                        }
-                    }
-                }
-                | Err(err) => {
-                    app_state.with_mut(|state| {
-                        state.error_message = Some(err.to_string());
-                    });
-                    summary_state.set(SummaryState::Error(err.to_string()));
-                }
-            }
-        });
+        | _ => "Summarize",
     };
-
-    rsx! {
-        li { class: "{block_class}",
-            span { class: "bb-dot", "aria-hidden": "true" }
-            div { class: "bb-content",
-                textarea {
-                    id: id_for_input,
-                    class: "bb-point",
-                    rows: 1,
-                    value: point_text,
-                    oninput: move |evt| {
-                        let next_value = evt.value();
-                        app_state.with_mut(|state| {
-                            state.tree.update_point(&path_for_input, next_value.clone());
-                        });
-                        update_height(&id);
-                    },
-                }
-                Actions {
-                    summarize_disabled,
-                    summarize_title,
-                    on_summarize,
-                }
-            }
-            if !children.is_empty() {
-                Line { blocks: children, path: path_for_children, app_state }
-            }
-        }
+    let point = block.point.clone();
+    let row_content = row![]
+        .spacing(8)
+        .push(
+            text_input("point", &point)
+                .on_input(move |s| Message::PointChanged(path_for_input.clone(), s))
+                .width(Length::Fill),
+        )
+        .push(button(summary_label).on_press(Message::Summarize(path_for_summarize.clone())));
+    let mut col = column![].spacing(4).push(row_content);
+    if !block.children.is_empty() {
+        col = col.push(
+            container(view_line(state, &block.children, path.clone()))
+                .padding(iced::Padding::from([0.0, 24.0])),
+        );
     }
+    col.into()
 }
 
 #[derive(Clone, PartialEq, Serialize, Deserialize)]
@@ -306,38 +262,5 @@ struct BlockData {
 impl BlockData {
     fn new(point: impl ToString, is_root: bool, children: Vec<BlockData>) -> Self {
         Self { point: point.to_string(), children, is_root }
-    }
-}
-
-#[derive(Clone, PartialEq)]
-enum SummaryState {
-    Idle,
-    Loading,
-    Error(String),
-}
-
-impl Default for SummaryState {
-    fn default() -> Self {
-        Self::Idle
-    }
-}
-
-#[component]
-fn Actions(
-    on_summarize: EventHandler<MouseEvent>, summarize_disabled: bool, summarize_title: String,
-) -> Element {
-    rsx! {
-        div { class: "bb-actions", "aria-hidden": "true",
-            button { class: "bb-action-btn", r#type: "button", "+" }
-            button {
-                class: "bb-action-btn",
-                r#type: "button",
-                disabled: summarize_disabled,
-                title: summarize_title,
-                onclick: on_summarize,
-                "-"
-            }
-            button { class: "bb-action-btn", r#type: "button", "o" }
-        }
     }
 }

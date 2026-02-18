@@ -1,8 +1,8 @@
-use dioxus::logger::tracing;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::{env, fs, io, path::PathBuf, sync::LazyLock};
 use thiserror::Error;
+use tracing;
 
 static PROJECT_DIRS: LazyLock<Option<ProjectDirs>> =
     LazyLock::new(|| ProjectDirs::from("app", "miorin", "bb"));
