@@ -1,29 +1,56 @@
 //! Application state, messages, update and view for the iced UI.
+//!
+//! The underlying document is a graph of blocks (each with an id); the UI presents
+//! the same content as a tree (roots and ordered children per node).
 
 use crate::llm;
 use iced::widget::{button, column, container, row, scrollable, text, text_editor};
 use iced::{Element, Fill, Length, Task};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, io, path::PathBuf, sync::LazyLock};
+use uuid::Uuid;
 
 fn path_key(path: &[usize]) -> String {
-    path.iter()
-        .map(|i| i.to_string())
-        .collect::<Vec<_>>()
-        .join("_")
+    path.iter().map(|i| i.to_string()).collect::<Vec<_>>().join("_")
 }
 
 static PROJECT_DIRS: LazyLock<Option<directories::ProjectDirs>> =
     LazyLock::new(|| directories::ProjectDirs::from("app", "miorin", "bb"));
 
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
-struct BlockForest {
-    blocks: Vec<BlockData>,
+/// Unique id for a block; used to refer to blocks in the graph.
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct BlockId(String);
+
+impl BlockId {
+    fn new() -> Self {
+        Self(Uuid::new_v4().to_string())
+    }
 }
 
-impl BlockForest {
-    fn new(blocks: Vec<BlockData>) -> Self {
-        Self { blocks }
+/// One node in the block graph: a point (text) and ordered child ids.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+struct BlockNode {
+    point: String,
+    children: Vec<BlockId>,
+}
+
+impl BlockNode {
+    fn new(point: impl ToString, children: Vec<BlockId>) -> Self {
+        Self { point: point.to_string(), children }
+    }
+}
+
+/// Graph representation: roots and a map from block id to node.
+#[derive(Clone, PartialEq, Serialize, Deserialize)]
+struct BlockGraph {
+    roots: Vec<BlockId>,
+    nodes: HashMap<BlockId, BlockNode>,
+}
+
+impl BlockGraph {
+    fn new(roots: Vec<BlockId>, nodes: HashMap<BlockId, BlockNode>) -> Self {
+        Self { roots, nodes }
     }
 
     fn load() -> Self {
@@ -31,8 +58,8 @@ impl BlockForest {
             return Self::default();
         };
         match fs::read_to_string(&path) {
-            | Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
-            | Err(_) => Self::default(),
+            Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
+            Err(_) => Self::default(),
         }
     }
 
@@ -47,80 +74,98 @@ impl BlockForest {
         fs::write(path, contents)
     }
 
-    fn update_point(&mut self, path: &[usize], value: String) {
-        Self::update_point_in(&mut self.blocks, path, value);
-    }
-
-    fn update_point_in(tree: &mut [BlockData], path: &[usize], value: String) {
-        if path.is_empty() {
-            return;
-        }
-        let Some((head, tail)) = path.split_first() else {
-            return;
-        };
-        let Some(node) = tree.get_mut(*head) else {
-            return;
-        };
-        if tail.is_empty() {
-            node.point = value;
-            return;
-        }
-        Self::update_point_in(&mut node.children, tail, value);
-    }
-
-    fn point_at_path(&self, path: &[usize]) -> Option<String> {
-        let mut cursor = self.blocks.as_slice();
-        let mut node = None;
-        for index in path {
-            node = cursor.get(*index);
-            cursor = node.as_ref().map(|n| n.children.as_slice()).unwrap_or(&[]);
-        }
-        node.map(|n| n.point.clone())
-    }
-
-    fn lineage_points(&self, path: &[usize]) -> llm::Lineage {
-        let mut lineage = Vec::new();
-        let mut cursor = self.blocks.as_slice();
-        for index in path {
-            let Some(node) = cursor.get(*index) else {
-                break;
-            };
-            lineage.push(node.point.clone());
-            cursor = node.children.as_slice();
-        }
-        llm::Lineage::from_points(lineage)
-    }
-
     fn data_file_path() -> Option<PathBuf> {
         PROJECT_DIRS.as_ref().map(|project| project.data_dir().join("blocks.json"))
     }
 
-    fn default_blocks() -> Vec<BlockData> {
-        vec![BlockData::new(
-            "Notes on liberating productivity",
-            true,
-            vec![
-                BlockData::new("马克思：《资本论》", false, vec![]),
-                BlockData::new("马克思·韦伯：《新教伦理与资本主义精神》", false, vec![]),
-                BlockData::new("Ivan Zhao: Steam, Steel, and Invisible Minds", false, vec![]),
-            ],
-        )]
+    fn node(&self, id: &BlockId) -> Option<&BlockNode> {
+        self.nodes.get(id)
+    }
+
+    fn node_mut(&mut self, id: &BlockId) -> Option<&mut BlockNode> {
+        self.nodes.get_mut(id)
+    }
+
+    /// Resolve a UI path (indices from root) to a block id.
+    fn block_id_at_path(&self, path: &[usize]) -> Option<BlockId> {
+        let mut ids: &[BlockId] = &self.roots;
+        let mut out_id = None;
+        for &index in path {
+            let id = ids.get(index)?.clone();
+            out_id = Some(id.clone());
+            ids = self.node(&id).map(|n| n.children.as_slice()).unwrap_or(&[]);
+        }
+        out_id
+    }
+
+    fn update_point(&mut self, id: &BlockId, value: String) {
+        if let Some(node) = self.nodes.get_mut(id) {
+            node.point = value;
+        }
+    }
+
+    fn point_at_path(&self, path: &[usize]) -> Option<String> {
+        self.block_id_at_path(path).and_then(|id| self.node(&id).map(|n| n.point.clone()))
+    }
+
+    fn lineage_points(&self, path: &[usize]) -> llm::Lineage {
+        let mut lineage = Vec::new();
+        let mut ids: &[BlockId] = &self.roots;
+        for &index in path {
+            let Some(id) = ids.get(index) else {
+                break;
+            };
+            if let Some(node) = self.node(id) {
+                lineage.push(node.point.clone());
+                ids = node.children.as_slice();
+            } else {
+                break;
+            }
+        }
+        llm::Lineage::from_points(lineage)
+    }
+
+    fn default_graph() -> Self {
+        let root_id = BlockId::new();
+        let child_ids = [
+            BlockId::new(),
+            BlockId::new(),
+            BlockId::new(),
+        ];
+        let mut nodes = HashMap::new();
+        nodes.insert(
+            child_ids[0].clone(),
+            BlockNode::new("马克思：《资本论》", vec![]),
+        );
+        nodes.insert(
+            child_ids[1].clone(),
+            BlockNode::new("马克思·韦伯：《新教伦理与资本主义精神》", vec![]),
+        );
+        nodes.insert(
+            child_ids[2].clone(),
+            BlockNode::new("Ivan Zhao: Steam, Steel, and Invisible Minds", vec![]),
+        );
+        nodes.insert(
+            root_id.clone(),
+            BlockNode::new("Notes on liberating productivity", child_ids.to_vec()),
+        );
+        BlockGraph::new(vec![root_id], nodes)
     }
 }
 
-impl Default for BlockForest {
+impl Default for BlockGraph {
     fn default() -> Self {
-        Self::new(Self::default_blocks())
+        Self::default_graph()
     }
 }
 
 #[derive(Clone)]
 pub struct AppState {
-    tree: BlockForest,
+    graph: BlockGraph,
     llm_config: Result<llm::LlmConfig, llm::LlmConfigError>,
     error_message: Option<String>,
     summary_state: SummaryState,
-    /// Editor content per block path (key from path_key). Kept in sync with tree.point.
+    /// Editor content per block path (key from path_key). Kept in sync with graph.
     editor_contents: HashMap<String, text_editor::Content>,
 }
 
@@ -141,10 +186,10 @@ impl AppState {
     pub fn load() -> Self {
         let llm_config = llm::LlmConfig::load();
         let error_message = llm_config.as_ref().err().map(|err| err.to_string());
-        let tree = BlockForest::load();
-        let editor_contents = Self::build_editor_contents(&tree.blocks, &mut vec![]);
+        let graph = BlockGraph::load();
+        let editor_contents = Self::build_editor_contents(&graph, &graph.roots, &mut vec![]);
         Self {
-            tree,
+            graph,
             llm_config,
             error_message,
             summary_state: SummaryState::Idle,
@@ -152,19 +197,23 @@ impl AppState {
         }
     }
 
-    fn build_editor_contents(blocks: &[BlockData], path: &mut Vec<usize>) -> HashMap<String, text_editor::Content> {
+    fn build_editor_contents(
+        graph: &BlockGraph, ids: &[BlockId], path: &mut Vec<usize>,
+    ) -> HashMap<String, text_editor::Content> {
         let mut out = HashMap::new();
-        for (i, block) in blocks.iter().enumerate() {
+        for (i, id) in ids.iter().enumerate() {
             path.push(i);
-            out.insert(path_key(path), text_editor::Content::with_text(&block.point));
-            out.extend(Self::build_editor_contents(&block.children, path));
+            if let Some(node) = graph.node(id) {
+                out.insert(path_key(path), text_editor::Content::with_text(&node.point));
+                out.extend(Self::build_editor_contents(graph, &node.children, path));
+            }
             path.pop();
         }
         out
     }
 
     fn save_tree(&self) -> io::Result<()> {
-        self.tree.save()
+        self.graph.save()
     }
 
     fn is_summarizing(&self, path: &[usize]) -> bool {
@@ -184,12 +233,14 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::PointEdited(path, action) => {
             let key = path_key(&path);
             if !state.editor_contents.contains_key(&key) {
-                let point = state.tree.point_at_path(&path).unwrap_or_default();
+                let point = state.graph.point_at_path(&path).unwrap_or_default();
                 state.editor_contents.insert(key.clone(), text_editor::Content::with_text(&point));
             }
             if let Some(content) = state.editor_contents.get_mut(&key) {
                 content.perform(action);
-                state.tree.update_point(&path, content.text());
+                if let Some(id) = state.graph.block_id_at_path(&path) {
+                    state.graph.update_point(&id, content.text());
+                }
                 let _ = state.save_tree();
             }
             Task::none()
@@ -198,7 +249,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if state.is_summarizing(&path) {
                 return Task::none();
             }
-            let lineage = state.tree.lineage_points(&path);
+            let lineage = state.graph.lineage_points(&path);
             let config = match &state.llm_config {
                 | Ok(c) => c.clone(),
                 | Err(e) => {
@@ -222,7 +273,9 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.summary_state = SummaryState::Idle;
             match result {
                 | Ok(summary) => {
-                    state.tree.update_point(&path, summary.clone());
+                    if let Some(id) = state.graph.block_id_at_path(&path) {
+                        state.graph.update_point(&id, summary.clone());
+                    }
                     state
                         .editor_contents
                         .insert(path_key(&path), text_editor::Content::with_text(&summary));
@@ -245,26 +298,29 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         col = col
             .push(container(text(format!("Error: {}", msg))).style(container::danger).padding(8));
     }
-    let content = view_line(state, &state.tree.blocks, vec![]);
+    let content = view_line(state, &state.graph.roots, vec![]);
     col = col
         .push(scrollable(container(content).padding(16).width(Fill).center_x(Fill)).height(Fill));
     container(col).width(Fill).height(Fill).into()
 }
 
 fn view_line<'a>(
-    state: &'a AppState, blocks: &'a [BlockData], path: Vec<usize>,
+    state: &'a AppState, ids: &'a [BlockId], path: Vec<usize>,
 ) -> Element<'a, Message> {
     let mut col = column![].spacing(4);
-    for (index, block) in blocks.iter().enumerate() {
+    for (index, id) in ids.iter().enumerate() {
+        let Some(node) = state.graph.node(id) else {
+            continue;
+        };
         let mut next_path = path.clone();
         next_path.push(index);
-        col = col.push(view_block(state, block, next_path));
+        col = col.push(view_block(state, id, node, next_path));
     }
     col.into()
 }
 
 fn view_block<'a>(
-    state: &'a AppState, block: &'a BlockData, path: Vec<usize>,
+    state: &'a AppState, _id: &'a BlockId, node: &'a BlockNode, path: Vec<usize>,
 ) -> Element<'a, Message> {
     let path_for_edit = path.clone();
     let path_for_summarize = path.clone();
@@ -277,10 +333,7 @@ fn view_block<'a>(
         | _ => "Summarize",
     };
     let key = path_key(&path);
-    let content = state
-        .editor_contents
-        .get(&key)
-        .expect("editor content built at load");
+    let content = state.editor_contents.get(&key).expect("editor content built at load");
     let path_for_edit2 = path_for_edit.clone();
     let row_content = row![]
         .spacing(8)
@@ -295,24 +348,11 @@ fn view_block<'a>(
         )
         .push(button(summary_label).on_press(Message::Summarize(path_for_summarize)));
     let mut col = column![].spacing(4).push(row_content);
-    if !block.children.is_empty() {
+    if !node.children.is_empty() {
         col = col.push(
-            container(view_line(state, &block.children, path.clone()))
+            container(view_line(state, &node.children, path.clone()))
                 .padding(iced::Padding::from([0.0, 24.0])),
         );
     }
     col.into()
-}
-
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
-struct BlockData {
-    point: String,
-    children: Vec<BlockData>,
-    is_root: bool,
-}
-
-impl BlockData {
-    fn new(point: impl ToString, is_root: bool, children: Vec<BlockData>) -> Self {
-        Self { point: point.to_string(), children, is_root }
-    }
 }
