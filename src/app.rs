@@ -1,10 +1,17 @@
 //! Application state, messages, update and view for the iced UI.
 
 use crate::llm;
-use iced::widget::{button, column, container, row, scrollable, text, text_input};
+use iced::widget::{button, column, container, row, scrollable, text, text_editor};
 use iced::{Element, Fill, Length, Task};
 use serde::{Deserialize, Serialize};
-use std::{fs, io, path::PathBuf, sync::LazyLock};
+use std::{collections::HashMap, fs, io, path::PathBuf, sync::LazyLock};
+
+fn path_key(path: &[usize]) -> String {
+    path.iter()
+        .map(|i| i.to_string())
+        .collect::<Vec<_>>()
+        .join("_")
+}
 
 static PROJECT_DIRS: LazyLock<Option<directories::ProjectDirs>> =
     LazyLock::new(|| directories::ProjectDirs::from("app", "miorin", "bb"));
@@ -61,6 +68,16 @@ impl BlockForest {
         Self::update_point_in(&mut node.children, tail, value);
     }
 
+    fn point_at_path(&self, path: &[usize]) -> Option<String> {
+        let mut cursor = self.blocks.as_slice();
+        let mut node = None;
+        for index in path {
+            node = cursor.get(*index);
+            cursor = node.as_ref().map(|n| n.children.as_slice()).unwrap_or(&[]);
+        }
+        node.map(|n| n.point.clone())
+    }
+
     fn lineage_points(&self, path: &[usize]) -> llm::Lineage {
         let mut lineage = Vec::new();
         let mut cursor = self.blocks.as_slice();
@@ -102,8 +119,9 @@ pub struct AppState {
     tree: BlockForest,
     llm_config: Result<llm::LlmConfig, llm::LlmConfigError>,
     error_message: Option<String>,
-    /// Tracks which block is currently summarizing (path) or error message.
     summary_state: SummaryState,
+    /// Editor content per block path (key from path_key). Kept in sync with tree.point.
+    editor_contents: HashMap<String, text_editor::Content>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -123,12 +141,26 @@ impl AppState {
     pub fn load() -> Self {
         let llm_config = llm::LlmConfig::load();
         let error_message = llm_config.as_ref().err().map(|err| err.to_string());
+        let tree = BlockForest::load();
+        let editor_contents = Self::build_editor_contents(&tree.blocks, &mut vec![]);
         Self {
-            tree: BlockForest::load(),
+            tree,
             llm_config,
             error_message,
             summary_state: SummaryState::Idle,
+            editor_contents,
         }
+    }
+
+    fn build_editor_contents(blocks: &[BlockData], path: &mut Vec<usize>) -> HashMap<String, text_editor::Content> {
+        let mut out = HashMap::new();
+        for (i, block) in blocks.iter().enumerate() {
+            path.push(i);
+            out.insert(path_key(path), text_editor::Content::with_text(&block.point));
+            out.extend(Self::build_editor_contents(&block.children, path));
+            path.pop();
+        }
+        out
     }
 
     fn save_tree(&self) -> io::Result<()> {
@@ -142,16 +174,24 @@ impl AppState {
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    PointChanged(Vec<usize>, String),
+    PointEdited(Vec<usize>, text_editor::Action),
     Summarize(Vec<usize>),
     SummarizeDone(Vec<usize>, Result<String, String>),
 }
 
 pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
     match message {
-        | Message::PointChanged(path, value) => {
-            state.tree.update_point(&path, value);
-            let _ = state.save_tree();
+        | Message::PointEdited(path, action) => {
+            let key = path_key(&path);
+            if !state.editor_contents.contains_key(&key) {
+                let point = state.tree.point_at_path(&path).unwrap_or_default();
+                state.editor_contents.insert(key.clone(), text_editor::Content::with_text(&point));
+            }
+            if let Some(content) = state.editor_contents.get_mut(&key) {
+                content.perform(action);
+                state.tree.update_point(&path, content.text());
+                let _ = state.save_tree();
+            }
             Task::none()
         }
         | Message::Summarize(path) => {
@@ -182,7 +222,10 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.summary_state = SummaryState::Idle;
             match result {
                 | Ok(summary) => {
-                    state.tree.update_point(&path, summary);
+                    state.tree.update_point(&path, summary.clone());
+                    state
+                        .editor_contents
+                        .insert(path_key(&path), text_editor::Content::with_text(&summary));
                     let _ = state.save_tree();
                 }
                 | Err(e) => {
@@ -223,7 +266,7 @@ fn view_line<'a>(
 fn view_block<'a>(
     state: &'a AppState, block: &'a BlockData, path: Vec<usize>,
 ) -> Element<'a, Message> {
-    let path_for_input = path.clone();
+    let path_for_edit = path.clone();
     let path_for_summarize = path.clone();
     let _summarizing = state.is_summarizing(&path);
     let summary_label = match &state.summary_state {
@@ -233,15 +276,24 @@ fn view_block<'a>(
         }
         | _ => "Summarize",
     };
-    let point = block.point.clone();
+    let key = path_key(&path);
+    let content = state
+        .editor_contents
+        .get(&key)
+        .expect("editor content built at load");
+    let path_for_edit2 = path_for_edit.clone();
     let row_content = row![]
         .spacing(8)
         .push(
-            text_input("point", &point)
-                .on_input(move |s| Message::PointChanged(path_for_input.clone(), s))
-                .width(Length::Fill),
+            container(
+                text_editor(content)
+                    .placeholder("point")
+                    .on_action(move |action| Message::PointEdited(path_for_edit2.clone(), action))
+                    .height(Length::Shrink),
+            )
+            .width(Length::Fill),
         )
-        .push(button(summary_label).on_press(Message::Summarize(path_for_summarize.clone())));
+        .push(button(summary_label).on_press(Message::Summarize(path_for_summarize)));
     let mut col = column![].spacing(4).push(row_content);
     if !block.children.is_empty() {
         col = col.push(
