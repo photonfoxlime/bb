@@ -4,8 +4,15 @@
 //! the same content as a tree (roots and ordered children per node).
 
 use crate::llm;
+mod action_bar;
+
+use action_bar::{
+    ActionAvailability, ActionDescriptor, ActionId, RowContext, StatusChipVm, ViewportBucket,
+    action_to_message, action_to_message_by_id, build_action_bar_vm, project_for_viewport,
+    shortcut_to_action,
+};
 use iced::widget::{button, column, container, row, scrollable, text, text_editor};
-use iced::{Element, Fill, Length, Task};
+use iced::{Element, Event, Fill, Length, Subscription, Task, event, keyboard, mouse};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, io, path::PathBuf, sync::LazyLock};
 use uuid::Uuid;
@@ -102,6 +109,93 @@ impl BlockGraph {
             parent.children.push(child_id.clone());
         }
         Some(child_id)
+    }
+
+    fn append_sibling(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
+        let (parent_id, index) = self.parent_and_index_of(block_id)?;
+        let sibling_id = BlockId::new();
+        self.nodes.insert(sibling_id.clone(), BlockNode::new(point, vec![]));
+
+        if let Some(parent_id) = parent_id {
+            let parent = self.nodes.get_mut(&parent_id)?;
+            parent.children.insert(index + 1, sibling_id.clone());
+        } else {
+            self.roots.insert(index + 1, sibling_id.clone());
+        }
+        Some(sibling_id)
+    }
+
+    fn duplicate_subtree_after(&mut self, block_id: &BlockId) -> Option<BlockId> {
+        let (parent_id, index) = self.parent_and_index_of(block_id)?;
+        let duplicate_id = self.clone_subtree_with_new_ids(block_id)?;
+
+        if let Some(parent_id) = parent_id {
+            let parent = self.nodes.get_mut(&parent_id)?;
+            parent.children.insert(index + 1, duplicate_id.clone());
+        } else {
+            self.roots.insert(index + 1, duplicate_id.clone());
+        }
+        Some(duplicate_id)
+    }
+
+    fn remove_block_subtree(&mut self, block_id: &BlockId) -> Option<Vec<BlockId>> {
+        let (parent_id, index) = self.parent_and_index_of(block_id)?;
+        if let Some(parent_id) = parent_id {
+            if let Some(parent) = self.nodes.get_mut(&parent_id) {
+                parent.children.remove(index);
+            }
+        } else {
+            self.roots.remove(index);
+        }
+
+        let mut removed_ids = Vec::new();
+        self.collect_subtree_ids(block_id, &mut removed_ids);
+        for id in &removed_ids {
+            self.nodes.remove(id);
+        }
+
+        if self.roots.is_empty() {
+            let root_id = BlockId::new();
+            self.nodes.insert(root_id.clone(), BlockNode::new(String::new(), vec![]));
+            self.roots.push(root_id);
+        }
+
+        Some(removed_ids)
+    }
+
+    fn parent_and_index_of(&self, target: &BlockId) -> Option<(Option<BlockId>, usize)> {
+        if let Some(index) = self.roots.iter().position(|id| id == target) {
+            return Some((None, index));
+        }
+
+        for (parent_id, node) in &self.nodes {
+            if let Some(index) = node.children.iter().position(|id| id == target) {
+                return Some((Some(parent_id.clone()), index));
+            }
+        }
+        None
+    }
+
+    fn clone_subtree_with_new_ids(&mut self, source_id: &BlockId) -> Option<BlockId> {
+        let source_node = self.node(source_id)?.clone();
+        let mut child_ids = Vec::with_capacity(source_node.children.len());
+        for child in source_node.children {
+            child_ids.push(self.clone_subtree_with_new_ids(&child)?);
+        }
+
+        let next_id = BlockId::new();
+        self.nodes.insert(next_id.clone(), BlockNode::new(source_node.point, child_ids));
+        Some(next_id)
+    }
+
+    fn collect_subtree_ids(&self, current: &BlockId, out: &mut Vec<BlockId>) {
+        let Some(node) = self.node(current) else {
+            return;
+        };
+        out.push(current.clone());
+        for child in &node.children {
+            self.collect_subtree_ids(child, out);
+        }
     }
 
     /// Return lineage points from one root to the target id.
@@ -294,6 +388,23 @@ impl EditorStore {
     fn set_text(&mut self, block_id: &BlockId, value: &str) {
         self.buffers.insert(block_id.clone(), text_editor::Content::with_text(value));
     }
+
+    fn ensure_subtree(&mut self, graph: &BlockGraph, block_id: &BlockId) {
+        if let Some(node) = graph.node(block_id) {
+            self.buffers
+                .entry(block_id.clone())
+                .or_insert_with(|| text_editor::Content::with_text(&node.point));
+            for child in &node.children {
+                self.ensure_subtree(graph, child);
+            }
+        }
+    }
+
+    fn remove_blocks(&mut self, block_ids: &[BlockId]) {
+        for id in block_ids {
+            self.buffers.remove(id);
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -305,6 +416,8 @@ pub struct AppState {
     expand_state: ExpandState,
     expansion_drafts: HashMap<BlockId, ExpansionDraft>,
     editors: EditorStore,
+    overflow_open_for: Option<BlockId>,
+    active_block_id: Option<BlockId>,
 }
 
 impl AppState {
@@ -324,6 +437,8 @@ impl AppState {
             expand_state: ExpandState::Idle,
             expansion_drafts: HashMap::new(),
             editors,
+            overflow_open_for: None,
+            active_block_id: None,
         }
     }
 
@@ -335,30 +450,23 @@ impl AppState {
         matches!(&self.summary_state, SummaryState::Loading(id) if id == block_id)
     }
 
-    fn summarize_label(&self, block_id: &BlockId) -> &'static str {
-        match &self.summary_state {
-            | SummaryState::Loading(id) if id == block_id => "Summarizing...",
-            | SummaryState::Error { block_id: id, .. } if id == block_id => "Summary failed",
-            | _ => "Summarize",
-        }
-    }
-
     fn is_expanding(&self, block_id: &BlockId) -> bool {
         matches!(&self.expand_state, ExpandState::Loading(id) if id == block_id)
     }
 
-    fn expand_label(&self, block_id: &BlockId) -> &'static str {
-        match &self.expand_state {
-            | ExpandState::Loading(id) if id == block_id => "Expanding...",
-            | ExpandState::Error { block_id: id, .. } if id == block_id => "Expand failed",
-            | _ => "Expand",
-        }
+    fn current_block_for_shortcuts(&self) -> Option<BlockId> {
+        self.active_block_id.clone().or_else(|| self.graph.roots.first().cloned())
+    }
+
+    fn set_active_block(&mut self, block_id: &BlockId) {
+        self.active_block_id = Some(block_id.clone());
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     PointEdited(BlockId, text_editor::Action),
+    Shortcut(ActionId),
     Summarize(BlockId),
     SummarizeDone(BlockId, Result<String, UiError>),
     Expand(BlockId),
@@ -369,11 +477,53 @@ pub enum Message {
     RejectExpandedChild(BlockId, usize),
     AcceptAllExpandedChildren(BlockId),
     DiscardExpansion(BlockId),
+    AddChild(BlockId),
+    AddSibling(BlockId),
+    DuplicateBlock(BlockId),
+    ArchiveBlock(BlockId),
+    ToggleOverflow(BlockId),
+    CloseOverflow,
 }
 
 pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
     match message {
+        | Message::Shortcut(action_id) => {
+            let Some(block_id) = state.current_block_for_shortcuts() else {
+                return Task::none();
+            };
+
+            let point_text =
+                state.editors.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
+            let draft = state.expansion_drafts.get(&block_id);
+            let row_context = RowContext {
+                block_id: block_id.clone(),
+                point_text,
+                has_draft: draft.is_some(),
+                draft_suggestion_count: draft.map(|d| d.children.len()).unwrap_or(0),
+                has_expand_error: matches!(&state.expand_state, ExpandState::Error { block_id: id, .. } if id == &block_id),
+                has_reduce_error: matches!(&state.summary_state, SummaryState::Error { block_id: id, .. } if id == &block_id),
+                is_expanding: state.is_expanding(&block_id),
+                is_reducing: state.is_summarizing(&block_id),
+            };
+            let vm = project_for_viewport(build_action_bar_vm(&row_context), ViewportBucket::Wide);
+
+            let is_enabled = vm
+                .primary
+                .iter()
+                .chain(vm.contextual.iter())
+                .chain(vm.overflow.iter())
+                .find(|item| item.id == action_id)
+                .is_some_and(|descriptor| descriptor.availability == ActionAvailability::Enabled);
+
+            if is_enabled {
+                if let Some(next) = action_to_message_by_id(state, &block_id, action_id) {
+                    return update(state, next);
+                }
+            }
+            Task::none()
+        }
         | Message::PointEdited(block_id, action) => {
+            state.set_active_block(&block_id);
             state.editors.ensure_block(&state.graph, &block_id);
             if let Some(content) = state.editors.get_mut(&block_id) {
                 content.perform(action);
@@ -387,6 +537,8 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
         | Message::Summarize(block_id) => {
+            state.set_active_block(&block_id);
+            state.overflow_open_for = None;
             if state.is_summarizing(&block_id) {
                 return Task::none();
             }
@@ -431,6 +583,8 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
         | Message::Expand(block_id) => {
+            state.set_active_block(&block_id);
+            state.overflow_open_for = None;
             if state.is_expanding(&block_id) {
                 return Task::none();
             }
@@ -485,6 +639,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
         | Message::ApplyExpandedRewrite(block_id) => {
+            state.set_active_block(&block_id);
             let mut should_save = false;
             let mut should_remove_draft = false;
             if let Some(draft) = state.expansion_drafts.get_mut(&block_id) {
@@ -509,6 +664,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
         | Message::RejectExpandedRewrite(block_id) => {
+            state.set_active_block(&block_id);
             if let Some(draft) = state.expansion_drafts.get_mut(&block_id) {
                 draft.rewrite = None;
                 tracing::info!(block_id = ?block_id, "rejected expanded rewrite");
@@ -519,6 +675,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
         | Message::AcceptExpandedChild(block_id, child_index) => {
+            state.set_active_block(&block_id);
             let mut should_save = false;
             let mut should_remove_draft = false;
             if let Some(draft) = state.expansion_drafts.get_mut(&block_id) {
@@ -550,6 +707,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
         | Message::RejectExpandedChild(block_id, child_index) => {
+            state.set_active_block(&block_id);
             if let Some(draft) = state.expansion_drafts.get_mut(&block_id) {
                 if child_index < draft.children.len() {
                     draft.children.remove(child_index);
@@ -562,6 +720,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
         | Message::AcceptAllExpandedChildren(block_id) => {
+            state.set_active_block(&block_id);
             if let Some(mut draft) = state.expansion_drafts.remove(&block_id) {
                 for point in draft.children.drain(..) {
                     if let Some(child_id) = state.graph.append_child(&block_id, point.clone()) {
@@ -584,10 +743,98 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
         | Message::DiscardExpansion(block_id) => {
+            state.set_active_block(&block_id);
             tracing::info!(block_id = ?block_id, "discarded expansion draft");
             state.expansion_drafts.remove(&block_id);
             Task::none()
         }
+        | Message::ToggleOverflow(block_id) => {
+            state.set_active_block(&block_id);
+            if state.overflow_open_for.as_ref() == Some(&block_id) {
+                state.overflow_open_for = None;
+            } else {
+                state.overflow_open_for = Some(block_id);
+            }
+            Task::none()
+        }
+        | Message::CloseOverflow => {
+            state.overflow_open_for = None;
+            Task::none()
+        }
+        | Message::AddChild(block_id) => {
+            state.set_active_block(&block_id);
+            state.overflow_open_for = None;
+            if let Some(child_id) = state.graph.append_child(&block_id, String::new()) {
+                tracing::info!(parent_block_id = ?block_id, child_block_id = ?child_id, "added child block");
+                state.editors.set_text(&child_id, "");
+                if let Err(err) = state.save_tree() {
+                    tracing::error!(%err, "failed to save tree after adding child");
+                }
+            }
+            Task::none()
+        }
+        | Message::AddSibling(block_id) => {
+            state.set_active_block(&block_id);
+            if let Some(sibling_id) = state.graph.append_sibling(&block_id, String::new()) {
+                tracing::info!(block_id = ?block_id, sibling_block_id = ?sibling_id, "added sibling block");
+                state.editors.set_text(&sibling_id, "");
+                state.overflow_open_for = None;
+                if let Err(err) = state.save_tree() {
+                    tracing::error!(%err, "failed to save tree after adding sibling");
+                }
+            }
+            Task::none()
+        }
+        | Message::DuplicateBlock(block_id) => {
+            state.set_active_block(&block_id);
+            if let Some(duplicate_id) = state.graph.duplicate_subtree_after(&block_id) {
+                tracing::info!(block_id = ?block_id, duplicate_block_id = ?duplicate_id, "duplicated block subtree");
+                state.editors.ensure_subtree(&state.graph, &duplicate_id);
+                state.overflow_open_for = None;
+                if let Err(err) = state.save_tree() {
+                    tracing::error!(%err, "failed to save tree after duplicating subtree");
+                }
+            }
+            Task::none()
+        }
+        | Message::ArchiveBlock(block_id) => {
+            state.set_active_block(&block_id);
+            if let Some(removed_ids) = state.graph.remove_block_subtree(&block_id) {
+                tracing::info!(block_id = ?block_id, removed = removed_ids.len(), "archived block subtree");
+                state.editors.remove_blocks(&removed_ids);
+                state.overflow_open_for = None;
+                if state.active_block_id.as_ref() == Some(&block_id) {
+                    state.active_block_id = state.graph.roots.first().cloned();
+                }
+                if let Err(err) = state.save_tree() {
+                    tracing::error!(%err, "failed to save tree after archiving subtree");
+                }
+            }
+            Task::none()
+        }
+    }
+}
+
+pub fn subscription(_state: &AppState) -> Subscription<Message> {
+    event::listen_with(handle_event)
+}
+
+fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) -> Option<Message> {
+    if status == event::Status::Captured {
+        return None;
+    }
+
+    match event {
+        | Event::Keyboard(keyboard::Event::KeyPressed { key, .. })
+            if key == keyboard::Key::Named(keyboard::key::Named::Escape) =>
+        {
+            Some(Message::CloseOverflow)
+        }
+        | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+            shortcut_to_action(key, modifiers).map(Message::Shortcut)
+        }
+        | Event::Mouse(mouse::Event::ButtonPressed(_)) => Some(Message::CloseOverflow),
+        | _ => None,
     }
 }
 
@@ -638,8 +885,9 @@ impl<'a> TreeView<'a> {
             self.state.editors.get(block_id).expect("editor content is populated from graph");
 
         let block_id_for_edit = block_id.clone();
-        let block_id_for_summarize = block_id.clone();
-        let block_id_for_expand = block_id.clone();
+        let row_context = self.action_row_context(block_id, editor_content.text(), node);
+        let action_bar =
+            project_for_viewport(build_action_bar_vm(&row_context), self.viewport_bucket());
 
         let spine = container(text("|"))
             .width(Length::Fixed(12.0))
@@ -663,14 +911,8 @@ impl<'a> TreeView<'a> {
                 )
                 .width(Length::Fill),
             )
-            .push(
-                button(self.state.summarize_label(block_id))
-                    .on_press(Message::Summarize(block_id_for_summarize)),
-            )
-            .push(
-                button(self.state.expand_label(block_id))
-                    .on_press(Message::Expand(block_id_for_expand)),
-            );
+            .push(self.render_status_chip(&action_bar))
+            .push(self.render_action_buttons(block_id, &action_bar));
 
         let mut block = column![].spacing(6).push(row_content);
         if let Some(draft) = self.state.expansion_drafts.get(block_id) {
@@ -742,5 +984,95 @@ impl<'a> TreeView<'a> {
             .padding(iced::Padding::from([8.0, 16.0]))
             .style(container::bordered_box)
             .into()
+    }
+
+    fn action_row_context(
+        &self, block_id: &BlockId, point_text: String, _node: &BlockNode,
+    ) -> RowContext {
+        let draft = self.state.expansion_drafts.get(block_id);
+        RowContext {
+            block_id: block_id.clone(),
+            point_text,
+            has_draft: draft.is_some(),
+            draft_suggestion_count: draft.map(|d| d.children.len()).unwrap_or(0),
+            has_expand_error: matches!(&self.state.expand_state, ExpandState::Error { block_id: id, .. } if id == block_id),
+            has_reduce_error: matches!(&self.state.summary_state, SummaryState::Error { block_id: id, .. } if id == block_id),
+            is_expanding: self.state.is_expanding(block_id),
+            is_reducing: self.state.is_summarizing(block_id),
+        }
+    }
+
+    fn viewport_bucket(&self) -> ViewportBucket {
+        ViewportBucket::Wide
+    }
+
+    fn render_status_chip(&self, vm: &action_bar::ActionBarVm) -> Element<'a, Message> {
+        let label = match &vm.status_chip {
+            | Some(StatusChipVm::Loading { op: ActionId::Expand }) => {
+                Some("Expanding...".to_string())
+            }
+            | Some(StatusChipVm::Loading { op: ActionId::Reduce }) => {
+                Some("Summarizing...".to_string())
+            }
+            | Some(StatusChipVm::Loading { .. }) => Some("Working...".to_string()),
+            | Some(StatusChipVm::Error { message, .. }) => Some(message.clone()),
+            | Some(StatusChipVm::DraftActive { suggestion_count }) if *suggestion_count > 0 => {
+                Some("Draft ready".to_string())
+            }
+            | Some(StatusChipVm::DraftActive { .. }) => Some("Draft".to_string()),
+            | None => None,
+        };
+
+        let chip = match label {
+            | Some(label) => {
+                container(text(label).size(14)).padding(iced::Padding::from([2.0, 8.0]))
+            }
+            | None => container(text(" ")).padding(iced::Padding::from([2.0, 8.0])),
+        };
+        chip.width(Length::Fixed(112.0)).into()
+    }
+
+    fn render_action_buttons(
+        &self, block_id: &BlockId, vm: &action_bar::ActionBarVm,
+    ) -> Element<'a, Message> {
+        let mut actions_row = row![].spacing(6);
+
+        for descriptor in vm.visible_actions() {
+            actions_row = actions_row.push(self.render_action_button(block_id, &descriptor));
+        }
+
+        if !vm.overflow.is_empty() {
+            let is_open = self.state.overflow_open_for.as_ref() == Some(block_id);
+            let label = if is_open { "Close" } else { "More" };
+            actions_row =
+                actions_row.push(button(label).on_press(Message::ToggleOverflow(block_id.clone())));
+        }
+
+        let mut layout = column![].spacing(4).push(actions_row);
+        if self.state.overflow_open_for.as_ref() == Some(block_id) {
+            let mut overflow = row![].spacing(6);
+            for descriptor in &vm.overflow {
+                overflow = overflow.push(self.render_action_button(block_id, descriptor));
+            }
+            layout = layout.push(container(overflow).padding(iced::Padding::from([4.0, 0.0])));
+        }
+
+        layout.into()
+    }
+
+    fn render_action_button(
+        &self, block_id: &BlockId, descriptor: &ActionDescriptor,
+    ) -> Element<'a, Message> {
+        let base = button(descriptor.label);
+        let button = if descriptor.availability == ActionAvailability::Enabled {
+            if let Some(message) = action_to_message(self.state, block_id, descriptor) {
+                base.on_press(message)
+            } else {
+                base
+            }
+        } else {
+            base
+        };
+        button.into()
     }
 }

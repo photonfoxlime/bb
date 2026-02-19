@@ -6,6 +6,7 @@ const DEFAULT_FONT: iced::Font = iced::Font::with_name("LXGW WenKai");
 
 fn main() -> iced::Result {
     iced::application(app::AppState::load, app::update, app::view)
+        .subscription(app::subscription)
         .font(include_bytes!("../assets/fonts/Inter-300.woff2").as_slice())
         .font(include_bytes!("../assets/fonts/Inter-400.woff2").as_slice())
         .font(include_bytes!("../assets/fonts/Inter-500.woff2").as_slice())

@@ -244,3 +244,64 @@ This backlog captures likely next areas to explore after the current identifier-
 - Document block graph invariants in code-level docs.
 - Document interaction model and message/state machine for contributors.
 - Add a short architecture note: data flow from UI event to persisted graph.
+
+## Action Bar (Consolidated)
+
+### Intent
+
+- Keep actions lightweight, inline, and secondary to writing.
+- Provide clear row-local feedback for loading, error, and draft states.
+- Preserve text stability and avoid layout jumps.
+
+### Structure
+
+- Row zones: structure marker, editor, status lane, action bar.
+- Primary actions (always visible on desktop): `Expand`, `Reduce`, `Add child`.
+- Contextual actions (state-driven): `Accept all`, `Retry`, `Dismiss draft`.
+- Overflow actions: branch/focus extras plus `Add sibling`, `Duplicate`, `Archive`.
+
+### Responsive behavior
+
+- `Wide`: primary + contextual inline.
+- `Medium`: contextual moves to overflow.
+- `Compact`: `Reduce` also moves to overflow.
+- `TouchCompact`: menu-first access to keep editor readable.
+
+### Keyboard and dispatch
+
+- Shortcuts:
+  - `Ctrl+.` expand
+  - `Ctrl+,` reduce
+  - `Ctrl+Enter` add child
+  - `Ctrl+Shift+Enter` add sibling
+  - `Ctrl+Shift+A` accept all
+  - `Ctrl+Backspace` archive
+- Pointer and keyboard both route through the same `ActionId -> dispatch` path.
+
+### State and feedback rules
+
+- Busy states disable only conflicting actions.
+- Error state shows compact chip + retry affordance.
+- Draft state surfaces accept/dismiss quickly.
+- Empty point gates reduce; add child remains available.
+
+### Implementation mapping
+
+- Types: `ActionId`, `ActionAvailability`, `ActionDescriptor`, `StatusChipVm`, `ActionBarVm`, `RowContext`.
+- Core functions:
+  - state selector builds action VM from immutable row context,
+  - responsive projector demotes actions deterministically,
+  - dispatcher maps action id to block-id command/message.
+
+### Current implementation status
+
+- Typed action-bar module exists and is integrated into row rendering.
+- Overflow is interactive (toggle + actionable items).
+- Shortcuts are wired via global event subscription to the same dispatcher path.
+- Auto-close implemented: closes overflow on uncaptured mouse press and on `Escape`.
+
+### Immediate next steps
+
+- Add explicit undo/redo for destructive and AI-apply actions.
+- Add collapse/expand-branch and open-as-focus overflow actions.
+- Add targeted tests for overflow interaction and shortcut edge cases.
