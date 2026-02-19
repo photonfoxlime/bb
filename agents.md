@@ -61,3 +61,28 @@ When adding new features, record and observe details with the `tracing` crate.
 ## Version Control
 
 This project uses jujutsu, which is compatible to git.
+
+### Commit Message Convention
+
+Format: `prefix: lowercase description`
+
+No capitalization after the colon. No trailing period. One line.
+The description should say *what changed*, not *why* (the diff shows what; the description names it).
+
+#### Prefix Vocabulary
+
+| Prefix | When to use |
+|--------|-------------|
+| `feat`  | A user-visible capability that did not exist before. |
+| `incr`  | Incremental progress on an existing feature: bug fixes, polish, tuning, small additions. |
+| `docs`  | Documentation-only changes (agents.md, docs/, README, code comments). |
+| `repo`  | Repository housekeeping: migrations, dependency changes, formatter config, file reorganization, one-off maintenance. |
+| `sisy`  | Mechanical changes: formatting, linting, renaming passes, internal restructuring with no behavior change. |
+| `vibe`  | Exploratory, prototype-quality work. Expect rough edges; may be revised or replaced. |
+
+#### Guidelines
+
+- One logical change per commit. If two things can be reverted independently, they are two commits.
+- Pair implementation files with their tests in the same commit.
+- Order commits by dependency level: types and utilities first, then logic, then UI, then config.
+- Prefer many small commits over one large commit. Rule of thumb: a reviewer should understand a commit in under 30 seconds.
