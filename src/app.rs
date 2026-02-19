@@ -3,8 +3,10 @@
 //! The underlying document is a graph of blocks (each with a UUID id); the UI presents
 //! the same content as a tree (roots and ordered children per node).
 
+use crate::graph::{BlockGraph, BlockId, BlockNode};
 use crate::llm;
 use crate::theme;
+use crate::undo::UndoHistory;
 mod action_bar;
 
 use action_bar::{
@@ -15,9 +17,7 @@ use action_bar::{
 use iced::widget::{button, column, container, row, rule, scrollable, text, text_editor, tooltip};
 use iced::{Element, Event, Fill, Length, Subscription, Task, event, keyboard, mouse};
 use lucide_icons::iced as icons;
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, io, path::PathBuf, sync::LazyLock};
-use uuid::Uuid;
+use std::collections::HashMap;
 
 fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
     let icon = match id {
@@ -33,253 +33,9 @@ fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
         | ActionId::OpenAsFocus => icons::icon_arrow_right(),
         | ActionId::DuplicateBlock => icons::icon_copy(),
         | ActionId::ArchiveBlock => icons::icon_archive(),
-        | _ => text("?"),
+        | ActionId::Overflow => text("?"),
     };
     icon.size(16).into()
-}
-
-static PROJECT_DIRS: LazyLock<Option<directories::ProjectDirs>> =
-    LazyLock::new(|| directories::ProjectDirs::from("app", "miorin", "bb"));
-
-/// Unique id for a block in the graph.
-///
-/// Invariant: this id is always a valid UUID.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct BlockId(Uuid);
-
-impl BlockId {
-    fn new() -> Self {
-        Self(Uuid::new_v4())
-    }
-}
-
-/// One node in the block graph: a point (text) and ordered child ids.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
-struct BlockNode {
-    point: String,
-    children: Vec<BlockId>,
-}
-
-impl BlockNode {
-    fn new(point: impl ToString, children: Vec<BlockId>) -> Self {
-        Self { point: point.to_string(), children }
-    }
-}
-
-/// Graph representation: roots and a map from block id to node.
-#[derive(Clone, PartialEq, Serialize, Deserialize)]
-struct BlockGraph {
-    roots: Vec<BlockId>,
-    nodes: HashMap<BlockId, BlockNode>,
-}
-
-impl BlockGraph {
-    fn new(roots: Vec<BlockId>, nodes: HashMap<BlockId, BlockNode>) -> Self {
-        Self { roots, nodes }
-    }
-
-    fn load() -> Self {
-        let Some(path) = Self::data_file_path() else {
-            return Self::default();
-        };
-        match fs::read_to_string(&path) {
-            | Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
-            | Err(_) => Self::default(),
-        }
-    }
-
-    fn save(&self) -> io::Result<()> {
-        let Some(path) = Self::data_file_path() else {
-            return Ok(());
-        };
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        let contents = serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string());
-        fs::write(path, contents)
-    }
-
-    fn data_file_path() -> Option<PathBuf> {
-        PROJECT_DIRS.as_ref().map(|project| project.data_dir().join("blocks.json"))
-    }
-
-    fn node(&self, id: &BlockId) -> Option<&BlockNode> {
-        self.nodes.get(id)
-    }
-
-    fn point(&self, id: &BlockId) -> Option<String> {
-        self.node(id).map(|node| node.point.clone())
-    }
-
-    fn update_point(&mut self, id: &BlockId, value: String) {
-        if let Some(node) = self.nodes.get_mut(id) {
-            node.point = value;
-        }
-    }
-
-    /// Add one child block under the parent and return the new child id.
-    fn append_child(&mut self, parent_id: &BlockId, point: String) -> Option<BlockId> {
-        if !self.nodes.contains_key(parent_id) {
-            return None;
-        }
-
-        let child_id = BlockId::new();
-        self.nodes.insert(child_id.clone(), BlockNode::new(point, vec![]));
-        if let Some(parent) = self.nodes.get_mut(parent_id) {
-            parent.children.push(child_id.clone());
-        }
-        Some(child_id)
-    }
-
-    fn append_sibling(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
-        let (parent_id, index) = self.parent_and_index_of(block_id)?;
-        let sibling_id = BlockId::new();
-        self.nodes.insert(sibling_id.clone(), BlockNode::new(point, vec![]));
-
-        if let Some(parent_id) = parent_id {
-            let parent = self.nodes.get_mut(&parent_id)?;
-            parent.children.insert(index + 1, sibling_id.clone());
-        } else {
-            self.roots.insert(index + 1, sibling_id.clone());
-        }
-        Some(sibling_id)
-    }
-
-    fn duplicate_subtree_after(&mut self, block_id: &BlockId) -> Option<BlockId> {
-        let (parent_id, index) = self.parent_and_index_of(block_id)?;
-        let duplicate_id = self.clone_subtree_with_new_ids(block_id)?;
-
-        if let Some(parent_id) = parent_id {
-            let parent = self.nodes.get_mut(&parent_id)?;
-            parent.children.insert(index + 1, duplicate_id.clone());
-        } else {
-            self.roots.insert(index + 1, duplicate_id.clone());
-        }
-        Some(duplicate_id)
-    }
-
-    fn remove_block_subtree(&mut self, block_id: &BlockId) -> Option<Vec<BlockId>> {
-        let (parent_id, index) = self.parent_and_index_of(block_id)?;
-        if let Some(parent_id) = parent_id {
-            if let Some(parent) = self.nodes.get_mut(&parent_id) {
-                parent.children.remove(index);
-            }
-        } else {
-            self.roots.remove(index);
-        }
-
-        let mut removed_ids = Vec::new();
-        self.collect_subtree_ids(block_id, &mut removed_ids);
-        for id in &removed_ids {
-            self.nodes.remove(id);
-        }
-
-        if self.roots.is_empty() {
-            let root_id = BlockId::new();
-            self.nodes.insert(root_id.clone(), BlockNode::new(String::new(), vec![]));
-            self.roots.push(root_id);
-        }
-
-        Some(removed_ids)
-    }
-
-    fn parent_and_index_of(&self, target: &BlockId) -> Option<(Option<BlockId>, usize)> {
-        if let Some(index) = self.roots.iter().position(|id| id == target) {
-            return Some((None, index));
-        }
-
-        for (parent_id, node) in &self.nodes {
-            if let Some(index) = node.children.iter().position(|id| id == target) {
-                return Some((Some(parent_id.clone()), index));
-            }
-        }
-        None
-    }
-
-    fn clone_subtree_with_new_ids(&mut self, source_id: &BlockId) -> Option<BlockId> {
-        let source_node = self.node(source_id)?.clone();
-        let mut child_ids = Vec::with_capacity(source_node.children.len());
-        for child in source_node.children {
-            child_ids.push(self.clone_subtree_with_new_ids(&child)?);
-        }
-
-        let next_id = BlockId::new();
-        self.nodes.insert(next_id.clone(), BlockNode::new(source_node.point, child_ids));
-        Some(next_id)
-    }
-
-    fn collect_subtree_ids(&self, current: &BlockId, out: &mut Vec<BlockId>) {
-        let Some(node) = self.node(current) else {
-            return;
-        };
-        out.push(current.clone());
-        for child in &node.children {
-            self.collect_subtree_ids(child, out);
-        }
-    }
-
-    /// Return lineage points from one root to the target id.
-    ///
-    /// If the target id is not reachable from any root, returns an empty lineage.
-    fn lineage_points_for_id(&self, target: &BlockId) -> llm::Lineage {
-        for root in &self.roots {
-            let mut points = Vec::new();
-            if self.collect_lineage_points(root, target, &mut points) {
-                return llm::Lineage::from_points(points);
-            }
-        }
-        llm::Lineage::from_points(vec![])
-    }
-
-    /// DFS helper for `lineage_points_for_id`.
-    fn collect_lineage_points(
-        &self, current: &BlockId, target: &BlockId, points: &mut Vec<String>,
-    ) -> bool {
-        let Some(node) = self.node(current) else {
-            return false;
-        };
-
-        points.push(node.point.clone());
-        if current == target {
-            return true;
-        }
-
-        for child in &node.children {
-            if self.collect_lineage_points(child, target, points) {
-                return true;
-            }
-        }
-
-        points.pop();
-        false
-    }
-
-    fn default_graph() -> Self {
-        let root_id = BlockId::new();
-        let child_ids = [BlockId::new(), BlockId::new(), BlockId::new()];
-        let mut nodes = HashMap::new();
-        nodes.insert(child_ids[0].clone(), BlockNode::new("马克思：《资本论》", vec![]));
-        nodes.insert(
-            child_ids[1].clone(),
-            BlockNode::new("马克思·韦伯：《新教伦理与资本主义精神》", vec![]),
-        );
-        nodes.insert(
-            child_ids[2].clone(),
-            BlockNode::new("Ivan Zhao: Steam, Steel, and Invisible Minds", vec![]),
-        );
-        nodes.insert(
-            root_id.clone(),
-            BlockNode::new("Notes on liberating productivity", child_ids.to_vec()),
-        );
-        BlockGraph::new(vec![root_id], nodes)
-    }
-}
-
-impl Default for BlockGraph {
-    fn default() -> Self {
-        Self::default_graph()
-    }
 }
 
 /// Snapshot of undoable application state.
@@ -287,62 +43,6 @@ impl Default for BlockGraph {
 struct UndoSnapshot {
     graph: BlockGraph,
     expansion_drafts: HashMap<BlockId, ExpansionDraft>,
-}
-
-/// Linear undo/redo stack of application state snapshots.
-///
-/// Invariant: the current (live) state is NOT stored in the stack — only
-/// prior states are. When the user undoes, the current state is pushed as
-/// a redo entry and the top undo entry becomes the live state. New
-/// mutations discard the redo future.
-///
-/// Designed so that upgrading to a branching undo-tree only requires
-/// replacing the internal `Vec` with a tree and changing cursor
-/// navigation — the public API (`push`, `undo`, `redo`) stays the same.
-#[derive(Clone)]
-struct UndoHistory {
-    /// Past snapshots (undo direction). Most recent is last.
-    undo_stack: Vec<UndoSnapshot>,
-    /// Future snapshots (redo direction). Most recent undo is last.
-    redo_stack: Vec<UndoSnapshot>,
-    /// Maximum number of undo entries retained.
-    capacity: usize,
-}
-
-impl UndoHistory {
-    fn with_capacity(capacity: usize) -> Self {
-        Self { undo_stack: Vec::new(), redo_stack: Vec::new(), capacity }
-    }
-
-    fn push(&mut self, snapshot: UndoSnapshot) {
-        if self.undo_stack.len() >= self.capacity {
-            self.undo_stack.remove(0);
-        }
-        self.undo_stack.push(snapshot);
-        self.redo_stack.clear();
-    }
-
-    fn undo(&mut self, current: UndoSnapshot) -> Option<UndoSnapshot> {
-        let previous = self.undo_stack.pop()?;
-        self.redo_stack.push(current);
-        Some(previous)
-    }
-
-    fn redo(&mut self, current: UndoSnapshot) -> Option<UndoSnapshot> {
-        let next = self.redo_stack.pop()?;
-        self.undo_stack.push(current);
-        Some(next)
-    }
-
-    #[allow(dead_code)]
-    fn can_undo(&self) -> bool {
-        !self.undo_stack.is_empty()
-    }
-
-    #[allow(dead_code)]
-    fn can_redo(&self) -> bool {
-        !self.redo_stack.is_empty()
-    }
 }
 
 /// Default capacity: 64 undo steps.
@@ -443,7 +143,7 @@ struct EditorStore {
 impl EditorStore {
     fn from_graph(graph: &BlockGraph) -> Self {
         let mut store = Self::default();
-        store.populate(graph, &graph.roots);
+        store.populate(graph, graph.roots());
         store
     }
 
@@ -497,7 +197,7 @@ impl EditorStore {
 #[derive(Clone)]
 pub struct AppState {
     graph: BlockGraph,
-    undo_history: UndoHistory,
+    undo_history: UndoHistory<UndoSnapshot>,
     llm_config: Result<llm::LlmConfig, llm::LlmConfigError>,
     error: Option<AppError>,
     summary_state: SummaryState,
@@ -534,7 +234,7 @@ impl AppState {
         }
     }
 
-    fn save_tree(&self) -> io::Result<()> {
+    fn save_tree(&self) -> std::io::Result<()> {
         self.graph.save()
     }
 
@@ -547,7 +247,7 @@ impl AppState {
     }
 
     fn current_block_for_shortcuts(&self) -> Option<BlockId> {
-        self.active_block_id.clone().or_else(|| self.graph.roots.first().cloned())
+        self.active_block_id.clone().or_else(|| self.graph.roots().first().cloned())
     }
 
     fn set_active_block(&mut self, block_id: &BlockId) {
@@ -568,7 +268,7 @@ impl AppState {
         self.graph = snapshot.graph;
         self.expansion_drafts = snapshot.expansion_drafts;
         self.editing_block_id = None;
-        self.active_block_id = self.graph.roots.first().cloned();
+        self.active_block_id = self.graph.roots().first().cloned();
         if let Err(err) = self.save_tree() {
             tracing::error!(%err, "failed to save tree after undo/redo");
         }
@@ -953,7 +653,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 state.editors.remove_blocks(&removed_ids);
                 state.overflow_open_for = None;
                 if state.active_block_id.as_ref() == Some(&block_id) {
-                    state.active_block_id = state.graph.roots.first().cloned();
+                    state.active_block_id = state.graph.roots().first().cloned();
                 }
                 if let Err(err) = state.save_tree() {
                     tracing::error!(%err, "failed to save tree after archiving subtree");
@@ -1032,7 +732,7 @@ impl<'a> TreeView<'a> {
     }
 
     fn render_roots(&self) -> Element<'a, Message> {
-        self.render_line(&self.state.graph.roots)
+        self.render_line(self.state.graph.roots())
     }
 
     fn render_line(&self, ids: &'a [BlockId]) -> Element<'a, Message> {

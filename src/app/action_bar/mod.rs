@@ -1,5 +1,4 @@
 mod dispatch;
-#[allow(dead_code)]
 mod keyboard;
 mod responsive;
 mod selector;
@@ -16,12 +15,11 @@ pub use types::{
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::app::BlockId;
-    use uuid::Uuid;
+    use crate::graph::BlockId;
 
     fn row_context() -> RowContext {
         RowContext {
-            block_id: BlockId(Uuid::new_v4()),
+            block_id: BlockId::new(),
             point_text: "hello".to_string(),
             has_draft: false,
             draft_suggestion_count: 0,

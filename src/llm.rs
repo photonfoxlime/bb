@@ -1,11 +1,8 @@
-use directories::ProjectDirs;
+use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
-use std::{env, fs, io, path::PathBuf, sync::LazyLock};
+use std::{env, fs, io, path::PathBuf};
 use thiserror::Error;
 use tracing;
-
-static PROJECT_DIRS: LazyLock<Option<ProjectDirs>> =
-    LazyLock::new(|| ProjectDirs::from("app", "miorin", "bb"));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConfig {
@@ -105,7 +102,7 @@ impl LlmConfig {
     }
 
     fn config_path() -> Option<PathBuf> {
-        PROJECT_DIRS.as_ref().map(|project| project.config_dir().join("llm.toml"))
+        AppPaths::llm_config()
     }
 
     fn default_template() -> String {

@@ -1,5 +1,6 @@
-use super::super::{AppState, BlockId, ExpandState, Message, SummaryState};
+use super::super::{AppState, ExpandState, Message, SummaryState};
 use super::types::{ActionDescriptor, ActionId};
+use crate::graph::BlockId;
 
 pub fn action_to_message(
     state: &AppState, block_id: &BlockId, descriptor: &ActionDescriptor,

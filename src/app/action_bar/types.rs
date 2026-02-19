@@ -1,5 +1,8 @@
-use super::super::BlockId;
+use crate::graph::BlockId;
 
+// Some variants (Overflow, CollapseBranch, ExpandBranch, OpenAsFocus) are
+// matched in dispatch and action_icon but not yet constructed; they represent
+// planned actions.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActionId {

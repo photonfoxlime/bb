@@ -1,5 +1,7 @@
 use super::types::{ActionBarVm, ActionId};
 
+// Variants beyond `Wide` are matched in `project_for_viewport` but not yet
+// constructed outside tests; they exist for upcoming responsive breakpoints.
 #[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ViewportBucket {

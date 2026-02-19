@@ -1,6 +1,9 @@
 mod app;
+mod graph;
 mod llm;
+mod paths;
 mod theme;
+mod undo;
 
 // const DEFAULT_FONT: iced::Font = iced::Font::with_name("Inter");
 const DEFAULT_FONT: iced::Font = iced::Font::with_name("LXGW WenKai");
