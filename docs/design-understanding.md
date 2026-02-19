@@ -23,8 +23,15 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 ### Module structure
 
 - `src/main.rs` -- Iced app entry. Loads fonts (WenKai, Inter, Lucide), wires theme.
-- `src/app.rs` -- State, messages, update, view. Contains `BlockGraph`, `EditorStore`, `TreeView`, `ExpansionDraft`, lifecycle states.
+- `src/app.rs` -- Orchestration: AppState, Message enum, update loop, subscription, view dispatch.
+- `src/app/state.rs` -- UI error types and async lifecycle enums (UiError, AppError, SummaryState, ExpandState).
+- `src/app/draft.rs` -- ExpansionDraft: pending expand result (rewrite + child suggestions).
+- `src/app/editor_store.rs` -- EditorStore: maps BlockId to iced text_editor::Content buffers.
+- `src/app/view.rs` -- TreeView: pure renderer from immutable AppState into widget tree.
 - `src/app/action_bar/` -- Typed action bar: types, selector (state-to-VM), responsive projection, keyboard shortcuts, dispatch.
+- `src/graph.rs` -- Block graph data model: BlockId, BlockNode, BlockGraph. JSON persistence.
+- `src/paths.rs` -- Shared application directory paths (AppPaths).
+- `src/undo.rs` -- Generic undo/redo history (UndoHistory\<T\>).
 - `src/llm.rs` -- LLM client, config loading (env vars + TOML file), prompt construction, expand/summarize API.
 - `src/theme.rs` -- Custom paper-and-ink theme: palette constants, per-widget style functions.
 
@@ -32,13 +39,19 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 
 | Type | Location | Purpose |
 |------|----------|---------|
-| `BlockId` | `app.rs` | UUID wrapper for stable block identity |
-| `BlockGraph` | `app.rs` | Roots + HashMap\<BlockId, BlockNode\>. JSON serialization. |
-| `BlockNode` | `app.rs` | Point (String) + children (Vec\<BlockId\>) |
-| `EditorStore` | `app.rs` | Maps BlockId to iced text_editor::Content buffers |
-| `AppState` | `app.rs` | Full UI state: graph, editors, LLM config, expand/summary lifecycle, drafts |
-| `TreeView` | `app.rs` | Pure renderer: borrows immutable AppState, produces Element tree |
-| `ExpansionDraft` | `app.rs` | Pending expand result: optional rewrite + child suggestions |
+| `BlockId` | `graph.rs` | UUID wrapper for stable block identity |
+| `BlockGraph` | `graph.rs` | Roots + HashMap\<BlockId, BlockNode\>. JSON serialization. |
+| `BlockNode` | `graph.rs` | Point (String) + children (Vec\<BlockId\>) |
+| `AppPaths` | `paths.rs` | Data file and config file paths via `directories` crate |
+| `UndoHistory<T>` | `undo.rs` | Fixed-capacity undo/redo stack |
+| `UiError` | `app/state.rs` | Display-safe error for UI messages |
+| `AppError` | `app/state.rs` | Tagged application error source (config, summary, expand) |
+| `SummaryState` | `app/state.rs` | Per-row summarize lifecycle (Idle, Loading, Error) |
+| `ExpandState` | `app/state.rs` | Per-row expand lifecycle (Idle, Loading, Error) |
+| `ExpansionDraft` | `app/draft.rs` | Pending expand result: optional rewrite + child suggestions |
+| `EditorStore` | `app/editor_store.rs` | Maps BlockId to iced text_editor::Content buffers |
+| `AppState` | `app.rs` | Full UI state: graph, editors, LLM config, lifecycle, drafts |
+| `TreeView` | `app/view.rs` | Pure renderer: borrows immutable AppState, produces Element tree |
 | `LlmClient` | `llm.rs` | HTTP client for summarize and expand requests |
 | `LlmConfig` | `llm.rs` | base_url, api_key, model. Loaded from env vars or `llm.toml` |
 
@@ -68,7 +81,6 @@ See [`action-bar.md`](action-bar.md) for full action bar design: structure, resp
 ## Exploration Backlog
 
 ### Interaction
-- Undo/redo with typed command events.
 - Collapse/expand subtree visibility.
 - Keyboard-first traversal (up/down, indent-level moves).
 - Conflict-safe editing during async operations.

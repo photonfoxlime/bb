@@ -3,40 +3,27 @@
 //! The underlying document is a graph of blocks (each with a UUID id); the UI presents
 //! the same content as a tree (roots and ordered children per node).
 
-use crate::graph::{BlockGraph, BlockId, BlockNode};
+use crate::graph::{BlockGraph, BlockId};
 use crate::llm;
 use crate::theme;
 use crate::undo::UndoHistory;
 mod action_bar;
+mod draft;
+mod editor_store;
+mod state;
+mod view;
+
+use draft::ExpansionDraft;
+use editor_store::EditorStore;
+use state::{AppError, ExpandState, SummaryState, UiError};
 
 use action_bar::{
-    ActionAvailability, ActionDescriptor, ActionId, RowContext, StatusChipVm, ViewportBucket,
-    action_to_message, action_to_message_by_id, build_action_bar_vm, project_for_viewport,
-    shortcut_to_action,
+    ActionAvailability, ActionId, RowContext, ViewportBucket, action_to_message_by_id,
+    build_action_bar_vm, project_for_viewport, shortcut_to_action,
 };
-use iced::widget::{button, column, container, row, rule, scrollable, text, text_editor, tooltip};
-use iced::{Element, Event, Fill, Length, Subscription, Task, event, keyboard, mouse};
-use lucide_icons::iced as icons;
+use iced::widget::{column, container, scrollable, text, text_editor};
+use iced::{Element, Event, Fill, Subscription, Task, event, keyboard, mouse};
 use std::collections::HashMap;
-
-fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
-    let icon = match id {
-        | ActionId::Expand => icons::icon_maximize_2(),
-        | ActionId::Reduce => icons::icon_minimize_2(),
-        | ActionId::AddChild => icons::icon_corner_down_right(),
-        | ActionId::AcceptAll => icons::icon_check_check(),
-        | ActionId::Retry => icons::icon_refresh_cw(),
-        | ActionId::DismissDraft => icons::icon_x(),
-        | ActionId::CollapseBranch => icons::icon_chevron_down(),
-        | ActionId::ExpandBranch => icons::icon_chevron_right(),
-        | ActionId::AddSibling => icons::icon_plus(),
-        | ActionId::OpenAsFocus => icons::icon_arrow_right(),
-        | ActionId::DuplicateBlock => icons::icon_copy(),
-        | ActionId::ArchiveBlock => icons::icon_archive(),
-        | ActionId::Overflow => text("?"),
-    };
-    icon.size(16).into()
-}
 
 /// Snapshot of undoable application state.
 #[derive(Clone)]
@@ -47,152 +34,6 @@ struct UndoSnapshot {
 
 /// Default capacity: 64 undo steps.
 const UNDO_CAPACITY: usize = 64;
-
-/// A display-safe error value used by UI state and messages.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct UiError {
-    message: String,
-}
-
-impl UiError {
-    fn from_message(message: impl ToString) -> Self {
-        Self { message: message.to_string() }
-    }
-
-    fn as_str(&self) -> &str {
-        self.message.as_str()
-    }
-}
-
-/// Global application-level error source used by the top banner.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum AppError {
-    Configuration(UiError),
-    Summary(UiError),
-    Expand(UiError),
-}
-
-impl AppError {
-    fn message(&self) -> &str {
-        match self {
-            | Self::Configuration(err) | Self::Summary(err) | Self::Expand(err) => err.as_str(),
-        }
-    }
-}
-
-/// Per-row summarize lifecycle.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum SummaryState {
-    Idle,
-    Loading(BlockId),
-    Error { block_id: BlockId, reason: UiError },
-}
-
-impl Default for SummaryState {
-    fn default() -> Self {
-        Self::Idle
-    }
-}
-
-/// Per-row expand lifecycle.
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum ExpandState {
-    Idle,
-    Loading(BlockId),
-    Error { block_id: BlockId, reason: UiError },
-}
-
-impl Default for ExpandState {
-    fn default() -> Self {
-        Self::Idle
-    }
-}
-
-/// One pending expansion draft for one block.
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ExpansionDraft {
-    rewrite: Option<String>,
-    children: Vec<String>,
-}
-
-impl ExpansionDraft {
-    fn new(rewrite: Option<String>, children: Vec<String>) -> Self {
-        Self { rewrite, children }
-    }
-
-    fn from_expand_result(result: llm::ExpandResult) -> Self {
-        let (rewrite, children) = result.into_parts();
-        let children =
-            children.into_iter().map(llm::ExpandSuggestion::into_point).collect::<Vec<_>>();
-        Self::new(rewrite, children)
-    }
-
-    fn is_empty(&self) -> bool {
-        self.rewrite.is_none() && self.children.is_empty()
-    }
-}
-
-/// Stores text editor buffers indexed by block id.
-///
-/// Invariant: every visible block id should have one content entry.
-#[derive(Clone, Default)]
-struct EditorStore {
-    buffers: HashMap<BlockId, text_editor::Content>,
-}
-
-impl EditorStore {
-    fn from_graph(graph: &BlockGraph) -> Self {
-        let mut store = Self::default();
-        store.populate(graph, graph.roots());
-        store
-    }
-
-    fn populate(&mut self, graph: &BlockGraph, ids: &[BlockId]) {
-        for id in ids {
-            if let Some(node) = graph.node(id) {
-                self.buffers.insert(id.clone(), text_editor::Content::with_text(&node.point));
-                self.populate(graph, &node.children);
-            }
-        }
-    }
-
-    fn ensure_block(&mut self, graph: &BlockGraph, block_id: &BlockId) {
-        if self.buffers.contains_key(block_id) {
-            return;
-        }
-        let point = graph.point(block_id).unwrap_or_default();
-        self.buffers.insert(block_id.clone(), text_editor::Content::with_text(&point));
-    }
-
-    fn get(&self, block_id: &BlockId) -> Option<&text_editor::Content> {
-        self.buffers.get(block_id)
-    }
-
-    fn get_mut(&mut self, block_id: &BlockId) -> Option<&mut text_editor::Content> {
-        self.buffers.get_mut(block_id)
-    }
-
-    fn set_text(&mut self, block_id: &BlockId, value: &str) {
-        self.buffers.insert(block_id.clone(), text_editor::Content::with_text(value));
-    }
-
-    fn ensure_subtree(&mut self, graph: &BlockGraph, block_id: &BlockId) {
-        if let Some(node) = graph.node(block_id) {
-            self.buffers
-                .entry(block_id.clone())
-                .or_insert_with(|| text_editor::Content::with_text(&node.point));
-            for child in &node.children {
-                self.ensure_subtree(graph, child);
-            }
-        }
-    }
-
-    fn remove_blocks(&mut self, block_ids: &[BlockId]) {
-        for id in block_ids {
-            self.buffers.remove(id);
-        }
-    }
-}
 
 #[derive(Clone)]
 pub struct AppState {
@@ -709,7 +550,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         );
     }
 
-    let tree = TreeView::new(state).render_roots();
+    let tree = view::TreeView::new(state).render_roots();
     let content = container(tree).padding(24).max_width(720);
     layout = layout.push(
         scrollable(
@@ -719,248 +560,4 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     );
 
     container(layout).style(theme::canvas).width(Fill).height(Fill).into()
-}
-
-/// Pure renderer from immutable state into tree widgets.
-struct TreeView<'a> {
-    state: &'a AppState,
-}
-
-impl<'a> TreeView<'a> {
-    fn new(state: &'a AppState) -> Self {
-        Self { state }
-    }
-
-    fn render_roots(&self) -> Element<'a, Message> {
-        self.render_line(self.state.graph.roots())
-    }
-
-    fn render_line(&self, ids: &'a [BlockId]) -> Element<'a, Message> {
-        let mut col = column![].spacing(10);
-        for id in ids {
-            let Some(node) = self.state.graph.node(id) else {
-                continue;
-            };
-            col = col.push(self.render_block(id, node));
-        }
-        col.into()
-    }
-
-    fn render_block(&self, block_id: &BlockId, node: &'a BlockNode) -> Element<'a, Message> {
-        let editor_content =
-            self.state.editors.get(block_id).expect("editor content is populated from graph");
-
-        let block_id_for_edit = block_id.clone();
-        let row_context = self.action_row_context(block_id, editor_content.text(), node);
-        let action_bar =
-            project_for_viewport(build_action_bar_vm(&row_context), self.viewport_bucket());
-
-        let spine = container(rule::vertical(1).style(theme::spine_rule))
-            .width(Length::Fixed(4.0))
-            .align_x(iced::alignment::Horizontal::Center);
-        let marker = container(text("•").size(12).style(theme::spine_text))
-            .width(Length::Fixed(12.0))
-            .align_x(iced::alignment::Horizontal::Center)
-            .padding(iced::Padding::ZERO.top(3.0));
-
-        let row_content = row![]
-            .spacing(6)
-            .width(Fill)
-            .align_y(iced::Alignment::Start)
-            .push(spine)
-            .push(marker)
-            .push(
-                text_editor(editor_content)
-                    .placeholder("point")
-                    .style(theme::point_editor)
-                    .on_action(move |action| {
-                        Message::PointEdited(block_id_for_edit.clone(), action)
-                    })
-                    .height(Length::Shrink),
-            )
-            .push(self.render_action_buttons(block_id, &action_bar));
-
-        let mut block = column![].spacing(4).push(row_content);
-        if action_bar.status_chip.is_some() {
-            block = block.push(
-                container(self.render_status_chip(&action_bar))
-                    .padding(iced::Padding::ZERO.left(16.0)),
-            );
-        }
-        if let Some(draft) = self.state.expansion_drafts.get(block_id) {
-            block = block.push(self.render_expansion_panel(block_id, draft));
-        }
-
-        if !node.children.is_empty() {
-            block = block.push(
-                container(self.render_line(&node.children)).padding(iced::Padding::ZERO.left(16.0)),
-            );
-        }
-        block.into()
-    }
-
-    fn render_expansion_panel(
-        &self, block_id: &BlockId, draft: &'a ExpansionDraft,
-    ) -> Element<'a, Message> {
-        let mut panel = column![].spacing(6);
-
-        if let Some(rewrite) = &draft.rewrite {
-            panel = panel.push(
-                row![]
-                    .spacing(8)
-                    .push(container(text(format!("Rewrite: {}", rewrite))).width(Length::Fill))
-                    .push(
-                        button(text("Apply rewrite").font(theme::INTER).size(13))
-                            .style(theme::action_button)
-                            .on_press(Message::ApplyExpandedRewrite(block_id.clone())),
-                    )
-                    .push(
-                        button(text("Dismiss rewrite").font(theme::INTER).size(13))
-                            .style(theme::destructive_button)
-                            .on_press(Message::RejectExpandedRewrite(block_id.clone())),
-                    ),
-            );
-        }
-
-        if !draft.children.is_empty() {
-            panel = panel.push(
-                row![]
-                    .spacing(8)
-                    .push(container(text("Child suggestions")).width(Length::Fill))
-                    .push(
-                        button(text("Accept all").font(theme::INTER).size(13))
-                            .style(theme::action_button)
-                            .on_press(Message::AcceptAllExpandedChildren(block_id.clone())),
-                    )
-                    .push(
-                        button(text("Discard all").font(theme::INTER).size(13))
-                            .style(theme::destructive_button)
-                            .on_press(Message::DiscardExpansion(block_id.clone())),
-                    ),
-            );
-
-            for (index, child) in draft.children.iter().enumerate() {
-                panel = panel.push(
-                    row![]
-                        .spacing(8)
-                        .push(container(text(child.as_str())).width(Length::Fill))
-                        .push(
-                            button(text("Keep").font(theme::INTER).size(13))
-                                .style(theme::action_button)
-                                .on_press(Message::AcceptExpandedChild(block_id.clone(), index)),
-                        )
-                        .push(
-                            button(text("Drop").font(theme::INTER).size(13))
-                                .style(theme::destructive_button)
-                                .on_press(Message::RejectExpandedChild(block_id.clone(), index)),
-                        ),
-                );
-            }
-        }
-
-        container(panel).padding(iced::Padding::from([8.0, 16.0])).style(theme::draft_panel).into()
-    }
-
-    fn action_row_context(
-        &self, block_id: &BlockId, point_text: String, _node: &BlockNode,
-    ) -> RowContext {
-        let draft = self.state.expansion_drafts.get(block_id);
-        RowContext {
-            block_id: block_id.clone(),
-            point_text,
-            has_draft: draft.is_some(),
-            draft_suggestion_count: draft.map(|d| d.children.len()).unwrap_or(0),
-            has_expand_error: matches!(&self.state.expand_state, ExpandState::Error { block_id: id, .. } if id == block_id),
-            has_reduce_error: matches!(&self.state.summary_state, SummaryState::Error { block_id: id, .. } if id == block_id),
-            is_expanding: self.state.is_expanding(block_id),
-            is_reducing: self.state.is_summarizing(block_id),
-        }
-    }
-
-    fn viewport_bucket(&self) -> ViewportBucket {
-        ViewportBucket::Wide
-    }
-
-    fn render_status_chip(&self, vm: &action_bar::ActionBarVm) -> Element<'a, Message> {
-        let label = match &vm.status_chip {
-            | Some(StatusChipVm::Loading { op: ActionId::Expand }) => "Expanding...".to_string(),
-            | Some(StatusChipVm::Loading { op: ActionId::Reduce }) => "Summarizing...".to_string(),
-            | Some(StatusChipVm::Loading { .. }) => "Working...".to_string(),
-            | Some(StatusChipVm::Error { message, .. }) => message.clone(),
-            | Some(StatusChipVm::DraftActive { suggestion_count }) if *suggestion_count > 0 => {
-                "Draft ready".to_string()
-            }
-            | Some(StatusChipVm::DraftActive { .. }) => "Draft".to_string(),
-            | None => String::new(),
-        };
-
-        container(text(label).size(12).font(theme::INTER).style(theme::status_text))
-            .padding(iced::Padding::from([2.0, 8.0]))
-            .width(Length::Shrink)
-            .into()
-    }
-
-    fn render_action_buttons(
-        &self, block_id: &BlockId, vm: &action_bar::ActionBarVm,
-    ) -> Element<'a, Message> {
-        let mut actions_row = row![].spacing(6);
-
-        for descriptor in vm.visible_actions() {
-            actions_row = actions_row.push(self.render_action_button(block_id, &descriptor));
-        }
-
-        if !vm.overflow.is_empty() {
-            let is_open = self.state.overflow_open_for.as_ref() == Some(block_id);
-            let (icon, label) =
-                if is_open { (icons::icon_x(), "Close") } else { (icons::icon_ellipsis(), "More") };
-            let btn = button(icon.size(16))
-                .style(theme::action_button)
-                .padding(4)
-                .on_press(Message::ToggleOverflow(block_id.clone()));
-
-            actions_row = actions_row.push(
-                tooltip(btn, text(label).size(12).font(theme::INTER), tooltip::Position::Bottom)
-                    .style(theme::tooltip)
-                    .padding(6)
-                    .gap(4),
-            );
-        }
-
-        let mut layout = column![].spacing(4).push(actions_row);
-        if self.state.overflow_open_for.as_ref() == Some(block_id) {
-            let mut overflow = row![].spacing(6);
-            for descriptor in &vm.overflow {
-                overflow = overflow.push(self.render_action_button(block_id, descriptor));
-            }
-            layout = layout.push(container(overflow).padding(iced::Padding::from([4.0, 0.0])));
-        }
-
-        layout.into()
-    }
-
-    fn render_action_button(
-        &self, block_id: &BlockId, descriptor: &ActionDescriptor,
-    ) -> Element<'a, Message> {
-        let style = if descriptor.destructive {
-            theme::destructive_button as fn(&iced::Theme, button::Status) -> button::Style
-        } else {
-            theme::action_button
-        };
-        let icon = action_icon(descriptor.id);
-        let base = button(icon).style(style).padding(4);
-        let btn = if descriptor.availability == ActionAvailability::Enabled {
-            if let Some(message) = action_to_message(self.state, block_id, descriptor) {
-                base.on_press(message)
-            } else {
-                base
-            }
-        } else {
-            base
-        };
-        tooltip(btn, text(descriptor.label).size(12).font(theme::INTER), tooltip::Position::Bottom)
-            .style(theme::tooltip)
-            .padding(6)
-            .gap(4)
-            .into()
-    }
 }
