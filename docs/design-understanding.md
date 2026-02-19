@@ -1,390 +1,134 @@
-# Design Understanding Log
+# Design Understanding
 
-This document records my current understanding of the project and design direction for this session.
-It is written for future iterations of the assistant so context is preserved and implementation choices stay aligned with intent.
+Context document for AI assistants. Records design decisions and current implementation state so future sessions stay aligned.
 
-## Project Purpose
+For project purpose, data model, and workflow, see `readme.md` (canonical source).
 
-`bb` is a document editor for text-first design and implementation.
-It helps users iteratively shape ideas by combining manual editing with LLM-assisted expansion and reduction.
-
-## Core Data Model
-
-The document is a tree of blocks.
-
-Each block contains:
-- an optional terminal text element (`point`),
-- a list of child trees (`forest`),
-- additional attributes (for example named references or flags like "open as document").
-
-The root is itself a block.
-Higher-order structure is represented naturally via nested sub-blocks.
-
-## Intended User Workflow
-
-1. User writes a short initial prompt as a block point.
-2. User triggers **expand** on that block.
-3. LLM returns:
-   - possible rewrite(s) of the current point,
-   - concise child sub-block suggestions (single readable points).
-4. User keeps useful sub-blocks and discards weak ones.
-5. User develops one selected sub-block (iterative deepening).
-6. User may also re-expand an existing block for additional inspiration.
-7. User may use **reduce** to compress verbose points into concise ones.
-
-## UI Design Understanding (Current)
-
-The interface should feel calm and handwritten, with structure made visually obvious and controls kept lightweight.
-
-### Visual Structure
-
-- Tree rendered as vertical structural spines.
-- Every block uses the same simple dot marker on the spine.
-- Block text appears to the right of the marker.
-- Nested levels create additional aligned spine columns.
-- Spines represent parent/child hierarchy, not time.
-
-### Interaction Tone
-
-- Inline actions (for example expand and reduce) should feel like annotations, not heavy toolbar chrome.
-- Keep editing flow lightweight so idea structure remains primary.
-
-### Aesthetic Direction
-
-- Light, airy look.
-- Soft blue-ink tone.
-- Paper-like background texture.
-- Generous whitespace.
-- Strong legibility and reading flow.
-
-## Product Principle to Preserve
+## Product Principle
 
 Prioritize clarity of thought structure over UI chrome.
-The UI should help users think in branches, compare alternatives, and progressively refine ideas.
+Help users think in branches, compare alternatives, and progressively refine ideas.
+Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine concept.
 
-## Working Notes for This Session
+## Aesthetic Direction
 
-- Preserve tree readability first; avoid visually noisy controls.
-- Keep generated sub-points concise and scannable.
-- Avoid introducing timeline metaphors in layout.
-- Any detailed design should remain faithful to the handwritten, structural-spine concept.
+- Light, airy, calm. Soft blue-ink tone. Paper-like background. Generous whitespace.
+- Structure visible through vertical spines and uniform dot markers, not decorative widgets.
+- Actions feel like marginalia annotations, not toolbar chrome.
+- Fonts: LXGW WenKai for point text (default), Inter for utility labels and buttons.
+- Palette defined in `src/theme.rs`: PAPER (warm off-white), INK (near-black), ACCENT (soft blue), ACCENT_MUTED, TINT (warm gray), SPINE (low-contrast gray), DANGER, SUCCESS.
 
-## UI Planning v1 (Element and Operation First)
+## Architecture
 
-This section outlines the implementation plan before detailed visual polish.
-It starts from what is rendered and what users can do to each element.
+### Module structure
 
-### Element Inventory
+- `src/main.rs` -- Iced app entry. Loads fonts (WenKai, Inter, Lucide), wires theme.
+- `src/app.rs` -- State, messages, update, view. Contains `BlockGraph`, `EditorStore`, `TreeView`, `ExpansionDraft`, lifecycle states.
+- `src/app/action_bar/` -- Typed action bar: types, selector (state-to-VM), responsive projection, keyboard shortcuts, dispatch.
+- `src/llm.rs` -- LLM client, config loading (env vars + TOML file), prompt construction, expand/summarize API.
+- `src/theme.rs` -- Custom paper-and-ink theme: palette constants, per-widget style functions.
 
-- Document canvas (scrollable paper area).
-- Spine column per depth level.
-- Block row (dot marker, editable point text, inline actions).
-- Child branch region (indented nested blocks).
-- Inline result states (loading, error, suggestion list).
-- Global status strip for non-local errors.
+### Key types
 
-### Operations per Element
+| Type | Location | Purpose |
+|------|----------|---------|
+| `BlockId` | `app.rs` | UUID wrapper for stable block identity |
+| `BlockGraph` | `app.rs` | Roots + HashMap\<BlockId, BlockNode\>. JSON serialization. |
+| `BlockNode` | `app.rs` | Point (String) + children (Vec\<BlockId\>) |
+| `EditorStore` | `app.rs` | Maps BlockId to iced text_editor::Content buffers |
+| `AppState` | `app.rs` | Full UI state: graph, editors, LLM config, expand/summary lifecycle, drafts |
+| `TreeView` | `app.rs` | Pure renderer: borrows immutable AppState, produces Element tree |
+| `ExpansionDraft` | `app.rs` | Pending expand result: optional rewrite + child suggestions |
+| `ActionBarVm` | `action_bar/types.rs` | View model: primary, contextual, overflow action lists + status chip |
+| `ActionId` | `action_bar/types.rs` | Enum of all action identifiers |
+| `RowContext` | `action_bar/types.rs` | Inputs for building action bar VM per block row |
+| `LlmClient` | `llm.rs` | HTTP client for summarize and expand requests |
+| `LlmConfig` | `llm.rs` | base_url, api_key, model. Loaded from env vars or `llm.toml` |
 
-#### Block row
+### Design decisions
 
-- Edit point text directly.
-- Expand point into child suggestions.
-- Reduce point to concise summary.
-- Accept or reject each generated child suggestion.
-- Add a manual child point.
-- Delete or archive a block.
+- **UUID-based addressing** (not structural paths). Block identity is stable across tree mutations.
+- **Lineage-based context**. Summarize and expand use DFS root-to-target lineage as LLM context.
+- **Single-block async lifecycle**. One summarize and one expand operation active at a time (`SummaryState` / `ExpandState` enums).
+- **Draft-then-apply**. Expand results land in `ExpansionDraft` for review. Rewrite and each child accepted/rejected independently.
+- **Pure renderer**. `TreeView` borrows immutable state, produces widgets. No mutation during rendering.
 
-#### Child branch region
+### Iced layout pitfall (keep in mind)
 
-- Collapse or expand branch visibility.
-- Reorder children.
-- Open one child as current working focus.
+Iced's `center_x(width)` overrides the preceding `width(...)` call because it is implemented as `self.width(width).align_x(Center)`. Use `.align_x(Horizontal::Center)` instead to preserve explicit widths on containers.
 
-#### Document canvas
-
-- Scroll and navigate hierarchy.
-- Search and jump to matching points.
-- Keyboard-first traversal (up, down, indent-level moves).
-
-### UX Principles for Implementation
-
-- Keep one primary action in focus per row; reveal secondary actions on hover/focus.
-- Preserve text stability during async operations (no layout jumps).
-- Keep branch context visible while editing a child node.
-- Prefer reversible actions and soft-delete where possible.
-- Ensure complete keyboard accessibility for writing-heavy sessions.
-
-### Visual System Plan
-
-- Use WenKai for point text and Inter for utility labels/buttons.
-- Define a restrained ink palette: paper, ink, muted accent, warning, error.
-- Render subtle paper texture and low-contrast structural lines.
-- Keep markers and spines uniform across depths.
-- Use spacing rhythm to communicate hierarchy more than decorative widgets.
-
-### Motion and Feedback Plan
-
-- Animate expand and collapse with short height and opacity transitions.
-- Use staggered reveal for generated child suggestions.
-- Show local progress at the row level during expand/reduce.
-- Keep motion calm and low amplitude to preserve reading comfort.
-
-### Incremental Delivery Plan
-
-1. Build structural layout primitives (canvas, spine, block row, child region).
-2. Add interaction model (edit, expand/reduce triggers, async states).
-3. Add suggestion acceptance workflow and branch operations.
-4. Add keyboard navigation and accessibility polish.
-5. Apply visual theming and motion tuning.
-6. Validate desktop and narrow-width behavior, then adjust spacing and controls.
-
-### Current Code Reality (for Alignment)
-
-- App supports inline point editing, summarize, and expand actions per block.
-- Block rows render lightweight spine and dot markers.
-- Expand produces a per-block draft panel with optional rewrite plus child suggestions.
-
-## Session Progress Notes
-
-### Implemented: Functional state and render structure
-
-- Added typed identifier-based addressing using `BlockId` (UUID) for all row operations.
-- Added `EditorStore` as a dedicated state container for editor buffers.
-- Added typed UI error models (`UiError`, `AppError`) for banner and row state.
-- Added typed summarize lifecycle with per-block-id states (`Idle`, `Loading`, `Error`).
-- Added `TreeView` renderer struct to keep view generation pure from immutable state.
-- Added lightweight spine and dot markers in block rows to align with the tree visual concept.
-- Added `tracing` logs for edit, summarize start/success/failure, and save failures.
-
-### Why this shape
-
-- UUID-based block addressing keeps operations stable even if structural position changes.
-- Renderer struct keeps data-to-view mapping explicit and easier to iterate for design polish.
-- Dedicated stores and error enums make async UX behavior predictable and testable.
-
-### Pivot note
-
-- Structural path addressing was intentionally replaced with UUID-based addressing.
-- Summary lineage is now resolved by DFS from roots to a target block id.
-- This keeps command/event payloads focused on persistent identity rather than temporary tree position.
-
-### Implemented: Expand workflow (identifier-based)
-
-- Added `Expand(BlockId)` async flow with typed expand lifecycle state.
-- Added LLM expand API contract with strict JSON payload: optional rewrite plus child suggestions.
-- Added per-block `ExpansionDraft` state for review before applying generated content.
-- Added row-level operations to apply/dismiss rewrite and keep/drop each child suggestion.
-- Added bulk action to accept all suggested children in one step.
-- Added graph mutation helpers to append children by parent block id.
-
-### Notes for next iteration
-
-- Keep expand panel visually lighter; current bordered panel is functional but not final aesthetic.
-- Add explicit undo for applied rewrite and accepted children.
-- Add keyboard shortcuts for keep/drop actions to speed up review flow.
-
-## Exploration TODO Backlog
-
-This backlog captures likely next areas to explore after the current identifier-based summarize and expand baseline.
-
-### Interaction and editing
-
-- Add create/delete/archive operations per block (with reversible delete).
-- Add block reorder operations for sibling branches.
-- Add collapse/expand visibility state per subtree.
-- Add keyboard-first traversal and action shortcuts.
-- Add quick "new child" and "new sibling" actions for manual writing flow.
-
-### Expand and summarize quality
-
-- Add retry and fallback parsing for expand JSON responses.
-- Add prompt tuning for concise, non-overlapping child suggestions.
-- Add richer summarize modes (very short, balanced, context-heavy).
-- Add per-request cancellation and timeout handling in UI.
-- Add conflict-safe behavior when user edits while async response arrives.
-
-### Data model and persistence
-
-- Add versioned storage schema for future migrations.
-- Add safe load behavior (error reporting, backup/restore path).
-- Add invariant checks for graph integrity (dangling child ids, cycles).
-- Add typed metadata fields on blocks (references, open-as-document flag).
-- Add import/export format for document sharing.
-
-### UX and visual design polish
-
-- Replace placeholder spine/marker rendering with refined visual primitives.
-- Introduce style tokens (palette, spacing, type ramp, radii) in one theme module.
-- Improve draft suggestion panel hierarchy and readability.
-- Add subtle motion for expand/reduce and suggestion reveal.
-- Tune narrow-width/mobile behavior for controls and text editor width.
-
-### Safety, history, and trust
-
-- Add undo/redo history with typed command events.
-- Add explicit confirmation for destructive operations.
-- Add autosave feedback and recovery indicator.
-- Add optional operation log panel for AI-generated changes.
-
-### Observability and diagnostics
-
-- Add tracing spans for full async lifecycle (request -> response -> apply).
-- Add structured metrics counters for summarize/expand success and failure.
-- Add user-visible diagnostic details for common LLM/config failures.
-
-### Testing and reliability
-
-- Add unit tests for graph mutations and lineage resolution.
-- Add tests for expand draft state transitions and accept/reject flows.
-- Add serialization round-trip tests for UUID-based ids.
-- Add integration tests for save/load behavior under malformed data.
-
-### Documentation
-
-- Document block graph invariants in code-level docs.
-- Document interaction model and message/state machine for contributors.
-- Add a short architecture note: data flow from UI event to persisted graph.
-
-## Action Bar (Consolidated)
-
-### Intent
-
-- Keep actions lightweight, inline, and secondary to writing.
-- Provide clear row-local feedback for loading, error, and draft states.
-- Preserve text stability and avoid layout jumps.
+## Action Bar
 
 ### Structure
 
-- Row zones: structure marker, editor, status lane, action bar.
-- Primary actions (always visible on desktop): `Expand`, `Reduce`, `Add child`.
-- Contextual actions (state-driven): `Accept all`, `Retry`, `Dismiss draft`.
-- Overflow actions: branch/focus extras plus `Add sibling`, `Duplicate`, `Archive`.
+Row zones: spine, marker, text editor, status chip, action buttons.
 
-### Responsive behavior
+- **Primary** (always visible): Expand, Reduce, Add child.
+- **Contextual** (state-driven): Accept all, Retry, Dismiss draft.
+- **Overflow** (toggle menu): Add sibling, Duplicate, Archive, Collapse/Expand branch, Open as focus.
 
-- `Wide`: primary + contextual inline.
-- `Medium`: contextual moves to overflow.
-- `Compact`: `Reduce` also moves to overflow.
-- `TouchCompact`: menu-first access to keep editor readable.
+### Responsive projection
 
-### Keyboard and dispatch
+| Bucket | Behavior |
+|--------|----------|
+| Wide | Primary + contextual inline |
+| Medium | Contextual moves to overflow |
+| Compact | Reduce also moves to overflow |
+| TouchCompact | Menu-first access |
 
-- Shortcuts:
-  - `Ctrl+.` expand
-  - `Ctrl+,` reduce
-  - `Ctrl+Enter` add child
-  - `Ctrl+Shift+Enter` add sibling
-  - `Ctrl+Shift+A` accept all
-  - `Ctrl+Backspace` archive
-- Pointer and keyboard both route through the same `ActionId -> dispatch` path.
+### Keyboard shortcuts
 
-### State and feedback rules
+`Ctrl+.` expand, `Ctrl+,` reduce, `Ctrl+Enter` add child, `Ctrl+Shift+Enter` add sibling, `Ctrl+Shift+A` accept all, `Ctrl+Backspace` archive. Pointer and keyboard both route through `ActionId -> dispatch`.
+
+### State rules
 
 - Busy states disable only conflicting actions.
-- Error state shows compact chip + retry affordance.
-- Draft state surfaces accept/dismiss quickly.
+- Error shows chip + retry. Draft surfaces accept/dismiss.
 - Empty point gates reduce; add child remains available.
+- Overflow auto-closes on outside click or Escape.
 
-### Implementation mapping
+## Visual Implementation (Current Values)
 
-- Types: `ActionId`, `ActionAvailability`, `ActionDescriptor`, `StatusChipVm`, `ActionBarVm`, `RowContext`.
-- Core functions:
-  - state selector builds action VM from immutable row context,
-  - responsive projector demotes actions deterministically,
-  - dispatcher maps action id to block-id command/message.
+- Spine: `rule::vertical(1)` with `spine_rule` style, 4px container.
+- Marker: bullet character size 12, 12px container, top-padded 3px for baseline alignment.
+- Content column: `max_width(720)`, centered.
+- Child indent: `Padding::ZERO.left(16.0)`.
+- Action buttons: Lucide icons (size 16), annotation-style. Tooltips on all icons.
+- Destructive buttons: danger color on hover/press.
+- Status chip: shrink-width, Inter size 12.
+- Expansion draft panel: tint background, spine-colored border, text buttons for rewrite/child accept/reject.
 
-### Current implementation status
+## Exploration Backlog
 
-- Typed action-bar module exists and is integrated into row rendering.
-- Overflow is interactive (toggle + actionable items).
-- Shortcuts are wired via global event subscription to the same dispatcher path.
-- Auto-close implemented: closes overflow on uncaptured mouse press and on `Escape`.
+### Interaction
+- Undo/redo with typed command events.
+- Collapse/expand subtree visibility.
+- Keyboard-first traversal (up/down, indent-level moves).
+- Conflict-safe editing during async operations.
 
-### Immediate next steps
+### Expand/Summarize quality
+- Retry and fallback parsing for expand JSON.
+- Prompt tuning for concise, non-overlapping suggestions.
+- Per-request cancellation and timeout in UI.
 
-- Add explicit undo/redo for destructive and AI-apply actions.
-- Add collapse/expand-branch and open-as-focus overflow actions.
-- Add targeted tests for overflow interaction and shortcut edge cases.
+### Data model
+- Versioned storage schema for migrations.
+- Graph integrity checks (dangling ids, cycles).
+- Typed metadata on blocks (references, open-as-document flag).
+- Import/export format.
 
-### Implemented: Custom paper-and-ink theme
+### Polish
+- Style tokens in one theme module (spacing, type ramp, radii).
+- Subtle motion for expand/collapse and suggestion reveal.
+- Narrow-width/mobile tuning.
 
-- Created `src/theme.rs` with a full custom palette and per-widget style functions.
-- Palette constants: `PAPER` (warm off-white), `INK` (near-black), `ACCENT` (soft blue), `ACCENT_MUTED`, `TINT` (subtle warm gray), `SPINE` (low-contrast gray), `DANGER`, `SUCCESS`, `WARNING`.
-- Registered custom `Theme` via `Theme::custom_with_fn` with `is_dark = false` so built-in widgets also pick light defaults.
-- Wired theme into the application builder in `main.rs` using the `ThemeFn` trait (pass theme directly, not a closure).
+### Safety
+- Confirmation for destructive operations.
+- Autosave feedback and recovery indicator.
+- Operation log for AI-generated changes.
 
-#### Widget styles applied
-
-- **Error banner**: danger-tinted background with subtle border instead of stock `container::danger`.
-- **Canvas container**: paper background on the outer layout wrapper.
-- **Text editors**: transparent background, borderless at rest, subtle border on hover, accent border on focus — blends with paper surface.
-- **Action buttons**: annotation-style — no background, accent text, subtle tint+border on hover, ink-colored pressed state.
-- **Destructive buttons**: same annotation style but uses danger color on hover/press (applied to Archive, Dismiss, Drop, Discard actions).
-- **Spine and marker text**: low-contrast gray (`SPINE`) so structural elements recede behind content.
-- **Status chip text**: muted accent color for loading/error/draft labels.
-- **Expansion draft panel**: subtle warm tint background with spine-colored border instead of stock `container::bordered_box`.
-- **Overflow toggle button**: annotation-style consistent with other action buttons.
-
-#### Spacing adjustments
-
-- Layout column spacing: `8` → `12`.
-- Block list spacing: `6` → `10`.
-- Block internal spacing: `6` → `8`.
-- Scroll container padding: `16` → `24`.
-- Child indent padding: `28` → `32`.
-
-#### Design intent
-
-- Follows the readme aesthetic: "light and airy, soft blue ink, paper-like background, generous whitespace."
-- Actions feel like marginalia annotations rather than heavy toolbar chrome.
-- Structural elements (spine, marker) recede visually so text content dominates.
-- Font assignments unchanged: WenKai for point text (default), Inter loaded for utility labels.
-
-### Refined: Spine, font assignments, and spacing tightening
-
-- Replaced text-character spine (`|`) with `rule::vertical(1)` using a custom `spine_rule` style — renders as a continuous thin vertical line instead of disconnected pipe characters.
-- Changed block marker from `●` (size 10) to `·` (size 14) — lighter, less dominant dot that recedes further.
-- Reduced spine+marker column width from 12px to 8px each to reduce left dead space.
-- Reduced row internal spacing from 10 to 6 to tighten block rows.
-- Reduced child indent padding from 32 to 24.
-- Applied Inter font (size 13) to all action button labels, expansion panel buttons, and overflow toggle — fulfills the design spec "Use WenKai for point text and Inter for utility labels/buttons."
-- Applied Inter font (size 12) to status chip text.
-- Exported `INTER` font constant from `theme.rs` for reuse.
-
-### Refined: Layout alignment and marker visibility
-
-- Added `max_width(900)` to the tree container so content forms a readable column instead of stretching to full window width; `center_x(Fill)` now centers this column on wide screens.
-- Changed block marker from `·` (middle dot, U+00B7, barely visible) to `•` (bullet, U+2022) at size 10 — visible but still lightweight.
-- Removed `width(Fill)` from scroll container since `max_width` handles the constraint.
-
-### Fixed: Text editor width, marker size, indent, and chip layout
-
-- Added `width(Fill)` to block `row_content` so the row expands to fill the column — this was the root cause of the text editor being squeezed into a narrow column (~150px). The `text_editor` now fills the remaining space after spine, marker, chip, and buttons.
-- Removed unnecessary `container(...).width(Length::Fill)` wrapper around `text_editor` — the editor widget fills by default when the parent row has `width(Fill)`.
-- Widened marker container from 8px to 12px and bumped bullet size from 10 to 12 so the `•` dot is clearly visible.
-- Narrowed spine container from 8px to 4px — a thin line needs less space.
-- Changed child indent from `Padding::from([0.0, 24.0])` (24px on both left and right) to `Padding::ZERO.left(16.0)` (left only, 16px). The old symmetric padding was incorrectly eating right-side space and over-indenting children.
-- Changed status chip width from `Fixed(112px)` to `Shrink` so it only takes space when a label is present, reclaiming ~112px of editor width in the default idle state.
-
-### Bugfix: Spine and marker containers consuming Fill width
-
-- **Root cause found**: `container(...).width(Fixed(4.0)).center_x(Fill)` — Iced's `center_x(width)` is implemented as `self.width(width).align_x(Center)`, meaning it **overrides** the previous `width(Fixed)` with `Fill`. Both the spine and marker containers were silently consuming `Fill` width, leaving the `text_editor` (also `Fill`) competing with two other `Fill` siblings and getting only ~1/3 of available space.
-- **Fix**: Replaced `.center_x(Length::Fill)` with `.align_x(iced::alignment::Horizontal::Center)` on both spine and marker containers, preserving their `width(Fixed(4.0))` and `width(Fixed(12.0))` respectively.
-- The `text_editor` now correctly gets all remaining space in the row after the fixed-width spine (4px), marker (12px), status chip (shrink), and action buttons (shrink).
-
-### Refined: Visual Polish (Step 2)
-
-- **Layout Tightening**: Reduced `max_width` from `900` to `720` to bring action buttons closer to the text content and improve reading line length.
-- **Marker Alignment**: Added `padding(top: 3.0)` to the bullet marker container to align it visually with the text cap-height/baseline (previously it was centered vertically in the row, looking slightly high relative to multi-line text).
-- **Spine Visibility**: Darkened `SPINE` color from `0.78` (too faint) to `0.65` to make the structural lines more visible against the paper background.
-- **Subtle Actions**: Changed `action_button` style to use `ACCENT_MUTED` color in the default/active state (instead of full `ACCENT`), reducing visual noise. Buttons now reach full contrast only on hover.
-
-### Implemented: Icon-based Action Bar
-
-- Replaced text buttons ("Expand", "Reduce", "Add child", "More") with Lucide icons to reduce visual clutter and align with the "clean/paper" aesthetic.
-- Added `lucide-icons` crate (v0.563) with `iced` feature.
-- Implemented `action_icon` helper to map `ActionId` to specific Lucide icons (e.g., `maximize-2` for Expand, `corner-down-right` for Add Child).
-- Added `tooltip` support for all icon buttons to preserve usability (shows text label on hover).
-- Added `tooltip` style in `theme.rs` using high-contrast ink background with paper text.
-- Replaced the overflow toggle ("More"/"Close") with `ellipsis` / `x` icons.
-
+### Testing
+- Graph mutation and lineage resolution unit tests.
+- Expand draft state transition tests.
+- Serialization round-trip tests.
+- Save/load integration tests with malformed data.
