@@ -1078,10 +1078,15 @@ impl<'a> TreeView<'a> {
                     })
                     .height(Length::Shrink),
             )
-            .push(self.render_status_chip(&action_bar))
             .push(self.render_action_buttons(block_id, &action_bar));
 
-        let mut block = column![].spacing(8).push(row_content);
+        let mut block = column![].spacing(4).push(row_content);
+        if action_bar.status_chip.is_some() {
+            block = block.push(
+                container(self.render_status_chip(&action_bar))
+                    .padding(iced::Padding::ZERO.left(16.0)),
+            );
+        }
         if let Some(draft) = self.state.expansion_drafts.get(block_id) {
             block = block.push(self.render_expansion_panel(block_id, draft));
         }
@@ -1178,29 +1183,21 @@ impl<'a> TreeView<'a> {
 
     fn render_status_chip(&self, vm: &action_bar::ActionBarVm) -> Element<'a, Message> {
         let label = match &vm.status_chip {
-            | Some(StatusChipVm::Loading { op: ActionId::Expand }) => {
-                Some("Expanding...".to_string())
-            }
-            | Some(StatusChipVm::Loading { op: ActionId::Reduce }) => {
-                Some("Summarizing...".to_string())
-            }
-            | Some(StatusChipVm::Loading { .. }) => Some("Working...".to_string()),
-            | Some(StatusChipVm::Error { message, .. }) => Some(message.clone()),
+            | Some(StatusChipVm::Loading { op: ActionId::Expand }) => "Expanding...".to_string(),
+            | Some(StatusChipVm::Loading { op: ActionId::Reduce }) => "Summarizing...".to_string(),
+            | Some(StatusChipVm::Loading { .. }) => "Working...".to_string(),
+            | Some(StatusChipVm::Error { message, .. }) => message.clone(),
             | Some(StatusChipVm::DraftActive { suggestion_count }) if *suggestion_count > 0 => {
-                Some("Draft ready".to_string())
+                "Draft ready".to_string()
             }
-            | Some(StatusChipVm::DraftActive { .. }) => Some("Draft".to_string()),
-            | None => None,
+            | Some(StatusChipVm::DraftActive { .. }) => "Draft".to_string(),
+            | None => String::new(),
         };
 
-        let chip = match label {
-            | Some(label) => {
-                container(text(label).size(12).font(theme::INTER).style(theme::status_text))
-                    .padding(iced::Padding::from([2.0, 8.0]))
-            }
-            | None => container(text(" ")).padding(iced::Padding::from([2.0, 8.0])),
-        };
-        chip.width(Length::Shrink).into()
+        container(text(label).size(12).font(theme::INTER).style(theme::status_text))
+            .padding(iced::Padding::from([2.0, 8.0]))
+            .width(Length::Shrink)
+            .into()
     }
 
     fn render_action_buttons(

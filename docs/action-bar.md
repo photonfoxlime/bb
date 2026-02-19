@@ -6,7 +6,9 @@ For overall architecture and aesthetic direction, see `design-understanding.md`.
 
 ## Structure
 
-Row zones: spine, marker, text editor, status chip, action buttons.
+Row zones: spine, marker, text editor, action buttons.
+
+Status chip appears below the row (left-indented to align with text) when active (loading, error, or draft state). Hidden when idle.
 
 - **Primary** (always visible): Expand, Reduce, Add child.
 - **Contextual** (state-driven): Accept all, Retry, Dismiss draft.
@@ -36,7 +38,7 @@ Row zones: spine, marker, text editor, status chip, action buttons.
 
 - Action buttons: Lucide icons (size 16), annotation-style. Tooltips on all icons.
 - Destructive buttons: danger color on hover/press.
-- Status chip: shrink-width, Inter size 12.
+- Status chip: below the row, shrink-width, Inter size 12, left-padded 16px. Only rendered when status is active.
 - Expansion draft panel: tint background, spine-colored border, text buttons for rewrite/child accept/reject.
 
 ## Implementation
