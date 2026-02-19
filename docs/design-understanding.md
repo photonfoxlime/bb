@@ -2,7 +2,7 @@
 
 Context document for AI assistants. Records design decisions and current implementation state so future sessions stay aligned.
 
-For project purpose, data model, and workflow, see `readme.md` (canonical source).
+For project purpose, data model, and workflow, see `README.md` (canonical source).
 
 ## Product Principle
 
