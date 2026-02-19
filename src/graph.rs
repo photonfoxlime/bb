@@ -17,6 +17,7 @@ use uuid::Uuid;
 pub struct BlockId(Uuid);
 
 impl BlockId {
+    /// Generate a fresh, random block id (UUID v4).
     pub fn new() -> Self {
         Self(Uuid::new_v4())
     }
@@ -30,6 +31,7 @@ pub struct BlockNode {
 }
 
 impl BlockNode {
+    /// Create a node with the given text point and child ids.
     pub fn new(point: impl ToString, children: Vec<BlockId>) -> Self {
         Self { point: point.to_string(), children }
     }
@@ -46,14 +48,20 @@ pub struct BlockGraph {
 }
 
 impl BlockGraph {
+    /// Construct a graph from pre-built roots and nodes.
+    ///
+    /// Caller must ensure every id in `roots` and in each node's `children`
+    /// exists as a key in `nodes`.
     pub fn new(roots: Vec<BlockId>, nodes: HashMap<BlockId, BlockNode>) -> Self {
         Self { roots, nodes }
     }
 
+    /// The ordered root block ids.
     pub fn roots(&self) -> &[BlockId] {
         &self.roots
     }
 
+    /// Load the graph from the app data file, falling back to the default demo graph.
     pub fn load() -> Self {
         let Some(path) = AppPaths::data_file() else {
             return Self::default();
@@ -64,6 +72,7 @@ impl BlockGraph {
         }
     }
 
+    /// Persist the graph as pretty-printed JSON to the app data file.
     pub fn save(&self) -> io::Result<()> {
         let Some(path) = AppPaths::data_file() else {
             return Ok(());
@@ -75,14 +84,17 @@ impl BlockGraph {
         fs::write(path, contents)
     }
 
+    /// Look up a node by id.
     pub fn node(&self, id: &BlockId) -> Option<&BlockNode> {
         self.nodes.get(id)
     }
 
+    /// Return the text point of a block, or `None` if the id is unknown.
     pub fn point(&self, id: &BlockId) -> Option<String> {
         self.node(id).map(|node| node.point.clone())
     }
 
+    /// Overwrite the text point of an existing block. No-op if `id` is unknown.
     pub fn update_point(&mut self, id: &BlockId, value: String) {
         if let Some(node) = self.nodes.get_mut(id) {
             node.point = value;
@@ -103,6 +115,8 @@ impl BlockGraph {
         Some(child_id)
     }
 
+    /// Insert an empty sibling block immediately after `block_id` in its parent's
+    /// child list (or in roots if `block_id` is a root). Returns the new id.
     pub fn append_sibling(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
         let sibling_id = BlockId::new();
@@ -117,6 +131,8 @@ impl BlockGraph {
         Some(sibling_id)
     }
 
+    /// Deep-clone a block and its entire subtree with fresh ids, inserting the
+    /// copy immediately after the original. Returns the cloned root id.
     pub fn duplicate_subtree_after(&mut self, block_id: &BlockId) -> Option<BlockId> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
         let duplicate_id = self.clone_subtree_with_new_ids(block_id)?;
@@ -169,6 +185,7 @@ impl BlockGraph {
         llm::Lineage::from_points(vec![])
     }
 
+    /// Find the parent id (or `None` for roots) and the child-list index of `target`.
     fn parent_and_index_of(&self, target: &BlockId) -> Option<(Option<BlockId>, usize)> {
         if let Some(index) = self.roots.iter().position(|id| id == target) {
             return Some((None, index));
@@ -182,6 +199,7 @@ impl BlockGraph {
         None
     }
 
+    /// Recursively clone a subtree, assigning fresh ids to every node.
     fn clone_subtree_with_new_ids(&mut self, source_id: &BlockId) -> Option<BlockId> {
         let source_node = self.node(source_id)?.clone();
         let mut child_ids = Vec::with_capacity(source_node.children.len());
@@ -194,6 +212,7 @@ impl BlockGraph {
         Some(next_id)
     }
 
+    /// Collect all ids reachable from `current` (inclusive) via DFS.
     fn collect_subtree_ids(&self, current: &BlockId, out: &mut Vec<BlockId>) {
         let Some(node) = self.node(current) else {
             return;
@@ -204,6 +223,9 @@ impl BlockGraph {
         }
     }
 
+    /// DFS helper: accumulate ancestor points from `current` toward `target`.
+    /// Returns `true` when the target is found and `points` contains the full
+    /// root-to-target path.
     fn collect_lineage_points(
         &self, current: &BlockId, target: &BlockId, points: &mut Vec<String>,
     ) -> bool {
@@ -226,6 +248,7 @@ impl BlockGraph {
         false
     }
 
+    /// Build the built-in demo graph used when no data file exists.
     fn default_graph() -> Self {
         let root_id = BlockId::new();
         let child_ids = [BlockId::new(), BlockId::new(), BlockId::new()];

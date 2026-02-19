@@ -13,10 +13,15 @@ pub struct UndoHistory<T> {
 }
 
 impl<T> UndoHistory<T> {
+    /// Create an empty history that retains at most `capacity` undo entries.
     pub fn with_capacity(capacity: usize) -> Self {
         Self { undo_stack: Vec::new(), redo_stack: Vec::new(), capacity }
     }
 
+    /// Record a snapshot as the previous state before a mutation.
+    ///
+    /// Clears the redo stack (the user forked a new timeline).
+    /// If the undo stack is at capacity, the oldest entry is dropped.
     pub fn push(&mut self, snapshot: T) {
         if self.undo_stack.len() >= self.capacity {
             self.undo_stack.remove(0);
@@ -25,12 +30,16 @@ impl<T> UndoHistory<T> {
         self.redo_stack.clear();
     }
 
+    /// Undo: pop the top undo entry and return it, pushing `current` onto the
+    /// redo stack. Returns `None` when there is nothing to undo.
     pub fn undo(&mut self, current: T) -> Option<T> {
         let previous = self.undo_stack.pop()?;
         self.redo_stack.push(current);
         Some(previous)
     }
 
+    /// Redo: pop the top redo entry and return it, pushing `current` onto the
+    /// undo stack. Returns `None` when there is nothing to redo.
     pub fn redo(&mut self, current: T) -> Option<T> {
         let next = self.redo_stack.pop()?;
         self.undo_stack.push(current);

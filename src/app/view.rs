@@ -28,6 +28,9 @@ fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
     icon.size(16).into()
 }
 
+/// Stateless view that borrows `AppState` to render the block tree.
+///
+/// All rendering methods return iced `Element`s; no mutation of state occurs.
 pub(super) struct TreeView<'a> {
     state: &'a AppState,
 }

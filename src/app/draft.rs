@@ -1,5 +1,11 @@
+//! Transient expansion draft staging for LLM results.
+
 use crate::llm;
 
+/// Staging area for one block's LLM expand results before user acceptance.
+///
+/// Invariant: removed from `AppState.expansion_drafts` when [`is_empty`](Self::is_empty)
+/// returns true (both `rewrite` consumed and all `children` accepted/rejected).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ExpansionDraft {
     pub(crate) rewrite: Option<String>,

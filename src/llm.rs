@@ -1,9 +1,20 @@
+//! LLM integration: configuration, prompt construction, and API client.
+//!
+//! The client speaks the OpenAI-compatible chat completions API. Configuration
+//! is loaded from environment variables (`LLM_BASE_URL`, `LLM_API_KEY`,
+//! `LLM_MODEL`) with fallback to a TOML config file.
+
 use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
 use std::{env, fs, io, path::PathBuf};
 use thiserror::Error;
 use tracing;
 
+/// Validated LLM endpoint configuration.
+///
+/// Invariants (enforced by [`LlmConfig::load`]):
+/// - `base_url` starts with `https://`
+/// - `api_key` and `model` are non-empty after trimming
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConfig {
     base_url: String,
@@ -22,6 +33,9 @@ impl Default for LlmConfig {
 }
 
 impl LlmConfig {
+    /// Load config from env vars with TOML file fallback.
+    ///
+    /// Returns `Err` if any required field is missing or invalid.
     pub fn load() -> Result<Self, LlmConfigError> {
         Self::from_env_or_file()
     }
@@ -243,6 +257,10 @@ impl From<ConfigFileError> for LlmConfigError {
     }
 }
 
+/// Ordered ancestor chain from root to a target block.
+///
+/// Used to give the LLM context about where in the document tree the
+/// target point lives. The last item is always the target.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Lineage {
     items: Vec<LineageItem>,
@@ -266,6 +284,7 @@ impl Lineage {
     }
 }
 
+/// One element in a [`Lineage`] chain: wraps a block's point text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineageItem {
     point: String,
@@ -281,6 +300,9 @@ impl LineageItem {
     }
 }
 
+/// HTTP client for the OpenAI-compatible chat completions endpoint.
+///
+/// Stateless aside from config; safe to construct per-request.
 pub struct LlmClient {
     config: LlmConfig,
     http: reqwest::Client,
@@ -291,6 +313,7 @@ impl LlmClient {
         Self { config, http: reqwest::Client::new() }
     }
 
+    /// Summarize a block's point using its ancestor lineage as context.
     pub async fn summarize_lineage(&self, lineage: &Lineage) -> Result<String, LlmError> {
         if lineage.is_empty() {
             return Err(LlmError::InvalidRequest);
@@ -415,6 +438,7 @@ struct ResponseMessage {
     content: String,
 }
 
+/// System + user prompt pair sent to the chat completions endpoint.
 struct Prompt {
     system: String,
     user: String,

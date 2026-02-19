@@ -26,6 +26,10 @@ use iced::{Element, Event, Fill, Subscription, Task, event, keyboard, mouse};
 use std::collections::HashMap;
 
 /// Snapshot of undoable application state.
+///
+/// Contains only the graph and expansion drafts. Editor buffers are
+/// rebuilt from the graph on restore since `text_editor::Content` is
+/// not cheaply cloneable with full cursor state.
 #[derive(Clone)]
 struct UndoSnapshot {
     graph: BlockGraph,
@@ -35,6 +39,10 @@ struct UndoSnapshot {
 /// Default capacity: 64 undo steps.
 const UNDO_CAPACITY: usize = 64;
 
+/// All mutable application state for the iced Elm architecture.
+///
+/// Owns the document graph, editor buffers, undo history, LLM config,
+/// async operation states, and transient UI state (active block, overflow menu).
 #[derive(Clone)]
 pub struct AppState {
     graph: BlockGraph,
@@ -116,6 +124,7 @@ impl AppState {
     }
 }
 
+/// Elm-architecture messages driving all state transitions.
 #[derive(Debug, Clone)]
 pub enum Message {
     Undo,
@@ -140,6 +149,7 @@ pub enum Message {
     CloseOverflow,
 }
 
+/// Process one message and return a follow-up task (if any).
 pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
     match message {
         | Message::Undo => {
@@ -505,6 +515,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
     }
 }
 
+/// Global event subscription: keyboard shortcuts, mouse clicks, escape.
 pub fn subscription(_state: &AppState) -> Subscription<Message> {
     event::listen_with(handle_event)
 }
@@ -540,6 +551,7 @@ fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) 
     }
 }
 
+/// Top-level view: error banner + scrollable block tree.
 pub fn view(state: &AppState) -> Element<'_, Message> {
     let mut layout = column![].spacing(12);
     if let Some(error) = &state.error {

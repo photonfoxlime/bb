@@ -1,7 +1,14 @@
+//! Parallel text editor buffer storage keyed by block id.
+
 use crate::graph::{BlockGraph, BlockId, BlockNode};
 use iced::widget::text_editor;
 use std::collections::HashMap;
 
+/// Maps each block to its iced `text_editor::Content` buffer.
+///
+/// Invariant: every block id present in the graph has a corresponding
+/// buffer. Rebuilt from scratch on undo/redo; incrementally updated
+/// on add/remove/edit operations.
 #[derive(Clone, Default)]
 pub(crate) struct EditorStore {
     buffers: HashMap<BlockId, text_editor::Content>,

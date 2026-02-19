@@ -1,3 +1,6 @@
+//! Binary entry point for bb: configures fonts, theme, and launches the iced
+//! application.
+
 mod app;
 mod graph;
 mod llm;
