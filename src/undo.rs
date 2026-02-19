@@ -37,3 +37,107 @@ impl<T> UndoHistory<T> {
         Some(next)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn undo_empty() {
+        let mut history = UndoHistory::<i32>::with_capacity(10);
+        assert_eq!(history.undo(0), None);
+    }
+
+    #[test]
+    fn redo_empty() {
+        let mut history = UndoHistory::<i32>::with_capacity(10);
+        assert_eq!(history.redo(0), None);
+    }
+
+    #[test]
+    fn push_then_undo() {
+        let mut history = UndoHistory::with_capacity(10);
+        history.push(42);
+        let result = history.undo(100);
+        assert_eq!(result, Some(42));
+    }
+
+    #[test]
+    fn push_then_undo_then_redo() {
+        let mut history = UndoHistory::with_capacity(10);
+        history.push(42);
+        history.undo(100);
+        let result = history.redo(42);
+        assert_eq!(result, Some(100));
+    }
+
+    #[test]
+    fn multiple_push_then_undo() {
+        let mut history = UndoHistory::with_capacity(10);
+        history.push(1);
+        history.push(2);
+        history.push(3);
+
+        assert_eq!(history.undo(3), Some(3));
+        assert_eq!(history.undo(2), Some(2));
+        assert_eq!(history.undo(1), Some(1));
+        assert_eq!(history.undo(0), None);
+    }
+
+    #[test]
+    fn redo_after_new_push_is_discarded() {
+        let mut history = UndoHistory::with_capacity(10);
+        history.push(42);
+        history.undo(100);
+        history.push(200);
+        assert_eq!(history.redo(200), None);
+    }
+
+    #[test]
+    fn capacity_overflow() {
+        let mut history = UndoHistory::with_capacity(2);
+        history.push(1);
+        history.push(2);
+        history.push(3);
+        assert_eq!(history.undo(3), Some(3));
+        assert_eq!(history.undo(2), Some(2));
+        assert_eq!(history.undo(1), None);
+    }
+
+    #[test]
+    fn undo_then_redo_preserves_current() {
+        let mut history = UndoHistory::with_capacity(10);
+        history.push(42);
+        history.undo(100);
+        let result = history.redo(42);
+        assert_eq!(result, Some(100));
+        let result = history.undo(100);
+        assert_eq!(result, Some(42));
+    }
+
+    #[test]
+    fn multiple_undo_redo_cycles() {
+        let mut history = UndoHistory::with_capacity(10);
+        history.push(1);
+        history.push(2);
+
+        assert_eq!(history.undo(2), Some(2));
+        assert_eq!(history.undo(1), Some(1));
+
+        assert_eq!(history.redo(1), Some(1));
+        assert_eq!(history.redo(2), Some(2));
+
+        assert_eq!(history.undo(2), Some(2));
+        assert_eq!(history.undo(1), Some(1));
+        assert_eq!(history.undo(3), None);
+    }
+
+    #[test]
+    fn capacity_one() {
+        let mut history = UndoHistory::with_capacity(1);
+        history.push(42);
+        history.push(100);
+        assert_eq!(history.undo(0), Some(100));
+        assert_eq!(history.undo(1), None);
+    }
+}
