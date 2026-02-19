@@ -155,11 +155,6 @@ pub fn status_text(_theme: &Theme) -> text::Style {
     text::Style { color: Some(ACCENT_MUTED) }
 }
 
-/// Accent-colored text for interactive labels.
-pub fn accent_text(_theme: &Theme) -> text::Style {
-    text::Style { color: Some(ACCENT) }
-}
-
 // ── Rule styles ───────────────────────────────────────────────────────
 
 /// Spine rule — a thin, low-contrast vertical line for tree structure.
