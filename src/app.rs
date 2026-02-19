@@ -4,6 +4,7 @@
 //! the same content as a tree (roots and ordered children per node).
 
 use crate::llm;
+use crate::theme;
 mod action_bar;
 
 use action_bar::{
@@ -11,7 +12,7 @@ use action_bar::{
     action_to_message, action_to_message_by_id, build_action_bar_vm, project_for_viewport,
     shortcut_to_action,
 };
-use iced::widget::{button, column, container, row, scrollable, text, text_editor};
+use iced::widget::{button, column, container, row, rule, scrollable, text, text_editor};
 use iced::{Element, Event, Fill, Length, Subscription, Task, event, keyboard, mouse};
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, io, path::PathBuf, sync::LazyLock};
@@ -839,20 +840,20 @@ fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) 
 }
 
 pub fn view(state: &AppState) -> Element<'_, Message> {
-    let mut layout = column![].spacing(8);
+    let mut layout = column![].spacing(12);
     if let Some(error) = &state.error {
         layout = layout.push(
             container(text(format!("Error: {}", error.message())))
-                .style(container::danger)
+                .style(theme::error_banner)
                 .padding(8),
         );
     }
 
     let tree = TreeView::new(state).render_roots();
     layout = layout
-        .push(scrollable(container(tree).padding(16).width(Fill).center_x(Fill)).height(Fill));
+        .push(scrollable(container(tree).padding(24).max_width(900).center_x(Fill)).height(Fill));
 
-    container(layout).width(Fill).height(Fill).into()
+    container(layout).style(theme::canvas).width(Fill).height(Fill).into()
 }
 
 /// Pure renderer from immutable state into tree widgets.
@@ -870,7 +871,7 @@ impl<'a> TreeView<'a> {
     }
 
     fn render_line(&self, ids: &'a [BlockId]) -> Element<'a, Message> {
-        let mut col = column![].spacing(6);
+        let mut col = column![].spacing(10);
         for id in ids {
             let Some(node) = self.state.graph.node(id) else {
                 continue;
@@ -889,40 +890,39 @@ impl<'a> TreeView<'a> {
         let action_bar =
             project_for_viewport(build_action_bar_vm(&row_context), self.viewport_bucket());
 
-        let spine = container(text("|"))
+        let spine = container(rule::vertical(1).style(theme::spine_rule))
+            .width(Length::Fixed(4.0))
+            .align_x(iced::alignment::Horizontal::Center);
+        let marker = container(text("•").size(12).style(theme::spine_text))
             .width(Length::Fixed(12.0))
-            .center_x(Length::Fill)
-            .center_y(Length::Fill);
-        let marker = container(text("●").size(10)).width(Length::Fixed(12.0)).center_x(Fill);
+            .align_x(iced::alignment::Horizontal::Center);
 
         let row_content = row![]
-            .spacing(10)
+            .spacing(6)
+            .width(Fill)
             .align_y(iced::Alignment::Start)
             .push(spine)
             .push(marker)
             .push(
-                container(
-                    text_editor(editor_content)
-                        .placeholder("point")
-                        .on_action(move |action| {
-                            Message::PointEdited(block_id_for_edit.clone(), action)
-                        })
-                        .height(Length::Shrink),
-                )
-                .width(Length::Fill),
+                text_editor(editor_content)
+                    .placeholder("point")
+                    .style(theme::point_editor)
+                    .on_action(move |action| {
+                        Message::PointEdited(block_id_for_edit.clone(), action)
+                    })
+                    .height(Length::Shrink),
             )
             .push(self.render_status_chip(&action_bar))
             .push(self.render_action_buttons(block_id, &action_bar));
 
-        let mut block = column![].spacing(6).push(row_content);
+        let mut block = column![].spacing(8).push(row_content);
         if let Some(draft) = self.state.expansion_drafts.get(block_id) {
             block = block.push(self.render_expansion_panel(block_id, draft));
         }
 
         if !node.children.is_empty() {
             block = block.push(
-                container(self.render_line(&node.children))
-                    .padding(iced::Padding::from([0.0, 28.0])),
+                container(self.render_line(&node.children)).padding(iced::Padding::ZERO.left(16.0)),
             );
         }
         block.into()
@@ -939,11 +939,13 @@ impl<'a> TreeView<'a> {
                     .spacing(8)
                     .push(container(text(format!("Rewrite: {}", rewrite))).width(Length::Fill))
                     .push(
-                        button("Apply rewrite")
+                        button(text("Apply rewrite").font(theme::INTER).size(13))
+                            .style(theme::action_button)
                             .on_press(Message::ApplyExpandedRewrite(block_id.clone())),
                     )
                     .push(
-                        button("Dismiss rewrite")
+                        button(text("Dismiss rewrite").font(theme::INTER).size(13))
+                            .style(theme::destructive_button)
                             .on_press(Message::RejectExpandedRewrite(block_id.clone())),
                     ),
             );
@@ -955,11 +957,14 @@ impl<'a> TreeView<'a> {
                     .spacing(8)
                     .push(container(text("Child suggestions")).width(Length::Fill))
                     .push(
-                        button("Accept all")
+                        button(text("Accept all").font(theme::INTER).size(13))
+                            .style(theme::action_button)
                             .on_press(Message::AcceptAllExpandedChildren(block_id.clone())),
                     )
                     .push(
-                        button("Discard all").on_press(Message::DiscardExpansion(block_id.clone())),
+                        button(text("Discard all").font(theme::INTER).size(13))
+                            .style(theme::destructive_button)
+                            .on_press(Message::DiscardExpansion(block_id.clone())),
                     ),
             );
 
@@ -969,21 +974,20 @@ impl<'a> TreeView<'a> {
                         .spacing(8)
                         .push(container(text(child.as_str())).width(Length::Fill))
                         .push(
-                            button("Keep")
+                            button(text("Keep").font(theme::INTER).size(13))
+                                .style(theme::action_button)
                                 .on_press(Message::AcceptExpandedChild(block_id.clone(), index)),
                         )
                         .push(
-                            button("Drop")
+                            button(text("Drop").font(theme::INTER).size(13))
+                                .style(theme::destructive_button)
                                 .on_press(Message::RejectExpandedChild(block_id.clone(), index)),
                         ),
                 );
             }
         }
 
-        container(panel)
-            .padding(iced::Padding::from([8.0, 16.0]))
-            .style(container::bordered_box)
-            .into()
+        container(panel).padding(iced::Padding::from([8.0, 16.0])).style(theme::draft_panel).into()
     }
 
     fn action_row_context(
@@ -1025,11 +1029,12 @@ impl<'a> TreeView<'a> {
 
         let chip = match label {
             | Some(label) => {
-                container(text(label).size(14)).padding(iced::Padding::from([2.0, 8.0]))
+                container(text(label).size(12).font(theme::INTER).style(theme::status_text))
+                    .padding(iced::Padding::from([2.0, 8.0]))
             }
             | None => container(text(" ")).padding(iced::Padding::from([2.0, 8.0])),
         };
-        chip.width(Length::Fixed(112.0)).into()
+        chip.width(Length::Shrink).into()
     }
 
     fn render_action_buttons(
@@ -1044,8 +1049,11 @@ impl<'a> TreeView<'a> {
         if !vm.overflow.is_empty() {
             let is_open = self.state.overflow_open_for.as_ref() == Some(block_id);
             let label = if is_open { "Close" } else { "More" };
-            actions_row =
-                actions_row.push(button(label).on_press(Message::ToggleOverflow(block_id.clone())));
+            actions_row = actions_row.push(
+                button(text(label).font(theme::INTER).size(13))
+                    .style(theme::action_button)
+                    .on_press(Message::ToggleOverflow(block_id.clone())),
+            );
         }
 
         let mut layout = column![].spacing(4).push(actions_row);
@@ -1063,7 +1071,13 @@ impl<'a> TreeView<'a> {
     fn render_action_button(
         &self, block_id: &BlockId, descriptor: &ActionDescriptor,
     ) -> Element<'a, Message> {
-        let base = button(descriptor.label);
+        let style = if descriptor.destructive {
+            theme::destructive_button as fn(&iced::Theme, button::Status) -> button::Style
+        } else {
+            theme::action_button
+        };
+        let label = text(descriptor.label).font(theme::INTER).size(13);
+        let base = button(label).style(style);
         let button = if descriptor.availability == ActionAvailability::Enabled {
             if let Some(message) = action_to_message(self.state, block_id, descriptor) {
                 base.on_press(message)

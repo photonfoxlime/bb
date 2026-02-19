@@ -305,3 +305,69 @@ This backlog captures likely next areas to explore after the current identifier-
 - Add explicit undo/redo for destructive and AI-apply actions.
 - Add collapse/expand-branch and open-as-focus overflow actions.
 - Add targeted tests for overflow interaction and shortcut edge cases.
+
+### Implemented: Custom paper-and-ink theme
+
+- Created `src/theme.rs` with a full custom palette and per-widget style functions.
+- Palette constants: `PAPER` (warm off-white), `INK` (near-black), `ACCENT` (soft blue), `ACCENT_MUTED`, `TINT` (subtle warm gray), `SPINE` (low-contrast gray), `DANGER`, `SUCCESS`, `WARNING`.
+- Registered custom `Theme` via `Theme::custom_with_fn` with `is_dark = false` so built-in widgets also pick light defaults.
+- Wired theme into the application builder in `main.rs` using the `ThemeFn` trait (pass theme directly, not a closure).
+
+#### Widget styles applied
+
+- **Error banner**: danger-tinted background with subtle border instead of stock `container::danger`.
+- **Canvas container**: paper background on the outer layout wrapper.
+- **Text editors**: transparent background, borderless at rest, subtle border on hover, accent border on focus — blends with paper surface.
+- **Action buttons**: annotation-style — no background, accent text, subtle tint+border on hover, ink-colored pressed state.
+- **Destructive buttons**: same annotation style but uses danger color on hover/press (applied to Archive, Dismiss, Drop, Discard actions).
+- **Spine and marker text**: low-contrast gray (`SPINE`) so structural elements recede behind content.
+- **Status chip text**: muted accent color for loading/error/draft labels.
+- **Expansion draft panel**: subtle warm tint background with spine-colored border instead of stock `container::bordered_box`.
+- **Overflow toggle button**: annotation-style consistent with other action buttons.
+
+#### Spacing adjustments
+
+- Layout column spacing: `8` → `12`.
+- Block list spacing: `6` → `10`.
+- Block internal spacing: `6` → `8`.
+- Scroll container padding: `16` → `24`.
+- Child indent padding: `28` → `32`.
+
+#### Design intent
+
+- Follows the readme aesthetic: "light and airy, soft blue ink, paper-like background, generous whitespace."
+- Actions feel like marginalia annotations rather than heavy toolbar chrome.
+- Structural elements (spine, marker) recede visually so text content dominates.
+- Font assignments unchanged: WenKai for point text (default), Inter loaded for utility labels.
+
+### Refined: Spine, font assignments, and spacing tightening
+
+- Replaced text-character spine (`|`) with `rule::vertical(1)` using a custom `spine_rule` style — renders as a continuous thin vertical line instead of disconnected pipe characters.
+- Changed block marker from `●` (size 10) to `·` (size 14) — lighter, less dominant dot that recedes further.
+- Reduced spine+marker column width from 12px to 8px each to reduce left dead space.
+- Reduced row internal spacing from 10 to 6 to tighten block rows.
+- Reduced child indent padding from 32 to 24.
+- Applied Inter font (size 13) to all action button labels, expansion panel buttons, and overflow toggle — fulfills the design spec "Use WenKai for point text and Inter for utility labels/buttons."
+- Applied Inter font (size 12) to status chip text.
+- Exported `INTER` font constant from `theme.rs` for reuse.
+
+### Refined: Layout alignment and marker visibility
+
+- Added `max_width(900)` to the tree container so content forms a readable column instead of stretching to full window width; `center_x(Fill)` now centers this column on wide screens.
+- Changed block marker from `·` (middle dot, U+00B7, barely visible) to `•` (bullet, U+2022) at size 10 — visible but still lightweight.
+- Removed `width(Fill)` from scroll container since `max_width` handles the constraint.
+
+### Fixed: Text editor width, marker size, indent, and chip layout
+
+- Added `width(Fill)` to block `row_content` so the row expands to fill the column — this was the root cause of the text editor being squeezed into a narrow column (~150px). The `text_editor` now fills the remaining space after spine, marker, chip, and buttons.
+- Removed unnecessary `container(...).width(Length::Fill)` wrapper around `text_editor` — the editor widget fills by default when the parent row has `width(Fill)`.
+- Widened marker container from 8px to 12px and bumped bullet size from 10 to 12 so the `•` dot is clearly visible.
+- Narrowed spine container from 8px to 4px — a thin line needs less space.
+- Changed child indent from `Padding::from([0.0, 24.0])` (24px on both left and right) to `Padding::ZERO.left(16.0)` (left only, 16px). The old symmetric padding was incorrectly eating right-side space and over-indenting children.
+- Changed status chip width from `Fixed(112px)` to `Shrink` so it only takes space when a label is present, reclaiming ~112px of editor width in the default idle state.
+
+### Bugfix: Spine and marker containers consuming Fill width
+
+- **Root cause found**: `container(...).width(Fixed(4.0)).center_x(Fill)` — Iced's `center_x(width)` is implemented as `self.width(width).align_x(Center)`, meaning it **overrides** the previous `width(Fixed)` with `Fill`. Both the spine and marker containers were silently consuming `Fill` width, leaving the `text_editor` (also `Fill`) competing with two other `Fill` siblings and getting only ~1/3 of available space.
+- **Fix**: Replaced `.center_x(Length::Fill)` with `.align_x(iced::alignment::Horizontal::Center)` on both spine and marker containers, preserving their `width(Fixed(4.0))` and `width(Fixed(12.0))` respectively.
+- The `text_editor` now correctly gets all remaining space in the row after the fixed-width spine (4px), marker (12px), status chip (shrink), and action buttons (shrink).

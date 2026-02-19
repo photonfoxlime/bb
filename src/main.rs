@@ -1,5 +1,6 @@
 mod app;
 mod llm;
+mod theme;
 
 // const DEFAULT_FONT: iced::Font = iced::Font::with_name("Inter");
 const DEFAULT_FONT: iced::Font = iced::Font::with_name("LXGW WenKai");
@@ -14,5 +15,6 @@ fn main() -> iced::Result {
         .font(include_bytes!("../assets/fonts/LXGWWenKai-Regular.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/LXGWWenKai-Medium.ttf").as_slice())
         .default_font(DEFAULT_FONT)
+        .theme(theme::app_theme())
         .run()
 }
