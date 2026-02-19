@@ -166,3 +166,15 @@ pub fn accent_text(_theme: &Theme) -> text::Style {
 pub fn spine_rule(_theme: &Theme) -> rule::Style {
     rule::Style { color: SPINE, radius: 0.0.into(), fill_mode: rule::FillMode::Full, snap: true }
 }
+
+// ── Tooltip style ────────────────────────────────────────────────────
+
+/// Tooltip container — ink background with paper text for high contrast.
+pub fn tooltip(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(INK.into()),
+        text_color: Some(PAPER),
+        border: border::rounded(4).width(0),
+        ..Default::default()
+    }
+}

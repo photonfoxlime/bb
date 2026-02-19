@@ -379,3 +379,12 @@ This backlog captures likely next areas to explore after the current identifier-
 - **Spine Visibility**: Darkened `SPINE` color from `0.78` (too faint) to `0.65` to make the structural lines more visible against the paper background.
 - **Subtle Actions**: Changed `action_button` style to use `ACCENT_MUTED` color in the default/active state (instead of full `ACCENT`), reducing visual noise. Buttons now reach full contrast only on hover.
 
+### Implemented: Icon-based Action Bar
+
+- Replaced text buttons ("Expand", "Reduce", "Add child", "More") with Lucide icons to reduce visual clutter and align with the "clean/paper" aesthetic.
+- Added `lucide-icons` crate (v0.563) with `iced` feature.
+- Implemented `action_icon` helper to map `ActionId` to specific Lucide icons (e.g., `maximize-2` for Expand, `corner-down-right` for Add Child).
+- Added `tooltip` support for all icon buttons to preserve usability (shows text label on hover).
+- Added `tooltip` style in `theme.rs` using high-contrast ink background with paper text.
+- Replaced the overflow toggle ("More"/"Close") with `ellipsis` / `x` icons.
+

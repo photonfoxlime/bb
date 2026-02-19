@@ -12,11 +12,31 @@ use action_bar::{
     action_to_message, action_to_message_by_id, build_action_bar_vm, project_for_viewport,
     shortcut_to_action,
 };
-use iced::widget::{button, column, container, row, rule, scrollable, text, text_editor};
+use iced::widget::{button, column, container, row, rule, scrollable, text, text_editor, tooltip};
 use iced::{Element, Event, Fill, Length, Subscription, Task, event, keyboard, mouse};
+use lucide_icons::iced as icons;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, io, path::PathBuf, sync::LazyLock};
 use uuid::Uuid;
+
+fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
+    let icon = match id {
+        | ActionId::Expand => icons::icon_maximize_2(),
+        | ActionId::Reduce => icons::icon_minimize_2(),
+        | ActionId::AddChild => icons::icon_corner_down_right(),
+        | ActionId::AcceptAll => icons::icon_check_check(),
+        | ActionId::Retry => icons::icon_refresh_cw(),
+        | ActionId::DismissDraft => icons::icon_x(),
+        | ActionId::CollapseBranch => icons::icon_chevron_down(),
+        | ActionId::ExpandBranch => icons::icon_chevron_right(),
+        | ActionId::AddSibling => icons::icon_plus(),
+        | ActionId::OpenAsFocus => icons::icon_arrow_right(),
+        | ActionId::DuplicateBlock => icons::icon_copy(),
+        | ActionId::ArchiveBlock => icons::icon_archive(),
+        | _ => text("?"),
+    };
+    icon.size(16).into()
+}
 
 static PROJECT_DIRS: LazyLock<Option<directories::ProjectDirs>> =
     LazyLock::new(|| directories::ProjectDirs::from("app", "miorin", "bb"));
@@ -1054,11 +1074,18 @@ impl<'a> TreeView<'a> {
 
         if !vm.overflow.is_empty() {
             let is_open = self.state.overflow_open_for.as_ref() == Some(block_id);
-            let label = if is_open { "Close" } else { "More" };
+            let (icon, label) =
+                if is_open { (icons::icon_x(), "Close") } else { (icons::icon_ellipsis(), "More") };
+            let btn = button(icon.size(16))
+                .style(theme::action_button)
+                .padding(4)
+                .on_press(Message::ToggleOverflow(block_id.clone()));
+
             actions_row = actions_row.push(
-                button(text(label).font(theme::INTER).size(13))
-                    .style(theme::action_button)
-                    .on_press(Message::ToggleOverflow(block_id.clone())),
+                tooltip(btn, text(label).size(12).font(theme::INTER), tooltip::Position::Bottom)
+                    .style(theme::tooltip)
+                    .padding(6)
+                    .gap(4),
             );
         }
 
@@ -1082,9 +1109,9 @@ impl<'a> TreeView<'a> {
         } else {
             theme::action_button
         };
-        let label = text(descriptor.label).font(theme::INTER).size(13);
-        let base = button(label).style(style);
-        let button = if descriptor.availability == ActionAvailability::Enabled {
+        let icon = action_icon(descriptor.id);
+        let base = button(icon).style(style).padding(4);
+        let btn = if descriptor.availability == ActionAvailability::Enabled {
             if let Some(message) = action_to_message(self.state, block_id, descriptor) {
                 base.on_press(message)
             } else {
@@ -1093,6 +1120,10 @@ impl<'a> TreeView<'a> {
         } else {
             base
         };
-        button.into()
+        tooltip(btn, text(descriptor.label).size(12).font(theme::INTER), tooltip::Position::Bottom)
+            .style(theme::tooltip)
+            .padding(6)
+            .gap(4)
+            .into()
     }
 }

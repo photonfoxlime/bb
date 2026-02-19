@@ -14,6 +14,7 @@ fn main() -> iced::Result {
         .font(include_bytes!("../assets/fonts/LXGWWenKai-Light.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/LXGWWenKai-Regular.ttf").as_slice())
         .font(include_bytes!("../assets/fonts/LXGWWenKai-Medium.ttf").as_slice())
+        .font(lucide_icons::LUCIDE_FONT_BYTES)
         .default_font(DEFAULT_FONT)
         .theme(theme::app_theme())
         .run()
