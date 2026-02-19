@@ -850,8 +850,13 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     }
 
     let tree = TreeView::new(state).render_roots();
-    layout = layout
-        .push(scrollable(container(tree).padding(24).max_width(900).center_x(Fill)).height(Fill));
+    let content = container(tree).padding(24).max_width(720);
+    layout = layout.push(
+        scrollable(
+            container(content).width(Fill).center_x(Fill).padding(iced::Padding::ZERO.top(12.0)),
+        )
+        .height(Fill),
+    );
 
     container(layout).style(theme::canvas).width(Fill).height(Fill).into()
 }
@@ -895,7 +900,8 @@ impl<'a> TreeView<'a> {
             .align_x(iced::alignment::Horizontal::Center);
         let marker = container(text("•").size(12).style(theme::spine_text))
             .width(Length::Fixed(12.0))
-            .align_x(iced::alignment::Horizontal::Center);
+            .align_x(iced::alignment::Horizontal::Center)
+            .padding(iced::Padding::ZERO.top(3.0));
 
         let row_content = row![]
             .spacing(6)

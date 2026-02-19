@@ -371,3 +371,11 @@ This backlog captures likely next areas to explore after the current identifier-
 - **Root cause found**: `container(...).width(Fixed(4.0)).center_x(Fill)` — Iced's `center_x(width)` is implemented as `self.width(width).align_x(Center)`, meaning it **overrides** the previous `width(Fixed)` with `Fill`. Both the spine and marker containers were silently consuming `Fill` width, leaving the `text_editor` (also `Fill`) competing with two other `Fill` siblings and getting only ~1/3 of available space.
 - **Fix**: Replaced `.center_x(Length::Fill)` with `.align_x(iced::alignment::Horizontal::Center)` on both spine and marker containers, preserving their `width(Fixed(4.0))` and `width(Fixed(12.0))` respectively.
 - The `text_editor` now correctly gets all remaining space in the row after the fixed-width spine (4px), marker (12px), status chip (shrink), and action buttons (shrink).
+
+### Refined: Visual Polish (Step 2)
+
+- **Layout Tightening**: Reduced `max_width` from `900` to `720` to bring action buttons closer to the text content and improve reading line length.
+- **Marker Alignment**: Added `padding(top: 3.0)` to the bullet marker container to align it visually with the text cap-height/baseline (previously it was centered vertically in the row, looking slightly high relative to multi-line text).
+- **Spine Visibility**: Darkened `SPINE` color from `0.78` (too faint) to `0.65` to make the structural lines more visible against the paper background.
+- **Subtle Actions**: Changed `action_button` style to use `ACCENT_MUTED` color in the default/active state (instead of full `ACCENT`), reducing visual noise. Buttons now reach full contrast only on hover.
+

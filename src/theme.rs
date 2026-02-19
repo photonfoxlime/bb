@@ -10,7 +10,7 @@ pub const INK: Color = Color::from_rgb(0.18, 0.17, 0.16);
 pub const ACCENT: Color = Color::from_rgb(0.35, 0.48, 0.62);
 pub const ACCENT_MUTED: Color = Color::from_rgb(0.55, 0.62, 0.70);
 pub const TINT: Color = Color::from_rgb(0.935, 0.925, 0.905);
-pub const SPINE: Color = Color::from_rgb(0.78, 0.76, 0.73);
+pub const SPINE: Color = Color::from_rgb(0.65, 0.63, 0.60);
 pub const DANGER: Color = Color::from_rgb(0.75, 0.28, 0.22);
 pub const SUCCESS: Color = Color::from_rgb(0.30, 0.60, 0.38);
 pub fn app_theme() -> Theme {
@@ -43,7 +43,7 @@ pub fn action_button(theme: &Theme, status: button::Status) -> button::Style {
     let _ = theme;
     let base = button::Style {
         background: None,
-        text_color: ACCENT,
+        text_color: ACCENT_MUTED,
         border: border::rounded(3).width(0).color(Color::TRANSPARENT),
         shadow: Default::default(),
         snap: false,
@@ -62,7 +62,7 @@ pub fn action_button(theme: &Theme, status: button::Status) -> button::Style {
             border: border::rounded(3).width(1).color(ACCENT_MUTED),
             ..base
         },
-        | button::Status::Disabled => button::Style { text_color: ACCENT_MUTED, ..base },
+        | button::Status::Disabled => button::Style { text_color: SPINE, ..base },
     }
 }
 
