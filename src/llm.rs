@@ -458,3 +458,134 @@ struct ExpandResponsePayload {
     #[serde(default)]
     children: Vec<String>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ExpandSuggestion tests
+    #[test]
+    fn expand_suggestion_into_point() {
+        let suggestion = ExpandSuggestion::new("text".into());
+        assert_eq!(suggestion.into_point(), "text");
+    }
+
+    // ExpandResult tests
+    #[test]
+    fn expand_result_into_parts_with_both() {
+        let suggestion = ExpandSuggestion::new("child".into());
+        let result = ExpandResult::new(Some("rewrite".into()), vec![suggestion]);
+        let (rewrite, children) = result.into_parts();
+        assert_eq!(rewrite, Some("rewrite".to_string()));
+        assert_eq!(children.len(), 1);
+        assert_eq!(children[0], ExpandSuggestion::new("child".into()));
+    }
+
+    #[test]
+    fn expand_result_into_parts_rewrite_only() {
+        let result = ExpandResult::new(Some("rewrite".into()), vec![]);
+        let (rewrite, children) = result.into_parts();
+        assert_eq!(rewrite, Some("rewrite".to_string()));
+        assert!(children.is_empty());
+    }
+
+    #[test]
+    fn expand_result_into_parts_children_only() {
+        let suggestion1 = ExpandSuggestion::new("child1".into());
+        let suggestion2 = ExpandSuggestion::new("child2".into());
+        let result = ExpandResult::new(None, vec![suggestion1, suggestion2]);
+        let (rewrite, children) = result.into_parts();
+        assert_eq!(rewrite, None);
+        assert_eq!(children.len(), 2);
+    }
+
+    // Lineage tests
+    #[test]
+    fn lineage_from_points_creates_items() {
+        let lineage = Lineage::from_points(vec!["a".into(), "b".into()]);
+        let expected =
+            Lineage::new(vec![LineageItem::new("a".into()), LineageItem::new("b".into())]);
+        assert_eq!(lineage, expected);
+    }
+
+    #[test]
+    fn lineage_empty() {
+        let lineage = Lineage::from_points(vec![]);
+        let expected = Lineage::new(vec![]);
+        assert_eq!(lineage, expected);
+    }
+
+    #[test]
+    fn lineage_from_points_roundtrip() {
+        let lineage = Lineage::from_points(vec!["a".into()]);
+        let expected = Lineage::new(vec![LineageItem::new("a".into())]);
+        assert_eq!(lineage, expected);
+    }
+
+    // LlmConfigError Display tests
+    #[test]
+    fn config_error_missing_display() {
+        let err = LlmConfigError::MissingConfig;
+        let msg = err.to_string();
+        assert!(msg.contains("missing"));
+    }
+
+    #[test]
+    fn config_error_invalid_display() {
+        let err = LlmConfigError::InvalidConfig(InvalidConfigReason::ApiKeyEmpty);
+        let msg = err.to_string();
+        assert!(msg.contains("empty"));
+    }
+
+    // Prompt formatting tests
+    #[test]
+    fn summarize_prompt_labels_target_last() {
+        let lineage = Lineage::from_points(vec!["first".into(), "second".into(), "third".into()]);
+        let prompt = Prompt::summarize_from_lineage(&lineage);
+        assert!(prompt.user.contains("Parent: first"));
+        assert!(prompt.user.contains("Parent: second"));
+        assert!(prompt.user.contains("Target: third"));
+    }
+
+    #[test]
+    fn expand_prompt_labels_target_last() {
+        let lineage = Lineage::from_points(vec!["first".into(), "second".into(), "third".into()]);
+        let prompt = Prompt::expand_from_lineage(&lineage);
+        assert!(prompt.user.contains("Parent: first"));
+        assert!(prompt.user.contains("Parent: second"));
+        assert!(prompt.user.contains("Target: third"));
+    }
+
+    // ExpandResponsePayload deserialization tests
+    #[test]
+    fn expand_payload_full() {
+        let json = r#"{"rewrite": "new text", "children": ["a", "b"]}"#;
+        let payload: ExpandResponsePayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.rewrite, Some("new text".to_string()));
+        assert_eq!(payload.children, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn expand_payload_no_rewrite() {
+        let json = r#"{"rewrite": null, "children": ["a"]}"#;
+        let payload: ExpandResponsePayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.rewrite, None);
+        assert_eq!(payload.children, vec!["a".to_string()]);
+    }
+
+    #[test]
+    fn expand_payload_missing_children() {
+        let json = r#"{"rewrite": "r"}"#;
+        let payload: ExpandResponsePayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.rewrite, Some("r".to_string()));
+        assert!(payload.children.is_empty());
+    }
+
+    #[test]
+    fn expand_payload_empty() {
+        let json = r#"{}"#;
+        let payload: ExpandResponsePayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.rewrite, None);
+        assert!(payload.children.is_empty());
+    }
+}

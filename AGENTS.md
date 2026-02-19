@@ -78,6 +78,7 @@ The description should say *what changed*, not *why* (the diff shows what; the d
 | `docs`  | Documentation-only changes (AGENTS.md, docs/, README, code comments). |
 | `repo`  | Repository housekeeping: migrations, dependency changes, formatter config, file reorganization, one-off maintenance. |
 | `sisy`  | Mechanical changes: formatting, linting, renaming passes, internal restructuring with no behavior change. |
+| `test`  | Adding or updating tests without changing production code. |
 | `vibe`  | Exploratory, prototype-quality work. Expect rough edges; may be revised or replaced. |
 
 #### Guidelines
