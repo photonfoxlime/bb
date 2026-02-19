@@ -1,3 +1,7 @@
+# LLM Instructions
+
+Above all: consolidate your key understandings and new findings and log them down in `docs/` folder if not already existed.
+
 ## Documentation and Language
 
 Actively write documentation for the program. 
@@ -53,3 +57,7 @@ Add concise yet critical documentation for structs, fields, and methods.
 Ensure that documentation is clear, concise, and accurate. No emojis unless strictly necessary.
 
 When adding new features, record and observe details with the `tracing` crate.
+
+## Version Control
+
+This project uses jujutsu, which is compatible to git.
