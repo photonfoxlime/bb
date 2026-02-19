@@ -282,6 +282,72 @@ impl Default for BlockGraph {
     }
 }
 
+/// Snapshot of undoable application state.
+#[derive(Clone)]
+struct UndoSnapshot {
+    graph: BlockGraph,
+    expansion_drafts: HashMap<BlockId, ExpansionDraft>,
+}
+
+/// Linear undo/redo stack of application state snapshots.
+///
+/// Invariant: the current (live) state is NOT stored in the stack — only
+/// prior states are. When the user undoes, the current state is pushed as
+/// a redo entry and the top undo entry becomes the live state. New
+/// mutations discard the redo future.
+///
+/// Designed so that upgrading to a branching undo-tree only requires
+/// replacing the internal `Vec` with a tree and changing cursor
+/// navigation — the public API (`push`, `undo`, `redo`) stays the same.
+#[derive(Clone)]
+struct UndoHistory {
+    /// Past snapshots (undo direction). Most recent is last.
+    undo_stack: Vec<UndoSnapshot>,
+    /// Future snapshots (redo direction). Most recent undo is last.
+    redo_stack: Vec<UndoSnapshot>,
+    /// Maximum number of undo entries retained.
+    capacity: usize,
+}
+
+impl UndoHistory {
+    fn with_capacity(capacity: usize) -> Self {
+        Self { undo_stack: Vec::new(), redo_stack: Vec::new(), capacity }
+    }
+
+    fn push(&mut self, snapshot: UndoSnapshot) {
+        if self.undo_stack.len() >= self.capacity {
+            self.undo_stack.remove(0);
+        }
+        self.undo_stack.push(snapshot);
+        self.redo_stack.clear();
+    }
+
+    fn undo(&mut self, current: UndoSnapshot) -> Option<UndoSnapshot> {
+        let previous = self.undo_stack.pop()?;
+        self.redo_stack.push(current);
+        Some(previous)
+    }
+
+    fn redo(&mut self, current: UndoSnapshot) -> Option<UndoSnapshot> {
+        let next = self.redo_stack.pop()?;
+        self.undo_stack.push(current);
+        Some(next)
+    }
+
+    #[allow(dead_code)]
+    fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty()
+    }
+
+    #[allow(dead_code)]
+    fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
+}
+
+/// Default capacity: 64 undo steps.
+const UNDO_CAPACITY: usize = 64;
+
 /// A display-safe error value used by UI state and messages.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UiError {
@@ -431,6 +497,7 @@ impl EditorStore {
 #[derive(Clone)]
 pub struct AppState {
     graph: BlockGraph,
+    undo_history: UndoHistory,
     llm_config: Result<llm::LlmConfig, llm::LlmConfigError>,
     error: Option<AppError>,
     summary_state: SummaryState,
@@ -439,6 +506,8 @@ pub struct AppState {
     editors: EditorStore,
     overflow_open_for: Option<BlockId>,
     active_block_id: Option<BlockId>,
+    /// Tracks which block is mid-edit to coalesce keystrokes into one undo entry.
+    editing_block_id: Option<BlockId>,
 }
 
 impl AppState {
@@ -452,6 +521,7 @@ impl AppState {
         let editors = EditorStore::from_graph(&graph);
         Self {
             graph,
+            undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
             llm_config,
             error,
             summary_state: SummaryState::Idle,
@@ -460,6 +530,7 @@ impl AppState {
             editors,
             overflow_open_for: None,
             active_block_id: None,
+            editing_block_id: None,
         }
     }
 
@@ -482,10 +553,32 @@ impl AppState {
     fn set_active_block(&mut self, block_id: &BlockId) {
         self.active_block_id = Some(block_id.clone());
     }
+
+    /// Snapshot the current graph into undo history before a mutation.
+    fn snapshot_for_undo(&mut self) {
+        self.undo_history.push(UndoSnapshot {
+            graph: self.graph.clone(),
+            expansion_drafts: self.expansion_drafts.clone(),
+        });
+        self.editing_block_id = None;
+    }
+
+    fn restore_snapshot(&mut self, snapshot: UndoSnapshot) {
+        self.editors = EditorStore::from_graph(&snapshot.graph);
+        self.graph = snapshot.graph;
+        self.expansion_drafts = snapshot.expansion_drafts;
+        self.editing_block_id = None;
+        self.active_block_id = self.graph.roots.first().cloned();
+        if let Err(err) = self.save_tree() {
+            tracing::error!(%err, "failed to save tree after undo/redo");
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    Undo,
+    Redo,
     PointEdited(BlockId, text_editor::Action),
     Shortcut(ActionId),
     Summarize(BlockId),
@@ -508,6 +601,28 @@ pub enum Message {
 
 pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
     match message {
+        | Message::Undo => {
+            let current = UndoSnapshot {
+                graph: state.graph.clone(),
+                expansion_drafts: state.expansion_drafts.clone(),
+            };
+            if let Some(previous) = state.undo_history.undo(current) {
+                tracing::info!("undo applied");
+                state.restore_snapshot(previous);
+            }
+            Task::none()
+        }
+        | Message::Redo => {
+            let current = UndoSnapshot {
+                graph: state.graph.clone(),
+                expansion_drafts: state.expansion_drafts.clone(),
+            };
+            if let Some(next) = state.undo_history.redo(current) {
+                tracing::info!("redo applied");
+                state.restore_snapshot(next);
+            }
+            Task::none()
+        }
         | Message::Shortcut(action_id) => {
             let Some(block_id) = state.current_block_for_shortcuts() else {
                 return Task::none();
@@ -545,6 +660,10 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
         | Message::PointEdited(block_id, action) => {
             state.set_active_block(&block_id);
+            if state.editing_block_id.as_ref() != Some(&block_id) {
+                state.snapshot_for_undo();
+                state.editing_block_id = Some(block_id.clone());
+            }
             state.editors.ensure_block(&state.graph, &block_id);
             if let Some(content) = state.editors.get_mut(&block_id) {
                 content.perform(action);
@@ -588,6 +707,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             match result {
                 | Ok(summary) => {
                     tracing::info!(block_id = ?block_id, chars = summary.len(), "summary request succeeded");
+                    state.snapshot_for_undo();
                     state.graph.update_point(&block_id, summary.clone());
                     state.editors.set_text(&block_id, &summary);
                     if let Err(err) = state.save_tree() {
@@ -648,6 +768,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                         state.error = Some(AppError::Expand(reason));
                         return Task::none();
                     }
+                    state.snapshot_for_undo();
                     state.expansion_drafts.insert(block_id, draft);
                     state.error = None;
                 }
@@ -661,6 +782,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
         | Message::ApplyExpandedRewrite(block_id) => {
             state.set_active_block(&block_id);
+            state.snapshot_for_undo();
             let mut should_save = false;
             let mut should_remove_draft = false;
             if let Some(draft) = state.expansion_drafts.get_mut(&block_id) {
@@ -697,6 +819,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
         | Message::AcceptExpandedChild(block_id, child_index) => {
             state.set_active_block(&block_id);
+            state.snapshot_for_undo();
             let mut should_save = false;
             let mut should_remove_draft = false;
             if let Some(draft) = state.expansion_drafts.get_mut(&block_id) {
@@ -742,6 +865,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
         | Message::AcceptAllExpandedChildren(block_id) => {
             state.set_active_block(&block_id);
+            state.snapshot_for_undo();
             if let Some(mut draft) = state.expansion_drafts.remove(&block_id) {
                 for point in draft.children.drain(..) {
                     if let Some(child_id) = state.graph.append_child(&block_id, point.clone()) {
@@ -785,6 +909,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::AddChild(block_id) => {
             state.set_active_block(&block_id);
             state.overflow_open_for = None;
+            state.snapshot_for_undo();
             if let Some(child_id) = state.graph.append_child(&block_id, String::new()) {
                 tracing::info!(parent_block_id = ?block_id, child_block_id = ?child_id, "added child block");
                 state.editors.set_text(&child_id, "");
@@ -796,6 +921,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
         | Message::AddSibling(block_id) => {
             state.set_active_block(&block_id);
+            state.snapshot_for_undo();
             if let Some(sibling_id) = state.graph.append_sibling(&block_id, String::new()) {
                 tracing::info!(block_id = ?block_id, sibling_block_id = ?sibling_id, "added sibling block");
                 state.editors.set_text(&sibling_id, "");
@@ -808,6 +934,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
         | Message::DuplicateBlock(block_id) => {
             state.set_active_block(&block_id);
+            state.snapshot_for_undo();
             if let Some(duplicate_id) = state.graph.duplicate_subtree_after(&block_id) {
                 tracing::info!(block_id = ?block_id, duplicate_block_id = ?duplicate_id, "duplicated block subtree");
                 state.editors.ensure_subtree(&state.graph, &duplicate_id);
@@ -820,6 +947,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
         | Message::ArchiveBlock(block_id) => {
             state.set_active_block(&block_id);
+            state.snapshot_for_undo();
             if let Some(removed_ids) = state.graph.remove_block_subtree(&block_id) {
                 tracing::info!(block_id = ?block_id, removed = removed_ids.len(), "archived block subtree");
                 state.editors.remove_blocks(&removed_ids);
@@ -852,6 +980,18 @@ fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) 
             Some(Message::CloseOverflow)
         }
         | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+            if modifiers.command() {
+                match &key {
+                    | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
+                        return if modifiers.shift() {
+                            Some(Message::Redo)
+                        } else {
+                            Some(Message::Undo)
+                        };
+                    }
+                    | _ => {}
+                }
+            }
             shortcut_to_action(key, modifiers).map(Message::Shortcut)
         }
         | Event::Mouse(mouse::Event::ButtonPressed(_)) => Some(Message::CloseOverflow),
