@@ -152,6 +152,45 @@ pub enum LlmError {
     Http(#[from] reqwest::Error),
     #[error("invalid response")]
     InvalidResponse,
+    #[error("invalid expand response")]
+    InvalidExpandResponse,
+}
+
+/// One candidate child point returned from an expand request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpandSuggestion {
+    point: String,
+}
+
+impl ExpandSuggestion {
+    /// Construct one suggestion with raw point text.
+    pub fn new(point: String) -> Self {
+        Self { point }
+    }
+
+    /// Consume and return the suggestion text.
+    pub fn into_point(self) -> String {
+        self.point
+    }
+}
+
+/// Structured result returned by one expand request.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpandResult {
+    rewrite: Option<String>,
+    children: Vec<ExpandSuggestion>,
+}
+
+impl ExpandResult {
+    /// Build an expand result from optional rewrite and children.
+    pub fn new(rewrite: Option<String>, children: Vec<ExpandSuggestion>) -> Self {
+        Self { rewrite, children }
+    }
+
+    /// Consume the result and return owned parts.
+    pub fn into_parts(self) -> (Option<String>, Vec<ExpandSuggestion>) {
+        (self.rewrite, self.children)
+    }
 }
 
 /// Structured API error details returned by the upstream LLM endpoint.
@@ -260,17 +299,56 @@ impl LlmClient {
             return Err(LlmError::InvalidRequest);
         }
 
+        let prompt = Prompt::summarize_from_lineage(lineage);
+        self.request_completion("summarize", prompt, 0.2, 200).await
+    }
+
+    /// Expand one target point into rewrite and concise child point candidates.
+    pub async fn expand_lineage(&self, lineage: &Lineage) -> Result<ExpandResult, LlmError> {
+        if lineage.is_empty() {
+            return Err(LlmError::InvalidRequest);
+        }
+
+        let prompt = Prompt::expand_from_lineage(lineage);
+        let content = self.request_completion("expand", prompt, 0.7, 500).await?;
+        let payload: ExpandResponsePayload =
+            serde_json::from_str(&content).map_err(|_| LlmError::InvalidExpandResponse)?;
+
+        let rewrite =
+            payload.rewrite.map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
+        let children = payload
+            .children
+            .into_iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .map(ExpandSuggestion::new)
+            .collect::<Vec<_>>();
+
+        if rewrite.is_none() && children.is_empty() {
+            return Err(LlmError::InvalidExpandResponse);
+        }
+
+        tracing::info!(
+            rewrite = rewrite.is_some(),
+            children = children.len(),
+            "llm expand response"
+        );
+        Ok(ExpandResult::new(rewrite, children))
+    }
+
+    async fn request_completion(
+        &self, purpose: &'static str, prompt: Prompt, temperature: f32, max_completion_tokens: u32,
+    ) -> Result<String, LlmError> {
         let url = self.chat_url();
-        let prompt = Prompt::from_lineage(lineage);
-        tracing::info!(model = %self.config.model, url = %url, "llm summarize request");
+        tracing::info!(model = %self.config.model, url = %url, purpose, "llm request");
         let request = ChatRequest {
             model: self.config.model.clone(),
             messages: vec![
                 Message { role: Role::System, content: prompt.system },
                 Message { role: Role::User, content: prompt.user },
             ],
-            temperature: 0.2,
-            max_completion_tokens: 200,
+            temperature,
+            max_completion_tokens,
         };
 
         let response = self
@@ -296,7 +374,7 @@ impl LlmClient {
             .filter(|content| !content.is_empty())
             .ok_or(LlmError::InvalidResponse)?;
 
-        tracing::info!(chars = content.len(), "llm summarize response");
+        tracing::info!(purpose, chars = content.len(), "llm completion response");
         Ok(content)
     }
 
@@ -346,7 +424,7 @@ struct Prompt {
 }
 
 impl Prompt {
-    fn from_lineage(lineage: &Lineage) -> Self {
+    fn summarize_from_lineage(lineage: &Lineage) -> Self {
         let mut context_lines = String::new();
         let total = lineage.items.len();
         for (index, item) in lineage.iter().enumerate() {
@@ -360,4 +438,26 @@ impl Prompt {
             user: format!("Summarize the target point with context:\n{context_lines}"),
         }
     }
+
+    fn expand_from_lineage(lineage: &Lineage) -> Self {
+        let mut context_lines = String::new();
+        let total = lineage.items.len();
+        for (index, item) in lineage.iter().enumerate() {
+            let label = if index + 1 == total { "Target" } else { "Parent" };
+            context_lines.push_str(&format!("{label}: {}\n", item.point()));
+        }
+
+        Self {
+            system: "You expand one target bullet point using its ancestors as context. Return strict JSON only with this shape: {\"rewrite\": string|null, \"children\": string[]}. Keep rewrite concise. Generate 3-6 concise child points. No markdown, no extra keys."
+                .to_string(),
+            user: format!("Expand the target point with context:\n{context_lines}"),
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct ExpandResponsePayload {
+    rewrite: Option<String>,
+    #[serde(default)]
+    children: Vec<String>,
 }

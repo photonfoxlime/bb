@@ -1,6 +1,6 @@
-//! Application state, messages, update and view for the iced UI.
+//! Application state, messages, update, and view for the iced UI.
 //!
-//! The underlying document is a graph of blocks (each with an id); the UI presents
+//! The underlying document is a graph of blocks (each with a UUID id); the UI presents
 //! the same content as a tree (roots and ordered children per node).
 
 use crate::llm;
@@ -10,21 +10,19 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, io, path::PathBuf, sync::LazyLock};
 use uuid::Uuid;
 
-fn path_key(path: &[usize]) -> String {
-    path.iter().map(|i| i.to_string()).collect::<Vec<_>>().join("_")
-}
-
 static PROJECT_DIRS: LazyLock<Option<directories::ProjectDirs>> =
     LazyLock::new(|| directories::ProjectDirs::from("app", "miorin", "bb"));
 
-/// Unique id for a block; used to refer to blocks in the graph.
-#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+/// Unique id for a block in the graph.
+///
+/// Invariant: this id is always a valid UUID.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
-pub struct BlockId(String);
+pub struct BlockId(Uuid);
 
 impl BlockId {
     fn new() -> Self {
-        Self(Uuid::new_v4().to_string())
+        Self(Uuid::new_v4())
     }
 }
 
@@ -58,8 +56,8 @@ impl BlockGraph {
             return Self::default();
         };
         match fs::read_to_string(&path) {
-            Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
-            Err(_) => Self::default(),
+            | Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
+            | Err(_) => Self::default(),
         }
     }
 
@@ -82,20 +80,8 @@ impl BlockGraph {
         self.nodes.get(id)
     }
 
-    fn node_mut(&mut self, id: &BlockId) -> Option<&mut BlockNode> {
-        self.nodes.get_mut(id)
-    }
-
-    /// Resolve a UI path (indices from root) to a block id.
-    fn block_id_at_path(&self, path: &[usize]) -> Option<BlockId> {
-        let mut ids: &[BlockId] = &self.roots;
-        let mut out_id = None;
-        for &index in path {
-            let id = ids.get(index)?.clone();
-            out_id = Some(id.clone());
-            ids = self.node(&id).map(|n| n.children.as_slice()).unwrap_or(&[]);
-        }
-        out_id
+    fn point(&self, id: &BlockId) -> Option<String> {
+        self.node(id).map(|node| node.point.clone())
     }
 
     fn update_point(&mut self, id: &BlockId, value: String) {
@@ -104,39 +90,61 @@ impl BlockGraph {
         }
     }
 
-    fn point_at_path(&self, path: &[usize]) -> Option<String> {
-        self.block_id_at_path(path).and_then(|id| self.node(&id).map(|n| n.point.clone()))
+    /// Add one child block under the parent and return the new child id.
+    fn append_child(&mut self, parent_id: &BlockId, point: String) -> Option<BlockId> {
+        if !self.nodes.contains_key(parent_id) {
+            return None;
+        }
+
+        let child_id = BlockId::new();
+        self.nodes.insert(child_id.clone(), BlockNode::new(point, vec![]));
+        if let Some(parent) = self.nodes.get_mut(parent_id) {
+            parent.children.push(child_id.clone());
+        }
+        Some(child_id)
     }
 
-    fn lineage_points(&self, path: &[usize]) -> llm::Lineage {
-        let mut lineage = Vec::new();
-        let mut ids: &[BlockId] = &self.roots;
-        for &index in path {
-            let Some(id) = ids.get(index) else {
-                break;
-            };
-            if let Some(node) = self.node(id) {
-                lineage.push(node.point.clone());
-                ids = node.children.as_slice();
-            } else {
-                break;
+    /// Return lineage points from one root to the target id.
+    ///
+    /// If the target id is not reachable from any root, returns an empty lineage.
+    fn lineage_points_for_id(&self, target: &BlockId) -> llm::Lineage {
+        for root in &self.roots {
+            let mut points = Vec::new();
+            if self.collect_lineage_points(root, target, &mut points) {
+                return llm::Lineage::from_points(points);
             }
         }
-        llm::Lineage::from_points(lineage)
+        llm::Lineage::from_points(vec![])
+    }
+
+    /// DFS helper for `lineage_points_for_id`.
+    fn collect_lineage_points(
+        &self, current: &BlockId, target: &BlockId, points: &mut Vec<String>,
+    ) -> bool {
+        let Some(node) = self.node(current) else {
+            return false;
+        };
+
+        points.push(node.point.clone());
+        if current == target {
+            return true;
+        }
+
+        for child in &node.children {
+            if self.collect_lineage_points(child, target, points) {
+                return true;
+            }
+        }
+
+        points.pop();
+        false
     }
 
     fn default_graph() -> Self {
         let root_id = BlockId::new();
-        let child_ids = [
-            BlockId::new(),
-            BlockId::new(),
-            BlockId::new(),
-        ];
+        let child_ids = [BlockId::new(), BlockId::new(), BlockId::new()];
         let mut nodes = HashMap::new();
-        nodes.insert(
-            child_ids[0].clone(),
-            BlockNode::new("马克思：《资本论》", vec![]),
-        );
+        nodes.insert(child_ids[0].clone(), BlockNode::new("马克思：《资本论》", vec![]));
         nodes.insert(
             child_ids[1].clone(),
             BlockNode::new("马克思·韦伯：《新教伦理与资本主义精神》", vec![]),
@@ -159,21 +167,44 @@ impl Default for BlockGraph {
     }
 }
 
-#[derive(Clone)]
-pub struct AppState {
-    graph: BlockGraph,
-    llm_config: Result<llm::LlmConfig, llm::LlmConfigError>,
-    error_message: Option<String>,
-    summary_state: SummaryState,
-    /// Editor content per block path (key from path_key). Kept in sync with graph.
-    editor_contents: HashMap<String, text_editor::Content>,
+/// A display-safe error value used by UI state and messages.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UiError {
+    message: String,
 }
 
-#[derive(Clone, PartialEq)]
+impl UiError {
+    fn from_message(message: impl ToString) -> Self {
+        Self { message: message.to_string() }
+    }
+
+    fn as_str(&self) -> &str {
+        self.message.as_str()
+    }
+}
+
+/// Global application-level error source used by the top banner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum AppError {
+    Configuration(UiError),
+    Summary(UiError),
+    Expand(UiError),
+}
+
+impl AppError {
+    fn message(&self) -> &str {
+        match self {
+            | Self::Configuration(err) | Self::Summary(err) | Self::Expand(err) => err.as_str(),
+        }
+    }
+}
+
+/// Per-row summarize lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum SummaryState {
     Idle,
-    Loading(Vec<usize>),
-    Error(String),
+    Loading(BlockId),
+    Error { block_id: BlockId, reason: UiError },
 }
 
 impl Default for SummaryState {
@@ -182,177 +213,534 @@ impl Default for SummaryState {
     }
 }
 
-impl AppState {
-    pub fn load() -> Self {
-        let llm_config = llm::LlmConfig::load();
-        let error_message = llm_config.as_ref().err().map(|err| err.to_string());
-        let graph = BlockGraph::load();
-        let editor_contents = Self::build_editor_contents(&graph, &graph.roots, &mut vec![]);
-        Self {
-            graph,
-            llm_config,
-            error_message,
-            summary_state: SummaryState::Idle,
-            editor_contents,
+/// Per-row expand lifecycle.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ExpandState {
+    Idle,
+    Loading(BlockId),
+    Error { block_id: BlockId, reason: UiError },
+}
+
+impl Default for ExpandState {
+    fn default() -> Self {
+        Self::Idle
+    }
+}
+
+/// One pending expansion draft for one block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ExpansionDraft {
+    rewrite: Option<String>,
+    children: Vec<String>,
+}
+
+impl ExpansionDraft {
+    fn new(rewrite: Option<String>, children: Vec<String>) -> Self {
+        Self { rewrite, children }
+    }
+
+    fn from_expand_result(result: llm::ExpandResult) -> Self {
+        let (rewrite, children) = result.into_parts();
+        let children =
+            children.into_iter().map(llm::ExpandSuggestion::into_point).collect::<Vec<_>>();
+        Self::new(rewrite, children)
+    }
+
+    fn is_empty(&self) -> bool {
+        self.rewrite.is_none() && self.children.is_empty()
+    }
+}
+
+/// Stores text editor buffers indexed by block id.
+///
+/// Invariant: every visible block id should have one content entry.
+#[derive(Clone, Default)]
+struct EditorStore {
+    buffers: HashMap<BlockId, text_editor::Content>,
+}
+
+impl EditorStore {
+    fn from_graph(graph: &BlockGraph) -> Self {
+        let mut store = Self::default();
+        store.populate(graph, &graph.roots);
+        store
+    }
+
+    fn populate(&mut self, graph: &BlockGraph, ids: &[BlockId]) {
+        for id in ids {
+            if let Some(node) = graph.node(id) {
+                self.buffers.insert(id.clone(), text_editor::Content::with_text(&node.point));
+                self.populate(graph, &node.children);
+            }
         }
     }
 
-    fn build_editor_contents(
-        graph: &BlockGraph, ids: &[BlockId], path: &mut Vec<usize>,
-    ) -> HashMap<String, text_editor::Content> {
-        let mut out = HashMap::new();
-        for (i, id) in ids.iter().enumerate() {
-            path.push(i);
-            if let Some(node) = graph.node(id) {
-                out.insert(path_key(path), text_editor::Content::with_text(&node.point));
-                out.extend(Self::build_editor_contents(graph, &node.children, path));
-            }
-            path.pop();
+    fn ensure_block(&mut self, graph: &BlockGraph, block_id: &BlockId) {
+        if self.buffers.contains_key(block_id) {
+            return;
         }
-        out
+        let point = graph.point(block_id).unwrap_or_default();
+        self.buffers.insert(block_id.clone(), text_editor::Content::with_text(&point));
+    }
+
+    fn get(&self, block_id: &BlockId) -> Option<&text_editor::Content> {
+        self.buffers.get(block_id)
+    }
+
+    fn get_mut(&mut self, block_id: &BlockId) -> Option<&mut text_editor::Content> {
+        self.buffers.get_mut(block_id)
+    }
+
+    fn set_text(&mut self, block_id: &BlockId, value: &str) {
+        self.buffers.insert(block_id.clone(), text_editor::Content::with_text(value));
+    }
+}
+
+#[derive(Clone)]
+pub struct AppState {
+    graph: BlockGraph,
+    llm_config: Result<llm::LlmConfig, llm::LlmConfigError>,
+    error: Option<AppError>,
+    summary_state: SummaryState,
+    expand_state: ExpandState,
+    expansion_drafts: HashMap<BlockId, ExpansionDraft>,
+    editors: EditorStore,
+}
+
+impl AppState {
+    pub fn load() -> Self {
+        let llm_config = llm::LlmConfig::load();
+        let error = llm_config
+            .as_ref()
+            .err()
+            .map(|err| AppError::Configuration(UiError::from_message(err)));
+        let graph = BlockGraph::load();
+        let editors = EditorStore::from_graph(&graph);
+        Self {
+            graph,
+            llm_config,
+            error,
+            summary_state: SummaryState::Idle,
+            expand_state: ExpandState::Idle,
+            expansion_drafts: HashMap::new(),
+            editors,
+        }
     }
 
     fn save_tree(&self) -> io::Result<()> {
         self.graph.save()
     }
 
-    fn is_summarizing(&self, path: &[usize]) -> bool {
-        matches!(&self.summary_state, SummaryState::Loading(p) if p == path)
+    fn is_summarizing(&self, block_id: &BlockId) -> bool {
+        matches!(&self.summary_state, SummaryState::Loading(id) if id == block_id)
+    }
+
+    fn summarize_label(&self, block_id: &BlockId) -> &'static str {
+        match &self.summary_state {
+            | SummaryState::Loading(id) if id == block_id => "Summarizing...",
+            | SummaryState::Error { block_id: id, .. } if id == block_id => "Summary failed",
+            | _ => "Summarize",
+        }
+    }
+
+    fn is_expanding(&self, block_id: &BlockId) -> bool {
+        matches!(&self.expand_state, ExpandState::Loading(id) if id == block_id)
+    }
+
+    fn expand_label(&self, block_id: &BlockId) -> &'static str {
+        match &self.expand_state {
+            | ExpandState::Loading(id) if id == block_id => "Expanding...",
+            | ExpandState::Error { block_id: id, .. } if id == block_id => "Expand failed",
+            | _ => "Expand",
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    PointEdited(Vec<usize>, text_editor::Action),
-    Summarize(Vec<usize>),
-    SummarizeDone(Vec<usize>, Result<String, String>),
+    PointEdited(BlockId, text_editor::Action),
+    Summarize(BlockId),
+    SummarizeDone(BlockId, Result<String, UiError>),
+    Expand(BlockId),
+    ExpandDone(BlockId, Result<llm::ExpandResult, UiError>),
+    ApplyExpandedRewrite(BlockId),
+    RejectExpandedRewrite(BlockId),
+    AcceptExpandedChild(BlockId, usize),
+    RejectExpandedChild(BlockId, usize),
+    AcceptAllExpandedChildren(BlockId),
+    DiscardExpansion(BlockId),
 }
 
 pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
     match message {
-        | Message::PointEdited(path, action) => {
-            let key = path_key(&path);
-            if !state.editor_contents.contains_key(&key) {
-                let point = state.graph.point_at_path(&path).unwrap_or_default();
-                state.editor_contents.insert(key.clone(), text_editor::Content::with_text(&point));
-            }
-            if let Some(content) = state.editor_contents.get_mut(&key) {
+        | Message::PointEdited(block_id, action) => {
+            state.editors.ensure_block(&state.graph, &block_id);
+            if let Some(content) = state.editors.get_mut(&block_id) {
                 content.perform(action);
-                if let Some(id) = state.graph.block_id_at_path(&path) {
-                    state.graph.update_point(&id, content.text());
+                let next_text = content.text();
+                tracing::debug!(block_id = ?block_id, chars = next_text.len(), "point edited");
+                state.graph.update_point(&block_id, next_text);
+                if let Err(err) = state.save_tree() {
+                    tracing::error!(%err, "failed to save tree after edit");
                 }
-                let _ = state.save_tree();
             }
             Task::none()
         }
-        | Message::Summarize(path) => {
-            if state.is_summarizing(&path) {
+        | Message::Summarize(block_id) => {
+            if state.is_summarizing(&block_id) {
                 return Task::none();
             }
-            let lineage = state.graph.lineage_points(&path);
+            let lineage = state.graph.lineage_points_for_id(&block_id);
             let config = match &state.llm_config {
-                | Ok(c) => c.clone(),
-                | Err(e) => {
-                    let msg = e.to_string();
-                    state.error_message = Some(msg.clone());
-                    state.summary_state = SummaryState::Error(msg);
+                | Ok(config) => config.clone(),
+                | Err(err) => {
+                    let ui_err = UiError::from_message(err);
+                    state.error = Some(AppError::Configuration(ui_err.clone()));
+                    state.summary_state = SummaryState::Error { block_id, reason: ui_err };
                     return Task::none();
                 }
             };
-            state.summary_state = SummaryState::Loading(path.clone());
-            let path_done = path.clone();
+            tracing::info!(block_id = ?block_id, "summary request started");
+            state.summary_state = SummaryState::Loading(block_id.clone());
             Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
-                    client.summarize_lineage(&lineage).await.map_err(|e| e.to_string())
+                    client.summarize_lineage(&lineage).await.map_err(UiError::from_message)
                 },
-                move |result| Message::SummarizeDone(path_done, result),
+                move |result| Message::SummarizeDone(block_id, result),
             )
         }
-        | Message::SummarizeDone(path, result) => {
+        | Message::SummarizeDone(block_id, result) => {
             state.summary_state = SummaryState::Idle;
             match result {
                 | Ok(summary) => {
-                    if let Some(id) = state.graph.block_id_at_path(&path) {
-                        state.graph.update_point(&id, summary.clone());
+                    tracing::info!(block_id = ?block_id, chars = summary.len(), "summary request succeeded");
+                    state.graph.update_point(&block_id, summary.clone());
+                    state.editors.set_text(&block_id, &summary);
+                    if let Err(err) = state.save_tree() {
+                        tracing::error!(%err, "failed to save tree after summarize");
                     }
-                    state
-                        .editor_contents
-                        .insert(path_key(&path), text_editor::Content::with_text(&summary));
-                    let _ = state.save_tree();
+                    state.error = None;
                 }
-                | Err(e) => {
-                    tracing::error!("llm summarize error: {}", e);
-                    state.error_message = Some(e.clone());
-                    state.summary_state = SummaryState::Error(e);
+                | Err(reason) => {
+                    tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "summary request failed");
+                    state.summary_state = SummaryState::Error { block_id, reason: reason.clone() };
+                    state.error = Some(AppError::Summary(reason));
                 }
             }
+            Task::none()
+        }
+        | Message::Expand(block_id) => {
+            if state.is_expanding(&block_id) {
+                return Task::none();
+            }
+            let lineage = state.graph.lineage_points_for_id(&block_id);
+            let config = match &state.llm_config {
+                | Ok(config) => config.clone(),
+                | Err(err) => {
+                    let ui_err = UiError::from_message(err);
+                    state.error = Some(AppError::Configuration(ui_err.clone()));
+                    state.expand_state = ExpandState::Error { block_id, reason: ui_err };
+                    return Task::none();
+                }
+            };
+
+            tracing::info!(block_id = ?block_id, "expand request started");
+            state.expand_state = ExpandState::Loading(block_id.clone());
+            Task::perform(
+                async move {
+                    let client = llm::LlmClient::new(config);
+                    client.expand_lineage(&lineage).await.map_err(UiError::from_message)
+                },
+                move |result| Message::ExpandDone(block_id, result),
+            )
+        }
+        | Message::ExpandDone(block_id, result) => {
+            state.expand_state = ExpandState::Idle;
+            match result {
+                | Ok(raw_result) => {
+                    let draft = ExpansionDraft::from_expand_result(raw_result);
+                    tracing::info!(
+                        block_id = ?block_id,
+                        has_rewrite = draft.rewrite.is_some(),
+                        child_count = draft.children.len(),
+                        "expand request succeeded"
+                    );
+                    if draft.is_empty() {
+                        let reason = UiError::from_message("expand returned no usable suggestions");
+                        state.expand_state =
+                            ExpandState::Error { block_id, reason: reason.clone() };
+                        state.error = Some(AppError::Expand(reason));
+                        return Task::none();
+                    }
+                    state.expansion_drafts.insert(block_id, draft);
+                    state.error = None;
+                }
+                | Err(reason) => {
+                    tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "expand request failed");
+                    state.expand_state = ExpandState::Error { block_id, reason: reason.clone() };
+                    state.error = Some(AppError::Expand(reason));
+                }
+            }
+            Task::none()
+        }
+        | Message::ApplyExpandedRewrite(block_id) => {
+            let mut should_save = false;
+            let mut should_remove_draft = false;
+            if let Some(draft) = state.expansion_drafts.get_mut(&block_id) {
+                if let Some(rewrite) = draft.rewrite.take() {
+                    tracing::info!(block_id = ?block_id, chars = rewrite.len(), "applied expanded rewrite");
+                    state.graph.update_point(&block_id, rewrite.clone());
+                    state.editors.set_text(&block_id, &rewrite);
+                    should_save = true;
+                }
+                if draft.is_empty() {
+                    should_remove_draft = true;
+                }
+            }
+            if should_remove_draft {
+                state.expansion_drafts.remove(&block_id);
+            }
+            if should_save {
+                if let Err(err) = state.save_tree() {
+                    tracing::error!(%err, "failed to save tree after applying rewrite");
+                }
+            }
+            Task::none()
+        }
+        | Message::RejectExpandedRewrite(block_id) => {
+            if let Some(draft) = state.expansion_drafts.get_mut(&block_id) {
+                draft.rewrite = None;
+                tracing::info!(block_id = ?block_id, "rejected expanded rewrite");
+                if draft.is_empty() {
+                    state.expansion_drafts.remove(&block_id);
+                }
+            }
+            Task::none()
+        }
+        | Message::AcceptExpandedChild(block_id, child_index) => {
+            let mut should_save = false;
+            let mut should_remove_draft = false;
+            if let Some(draft) = state.expansion_drafts.get_mut(&block_id) {
+                if child_index < draft.children.len() {
+                    let point = draft.children.remove(child_index);
+                    if let Some(child_id) = state.graph.append_child(&block_id, point.clone()) {
+                        tracing::info!(
+                            parent_block_id = ?block_id,
+                            child_block_id = ?child_id,
+                            chars = point.len(),
+                            "accepted expanded child"
+                        );
+                        state.editors.set_text(&child_id, &point);
+                        should_save = true;
+                    }
+                }
+                if draft.is_empty() {
+                    should_remove_draft = true;
+                }
+            }
+            if should_remove_draft {
+                state.expansion_drafts.remove(&block_id);
+            }
+            if should_save {
+                if let Err(err) = state.save_tree() {
+                    tracing::error!(%err, "failed to save tree after accepting expanded child");
+                }
+            }
+            Task::none()
+        }
+        | Message::RejectExpandedChild(block_id, child_index) => {
+            if let Some(draft) = state.expansion_drafts.get_mut(&block_id) {
+                if child_index < draft.children.len() {
+                    draft.children.remove(child_index);
+                    tracing::info!(block_id = ?block_id, child_index, "rejected expanded child");
+                }
+                if draft.is_empty() {
+                    state.expansion_drafts.remove(&block_id);
+                }
+            }
+            Task::none()
+        }
+        | Message::AcceptAllExpandedChildren(block_id) => {
+            if let Some(mut draft) = state.expansion_drafts.remove(&block_id) {
+                for point in draft.children.drain(..) {
+                    if let Some(child_id) = state.graph.append_child(&block_id, point.clone()) {
+                        tracing::info!(
+                            parent_block_id = ?block_id,
+                            child_block_id = ?child_id,
+                            chars = point.len(),
+                            "accepted expanded child (bulk)"
+                        );
+                        state.editors.set_text(&child_id, &point);
+                    }
+                }
+                if draft.rewrite.is_some() {
+                    state.expansion_drafts.insert(block_id.clone(), draft);
+                }
+                if let Err(err) = state.save_tree() {
+                    tracing::error!(%err, "failed to save tree after accepting expanded children");
+                }
+            }
+            Task::none()
+        }
+        | Message::DiscardExpansion(block_id) => {
+            tracing::info!(block_id = ?block_id, "discarded expansion draft");
+            state.expansion_drafts.remove(&block_id);
             Task::none()
         }
     }
 }
 
 pub fn view(state: &AppState) -> Element<'_, Message> {
-    let mut col = column![].spacing(8);
-    if let Some(msg) = &state.error_message {
-        col = col
-            .push(container(text(format!("Error: {}", msg))).style(container::danger).padding(8));
-    }
-    let content = view_line(state, &state.graph.roots, vec![]);
-    col = col
-        .push(scrollable(container(content).padding(16).width(Fill).center_x(Fill)).height(Fill));
-    container(col).width(Fill).height(Fill).into()
-}
-
-fn view_line<'a>(
-    state: &'a AppState, ids: &'a [BlockId], path: Vec<usize>,
-) -> Element<'a, Message> {
-    let mut col = column![].spacing(4);
-    for (index, id) in ids.iter().enumerate() {
-        let Some(node) = state.graph.node(id) else {
-            continue;
-        };
-        let mut next_path = path.clone();
-        next_path.push(index);
-        col = col.push(view_block(state, id, node, next_path));
-    }
-    col.into()
-}
-
-fn view_block<'a>(
-    state: &'a AppState, _id: &'a BlockId, node: &'a BlockNode, path: Vec<usize>,
-) -> Element<'a, Message> {
-    let path_for_edit = path.clone();
-    let path_for_summarize = path.clone();
-    let _summarizing = state.is_summarizing(&path);
-    let summary_label = match &state.summary_state {
-        | SummaryState::Loading(p) if p == &path => "Summarizing...",
-        | SummaryState::Error(e) if state.error_message.as_deref() == Some(e.as_str()) => {
-            "Summary failed"
-        }
-        | _ => "Summarize",
-    };
-    let key = path_key(&path);
-    let content = state.editor_contents.get(&key).expect("editor content built at load");
-    let path_for_edit2 = path_for_edit.clone();
-    let row_content = row![]
-        .spacing(8)
-        .push(
-            container(
-                text_editor(content)
-                    .placeholder("point")
-                    .on_action(move |action| Message::PointEdited(path_for_edit2.clone(), action))
-                    .height(Length::Shrink),
-            )
-            .width(Length::Fill),
-        )
-        .push(button(summary_label).on_press(Message::Summarize(path_for_summarize)));
-    let mut col = column![].spacing(4).push(row_content);
-    if !node.children.is_empty() {
-        col = col.push(
-            container(view_line(state, &node.children, path.clone()))
-                .padding(iced::Padding::from([0.0, 24.0])),
+    let mut layout = column![].spacing(8);
+    if let Some(error) = &state.error {
+        layout = layout.push(
+            container(text(format!("Error: {}", error.message())))
+                .style(container::danger)
+                .padding(8),
         );
     }
-    col.into()
+
+    let tree = TreeView::new(state).render_roots();
+    layout = layout
+        .push(scrollable(container(tree).padding(16).width(Fill).center_x(Fill)).height(Fill));
+
+    container(layout).width(Fill).height(Fill).into()
+}
+
+/// Pure renderer from immutable state into tree widgets.
+struct TreeView<'a> {
+    state: &'a AppState,
+}
+
+impl<'a> TreeView<'a> {
+    fn new(state: &'a AppState) -> Self {
+        Self { state }
+    }
+
+    fn render_roots(&self) -> Element<'a, Message> {
+        self.render_line(&self.state.graph.roots)
+    }
+
+    fn render_line(&self, ids: &'a [BlockId]) -> Element<'a, Message> {
+        let mut col = column![].spacing(6);
+        for id in ids {
+            let Some(node) = self.state.graph.node(id) else {
+                continue;
+            };
+            col = col.push(self.render_block(id, node));
+        }
+        col.into()
+    }
+
+    fn render_block(&self, block_id: &BlockId, node: &'a BlockNode) -> Element<'a, Message> {
+        let editor_content =
+            self.state.editors.get(block_id).expect("editor content is populated from graph");
+
+        let block_id_for_edit = block_id.clone();
+        let block_id_for_summarize = block_id.clone();
+        let block_id_for_expand = block_id.clone();
+
+        let spine = container(text("|"))
+            .width(Length::Fixed(12.0))
+            .center_x(Length::Fill)
+            .center_y(Length::Fill);
+        let marker = container(text("●").size(10)).width(Length::Fixed(12.0)).center_x(Fill);
+
+        let row_content = row![]
+            .spacing(10)
+            .align_y(iced::Alignment::Start)
+            .push(spine)
+            .push(marker)
+            .push(
+                container(
+                    text_editor(editor_content)
+                        .placeholder("point")
+                        .on_action(move |action| {
+                            Message::PointEdited(block_id_for_edit.clone(), action)
+                        })
+                        .height(Length::Shrink),
+                )
+                .width(Length::Fill),
+            )
+            .push(
+                button(self.state.summarize_label(block_id))
+                    .on_press(Message::Summarize(block_id_for_summarize)),
+            )
+            .push(
+                button(self.state.expand_label(block_id))
+                    .on_press(Message::Expand(block_id_for_expand)),
+            );
+
+        let mut block = column![].spacing(6).push(row_content);
+        if let Some(draft) = self.state.expansion_drafts.get(block_id) {
+            block = block.push(self.render_expansion_panel(block_id, draft));
+        }
+
+        if !node.children.is_empty() {
+            block = block.push(
+                container(self.render_line(&node.children))
+                    .padding(iced::Padding::from([0.0, 28.0])),
+            );
+        }
+        block.into()
+    }
+
+    fn render_expansion_panel(
+        &self, block_id: &BlockId, draft: &'a ExpansionDraft,
+    ) -> Element<'a, Message> {
+        let mut panel = column![].spacing(6);
+
+        if let Some(rewrite) = &draft.rewrite {
+            panel = panel.push(
+                row![]
+                    .spacing(8)
+                    .push(container(text(format!("Rewrite: {}", rewrite))).width(Length::Fill))
+                    .push(
+                        button("Apply rewrite")
+                            .on_press(Message::ApplyExpandedRewrite(block_id.clone())),
+                    )
+                    .push(
+                        button("Dismiss rewrite")
+                            .on_press(Message::RejectExpandedRewrite(block_id.clone())),
+                    ),
+            );
+        }
+
+        if !draft.children.is_empty() {
+            panel = panel.push(
+                row![]
+                    .spacing(8)
+                    .push(container(text("Child suggestions")).width(Length::Fill))
+                    .push(
+                        button("Accept all")
+                            .on_press(Message::AcceptAllExpandedChildren(block_id.clone())),
+                    )
+                    .push(
+                        button("Discard all").on_press(Message::DiscardExpansion(block_id.clone())),
+                    ),
+            );
+
+            for (index, child) in draft.children.iter().enumerate() {
+                panel = panel.push(
+                    row![]
+                        .spacing(8)
+                        .push(container(text(child.as_str())).width(Length::Fill))
+                        .push(
+                            button("Keep")
+                                .on_press(Message::AcceptExpandedChild(block_id.clone(), index)),
+                        )
+                        .push(
+                            button("Drop")
+                                .on_press(Message::RejectExpandedChild(block_id.clone(), index)),
+                        ),
+                );
+            }
+        }
+
+        container(panel)
+            .padding(iced::Padding::from([8.0, 16.0]))
+            .style(container::bordered_box)
+            .into()
+    }
 }
