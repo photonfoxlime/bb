@@ -399,10 +399,10 @@ pub fn action_to_message_by_id(
 }
 
 fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
-    if matches!(&state.expand_state, ExpandState::Error { block_id: id, .. } if id == block_id) {
+    if state.expand_states.get(block_id).is_some_and(|s| matches!(s, ExpandState::Error { .. })) {
         return Some(Message::Expand(block_id.clone()));
     }
-    if matches!(&state.summary_state, SummaryState::Error { block_id: id, .. } if id == block_id) {
+    if state.summary_states.get(block_id).is_some_and(|s| matches!(s, SummaryState::Error { .. })) {
         return Some(Message::Summarize(block_id.clone()));
     }
     None

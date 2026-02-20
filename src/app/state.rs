@@ -1,7 +1,5 @@
 //! Async operation state types for the application layer.
 
-use crate::graph::BlockId;
-
 /// Type-erased error wrapper for display in the UI.
 ///
 /// Wraps any error message as a string so the view layer does not depend
@@ -39,12 +37,12 @@ impl AppError {
 
 /// Per-block summarize (reduce) operation state: Idle → Loading → Idle/Error.
 ///
-/// At most one summarize operation is active at a time.
+/// Stored in a map keyed by `BlockId`; missing entry means Idle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum SummaryState {
     Idle,
-    Loading(BlockId),
-    Error { block_id: BlockId, reason: UiError },
+    Loading,
+    Error { reason: UiError },
 }
 
 impl Default for SummaryState {
@@ -55,12 +53,12 @@ impl Default for SummaryState {
 
 /// Per-block expand operation state: Idle → Loading → Idle/Error.
 ///
-/// At most one expand operation is active at a time.
+/// Stored in a map keyed by `BlockId`; missing entry means Idle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum ExpandState {
     Idle,
-    Loading(BlockId),
-    Error { block_id: BlockId, reason: UiError },
+    Loading,
+    Error { reason: UiError },
 }
 
 impl Default for ExpandState {

@@ -49,8 +49,8 @@ pub struct AppState {
     undo_history: UndoHistory<UndoSnapshot>,
     llm_config: Result<llm::LlmConfig, llm::LlmConfigError>,
     error: Option<AppError>,
-    summary_state: SummaryState,
-    expand_state: ExpandState,
+    summary_states: HashMap<BlockId, SummaryState>,
+    expand_states: HashMap<BlockId, ExpandState>,
     expansion_drafts: HashMap<BlockId, ExpansionDraft>,
     editors: EditorStore,
     overflow_open_for: Option<BlockId>,
@@ -73,8 +73,8 @@ impl AppState {
             undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
             llm_config,
             error,
-            summary_state: SummaryState::Idle,
-            expand_state: ExpandState::Idle,
+            summary_states: HashMap::new(),
+            expand_states: HashMap::new(),
             expansion_drafts: HashMap::new(),
             editors,
             overflow_open_for: None,
@@ -88,11 +88,15 @@ impl AppState {
     }
 
     fn is_summarizing(&self, block_id: &BlockId) -> bool {
-        matches!(&self.summary_state, SummaryState::Loading(id) if id == block_id)
+        self.summary_states
+            .get(block_id)
+            .is_some_and(|s| matches!(s, SummaryState::Loading))
     }
 
     fn is_expanding(&self, block_id: &BlockId) -> bool {
-        matches!(&self.expand_state, ExpandState::Loading(id) if id == block_id)
+        self.expand_states
+            .get(block_id)
+            .is_some_and(|s| matches!(s, ExpandState::Loading))
     }
 
     fn current_block_for_shortcuts(&self) -> Option<BlockId> {
@@ -116,6 +120,8 @@ impl AppState {
         self.editors = EditorStore::from_graph(&snapshot.graph);
         self.graph = snapshot.graph;
         self.expansion_drafts = snapshot.expansion_drafts;
+        self.summary_states.clear();
+        self.expand_states.clear();
         self.editing_block_id = None;
         self.active_block_id = self.graph.roots().first().cloned();
         if let Err(err) = self.save_tree() {
@@ -187,8 +193,8 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 point_text,
                 has_draft: draft.is_some(),
                 draft_suggestion_count: draft.map(|d| d.children.len()).unwrap_or(0),
-                has_expand_error: matches!(&state.expand_state, ExpandState::Error { block_id: id, .. } if id == &block_id),
-                has_reduce_error: matches!(&state.summary_state, SummaryState::Error { block_id: id, .. } if id == &block_id),
+                has_expand_error: state.expand_states.get(&block_id).is_some_and(|s| matches!(s, ExpandState::Error { .. })),
+                has_reduce_error: state.summary_states.get(&block_id).is_some_and(|s| matches!(s, SummaryState::Error { .. })),
                 is_expanding: state.is_expanding(&block_id),
                 is_reducing: state.is_summarizing(&block_id),
             };
@@ -239,12 +245,12 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 | Err(err) => {
                     let ui_err = UiError::from_message(err);
                     state.error = Some(AppError::Configuration(ui_err.clone()));
-                    state.summary_state = SummaryState::Error { block_id, reason: ui_err };
+                    state.summary_states.insert(block_id.clone(), SummaryState::Error { reason: ui_err });
                     return Task::none();
                 }
             };
             tracing::info!(block_id = ?block_id, "summary request started");
-            state.summary_state = SummaryState::Loading(block_id.clone());
+            state.summary_states.insert(block_id.clone(), SummaryState::Loading);
             Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
@@ -254,7 +260,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             )
         }
         | Message::SummarizeDone(block_id, result) => {
-            state.summary_state = SummaryState::Idle;
+            state.summary_states.remove(&block_id);
             match result {
                 | Ok(summary) => {
                     tracing::info!(block_id = ?block_id, chars = summary.len(), "summary request succeeded");
@@ -268,7 +274,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 }
                 | Err(reason) => {
                     tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "summary request failed");
-                    state.summary_state = SummaryState::Error { block_id, reason: reason.clone() };
+                    state.summary_states.insert(block_id.clone(), SummaryState::Error { reason: reason.clone() });
                     state.error = Some(AppError::Summary(reason));
                 }
             }
@@ -286,13 +292,13 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 | Err(err) => {
                     let ui_err = UiError::from_message(err);
                     state.error = Some(AppError::Configuration(ui_err.clone()));
-                    state.expand_state = ExpandState::Error { block_id, reason: ui_err };
+                    state.expand_states.insert(block_id.clone(), ExpandState::Error { reason: ui_err });
                     return Task::none();
                 }
             };
 
             tracing::info!(block_id = ?block_id, "expand request started");
-            state.expand_state = ExpandState::Loading(block_id.clone());
+            state.expand_states.insert(block_id.clone(), ExpandState::Loading);
             Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
@@ -302,7 +308,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             )
         }
         | Message::ExpandDone(block_id, result) => {
-            state.expand_state = ExpandState::Idle;
+            state.expand_states.remove(&block_id);
             match result {
                 | Ok(raw_result) => {
                     let draft = ExpansionDraft::from_expand_result(raw_result);
@@ -314,8 +320,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     );
                     if draft.is_empty() {
                         let reason = UiError::from_message("expand returned no usable suggestions");
-                        state.expand_state =
-                            ExpandState::Error { block_id, reason: reason.clone() };
+                        state.expand_states.insert(block_id.clone(), ExpandState::Error { reason: reason.clone() });
                         state.error = Some(AppError::Expand(reason));
                         return Task::none();
                     }
@@ -325,7 +330,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 }
                 | Err(reason) => {
                     tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "expand request failed");
-                    state.expand_state = ExpandState::Error { block_id, reason: reason.clone() };
+                    state.expand_states.insert(block_id.clone(), ExpandState::Error { reason: reason.clone() });
                     state.error = Some(AppError::Expand(reason));
                 }
             }

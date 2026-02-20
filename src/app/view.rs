@@ -179,8 +179,8 @@ impl<'a> TreeView<'a> {
             point_text,
             has_draft: draft.is_some(),
             draft_suggestion_count: draft.map(|d| d.children.len()).unwrap_or(0),
-            has_expand_error: matches!(&self.state.expand_state, ExpandState::Error { block_id: id, .. } if id == block_id),
-            has_reduce_error: matches!(&self.state.summary_state, SummaryState::Error { block_id: id, .. } if id == block_id),
+            has_expand_error: self.state.expand_states.get(block_id).is_some_and(|s| matches!(s, ExpandState::Error { .. })),
+            has_reduce_error: self.state.summary_states.get(block_id).is_some_and(|s| matches!(s, SummaryState::Error { .. })),
             is_expanding: self.state.is_expanding(block_id),
             is_reducing: self.state.is_summarizing(block_id),
         }
