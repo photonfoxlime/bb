@@ -1,4 +1,4 @@
-//! Transient expansion draft staging for LLM results.
+//! Transient draft staging for LLM results (expansion and summary).
 
 use crate::llm;
 
@@ -68,5 +68,30 @@ mod tests {
         let draft = ExpansionDraft::from_expand_result(result);
         assert_eq!(draft.rewrite, Some("rewritten".to_string()));
         assert_eq!(draft.children, vec!["c1".to_string()]);
+    }
+}
+
+/// Staging area for one block's LLM summary result before user acceptance.
+///
+/// Invariant: removed from `AppState.summary_drafts` when accepted or rejected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SummaryDraft {
+    pub(crate) summary: String,
+}
+
+impl SummaryDraft {
+    pub(crate) fn new(summary: String) -> Self {
+        Self { summary }
+    }
+}
+
+#[cfg(test)]
+mod summary_tests {
+    use super::*;
+
+    #[test]
+    fn summary_draft_new() {
+        let draft = SummaryDraft::new("summary text".to_string());
+        assert_eq!(draft.summary, "summary text");
     }
 }

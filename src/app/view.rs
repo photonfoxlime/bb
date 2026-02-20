@@ -3,7 +3,7 @@ use super::action_bar::{
     ViewportBucket, action_to_message, build_action_bar_vm, project_for_viewport,
 };
 use super::diff::{word_diff, WordChange};
-use super::{AppState, ExpandState, ExpansionDraft, Message, SummaryState};
+use super::{AppState, ExpandState, ExpansionDraft, Message, SummaryDraft, SummaryState};
 use crate::graph::{BlockId, BlockNode};
 use crate::theme;
 use iced::widget::{button, column, container, row, rule, text, text_editor, tooltip};
@@ -99,6 +99,9 @@ impl<'a> TreeView<'a> {
         }
         if let Some(draft) = self.state.expansion_drafts.get(block_id) {
             block = block.push(self.render_expansion_panel(block_id, draft));
+        }
+        if let Some(draft) = self.state.summary_drafts.get(block_id) {
+            block = block.push(self.render_summary_panel(block_id, draft));
         }
 
         if !node.children.is_empty() {
@@ -225,15 +228,93 @@ impl<'a> TreeView<'a> {
         container(panel).padding(iced::Padding::from([8.0, 16.0])).style(theme::draft_panel).into()
     }
 
+    fn render_summary_panel(
+        &self, block_id: &BlockId, draft: &'a SummaryDraft,
+    ) -> Element<'a, Message> {
+        // Get current block text for diff comparison
+        let old_text = self.state.graph.point(block_id).unwrap_or_default();
+        let changes = word_diff(&old_text, &draft.summary);
+
+        // Render diff view
+        let mut diff_content = column![].spacing(2);
+        
+        // Old text with deletions highlighted
+        let mut old_line = row![].spacing(0);
+        for change in &changes {
+            match change {
+                WordChange::Unchanged(s) => {
+                    old_line = old_line.push(text(s.clone()).style(theme::diff_context));
+                }
+                WordChange::Deleted(s) => {
+                    old_line = old_line.push(
+                        container(text(s.clone()))
+                            .style(theme::diff_deletion)
+                            .padding(iced::Padding::from([0.0, 2.0])),
+                    );
+                }
+                WordChange::Added(_) => {
+                    // Skip additions in old text view
+                }
+            }
+        }
+        diff_content = diff_content.push(old_line);
+
+        // New text with additions highlighted
+        let mut new_line = row![].spacing(0);
+        for change in &changes {
+            match change {
+                WordChange::Unchanged(s) => {
+                    new_line = new_line.push(text(s.clone()).style(theme::diff_context));
+                }
+                WordChange::Deleted(_) => {
+                    // Skip deletions in new text view
+                }
+                WordChange::Added(s) => {
+                    new_line = new_line.push(
+                        container(text(s.clone()))
+                            .style(theme::diff_addition)
+                            .padding(iced::Padding::from([0.0, 2.0])),
+                    );
+                }
+            }
+        }
+        diff_content = diff_content.push(new_line);
+
+        container(
+            column![]
+                .spacing(6)
+                .push(container(text("Summary")).width(Length::Fill))
+                .push(container(diff_content).width(Length::Fill))
+                .push(
+                    row![]
+                        .spacing(8)
+                        .push(
+                            button(text("Apply summary").font(theme::INTER).size(13))
+                                .style(theme::action_button)
+                                .on_press(Message::ApplySummary(block_id.clone())),
+                        )
+                        .push(
+                            button(text("Dismiss summary").font(theme::INTER).size(13))
+                                .style(theme::destructive_button)
+                                .on_press(Message::RejectSummary(block_id.clone())),
+                        ),
+                ),
+        )
+        .padding(iced::Padding::from([8.0, 16.0]))
+        .style(theme::draft_panel)
+        .into()
+    }
+
     fn action_row_context(
         &self, block_id: &BlockId, point_text: String, _node: &BlockNode,
     ) -> RowContext {
-        let draft = self.state.expansion_drafts.get(block_id);
+        let expansion_draft = self.state.expansion_drafts.get(block_id);
+        let summary_draft = self.state.summary_drafts.get(block_id);
         RowContext {
             block_id: block_id.clone(),
             point_text,
-            has_draft: draft.is_some(),
-            draft_suggestion_count: draft.map(|d| d.children.len()).unwrap_or(0),
+            has_draft: expansion_draft.is_some() || summary_draft.is_some(),
+            draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0),
             has_expand_error: self.state.expand_states.get(block_id).is_some_and(|s| matches!(s, ExpandState::Error { .. })),
             has_reduce_error: self.state.summary_states.get(block_id).is_some_and(|s| matches!(s, SummaryState::Error { .. })),
             is_expanding: self.state.is_expanding(block_id),

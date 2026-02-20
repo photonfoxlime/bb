@@ -14,7 +14,7 @@ mod editor_store;
 mod state;
 mod view;
 
-use draft::ExpansionDraft;
+use draft::{ExpansionDraft, SummaryDraft};
 use editor_store::EditorStore;
 use state::{AppError, ExpandState, SummaryState, UiError};
 
@@ -35,6 +35,7 @@ use std::collections::HashMap;
 struct UndoSnapshot {
     graph: BlockGraph,
     expansion_drafts: HashMap<BlockId, ExpansionDraft>,
+    summary_drafts: HashMap<BlockId, SummaryDraft>,
 }
 
 /// Default capacity: 64 undo steps.
@@ -53,6 +54,7 @@ pub struct AppState {
     summary_states: HashMap<BlockId, SummaryState>,
     expand_states: HashMap<BlockId, ExpandState>,
     expansion_drafts: HashMap<BlockId, ExpansionDraft>,
+    summary_drafts: HashMap<BlockId, SummaryDraft>,
     editors: EditorStore,
     overflow_open_for: Option<BlockId>,
     active_block_id: Option<BlockId>,
@@ -77,6 +79,7 @@ impl AppState {
             summary_states: HashMap::new(),
             expand_states: HashMap::new(),
             expansion_drafts: HashMap::new(),
+            summary_drafts: HashMap::new(),
             editors,
             overflow_open_for: None,
             active_block_id: None,
@@ -113,6 +116,7 @@ impl AppState {
         self.undo_history.push(UndoSnapshot {
             graph: self.graph.clone(),
             expansion_drafts: self.expansion_drafts.clone(),
+            summary_drafts: self.summary_drafts.clone(),
         });
         self.editing_block_id = None;
     }
@@ -121,6 +125,7 @@ impl AppState {
         self.editors = EditorStore::from_graph(&snapshot.graph);
         self.graph = snapshot.graph;
         self.expansion_drafts = snapshot.expansion_drafts;
+        self.summary_drafts = snapshot.summary_drafts;
         self.summary_states.clear();
         self.expand_states.clear();
         self.editing_block_id = None;
@@ -140,6 +145,8 @@ pub enum Message {
     Shortcut(ActionId),
     Summarize(BlockId),
     SummarizeDone(BlockId, Result<String, UiError>),
+    ApplySummary(BlockId),
+    RejectSummary(BlockId),
     Expand(BlockId),
     ExpandDone(BlockId, Result<llm::ExpandResult, UiError>),
     ApplyExpandedRewrite(BlockId),
@@ -163,6 +170,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             let current = UndoSnapshot {
                 graph: state.graph.clone(),
                 expansion_drafts: state.expansion_drafts.clone(),
+                summary_drafts: state.summary_drafts.clone(),
             };
             if let Some(previous) = state.undo_history.undo(current) {
                 tracing::info!("undo applied");
@@ -174,6 +182,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             let current = UndoSnapshot {
                 graph: state.graph.clone(),
                 expansion_drafts: state.expansion_drafts.clone(),
+                summary_drafts: state.summary_drafts.clone(),
             };
             if let Some(next) = state.undo_history.redo(current) {
                 tracing::info!("redo applied");
@@ -266,11 +275,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 | Ok(summary) => {
                     tracing::info!(block_id = ?block_id, chars = summary.len(), "summary request succeeded");
                     state.snapshot_for_undo();
-                    state.graph.update_point(&block_id, summary.clone());
-                    state.editors.set_text(&block_id, &summary);
-                    if let Err(err) = state.save_tree() {
-                        tracing::error!(%err, "failed to save tree after summarize");
-                    }
+                    state.summary_drafts.insert(block_id, SummaryDraft::new(summary));
                     state.error = None;
                 }
                 | Err(reason) => {
@@ -279,6 +284,29 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     state.error = Some(AppError::Summary(reason));
                 }
             }
+            Task::none()
+        }
+        | Message::ApplySummary(block_id) => {
+            state.set_active_block(&block_id);
+            state.snapshot_for_undo();
+            let mut should_save = false;
+            if let Some(draft) = state.summary_drafts.remove(&block_id) {
+                tracing::info!(block_id = ?block_id, chars = draft.summary.len(), "applied summary");
+                state.graph.update_point(&block_id, draft.summary.clone());
+                state.editors.set_text(&block_id, &draft.summary);
+                should_save = true;
+            }
+            if should_save {
+                if let Err(err) = state.save_tree() {
+                    tracing::error!(%err, "failed to save tree after applying summary");
+                }
+            }
+            Task::none()
+        }
+        | Message::RejectSummary(block_id) => {
+            state.set_active_block(&block_id);
+            tracing::info!(block_id = ?block_id, "rejected summary");
+            state.summary_drafts.remove(&block_id);
             Task::none()
         }
         | Message::Expand(block_id) => {

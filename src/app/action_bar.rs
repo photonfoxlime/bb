@@ -387,7 +387,17 @@ pub fn action_to_message_by_id(
         | ActionId::AddChild => Some(Message::AddChild(block_id.clone())),
         | ActionId::AcceptAll => Some(Message::AcceptAllExpandedChildren(block_id.clone())),
         | ActionId::Retry => retry_message_for_block(state, block_id),
-        | ActionId::DismissDraft => Some(Message::DiscardExpansion(block_id.clone())),
+        | ActionId::DismissDraft => {
+            // Dismiss whichever draft exists (or both if both exist)
+            // The message handler will check and dismiss appropriately
+            if state.summary_drafts.contains_key(block_id) {
+                Some(Message::RejectSummary(block_id.clone()))
+            } else if state.expansion_drafts.contains_key(block_id) {
+                Some(Message::DiscardExpansion(block_id.clone()))
+            } else {
+                None
+            }
+        },
         | ActionId::AddSibling => Some(Message::AddSibling(block_id.clone())),
         | ActionId::DuplicateBlock => Some(Message::DuplicateBlock(block_id.clone())),
         | ActionId::ArchiveBlock => Some(Message::ArchiveBlock(block_id.clone())),
