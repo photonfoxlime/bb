@@ -15,3 +15,4 @@ toml = "0.8.20"
 tracing = "0.1"
 uuid = { version = "1.20.0", features = ["v4", "serde"] }
 lucide-icons = { version = "0.563.0", features = ["iced"] }
+similar = "2.5"

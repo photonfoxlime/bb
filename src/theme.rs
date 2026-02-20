@@ -155,6 +155,29 @@ pub fn status_text(_theme: &Theme) -> text::Style {
     text::Style { color: Some(ACCENT_MUTED) }
 }
 
+/// Diff deletion container — red-tinted background for removed words.
+pub fn diff_deletion(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color { a: 0.08, ..DANGER }.into()),
+        text_color: Some(INK),
+        ..Default::default()
+    }
+}
+
+/// Diff addition container — green-tinted background for added words.
+pub fn diff_addition(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color { a: 0.08, ..SUCCESS }.into()),
+        text_color: Some(INK),
+        ..Default::default()
+    }
+}
+
+/// Diff context text — neutral styling for unchanged words.
+pub fn diff_context(_theme: &Theme) -> text::Style {
+    text::Style { color: Some(INK) }
+}
+
 // ── Rule styles ───────────────────────────────────────────────────────
 
 /// Spine rule — a thin, low-contrast vertical line for tree structure.

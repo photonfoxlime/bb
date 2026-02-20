@@ -8,6 +8,7 @@ use crate::llm;
 use crate::theme;
 use crate::undo::UndoHistory;
 mod action_bar;
+mod diff;
 mod draft;
 mod editor_store;
 mod state;

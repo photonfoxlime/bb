@@ -2,6 +2,7 @@ use super::action_bar::{
     ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
     ViewportBucket, action_to_message, build_action_bar_vm, project_for_viewport,
 };
+use super::diff::{word_diff, WordChange};
 use super::{AppState, ExpandState, ExpansionDraft, Message, SummaryState};
 use crate::graph::{BlockId, BlockNode};
 use crate::theme;
@@ -114,19 +115,73 @@ impl<'a> TreeView<'a> {
         let mut panel = column![].spacing(6);
 
         if let Some(rewrite) = &draft.rewrite {
+            // Get current block text for diff comparison
+            let old_text = self.state.graph.point(block_id).unwrap_or_default();
+            let changes = word_diff(&old_text, rewrite);
+
+            // Render diff view
+            let mut diff_content = column![].spacing(2);
+            
+            // Old text with deletions highlighted
+            let mut old_line = row![].spacing(0);
+            for change in &changes {
+                match change {
+                    WordChange::Unchanged(s) => {
+                        old_line = old_line.push(text(s.clone()).style(theme::diff_context));
+                    }
+                    WordChange::Deleted(s) => {
+                        old_line = old_line.push(
+                            container(text(s.clone()))
+                                .style(theme::diff_deletion)
+                                .padding(iced::Padding::from([0.0, 2.0])),
+                        );
+                    }
+                    WordChange::Added(_) => {
+                        // Skip additions in old text view
+                    }
+                }
+            }
+            diff_content = diff_content.push(old_line);
+
+            // New text with additions highlighted
+            let mut new_line = row![].spacing(0);
+            for change in &changes {
+                match change {
+                    WordChange::Unchanged(s) => {
+                        new_line = new_line.push(text(s.clone()).style(theme::diff_context));
+                    }
+                    WordChange::Deleted(_) => {
+                        // Skip deletions in new text view
+                    }
+                    WordChange::Added(s) => {
+                        new_line = new_line.push(
+                            container(text(s.clone()))
+                                .style(theme::diff_addition)
+                                .padding(iced::Padding::from([0.0, 2.0])),
+                        );
+                    }
+                }
+            }
+            diff_content = diff_content.push(new_line);
+
             panel = panel.push(
-                row![]
-                    .spacing(8)
-                    .push(container(text(format!("Rewrite: {}", rewrite))).width(Length::Fill))
+                column![]
+                    .spacing(6)
+                    .push(container(text("Rewrite")).width(Length::Fill))
+                    .push(container(diff_content).width(Length::Fill))
                     .push(
-                        button(text("Apply rewrite").font(theme::INTER).size(13))
-                            .style(theme::action_button)
-                            .on_press(Message::ApplyExpandedRewrite(block_id.clone())),
-                    )
-                    .push(
-                        button(text("Dismiss rewrite").font(theme::INTER).size(13))
-                            .style(theme::destructive_button)
-                            .on_press(Message::RejectExpandedRewrite(block_id.clone())),
+                        row![]
+                            .spacing(8)
+                            .push(
+                                button(text("Apply rewrite").font(theme::INTER).size(13))
+                                    .style(theme::action_button)
+                                    .on_press(Message::ApplyExpandedRewrite(block_id.clone())),
+                            )
+                            .push(
+                                button(text("Dismiss rewrite").font(theme::INTER).size(13))
+                                    .style(theme::destructive_button)
+                                    .on_press(Message::RejectExpandedRewrite(block_id.clone())),
+                            ),
                     ),
             );
         }
