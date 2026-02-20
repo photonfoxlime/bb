@@ -23,5 +23,6 @@ fn main() -> iced::Result {
         .font(lucide_icons::LUCIDE_FONT_BYTES)
         .default_font(DEFAULT_FONT)
         .theme(theme::app_theme())
+        .title("Block Bunny")
         .run()
 }
