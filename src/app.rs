@@ -502,6 +502,11 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if let Some(removed_ids) = state.graph.remove_block_subtree(&block_id) {
                 tracing::info!(block_id = ?block_id, removed = removed_ids.len(), "archived block subtree");
                 state.editors.remove_blocks(&removed_ids);
+                // Ensure editor buffers exist for any roots created by removal
+                // (e.g. when the last root is archived, a fresh empty root is inserted).
+                for root_id in state.graph.roots() {
+                    state.editors.ensure_block(&state.graph, root_id);
+                }
                 state.overflow_open_for = None;
                 if state.active_block_id.as_ref() == Some(&block_id) {
                     state.active_block_id = state.graph.roots().first().cloned();
