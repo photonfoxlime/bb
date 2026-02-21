@@ -5,7 +5,7 @@ use super::action_bar::{
 };
 use super::diff::{WordChange, word_diff};
 use super::{AppState, ExpandState, ExpansionDraft, Message, SummaryDraft, SummaryState};
-use crate::store::{BlockId, BlockNode};
+use crate::store::BlockId;
 use crate::theme;
 use iced::widget::{button, column, container, row, rule, text, text_editor, tooltip};
 use iced::{Element, Fill, Length};
@@ -49,20 +49,29 @@ impl<'a> TreeView<'a> {
     fn render_line(&self, ids: &'a [BlockId]) -> Element<'a, Message> {
         let mut col = column![].spacing(10);
         for id in ids {
-            let Some(node) = self.state.store.node(id) else {
+            if self.state.store.node(id).is_none() {
                 continue;
-            };
-            col = col.push(self.render_block(id, node));
+            }
+            col = col.push(self.render_block(id));
         }
         col.into()
     }
 
-    fn render_block(&self, block_id: &BlockId, node: &'a BlockNode) -> Element<'a, Message> {
+    fn render_block(&self, block_id: &BlockId) -> Element<'a, Message> {
+        let node = self.state.store.node(block_id).expect("node exists for rendered block");
+
+        // Mount node (unexpanded): show path label and Load button.
+        if let Some(mount_path) = node.mount_path() {
+            return self.render_mount_node(block_id, mount_path);
+        }
+
+        let is_expanded_mount = self.state.store.mount_table().entry(*block_id).is_some();
+
         let editor_content =
             self.state.editors.get(block_id).expect("editor content is populated from store");
 
         let block_id_for_edit = *block_id;
-        let row_context = self.action_row_context(block_id, editor_content.text(), node);
+        let row_context = self.action_row_context(block_id, editor_content.text());
         let action_bar =
             project_for_viewport(build_action_bar_vm(&row_context), self.viewport_bucket());
 
@@ -73,6 +82,21 @@ impl<'a> TreeView<'a> {
             .width(Length::Fixed(12.0))
             .align_x(iced::alignment::Horizontal::Center)
             .padding(iced::Padding::ZERO.top(3.0));
+
+        let mut action_buttons: Element<'a, Message> =
+            self.render_action_buttons(block_id, &action_bar);
+        if is_expanded_mount {
+            action_buttons = row![]
+                .spacing(6)
+                .push(
+                    button(text("Collapse").font(theme::INTER).size(13))
+                        .style(theme::action_button)
+                        .padding(4)
+                        .on_press(Message::CollapseMount(*block_id)),
+                )
+                .push(action_buttons)
+                .into();
+        }
 
         let row_content = row![]
             .spacing(6)
@@ -88,7 +112,7 @@ impl<'a> TreeView<'a> {
                     .key_binding(move |key_press| editor_key_binding(block_id_for_edit, key_press))
                     .height(Length::Shrink),
             )
-            .push(self.render_action_buttons(block_id, &action_bar));
+            .push(action_buttons);
 
         let mut block = column![].spacing(4).push(row_content);
         if action_bar.status_chip.is_some() {
@@ -104,12 +128,46 @@ impl<'a> TreeView<'a> {
             block = block.push(self.render_summary_panel(block_id, draft));
         }
 
-        if !node.children.is_empty() {
+        let children = self.state.store.children(block_id);
+        if !children.is_empty() {
             block = block.push(
-                container(self.render_line(&node.children)).padding(iced::Padding::ZERO.left(16.0)),
+                container(self.render_line(children)).padding(iced::Padding::ZERO.left(16.0)),
             );
         }
         block.into()
+    }
+
+    /// Render an unexpanded mount node: spine + path label + Load button.
+    fn render_mount_node(
+        &self, block_id: &BlockId, mount_path: &'a std::path::Path,
+    ) -> Element<'a, Message> {
+        let spine = container(rule::vertical(1).style(theme::spine_rule))
+            .width(Length::Fixed(4.0))
+            .align_x(iced::alignment::Horizontal::Center);
+        let marker = container(text("•").size(12).style(theme::spine_text))
+            .width(Length::Fixed(12.0))
+            .align_x(iced::alignment::Horizontal::Center)
+            .padding(iced::Padding::ZERO.top(3.0));
+
+        let path_label = text(mount_path.display().to_string())
+            .font(theme::INTER)
+            .size(13)
+            .style(theme::spine_text);
+
+        let load_btn = button(text("Load").font(theme::INTER).size(13))
+            .style(theme::action_button)
+            .padding(4)
+            .on_press(Message::ExpandMount(*block_id));
+
+        row![]
+            .spacing(6)
+            .width(Fill)
+            .align_y(iced::Alignment::Start)
+            .push(spine)
+            .push(marker)
+            .push(path_label)
+            .push(load_btn)
+            .into()
     }
 
     fn render_expansion_panel(
@@ -305,9 +363,7 @@ impl<'a> TreeView<'a> {
         .into()
     }
 
-    fn action_row_context(
-        &self, block_id: &BlockId, point_text: String, _node: &BlockNode,
-    ) -> RowContext {
+    fn action_row_context(&self, block_id: &BlockId, point_text: String) -> RowContext {
         let expansion_draft = self.state.expansion_drafts.get(*block_id);
         let summary_draft = self.state.summary_drafts.get(*block_id);
         RowContext {

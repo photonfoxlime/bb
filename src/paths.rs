@@ -21,6 +21,12 @@ impl AppPaths {
         PROJECT_DIRS.as_ref().map(|p| p.data_dir().join("blocks.json"))
     }
 
+    /// Directory containing the main block store, used as the base for
+    /// resolving relative mount paths.
+    pub fn data_dir() -> Option<PathBuf> {
+        PROJECT_DIRS.as_ref().map(|p| p.data_dir().to_path_buf())
+    }
+
     /// Path to the LLM configuration TOML: `<config_dir>/llm.toml`.
     pub fn llm_config() -> Option<PathBuf> {
         PROJECT_DIRS.as_ref().map(|p| p.config_dir().join("llm.toml"))

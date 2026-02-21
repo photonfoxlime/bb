@@ -25,12 +25,17 @@ pub(crate) enum AppError {
     Configuration(UiError),
     Summary(UiError),
     Expand(UiError),
+    /// Error from a mount/unmount operation.
+    Mount(UiError),
 }
 
 impl AppError {
     pub(crate) fn message(&self) -> &str {
         match self {
-            | Self::Configuration(err) | Self::Summary(err) | Self::Expand(err) => err.as_str(),
+            | Self::Configuration(err)
+            | Self::Summary(err)
+            | Self::Expand(err)
+            | Self::Mount(err) => err.as_str(),
         }
     }
 }
@@ -101,6 +106,12 @@ mod tests {
     fn app_error_expand_message() {
         let err = AppError::Expand(UiError::from_message("exp"));
         assert_eq!(err.message(), "exp");
+    }
+
+    #[test]
+    fn app_error_mount_message() {
+        let err = AppError::Mount(UiError::from_message("mnt"));
+        assert_eq!(err.message(), "mnt");
     }
 
     // SummaryState tests

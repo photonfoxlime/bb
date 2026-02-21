@@ -4,6 +4,7 @@
 //! the same content as a tree (roots and ordered children per node).
 
 use crate::llm;
+use crate::paths::AppPaths;
 use crate::store::{BlockId, BlockStore};
 use crate::theme;
 use crate::undo::UndoHistory;
@@ -92,7 +93,8 @@ impl AppState {
     }
 
     fn save_tree(&self) -> std::io::Result<()> {
-        self.store.save()
+        self.store.save()?;
+        self.store.save_mounts()
     }
 
     fn is_summarizing(&self, block_id: &BlockId) -> bool {
@@ -166,6 +168,8 @@ pub enum Message {
     ArchiveBlock(BlockId),
     ToggleOverflow(BlockId),
     CloseOverflow,
+    ExpandMount(BlockId),
+    CollapseMount(BlockId),
 }
 
 /// Process one message and return a follow-up task (if any).
@@ -538,6 +542,39 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 }
                 if let Err(err) = state.save_tree() {
                     tracing::error!(%err, "failed to save tree after archiving subtree");
+                }
+            }
+            Task::none()
+        }
+        | Message::ExpandMount(block_id) => {
+            state.set_active_block(&block_id);
+            state.snapshot_for_undo();
+            let base_dir = AppPaths::data_dir().unwrap_or_default();
+            match state.store.expand_mount(&block_id, &base_dir) {
+                | Ok(new_roots) => {
+                    tracing::info!(block_id = ?block_id, children = new_roots.len(), "expanded mount");
+                    for &id in &new_roots {
+                        state.editors.ensure_subtree(&state.store, &id);
+                    }
+                    if let Err(err) = state.save_tree() {
+                        tracing::error!(%err, "failed to save tree after expanding mount");
+                    }
+                }
+                | Err(err) => {
+                    tracing::error!(block_id = ?block_id, %err, "failed to expand mount");
+                    state.error = Some(AppError::Mount(UiError::from_message(&err)));
+                }
+            }
+            Task::none()
+        }
+        | Message::CollapseMount(block_id) => {
+            state.set_active_block(&block_id);
+            state.snapshot_for_undo();
+            if let Some(()) = state.store.collapse_mount(&block_id) {
+                tracing::info!(block_id = ?block_id, "collapsed mount");
+                state.editors = EditorStore::from_store(&state.store);
+                if let Err(err) = state.save_tree() {
+                    tracing::error!(%err, "failed to save tree after collapsing mount");
                 }
             }
             Task::none()
