@@ -29,12 +29,13 @@ impl EditorStore {
 
     pub(crate) fn populate(&mut self, block_store: &BlockStore, ids: &[BlockId]) {
         for id in ids {
-            let Some(node) = block_store.node(id) else {
-                continue;
+            let point = match block_store.point(id) {
+                | Some(p) => p,
+                | None => continue,
             };
-            let point = block_store.point(id).unwrap_or_default();
             self.buffers.insert(*id, text_editor::Content::with_text(&point));
-            self.populate(block_store, &node.children);
+            let children: Vec<BlockId> = block_store.children(id).to_vec();
+            self.populate(block_store, &children);
         }
     }
 
@@ -59,14 +60,15 @@ impl EditorStore {
     }
 
     pub(crate) fn ensure_subtree(&mut self, block_store: &BlockStore, block_id: &BlockId) {
-        let Some(node) = block_store.node(block_id) else {
+        if block_store.point(block_id).is_none() {
             return;
-        };
+        }
         if !self.buffers.contains_key(*block_id) {
             let point = block_store.point(block_id).unwrap_or_default();
             self.buffers.insert(*block_id, text_editor::Content::with_text(&point));
         }
-        for child in &node.children {
+        let children: Vec<BlockId> = block_store.children(block_id).to_vec();
+        for child in &children {
             self.ensure_subtree(block_store, child);
         }
     }
