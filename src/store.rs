@@ -4,29 +4,76 @@
 //! point, and ordered children. The store is serialized as JSON for persistence.
 
 use crate::llm;
+use crate::mount::{BlockOrigin, MountEntry, MountError, MountTable};
 use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
 use slotmap::{SecondaryMap, SlotMap};
+use std::path::Path;
 use std::{fs, io};
 
 slotmap::new_key_type! {
     pub struct BlockId;
 }
 
-/// One node in the block tree: ordered child ids only.
+/// One node in the block tree.
 ///
+/// A node is either an inline list of child ids, or a mount point
+/// referencing an external file whose contents are loaded lazily.
 /// Text content (the "point") is stored separately in
 /// [`BlockStore::points`] so that structure and content can be
 /// queried and mutated independently.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BlockNode {
-    pub children: Vec<BlockId>,
+#[serde(untagged)]
+pub enum BlockNode {
+    /// Inline children: the default structural variant.
+    Children { children: Vec<BlockId> },
+    /// Mount point: a path to an external block-store file.
+    /// The path is stored relative to the parent store's file when possible.
+    /// At runtime, the referenced file is loaded and its blocks are re-keyed
+    /// into the main store; the node is then swapped to `Children` in memory.
+    Mount { path: std::path::PathBuf },
 }
 
 impl BlockNode {
-    /// Create a node with the given child ids.
-    pub fn new(children: Vec<BlockId>) -> Self {
-        Self { children }
+    /// Create an inline-children node with the given child ids.
+    pub fn with_children(children: Vec<BlockId>) -> Self {
+        Self::Children { children }
+    }
+
+    /// Create a mount-point node referencing an external file.
+    pub fn with_path(path: std::path::PathBuf) -> Self {
+        Self::Mount { path }
+    }
+
+    /// Return the inline children slice, or an empty slice for mount nodes.
+    pub fn children(&self) -> &[BlockId] {
+        match self {
+            | Self::Children { children } => children,
+            | Self::Mount { .. } => &[],
+        }
+    }
+
+    /// Return a mutable reference to the inline children vec.
+    ///
+    /// Returns `None` for mount nodes.
+    pub fn children_mut(&mut self) -> Option<&mut Vec<BlockId>> {
+        match self {
+            | Self::Children { children } => Some(children),
+            | Self::Mount { .. } => None,
+        }
+    }
+
+    /// Return the mount path if this is a mount node.
+    pub fn mount_path(&self) -> Option<&std::path::Path> {
+        match self {
+            | Self::Children { .. } => None,
+            | Self::Mount { path } => Some(path),
+        }
+    }
+
+    /// Return `true` if this node is a mount point.
+    pub fn is_mount(&self) -> bool {
+        matches!(self, Self::Mount { .. })
     }
 }
 
@@ -40,6 +87,10 @@ pub struct BlockStore {
     nodes: SlotMap<BlockId, BlockNode>,
     /// Text content for each block, keyed by the same `BlockId`.
     points: SecondaryMap<BlockId, String>,
+    /// Runtime-only mount tracking. Not serialized; reconstructed by
+    /// re-expanding `BlockNode::Mount` nodes after deserialization.
+    #[serde(skip)]
+    mount_table: MountTable,
 }
 
 impl BlockStore {
@@ -51,7 +102,7 @@ impl BlockStore {
         roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
         points: SecondaryMap<BlockId, String>,
     ) -> Self {
-        Self { roots, nodes, points }
+        Self { roots, nodes, points, mount_table: MountTable::new() }
     }
 
     /// The ordered root block ids.
@@ -70,7 +121,10 @@ impl BlockStore {
         }
     }
 
-    /// Persist the store as pretty-printed JSON to the app data file.
+    /// Persist the main store as pretty-printed JSON to the app data file.
+    ///
+    /// Expanded mount nodes are restored to `Mount { path }` before
+    /// serialization and their re-keyed blocks are excluded.
     pub fn save(&self) -> io::Result<()> {
         let Some(path) = AppPaths::data_file() else {
             return Ok(());
@@ -78,13 +132,66 @@ impl BlockStore {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let contents = serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string());
+        let clean = self.snapshot_for_save();
+        let contents = serde_json::to_string_pretty(&clean).unwrap_or_else(|_| "{}".to_string());
         fs::write(path, contents)
+    }
+
+    /// Save all expanded mount files back to disk.
+    ///
+    /// Each mount entry's blocks are extracted into a standalone `BlockStore`
+    /// and written to the entry's path.
+    pub fn save_mounts(&self) -> io::Result<()> {
+        for (_mount_point, entry) in self.mount_table.entries() {
+            let sub = self.extract_mount_store(entry);
+            if let Some(parent) = entry.path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+            let json = serde_json::to_string_pretty(&sub).unwrap_or_else(|_| "{}".to_string());
+            fs::write(&entry.path, json)?;
+        }
+        Ok(())
+    }
+
+    /// Build a serialization-ready snapshot that restores mount nodes and
+    /// excludes re-keyed blocks.
+    fn snapshot_for_save(&self) -> BlockStore {
+        let mut snapshot = self.clone();
+
+        // Restore expanded mount-points to Mount { path } and remove re-keyed blocks.
+        for (mount_point, entry) in self.mount_table.entries() {
+            if let Some(node) = snapshot.nodes.get_mut(mount_point) {
+                *node = BlockNode::with_path(entry.rel_path.clone());
+            }
+            for &id in &entry.block_ids {
+                snapshot.nodes.remove(id);
+                snapshot.points.remove(id);
+            }
+        }
+
+        snapshot
+    }
+
+    /// Extract blocks belonging to a mount entry into a standalone store.
+    fn extract_mount_store(&self, entry: &MountEntry) -> BlockStore {
+        let mut snapshot = self.clone();
+
+        let keep: std::collections::HashSet<BlockId> = entry.block_ids.iter().copied().collect();
+        snapshot.nodes.retain(|id, _| keep.contains(&id));
+        snapshot.points.retain(|id, _| keep.contains(&id));
+        snapshot.roots = entry.root_ids.clone();
+
+        snapshot
     }
 
     /// Look up a node by id.
     pub fn node(&self, id: &BlockId) -> Option<&BlockNode> {
         self.nodes.get(*id)
+    }
+
+    /// Return the children of a block, or an empty slice if unknown or a mount.
+    pub fn children(&self, id: &BlockId) -> &[BlockId] {
+        self.nodes.get(*id).map(|n| n.children()).unwrap_or(&[])
     }
 
     /// Return the text point of a block, or `None` if the id is unknown.
@@ -105,10 +212,12 @@ impl BlockStore {
             return None;
         }
 
-        let child_id = self.nodes.insert(BlockNode::new(vec![]));
+        let child_id = self.nodes.insert(BlockNode::with_children(vec![]));
         self.points.insert(child_id, point);
         if let Some(parent) = self.nodes.get_mut(*parent_id) {
-            parent.children.push(child_id);
+            if let Some(children) = parent.children_mut() {
+                children.push(child_id);
+            }
         }
         Some(child_id)
     }
@@ -117,12 +226,14 @@ impl BlockStore {
     /// child list (or in roots if `block_id` is a root). Returns the new id.
     pub fn append_sibling(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
-        let sibling_id = self.nodes.insert(BlockNode::new(vec![]));
+        let sibling_id = self.nodes.insert(BlockNode::with_children(vec![]));
         self.points.insert(sibling_id, point);
 
         if let Some(parent_id) = parent_id {
             let parent = self.nodes.get_mut(parent_id)?;
-            parent.children.insert(index + 1, sibling_id);
+            if let Some(children) = parent.children_mut() {
+                children.insert(index + 1, sibling_id);
+            }
         } else {
             self.roots.insert(index + 1, sibling_id);
         }
@@ -137,7 +248,9 @@ impl BlockStore {
 
         if let Some(parent_id) = parent_id {
             let parent = self.nodes.get_mut(parent_id)?;
-            parent.children.insert(index + 1, duplicate_id);
+            if let Some(children) = parent.children_mut() {
+                children.insert(index + 1, duplicate_id);
+            }
         } else {
             self.roots.insert(index + 1, duplicate_id);
         }
@@ -151,7 +264,9 @@ impl BlockStore {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
         if let Some(parent_id) = parent_id {
             if let Some(parent) = self.nodes.get_mut(parent_id) {
-                parent.children.remove(index);
+                if let Some(children) = parent.children_mut() {
+                    children.remove(index);
+                }
             }
         } else {
             self.roots.remove(index);
@@ -162,10 +277,11 @@ impl BlockStore {
         for id in &removed_ids {
             self.nodes.remove(*id);
             self.points.remove(*id);
+            self.mount_table.remove_origin(*id);
         }
 
         if self.roots.is_empty() {
-            let root_id = self.nodes.insert(BlockNode::new(vec![]));
+            let root_id = self.nodes.insert(BlockNode::with_children(vec![]));
             self.points.insert(root_id, String::new());
             self.roots.push(root_id);
         }
@@ -184,13 +300,145 @@ impl BlockStore {
         llm::Lineage::from_points(vec![])
     }
 
+    /// Borrow the mount table for querying block origins.
+    pub fn mount_table(&self) -> &MountTable {
+        &self.mount_table
+    }
+
+    /// Mutably borrow the mount table for registering/removing mounts.
+    pub fn mount_table_mut(&mut self) -> &mut MountTable {
+        &mut self.mount_table
+    }
+
+    /// Return the raw nodes map for re-keying during mount.
+    pub fn nodes_mut(&mut self) -> &mut SlotMap<BlockId, BlockNode> {
+        &mut self.nodes
+    }
+
+    /// Return the raw points map for re-keying during mount.
+    pub fn points_mut(&mut self) -> &mut SecondaryMap<BlockId, String> {
+        &mut self.points
+    }
+
+    /// Expand a `Mount` node: load the referenced file, re-key its blocks
+    /// into this store, and swap the node to `Children`.
+    ///
+    /// `base_dir` is the directory against which relative mount paths are
+    /// resolved (typically the directory containing the main blocks file).
+    ///
+    /// Returns the re-keyed root ids of the mounted sub-store.
+    pub fn expand_mount(
+        &mut self, mount_point: &BlockId, base_dir: &Path,
+    ) -> Result<Vec<BlockId>, MountError> {
+        let node = self.nodes.get(*mount_point).ok_or(MountError::UnknownBlock)?;
+        let rel_path = match node {
+            | BlockNode::Mount { path } => path.clone(),
+            | BlockNode::Children { .. } => return Err(MountError::NotAMount),
+        };
+
+        let resolved = Self::resolve_mount_path(&rel_path, base_dir);
+        let canonical = fs::canonicalize(&resolved).unwrap_or_else(|_| resolved.clone());
+
+        if self.mount_table.is_path_mounted(&canonical) {
+            return Err(MountError::CycleDetected { path: canonical });
+        }
+
+        let contents = fs::read_to_string(&resolved)
+            .map_err(|e| MountError::Read { path: resolved.clone(), source: e })?;
+        let sub_store: BlockStore = serde_json::from_str(&contents)
+            .map_err(|e| MountError::Parse { path: resolved.clone(), source: e })?;
+
+        let (new_roots, all_new_ids) = self.rekey_sub_store(&sub_store, mount_point);
+
+        self.mount_table.insert_entry(
+            *mount_point,
+            MountEntry::new(canonical, rel_path.clone(), new_roots.clone(), all_new_ids),
+        );
+
+        if let Some(node) = self.nodes.get_mut(*mount_point) {
+            *node = BlockNode::with_children(new_roots.clone());
+        }
+
+        Ok(new_roots)
+    }
+
+    /// Unmount a previously expanded mount point: remove all re-keyed blocks
+    /// and restore the node to `Mount { path }`.
+    ///
+    /// Returns `None` if the mount point has no entry in the mount table.
+    pub fn collapse_mount(&mut self, mount_point: &BlockId) -> Option<()> {
+        let entry = self.mount_table.remove_entry(*mount_point)?;
+        for &id in &entry.block_ids {
+            self.nodes.remove(id);
+            self.points.remove(id);
+        }
+        if let Some(node) = self.nodes.get_mut(*mount_point) {
+            *node = BlockNode::with_path(entry.rel_path);
+        }
+        Some(())
+    }
+
+    /// Re-key all blocks from `sub_store` into this store with fresh ids.
+    ///
+    /// Returns `(new_root_ids, all_new_ids)`.
+    fn rekey_sub_store(
+        &mut self, sub_store: &BlockStore, mount_point: &BlockId,
+    ) -> (Vec<BlockId>, Vec<BlockId>) {
+        let mut id_map: std::collections::HashMap<BlockId, BlockId> =
+            std::collections::HashMap::new();
+        let mut all_new_ids = Vec::new();
+
+        // First pass: allocate fresh ids for every block in the sub-store.
+        for (old_id, _node) in &sub_store.nodes {
+            let new_id = self.nodes.insert(BlockNode::with_children(vec![]));
+            id_map.insert(old_id, new_id);
+            all_new_ids.push(new_id);
+
+            let point = sub_store.points.get(old_id).cloned().unwrap_or_default();
+            self.points.insert(new_id, point);
+
+            self.mount_table.set_origin(new_id, BlockOrigin::Mounted { mount_point: *mount_point });
+        }
+
+        // Second pass: rewrite children references using the id map.
+        for (old_id, old_node) in &sub_store.nodes {
+            let new_id = id_map[&old_id];
+            let remapped_children: Vec<BlockId> =
+                old_node.children().iter().filter_map(|c| id_map.get(c).copied()).collect();
+
+            match old_node {
+                | BlockNode::Children { .. } => {
+                    if let Some(node) = self.nodes.get_mut(new_id) {
+                        *node = BlockNode::with_children(remapped_children);
+                    }
+                }
+                | BlockNode::Mount { path } => {
+                    if let Some(node) = self.nodes.get_mut(new_id) {
+                        *node = BlockNode::with_path(path.clone());
+                    }
+                }
+            }
+        }
+
+        let new_roots: Vec<BlockId> =
+            sub_store.roots.iter().filter_map(|r| id_map.get(r).copied()).collect();
+        (new_roots, all_new_ids)
+    }
+
+    /// Resolve a mount path against a base directory.
+    ///
+    /// If the path is relative, join it with `base_dir`. Otherwise use as-is.
+    fn resolve_mount_path(rel_path: &Path, base_dir: &Path) -> std::path::PathBuf {
+        if rel_path.is_relative() { base_dir.join(rel_path) } else { rel_path.to_path_buf() }
+    }
+
     fn parent_and_index_of(&self, target: &BlockId) -> Option<(Option<BlockId>, usize)> {
         if let Some(index) = self.roots.iter().position(|id| id == target) {
             return Some((None, index));
         }
 
         for (parent_id, node) in &self.nodes {
-            if let Some(index) = node.children.iter().position(|id| id == target) {
+            if let Some(index) = node.children().iter().position(|id| id == target) {
                 return Some((Some(parent_id), index));
             }
         }
@@ -200,12 +448,13 @@ impl BlockStore {
     fn clone_subtree_with_new_ids(&mut self, source_id: &BlockId) -> Option<BlockId> {
         let source_node = self.node(source_id)?.clone();
         let source_point = self.point(source_id).unwrap_or_default();
-        let mut child_ids = Vec::with_capacity(source_node.children.len());
-        for child in source_node.children {
-            child_ids.push(self.clone_subtree_with_new_ids(&child)?);
+        let source_children: Vec<BlockId> = source_node.children().to_vec();
+        let mut child_ids = Vec::with_capacity(source_children.len());
+        for child in &source_children {
+            child_ids.push(self.clone_subtree_with_new_ids(child)?);
         }
 
-        let next_id = self.nodes.insert(BlockNode::new(child_ids));
+        let next_id = self.nodes.insert(BlockNode::with_children(child_ids));
         self.points.insert(next_id, source_point);
         Some(next_id)
     }
@@ -215,7 +464,7 @@ impl BlockStore {
             return;
         };
         out.push(*current);
-        for child in &node.children {
+        for child in node.children() {
             self.collect_subtree_ids(child, out);
         }
     }
@@ -233,7 +482,7 @@ impl BlockStore {
             return true;
         }
 
-        let children = self.node(current).map(|n| n.children.clone()).unwrap_or_default();
+        let children = self.node(current).map(|n| n.children().to_vec()).unwrap_or_default();
         for child in &children {
             if self.collect_lineage_points(child, target, out) {
                 return true;
@@ -248,14 +497,14 @@ impl BlockStore {
         let mut nodes = SlotMap::with_key();
         let mut points = SecondaryMap::new();
 
-        let c1 = nodes.insert(BlockNode::new(vec![]));
+        let c1 = nodes.insert(BlockNode::with_children(vec![]));
         points.insert(c1, "马克思：《资本论》".to_string());
-        let c2 = nodes.insert(BlockNode::new(vec![]));
+        let c2 = nodes.insert(BlockNode::with_children(vec![]));
         points.insert(c2, "马克思·韦伯：《新教伦理与资本主义精神》".to_string());
-        let c3 = nodes.insert(BlockNode::new(vec![]));
+        let c3 = nodes.insert(BlockNode::with_children(vec![]));
         points.insert(c3, "Ivan Zhao: Steam, Steel, and Invisible Minds".to_string());
 
-        let root_id = nodes.insert(BlockNode::new(vec![c1, c2, c3]));
+        let root_id = nodes.insert(BlockNode::with_children(vec![c1, c2, c3]));
         points.insert(root_id, "Notes on liberating productivity".to_string());
 
         BlockStore::new(vec![root_id], nodes, points)
@@ -283,11 +532,11 @@ mod tests {
         let mut nodes = SlotMap::with_key();
         let mut points = SecondaryMap::new();
 
-        let child_a = nodes.insert(BlockNode::new(vec![]));
+        let child_a = nodes.insert(BlockNode::with_children(vec![]));
         points.insert(child_a, "child_a".to_string());
-        let child_b = nodes.insert(BlockNode::new(vec![]));
+        let child_b = nodes.insert(BlockNode::with_children(vec![]));
         points.insert(child_b, "child_b".to_string());
-        let root = nodes.insert(BlockNode::new(vec![child_a, child_b]));
+        let root = nodes.insert(BlockNode::with_children(vec![child_a, child_b]));
         points.insert(root, "root".to_string());
 
         let store = BlockStore::new(vec![root], nodes, points);
@@ -299,8 +548,8 @@ mod tests {
     #[test]
     fn block_id_new_produces_distinct_ids() {
         let mut nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
-        let a = nodes.insert(BlockNode::new(vec![]));
-        let b = nodes.insert(BlockNode::new(vec![]));
+        let a = nodes.insert(BlockNode::with_children(vec![]));
+        let b = nodes.insert(BlockNode::with_children(vec![]));
         assert_ne!(a, b);
     }
 
@@ -309,8 +558,8 @@ mod tests {
     #[test]
     fn block_node_stores_children() {
         let child = BlockId::default();
-        let node = BlockNode::new(vec![child]);
-        assert_eq!(node.children, vec![child]);
+        let node = BlockNode::with_children(vec![child]);
+        assert_eq!(node.children(), &[child]);
     }
 
     // -- Store accessors --
@@ -377,7 +626,7 @@ mod tests {
         let (mut store, root, child_a, child_b) = simple_store();
         let child_id = store.append_child(&root, "new_child".to_string()).unwrap();
         let parent = store.node(&root).unwrap();
-        assert_eq!(parent.children, vec![child_a, child_b, child_id]);
+        assert_eq!(parent.children(), &[child_a, child_b, child_id]);
     }
 
     #[test]
@@ -401,7 +650,7 @@ mod tests {
         let (mut store, root, child_a, child_b) = simple_store();
         let sibling = store.append_sibling(&child_a, "mid".to_string()).unwrap();
         let parent = store.node(&root).unwrap();
-        assert_eq!(parent.children, vec![child_a, sibling, child_b]);
+        assert_eq!(parent.children(), &[child_a, sibling, child_b]);
     }
 
     #[test]
@@ -418,7 +667,7 @@ mod tests {
         let (mut store, root, child_a, child_b) = simple_store();
         let dup = store.duplicate_subtree_after(&child_a).unwrap();
         let parent = store.node(&root).unwrap();
-        assert_eq!(parent.children, vec![child_a, dup, child_b]);
+        assert_eq!(parent.children(), &[child_a, dup, child_b]);
         assert_eq!(store.point(&dup), Some("child_a".to_string()));
     }
 
@@ -429,13 +678,13 @@ mod tests {
 
         let dup = store.duplicate_subtree_after(&child_a).unwrap();
         let dup_node = store.node(&dup).unwrap();
-        assert_eq!(dup_node.children.len(), 1);
-        let cloned_grandchild = &dup_node.children[0];
+        assert_eq!(dup_node.children().len(), 1);
+        let cloned_grandchild = &dup_node.children()[0];
         assert_ne!(cloned_grandchild, &grandchild);
         assert_eq!(store.point(cloned_grandchild), Some("grandchild".to_string()));
 
         let orig = store.node(&child_a).unwrap();
-        assert_eq!(orig.children, vec![grandchild]);
+        assert_eq!(orig.children(), &[grandchild]);
     }
 
     #[test]
@@ -453,7 +702,7 @@ mod tests {
         let removed = store.remove_block_subtree(&child_a).unwrap();
         assert_eq!(removed, vec![child_a]);
         let parent = store.node(&root).unwrap();
-        assert_eq!(parent.children, vec![child_b]);
+        assert_eq!(parent.children(), &[child_b]);
     }
 
     #[test]
@@ -471,7 +720,7 @@ mod tests {
     fn remove_last_root_inserts_fresh_root() {
         let mut nodes = SlotMap::with_key();
         let mut points = SecondaryMap::new();
-        let id = nodes.insert(BlockNode::new(vec![]));
+        let id = nodes.insert(BlockNode::with_children(vec![]));
         points.insert(id, "only".to_string());
         let mut store = BlockStore::new(vec![id], nodes, points);
 
@@ -529,6 +778,338 @@ mod tests {
         let json = serde_json::to_string(&store).unwrap();
         let restored: BlockStore = serde_json::from_str(&json).unwrap();
         assert_eq!(store, restored);
+    }
+
+    // -- expand_mount / collapse_mount --
+
+    fn write_sub_store(dir: &std::path::Path, filename: &str) -> (std::path::PathBuf, BlockStore) {
+        let sub = simple_store().0;
+        let path = dir.join(filename);
+        let json = serde_json::to_string_pretty(&sub).unwrap();
+        fs::write(&path, json).unwrap();
+        (path, sub)
+    }
+
+    #[test]
+    fn expand_mount_loads_and_rekeys() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (_, sub) = write_sub_store(tmp.path(), "sub.json");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+
+        let new_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
+
+        assert_eq!(new_roots.len(), sub.roots().len());
+        assert!(store.node(&mount_id).unwrap().children().len() == new_roots.len());
+
+        for &r in &new_roots {
+            assert!(store.node(&r).is_some());
+            assert!(store.mount_table().is_mounted(r));
+        }
+    }
+
+    #[test]
+    fn expand_mount_preserves_points() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_sub_store(tmp.path(), "sub.json");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+
+        let new_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
+        let root_point = store.point(&new_roots[0]);
+        assert_eq!(root_point, Some("root".to_string()));
+    }
+
+    #[test]
+    fn expand_mount_errors_on_children_node() {
+        let (mut store, root, _, _) = simple_store();
+        let result = store.expand_mount(&root, std::path::Path::new("."));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn expand_mount_errors_on_missing_file() {
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id =
+            nodes.insert(BlockNode::with_path(std::path::PathBuf::from("nonexistent.json")));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+
+        let result = store.expand_mount(&mount_id, std::path::Path::new("."));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn collapse_mount_restores_mount_node() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_sub_store(tmp.path(), "sub.json");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+
+        let new_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
+        assert!(!new_roots.is_empty());
+
+        store.collapse_mount(&mount_id).unwrap();
+
+        assert!(store.node(&mount_id).unwrap().is_mount());
+        for &r in &new_roots {
+            assert!(store.node(&r).is_none());
+        }
+    }
+
+    #[test]
+    fn collapse_mount_returns_none_for_unmounted() {
+        let (mut store, root, _, _) = simple_store();
+        assert!(store.collapse_mount(&root).is_none());
+    }
+
+    // -- save-back --
+
+    #[test]
+    fn snapshot_excludes_mounted_blocks() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_sub_store(tmp.path(), "sub.json");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+
+        store.expand_mount(&mount_id, tmp.path()).unwrap();
+
+        let snap = store.snapshot_for_save();
+        assert_eq!(snap.roots().len(), 1);
+        let node = snap.node(&mount_id).unwrap();
+        assert!(node.is_mount());
+        assert_eq!(snap.nodes.len(), 1);
+    }
+
+    #[test]
+    fn save_mounts_writes_updated_points() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_sub_store(tmp.path(), "sub.json");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+
+        let new_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
+        store.update_point(&new_roots[0], "modified root".to_string());
+        store.save_mounts().unwrap();
+
+        let saved_json = fs::read_to_string(tmp.path().join("sub.json")).unwrap();
+        let saved: BlockStore = serde_json::from_str(&saved_json).unwrap();
+        let saved_root_point = saved.point(&saved.roots()[0]);
+        assert_eq!(saved_root_point, Some("modified root".to_string()));
+    }
+
+    // -- cycle detection --
+
+    #[test]
+    fn expand_mount_rejects_duplicate_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_sub_store(tmp.path(), "sub.json");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_a = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_a, String::new());
+        let mount_b = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_b, String::new());
+        let mut store = BlockStore::new(vec![mount_a, mount_b], nodes, points);
+
+        store.expand_mount(&mount_a, tmp.path()).unwrap();
+        let result = store.expand_mount(&mount_b, tmp.path());
+        assert!(matches!(result, Err(MountError::CycleDetected { .. })));
+    }
+
+    #[test]
+    fn expand_mount_allows_after_collapse() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_sub_store(tmp.path(), "sub.json");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_a = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_a, String::new());
+        let mount_b = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_b, String::new());
+        let mut store = BlockStore::new(vec![mount_a, mount_b], nodes, points);
+
+        store.expand_mount(&mount_a, tmp.path()).unwrap();
+        store.collapse_mount(&mount_a).unwrap();
+        store.expand_mount(&mount_b, tmp.path()).unwrap();
+        assert!(!store.children(&mount_b).is_empty());
+    }
+
+    #[test]
+    fn collapse_mount_restores_relative_path() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_sub_store(tmp.path(), "sub.json");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+
+        store.expand_mount(&mount_id, tmp.path()).unwrap();
+        store.collapse_mount(&mount_id).unwrap();
+
+        let path = store.node(&mount_id).unwrap().mount_path().unwrap();
+        assert_eq!(path, std::path::Path::new("sub.json"));
+    }
+
+    #[test]
+    fn clone_preserves_mount_table_for_undo() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_sub_store(tmp.path(), "sub.json");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+
+        let snapshot = store.clone();
+        assert!(snapshot.node(&mount_id).unwrap().is_mount());
+
+        store.expand_mount(&mount_id, tmp.path()).unwrap();
+        assert!(!store.node(&mount_id).unwrap().is_mount());
+        assert!(!store.children(&mount_id).is_empty());
+
+        // Restoring the snapshot should give back the unexpanded mount.
+        let restored = snapshot;
+        assert!(restored.node(&mount_id).unwrap().is_mount());
+        assert!(restored.children(&mount_id).is_empty());
+        assert!(restored.mount_table().entry(mount_id).is_none());
+    }
+
+    // -- integration: nested mounts --
+
+    fn write_store(dir: &std::path::Path, filename: &str, store: &BlockStore) {
+        let path = dir.join(filename);
+        let json = serde_json::to_string_pretty(store).unwrap();
+        fs::write(&path, json).unwrap();
+    }
+
+    #[test]
+    fn nested_mount_expands_recursively() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let (inner_store, _, _, _) = simple_store();
+        write_store(tmp.path(), "inner.json", &inner_store);
+
+        let mut outer_nodes = SlotMap::with_key();
+        let mut outer_points = SecondaryMap::new();
+        let inner_mount =
+            outer_nodes.insert(BlockNode::with_path(std::path::PathBuf::from("inner.json")));
+        outer_points.insert(inner_mount, String::new());
+        let outer_root = outer_nodes.insert(BlockNode::with_children(vec![inner_mount]));
+        outer_points.insert(outer_root, "outer root".to_string());
+        let outer_store = BlockStore::new(vec![outer_root], outer_nodes, outer_points);
+        write_store(tmp.path(), "outer.json", &outer_store);
+
+        let mut main_nodes = SlotMap::with_key();
+        let mut main_points = SecondaryMap::new();
+        let outer_mount =
+            main_nodes.insert(BlockNode::with_path(std::path::PathBuf::from("outer.json")));
+        main_points.insert(outer_mount, String::new());
+        let mut store = BlockStore::new(vec![outer_mount], main_nodes, main_points);
+
+        let outer_children = store.expand_mount(&outer_mount, tmp.path()).unwrap();
+        assert_eq!(outer_children.len(), 1);
+
+        let rekeyed_outer_root = outer_children[0];
+        let nested_mount_candidates: Vec<BlockId> = store
+            .children(&rekeyed_outer_root)
+            .iter()
+            .filter(|id| store.node(id).unwrap().is_mount())
+            .copied()
+            .collect();
+        assert_eq!(nested_mount_candidates.len(), 1);
+
+        let nested_mount_id = nested_mount_candidates[0];
+        let inner_children = store.expand_mount(&nested_mount_id, tmp.path()).unwrap();
+        assert_eq!(inner_children.len(), 1);
+        assert_eq!(store.point(&inner_children[0]), Some("root".to_string()));
+    }
+
+    // -- integration: round-trip persistence --
+
+    #[test]
+    fn mount_edit_save_collapse_remount_round_trip() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_sub_store(tmp.path(), "sub.json");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+
+        let roots_1 = store.expand_mount(&mount_id, tmp.path()).unwrap();
+        store.update_point(&roots_1[0], "edited root".to_string());
+        store.save_mounts().unwrap();
+
+        store.collapse_mount(&mount_id).unwrap();
+        assert!(store.node(&mount_id).unwrap().is_mount());
+
+        let roots_2 = store.expand_mount(&mount_id, tmp.path()).unwrap();
+        assert_eq!(store.point(&roots_2[0]), Some("edited root".to_string()));
+    }
+
+    // -- integration: cycle detection with nested --
+
+    #[test]
+    fn nested_cycle_detected_on_self_reference() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let mut self_nodes = SlotMap::with_key();
+        let mut self_points = SecondaryMap::new();
+        let inner_mount =
+            self_nodes.insert(BlockNode::with_path(std::path::PathBuf::from("self.json")));
+        self_points.insert(inner_mount, String::new());
+        let self_root = self_nodes.insert(BlockNode::with_children(vec![inner_mount]));
+        self_points.insert(self_root, "self-ref root".to_string());
+        let self_store = BlockStore::new(vec![self_root], self_nodes, self_points);
+        write_store(tmp.path(), "self.json", &self_store);
+
+        let mut main_nodes = SlotMap::with_key();
+        let mut main_points = SecondaryMap::new();
+        let main_mount =
+            main_nodes.insert(BlockNode::with_path(std::path::PathBuf::from("self.json")));
+        main_points.insert(main_mount, String::new());
+        let mut store = BlockStore::new(vec![main_mount], main_nodes, main_points);
+
+        let roots = store.expand_mount(&main_mount, tmp.path()).unwrap();
+        let rekeyed_root = roots[0];
+        let nested: Vec<BlockId> = store
+            .children(&rekeyed_root)
+            .iter()
+            .filter(|id| store.node(id).unwrap().is_mount())
+            .copied()
+            .collect();
+        assert_eq!(nested.len(), 1);
+
+        let result = store.expand_mount(&nested[0], tmp.path());
+        assert!(matches!(result, Err(MountError::CycleDetected { .. })));
     }
 }
 
