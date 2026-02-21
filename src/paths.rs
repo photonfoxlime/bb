@@ -16,7 +16,7 @@ static PROJECT_DIRS: LazyLock<Option<directories::ProjectDirs>> =
 pub struct AppPaths;
 
 impl AppPaths {
-    /// Path to the block graph JSON file: `<data_dir>/blocks.json`.
+    /// Path to the block store JSON file: `<data_dir>/blocks.json`.
     pub fn data_file() -> Option<PathBuf> {
         PROJECT_DIRS.as_ref().map(|p| p.data_dir().join("blocks.json"))
     }

@@ -32,28 +32,28 @@ pub(crate) fn word_diff(old: &str, new: &str) -> Vec<WordChange> {
     let mut changes = Vec::new();
     for op in diff.ops() {
         match op.tag() {
-            DiffTag::Equal => {
+            | DiffTag::Equal => {
                 // Unchanged words - iterate over old range
                 let range = op.old_range();
                 for i in range {
                     changes.push(WordChange::Unchanged(old_words[i].to_string()));
                 }
             }
-            DiffTag::Delete => {
+            | DiffTag::Delete => {
                 // Deleted words
                 let range = op.old_range();
                 for i in range {
                     changes.push(WordChange::Deleted(old_words[i].to_string()));
                 }
             }
-            DiffTag::Insert => {
+            | DiffTag::Insert => {
                 // Added words
                 let range = op.new_range();
                 for i in range {
                     changes.push(WordChange::Added(new_words[i].to_string()));
                 }
             }
-            DiffTag::Replace => {
+            | DiffTag::Replace => {
                 // Replacement: deletions followed by additions
                 let old_range = op.old_range();
                 for i in old_range {
@@ -114,8 +114,8 @@ mod tests {
         let added: Vec<_> = changes
             .iter()
             .filter_map(|c| match c {
-                WordChange::Added(s) => Some(s.clone()),
-                _ => None,
+                | WordChange::Added(s) => Some(s.clone()),
+                | _ => None,
             })
             .collect();
         assert!(added.contains(&"world".to_string()));
@@ -127,8 +127,8 @@ mod tests {
         let deleted: Vec<_> = changes
             .iter()
             .filter_map(|c| match c {
-                WordChange::Deleted(s) => Some(s.clone()),
-                _ => None,
+                | WordChange::Deleted(s) => Some(s.clone()),
+                | _ => None,
             })
             .collect();
         assert!(deleted.contains(&"world".to_string()));
@@ -140,15 +140,15 @@ mod tests {
         let deleted: Vec<_> = changes
             .iter()
             .filter_map(|c| match c {
-                WordChange::Deleted(s) => Some(s.clone()),
-                _ => None,
+                | WordChange::Deleted(s) => Some(s.clone()),
+                | _ => None,
             })
             .collect();
         let added: Vec<_> = changes
             .iter()
             .filter_map(|c| match c {
-                WordChange::Added(s) => Some(s.clone()),
-                _ => None,
+                | WordChange::Added(s) => Some(s.clone()),
+                | _ => None,
             })
             .collect();
         assert!(deleted.contains(&"world".to_string()));

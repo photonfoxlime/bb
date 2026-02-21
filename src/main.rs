@@ -2,7 +2,7 @@
 //! application.
 
 mod app;
-mod graph;
+mod store;
 mod llm;
 mod paths;
 mod theme;

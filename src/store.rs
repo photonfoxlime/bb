@@ -1,7 +1,7 @@
-//! Block graph: the core document data model.
+//! Block store: the core document data model.
 //!
 //! A document is a forest of blocks. Each block has a UUID identity, a text
-//! point, and ordered children. The graph is serialized as JSON for persistence.
+//! point, and ordered children. The store is serialized as JSON for persistence.
 
 use crate::llm;
 use crate::paths::AppPaths;
@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, fs, io};
 use uuid::Uuid;
 
-/// Unique id for a block in the graph.
+/// Unique id for a block in the store.
 ///
 /// Invariant: always a valid UUID. Constructed only via `BlockId::new`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -23,7 +23,7 @@ impl BlockId {
     }
 }
 
-/// One node in the block graph: a text point and ordered child ids.
+/// One node in the block store: a text point and ordered child ids.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockNode {
     pub point: String,
@@ -40,15 +40,15 @@ impl BlockNode {
 /// Forest of blocks: root ids and a map from block id to node.
 ///
 /// Invariant: every id in `roots` and in any node's `children` must exist as
-/// a key in `nodes`. The graph always has at least one root.
+/// a key in `nodes`. The store always has at least one root.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct BlockGraph {
+pub struct BlockStore {
     roots: Vec<BlockId>,
     nodes: HashMap<BlockId, BlockNode>,
 }
 
-impl BlockGraph {
-    /// Construct a graph from pre-built roots and nodes.
+impl BlockStore {
+    /// Construct a store from pre-built roots and nodes.
     ///
     /// Caller must ensure every id in `roots` and in each node's `children`
     /// exists as a key in `nodes`.
@@ -61,7 +61,7 @@ impl BlockGraph {
         &self.roots
     }
 
-    /// Load the graph from the app data file, falling back to the default demo graph.
+    /// Load the store from the app data file, falling back to the default demo store.
     pub fn load() -> Self {
         let Some(path) = AppPaths::data_file() else {
             return Self::default();
@@ -72,7 +72,7 @@ impl BlockGraph {
         }
     }
 
-    /// Persist the graph as pretty-printed JSON to the app data file.
+    /// Persist the store as pretty-printed JSON to the app data file.
     pub fn save(&self) -> io::Result<()> {
         let Some(path) = AppPaths::data_file() else {
             return Ok(());
@@ -248,8 +248,8 @@ impl BlockGraph {
         false
     }
 
-    /// Build the built-in demo graph used when no data file exists.
-    fn default_graph() -> Self {
+    /// Build the built-in demo store used when no data file exists.
+    fn default_store() -> Self {
         let root_id = BlockId::new();
         let child_ids = [BlockId::new(), BlockId::new(), BlockId::new()];
         let mut nodes = HashMap::new();
@@ -266,13 +266,13 @@ impl BlockGraph {
             root_id.clone(),
             BlockNode::new("Notes on liberating productivity", child_ids.to_vec()),
         );
-        BlockGraph::new(vec![root_id], nodes)
+        BlockStore::new(vec![root_id], nodes)
     }
 }
 
-impl Default for BlockGraph {
+impl Default for BlockStore {
     fn default() -> Self {
-        Self::default_graph()
+        Self::default_store()
     }
 }
 
@@ -280,14 +280,14 @@ impl Default for BlockGraph {
 mod tests {
     use super::*;
 
-    /// Build a simple graph: one root with two children.
+    /// Build a simple store: one root with two children.
     ///
     /// ```text
     /// root("root")
     /// ├── child_a("child_a")
     /// └── child_b("child_b")
     /// ```
-    fn simple_graph() -> (BlockGraph, BlockId, BlockId, BlockId) {
+    fn simple_store() -> (BlockStore, BlockId, BlockId, BlockId) {
         let root = BlockId::new();
         let child_a = BlockId::new();
         let child_b = BlockId::new();
@@ -295,8 +295,8 @@ mod tests {
         nodes.insert(child_a.clone(), BlockNode::new("child_a", vec![]));
         nodes.insert(child_b.clone(), BlockNode::new("child_b", vec![]));
         nodes.insert(root.clone(), BlockNode::new("root", vec![child_a.clone(), child_b.clone()]));
-        let graph = BlockGraph::new(vec![root.clone()], nodes);
-        (graph, root, child_a, child_b)
+        let store = BlockStore::new(vec![root.clone()], nodes);
+        (store, root, child_a, child_b)
     }
 
     // -- BlockId --
@@ -318,158 +318,158 @@ mod tests {
         assert_eq!(node.children, vec![child]);
     }
 
-    // -- Graph accessors --
+    // -- Store accessors --
 
     #[test]
     fn node_returns_some_for_existing_id() {
-        let (graph, root, _, _) = simple_graph();
-        assert!(graph.node(&root).is_some());
+        let (store, root, _, _) = simple_store();
+        assert!(store.node(&root).is_some());
     }
 
     #[test]
     fn node_returns_none_for_unknown_id() {
-        let (graph, _, _, _) = simple_graph();
+        let (store, _, _, _) = simple_store();
         let unknown = BlockId::new();
-        assert!(graph.node(&unknown).is_none());
+        assert!(store.node(&unknown).is_none());
     }
 
     #[test]
     fn point_returns_text_for_known_id() {
-        let (graph, root, _, _) = simple_graph();
-        assert_eq!(graph.point(&root), Some("root".to_string()));
+        let (store, root, _, _) = simple_store();
+        assert_eq!(store.point(&root), Some("root".to_string()));
     }
 
     #[test]
     fn roots_returns_root_list() {
-        let (graph, root, _, _) = simple_graph();
-        assert_eq!(graph.roots(), &[root]);
+        let (store, root, _, _) = simple_store();
+        assert_eq!(store.roots(), &[root]);
     }
 
     // -- update_point --
 
     #[test]
     fn update_point_changes_existing_node() {
-        let (mut graph, root, _, _) = simple_graph();
-        graph.update_point(&root, "updated".to_string());
-        assert_eq!(graph.point(&root), Some("updated".to_string()));
+        let (mut store, root, _, _) = simple_store();
+        store.update_point(&root, "updated".to_string());
+        assert_eq!(store.point(&root), Some("updated".to_string()));
     }
 
     #[test]
     fn update_point_noop_for_unknown_id() {
-        let (mut graph, _, _, _) = simple_graph();
+        let (mut store, _, _, _) = simple_store();
         let unknown = BlockId::new();
-        graph.update_point(&unknown, "nope".to_string());
+        store.update_point(&unknown, "nope".to_string());
     }
 
     // -- append_child --
 
     #[test]
     fn append_child_returns_new_id() {
-        let (mut graph, root, _, _) = simple_graph();
-        let child_id = graph.append_child(&root, "new_child".to_string());
+        let (mut store, root, _, _) = simple_store();
+        let child_id = store.append_child(&root, "new_child".to_string());
         assert!(child_id.is_some());
     }
 
     #[test]
     fn append_child_node_exists_with_point() {
-        let (mut graph, root, _, _) = simple_graph();
-        let child_id = graph.append_child(&root, "new_child".to_string()).unwrap();
-        assert_eq!(graph.point(&child_id), Some("new_child".to_string()));
+        let (mut store, root, _, _) = simple_store();
+        let child_id = store.append_child(&root, "new_child".to_string()).unwrap();
+        assert_eq!(store.point(&child_id), Some("new_child".to_string()));
     }
 
     #[test]
     fn append_child_appears_in_parent_children() {
-        let (mut graph, root, child_a, child_b) = simple_graph();
-        let child_id = graph.append_child(&root, "new_child".to_string()).unwrap();
-        let parent = graph.node(&root).unwrap();
+        let (mut store, root, child_a, child_b) = simple_store();
+        let child_id = store.append_child(&root, "new_child".to_string()).unwrap();
+        let parent = store.node(&root).unwrap();
         assert_eq!(parent.children, vec![child_a, child_b, child_id]);
     }
 
     #[test]
     fn append_child_returns_none_for_unknown_parent() {
-        let (mut graph, _, _, _) = simple_graph();
+        let (mut store, _, _, _) = simple_store();
         let unknown = BlockId::new();
-        assert_eq!(graph.append_child(&unknown, "x".to_string()), None);
+        assert_eq!(store.append_child(&unknown, "x".to_string()), None);
     }
 
     // -- append_sibling --
 
     #[test]
     fn append_sibling_after_root() {
-        let (mut graph, root, _, _) = simple_graph();
-        let sibling = graph.append_sibling(&root, "sibling".to_string()).unwrap();
-        assert_eq!(graph.roots(), &[root, sibling]);
+        let (mut store, root, _, _) = simple_store();
+        let sibling = store.append_sibling(&root, "sibling".to_string()).unwrap();
+        assert_eq!(store.roots(), &[root, sibling]);
     }
 
     #[test]
     fn append_sibling_after_non_root() {
-        let (mut graph, root, child_a, child_b) = simple_graph();
-        let sibling = graph.append_sibling(&child_a, "mid".to_string()).unwrap();
-        let parent = graph.node(&root).unwrap();
+        let (mut store, root, child_a, child_b) = simple_store();
+        let sibling = store.append_sibling(&child_a, "mid".to_string()).unwrap();
+        let parent = store.node(&root).unwrap();
         assert_eq!(parent.children, vec![child_a, sibling, child_b]);
     }
 
     #[test]
     fn append_sibling_returns_none_for_unknown() {
-        let (mut graph, _, _, _) = simple_graph();
+        let (mut store, _, _, _) = simple_store();
         let unknown = BlockId::new();
-        assert_eq!(graph.append_sibling(&unknown, "x".to_string()), None);
+        assert_eq!(store.append_sibling(&unknown, "x".to_string()), None);
     }
 
     // -- duplicate_subtree_after --
 
     #[test]
     fn duplicate_leaf_appears_after_original() {
-        let (mut graph, root, child_a, child_b) = simple_graph();
-        let dup = graph.duplicate_subtree_after(&child_a).unwrap();
-        let parent = graph.node(&root).unwrap();
+        let (mut store, root, child_a, child_b) = simple_store();
+        let dup = store.duplicate_subtree_after(&child_a).unwrap();
+        let parent = store.node(&root).unwrap();
         assert_eq!(parent.children, vec![child_a, dup.clone(), child_b]);
-        assert_eq!(graph.point(&dup), Some("child_a".to_string()));
+        assert_eq!(store.point(&dup), Some("child_a".to_string()));
     }
 
     #[test]
     fn duplicate_subtree_clones_descendants() {
-        let (mut graph, _root, child_a, _) = simple_graph();
-        let grandchild = graph.append_child(&child_a, "grandchild".to_string()).unwrap();
+        let (mut store, _root, child_a, _) = simple_store();
+        let grandchild = store.append_child(&child_a, "grandchild".to_string()).unwrap();
 
-        let dup = graph.duplicate_subtree_after(&child_a).unwrap();
-        let dup_node = graph.node(&dup).unwrap();
+        let dup = store.duplicate_subtree_after(&child_a).unwrap();
+        let dup_node = store.node(&dup).unwrap();
         assert_eq!(dup_node.children.len(), 1);
         let cloned_grandchild = &dup_node.children[0];
         assert_ne!(cloned_grandchild, &grandchild);
-        assert_eq!(graph.point(cloned_grandchild), Some("grandchild".to_string()));
+        assert_eq!(store.point(cloned_grandchild), Some("grandchild".to_string()));
 
-        let orig = graph.node(&child_a).unwrap();
+        let orig = store.node(&child_a).unwrap();
         assert_eq!(orig.children, vec![grandchild]);
     }
 
     #[test]
     fn duplicate_returns_none_for_unknown() {
-        let (mut graph, _, _, _) = simple_graph();
+        let (mut store, _, _, _) = simple_store();
         let unknown = BlockId::new();
-        assert_eq!(graph.duplicate_subtree_after(&unknown), None);
+        assert_eq!(store.duplicate_subtree_after(&unknown), None);
     }
 
     // -- remove_block_subtree --
 
     #[test]
     fn remove_leaf_child_shrinks_parent() {
-        let (mut graph, root, child_a, child_b) = simple_graph();
-        let removed = graph.remove_block_subtree(&child_a).unwrap();
+        let (mut store, root, child_a, child_b) = simple_store();
+        let removed = store.remove_block_subtree(&child_a).unwrap();
         assert_eq!(removed, vec![child_a]);
-        let parent = graph.node(&root).unwrap();
+        let parent = store.node(&root).unwrap();
         assert_eq!(parent.children, vec![child_b]);
     }
 
     #[test]
     fn remove_subtree_removes_all_descendants() {
-        let (mut graph, _, child_a, _) = simple_graph();
-        let grandchild = graph.append_child(&child_a, "gc".to_string()).unwrap();
-        let removed = graph.remove_block_subtree(&child_a).unwrap();
+        let (mut store, _, child_a, _) = simple_store();
+        let grandchild = store.append_child(&child_a, "gc".to_string()).unwrap();
+        let removed = store.remove_block_subtree(&child_a).unwrap();
         assert!(removed.contains(&child_a));
         assert!(removed.contains(&grandchild));
-        assert!(graph.node(&child_a).is_none());
-        assert!(graph.node(&grandchild).is_none());
+        assert!(store.node(&child_a).is_none());
+        assert!(store.node(&grandchild).is_none());
     }
 
     #[test]
@@ -477,29 +477,29 @@ mod tests {
         let id = BlockId::new();
         let mut nodes = HashMap::new();
         nodes.insert(id.clone(), BlockNode::new("only", vec![]));
-        let mut graph = BlockGraph::new(vec![id.clone()], nodes);
+        let mut store = BlockStore::new(vec![id.clone()], nodes);
 
-        graph.remove_block_subtree(&id).unwrap();
-        assert_eq!(graph.roots().len(), 1);
-        let new_root = &graph.roots()[0];
+        store.remove_block_subtree(&id).unwrap();
+        assert_eq!(store.roots().len(), 1);
+        let new_root = &store.roots()[0];
         assert_ne!(new_root, &id);
-        assert_eq!(graph.point(new_root), Some(String::new()));
+        assert_eq!(store.point(new_root), Some(String::new()));
     }
 
     #[test]
     fn remove_returns_none_for_unknown() {
-        let (mut graph, _, _, _) = simple_graph();
+        let (mut store, _, _, _) = simple_store();
         let unknown = BlockId::new();
-        assert_eq!(graph.remove_block_subtree(&unknown), None);
+        assert_eq!(store.remove_block_subtree(&unknown), None);
     }
 
     // -- lineage_points_for_id --
 
     #[test]
     fn lineage_root_to_deep_child() {
-        let (mut graph, _, child_a, _) = simple_graph();
-        let grandchild = graph.append_child(&child_a, "gc".to_string()).unwrap();
-        let lineage = graph.lineage_points_for_id(&grandchild);
+        let (mut store, _, child_a, _) = simple_store();
+        let grandchild = store.append_child(&child_a, "gc".to_string()).unwrap();
+        let lineage = store.lineage_points_for_id(&grandchild);
         let expected = llm::Lineage::from_points(vec![
             "root".to_string(),
             "child_a".to_string(),
@@ -510,17 +510,17 @@ mod tests {
 
     #[test]
     fn lineage_for_root_is_single_element() {
-        let (graph, root, _, _) = simple_graph();
-        let lineage = graph.lineage_points_for_id(&root);
+        let (store, root, _, _) = simple_store();
+        let lineage = store.lineage_points_for_id(&root);
         let expected = llm::Lineage::from_points(vec!["root".to_string()]);
         assert_eq!(lineage, expected);
     }
 
     #[test]
     fn lineage_for_unknown_is_empty() {
-        let (graph, _, _, _) = simple_graph();
+        let (store, _, _, _) = simple_store();
         let unknown = BlockId::new();
-        let lineage = graph.lineage_points_for_id(&unknown);
+        let lineage = store.lineage_points_for_id(&unknown);
         let expected = llm::Lineage::from_points(vec![]);
         assert_eq!(lineage, expected);
     }
@@ -528,10 +528,10 @@ mod tests {
     // -- Serialization round-trip --
 
     #[test]
-    fn serde_round_trip_preserves_graph() {
-        let (graph, _, _, _) = simple_graph();
-        let json = serde_json::to_string(&graph).unwrap();
-        let restored: BlockGraph = serde_json::from_str(&json).unwrap();
-        assert_eq!(graph, restored);
+    fn serde_round_trip_preserves_store() {
+        let (store, _, _, _) = simple_store();
+        let json = serde_json::to_string(&store).unwrap();
+        let restored: BlockStore = serde_json::from_str(&json).unwrap();
+        assert_eq!(store, restored);
     }
 }

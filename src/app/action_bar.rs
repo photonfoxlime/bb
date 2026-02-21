@@ -8,7 +8,7 @@
 //! on every frame from the current `RowContext`.
 
 use super::{AppState, ExpandState, Message, SummaryState};
-use crate::graph::BlockId;
+use crate::store::BlockId;
 use iced::keyboard::{Key, Modifiers, key::Named};
 
 /// Identifier for a user-visible action in the action bar.
@@ -397,7 +397,7 @@ pub fn action_to_message_by_id(
             } else {
                 None
             }
-        },
+        }
         | ActionId::AddSibling => Some(Message::AddSibling(block_id.clone())),
         | ActionId::DuplicateBlock => Some(Message::DuplicateBlock(block_id.clone())),
         | ActionId::ArchiveBlock => Some(Message::ArchiveBlock(block_id.clone())),

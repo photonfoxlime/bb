@@ -2,9 +2,9 @@ use super::action_bar::{
     ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
     ViewportBucket, action_to_message, build_action_bar_vm, project_for_viewport,
 };
-use super::diff::{word_diff, WordChange};
+use super::diff::{WordChange, word_diff};
 use super::{AppState, ExpandState, ExpansionDraft, Message, SummaryDraft, SummaryState};
-use crate::graph::{BlockId, BlockNode};
+use crate::store::{BlockId, BlockNode};
 use crate::theme;
 use iced::widget::{button, column, container, row, rule, text, text_editor, tooltip};
 use iced::{Element, Fill, Length};
@@ -42,13 +42,13 @@ impl<'a> TreeView<'a> {
     }
 
     pub(super) fn render_roots(&self) -> Element<'a, Message> {
-        self.render_line(self.state.graph.roots())
+        self.render_line(self.state.store.roots())
     }
 
     fn render_line(&self, ids: &'a [BlockId]) -> Element<'a, Message> {
         let mut col = column![].spacing(10);
         for id in ids {
-            let Some(node) = self.state.graph.node(id) else {
+            let Some(node) = self.state.store.node(id) else {
                 continue;
             };
             col = col.push(self.render_block(id, node));
@@ -58,7 +58,7 @@ impl<'a> TreeView<'a> {
 
     fn render_block(&self, block_id: &BlockId, node: &'a BlockNode) -> Element<'a, Message> {
         let editor_content =
-            self.state.editors.get(block_id).expect("editor content is populated from graph");
+            self.state.editors.get(block_id).expect("editor content is populated from store");
 
         let block_id_for_edit = block_id.clone();
         let row_context = self.action_row_context(block_id, editor_content.text(), node);
@@ -119,27 +119,27 @@ impl<'a> TreeView<'a> {
 
         if let Some(rewrite) = &draft.rewrite {
             // Get current block text for diff comparison
-            let old_text = self.state.graph.point(block_id).unwrap_or_default();
+            let old_text = self.state.store.point(block_id).unwrap_or_default();
             let changes = word_diff(&old_text, rewrite);
 
             // Render diff view
             let mut diff_content = column![].spacing(2);
-            
+
             // Old text with deletions highlighted
             let mut old_line = row![].spacing(0);
             for change in &changes {
                 match change {
-                    WordChange::Unchanged(s) => {
+                    | WordChange::Unchanged(s) => {
                         old_line = old_line.push(text(s.clone()).style(theme::diff_context));
                     }
-                    WordChange::Deleted(s) => {
+                    | WordChange::Deleted(s) => {
                         old_line = old_line.push(
                             container(text(s.clone()))
                                 .style(theme::diff_deletion)
                                 .padding(iced::Padding::from([0.0, 2.0])),
                         );
                     }
-                    WordChange::Added(_) => {
+                    | WordChange::Added(_) => {
                         // Skip additions in old text view
                     }
                 }
@@ -150,13 +150,13 @@ impl<'a> TreeView<'a> {
             let mut new_line = row![].spacing(0);
             for change in &changes {
                 match change {
-                    WordChange::Unchanged(s) => {
+                    | WordChange::Unchanged(s) => {
                         new_line = new_line.push(text(s.clone()).style(theme::diff_context));
                     }
-                    WordChange::Deleted(_) => {
+                    | WordChange::Deleted(_) => {
                         // Skip deletions in new text view
                     }
-                    WordChange::Added(s) => {
+                    | WordChange::Added(s) => {
                         new_line = new_line.push(
                             container(text(s.clone()))
                                 .style(theme::diff_addition)
@@ -232,27 +232,27 @@ impl<'a> TreeView<'a> {
         &self, block_id: &BlockId, draft: &'a SummaryDraft,
     ) -> Element<'a, Message> {
         // Get current block text for diff comparison
-        let old_text = self.state.graph.point(block_id).unwrap_or_default();
+        let old_text = self.state.store.point(block_id).unwrap_or_default();
         let changes = word_diff(&old_text, &draft.summary);
 
         // Render diff view
         let mut diff_content = column![].spacing(2);
-        
+
         // Old text with deletions highlighted
         let mut old_line = row![].spacing(0);
         for change in &changes {
             match change {
-                WordChange::Unchanged(s) => {
+                | WordChange::Unchanged(s) => {
                     old_line = old_line.push(text(s.clone()).style(theme::diff_context));
                 }
-                WordChange::Deleted(s) => {
+                | WordChange::Deleted(s) => {
                     old_line = old_line.push(
                         container(text(s.clone()))
                             .style(theme::diff_deletion)
                             .padding(iced::Padding::from([0.0, 2.0])),
                     );
                 }
-                WordChange::Added(_) => {
+                | WordChange::Added(_) => {
                     // Skip additions in old text view
                 }
             }
@@ -263,13 +263,13 @@ impl<'a> TreeView<'a> {
         let mut new_line = row![].spacing(0);
         for change in &changes {
             match change {
-                WordChange::Unchanged(s) => {
+                | WordChange::Unchanged(s) => {
                     new_line = new_line.push(text(s.clone()).style(theme::diff_context));
                 }
-                WordChange::Deleted(_) => {
+                | WordChange::Deleted(_) => {
                     // Skip deletions in new text view
                 }
-                WordChange::Added(s) => {
+                | WordChange::Added(s) => {
                     new_line = new_line.push(
                         container(text(s.clone()))
                             .style(theme::diff_addition)
@@ -315,8 +315,16 @@ impl<'a> TreeView<'a> {
             point_text,
             has_draft: expansion_draft.is_some() || summary_draft.is_some(),
             draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0),
-            has_expand_error: self.state.expand_states.get(block_id).is_some_and(|s| matches!(s, ExpandState::Error { .. })),
-            has_reduce_error: self.state.summary_states.get(block_id).is_some_and(|s| matches!(s, SummaryState::Error { .. })),
+            has_expand_error: self
+                .state
+                .expand_states
+                .get(block_id)
+                .is_some_and(|s| matches!(s, ExpandState::Error { .. })),
+            has_reduce_error: self
+                .state
+                .summary_states
+                .get(block_id)
+                .is_some_and(|s| matches!(s, SummaryState::Error { .. })),
             is_expanding: self.state.is_expanding(block_id),
             is_reducing: self.state.is_summarizing(block_id),
         }
