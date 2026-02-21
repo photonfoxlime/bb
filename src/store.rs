@@ -70,11 +70,6 @@ impl BlockNode {
             | Self::Mount { path } => Some(path),
         }
     }
-
-    /// Return `true` if this node is a mount point.
-    pub fn is_mount(&self) -> bool {
-        matches!(self, Self::Mount { .. })
-    }
 }
 
 /// Forest of blocks: root ids, a structural map, and a content map.
@@ -303,21 +298,6 @@ impl BlockStore {
     /// Borrow the mount table for querying block origins.
     pub fn mount_table(&self) -> &MountTable {
         &self.mount_table
-    }
-
-    /// Mutably borrow the mount table for registering/removing mounts.
-    pub fn mount_table_mut(&mut self) -> &mut MountTable {
-        &mut self.mount_table
-    }
-
-    /// Return the raw nodes map for re-keying during mount.
-    pub fn nodes_mut(&mut self) -> &mut SlotMap<BlockId, BlockNode> {
-        &mut self.nodes
-    }
-
-    /// Return the raw points map for re-keying during mount.
-    pub fn points_mut(&mut self) -> &mut SecondaryMap<BlockId, String> {
-        &mut self.points
     }
 
     /// Expand a `Mount` node: load the referenced file, re-key its blocks
@@ -808,7 +788,10 @@ mod tests {
 
         for &r in &new_roots {
             assert!(store.node(&r).is_some());
-            assert!(store.mount_table().is_mounted(r));
+        }
+        let entry = store.mount_table().entry(mount_id).unwrap();
+        for &r in &new_roots {
+            assert!(entry.block_ids.contains(&r));
         }
     }
 
@@ -864,7 +847,7 @@ mod tests {
 
         store.collapse_mount(&mount_id).unwrap();
 
-        assert!(store.node(&mount_id).unwrap().is_mount());
+        assert!(store.node(&mount_id).unwrap().mount_path().is_some());
         for &r in &new_roots {
             assert!(store.node(&r).is_none());
         }
@@ -894,7 +877,7 @@ mod tests {
         let snap = store.snapshot_for_save();
         assert_eq!(snap.roots().len(), 1);
         let node = snap.node(&mount_id).unwrap();
-        assert!(node.is_mount());
+        assert!(node.mount_path().is_some());
         assert_eq!(snap.nodes.len(), 1);
     }
 
@@ -988,15 +971,15 @@ mod tests {
         let mut store = BlockStore::new(vec![mount_id], nodes, points);
 
         let snapshot = store.clone();
-        assert!(snapshot.node(&mount_id).unwrap().is_mount());
+        assert!(snapshot.node(&mount_id).unwrap().mount_path().is_some());
 
         store.expand_mount(&mount_id, tmp.path()).unwrap();
-        assert!(!store.node(&mount_id).unwrap().is_mount());
+        assert!(!store.node(&mount_id).unwrap().mount_path().is_some());
         assert!(!store.children(&mount_id).is_empty());
 
         // Restoring the snapshot should give back the unexpanded mount.
         let restored = snapshot;
-        assert!(restored.node(&mount_id).unwrap().is_mount());
+        assert!(restored.node(&mount_id).unwrap().mount_path().is_some());
         assert!(restored.children(&mount_id).is_empty());
         assert!(restored.mount_table().entry(mount_id).is_none());
     }
@@ -1040,7 +1023,7 @@ mod tests {
         let nested_mount_candidates: Vec<BlockId> = store
             .children(&rekeyed_outer_root)
             .iter()
-            .filter(|id| store.node(id).unwrap().is_mount())
+            .filter(|id| store.node(id).unwrap().mount_path().is_some())
             .copied()
             .collect();
         assert_eq!(nested_mount_candidates.len(), 1);
@@ -1069,7 +1052,7 @@ mod tests {
         store.save_mounts().unwrap();
 
         store.collapse_mount(&mount_id).unwrap();
-        assert!(store.node(&mount_id).unwrap().is_mount());
+        assert!(store.node(&mount_id).unwrap().mount_path().is_some());
 
         let roots_2 = store.expand_mount(&mount_id, tmp.path()).unwrap();
         assert_eq!(store.point(&roots_2[0]), Some("edited root".to_string()));
@@ -1103,7 +1086,7 @@ mod tests {
         let nested: Vec<BlockId> = store
             .children(&rekeyed_root)
             .iter()
-            .filter(|id| store.node(id).unwrap().is_mount())
+            .filter(|id| store.node(id).unwrap().mount_path().is_some())
             .copied()
             .collect();
         assert_eq!(nested.len(), 1);

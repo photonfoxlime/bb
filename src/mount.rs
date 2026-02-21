@@ -28,8 +28,6 @@ pub enum MountError {
 /// Identifies which file owns a block.
 #[derive(Debug, Clone, PartialEq)]
 pub enum BlockOrigin {
-    /// Block belongs to the main document file.
-    Main,
     /// Block was loaded from an external mounted file.
     Mounted {
         /// The id of the mount-point block whose `BlockNode::Mount` triggered the load.
@@ -65,7 +63,7 @@ impl MountEntry {
 /// `BlockNode::Mount` nodes.
 #[derive(Debug, Clone, Default)]
 pub struct MountTable {
-    /// Per-block origin. Blocks not present are implicitly `BlockOrigin::Main`.
+    /// Per-block origin. Only blocks from mounted files are tracked.
     origins: SecondaryMap<BlockId, BlockOrigin>,
     /// Per-mount-point metadata, keyed by the mount-point block id.
     entries: SecondaryMap<BlockId, MountEntry>,
@@ -78,11 +76,6 @@ impl MountTable {
 
     pub fn set_origin(&mut self, block_id: BlockId, origin: BlockOrigin) {
         self.origins.insert(block_id, origin);
-    }
-
-    /// Look up where a block came from. Returns `Main` for unknown ids.
-    pub fn origin_of(&self, block_id: BlockId) -> &BlockOrigin {
-        self.origins.get(block_id).unwrap_or(&BlockOrigin::Main)
     }
 
     /// Register a mount entry for a mount-point block.
@@ -116,11 +109,6 @@ impl MountTable {
         self.entries.iter()
     }
 
-    /// Return `true` if `block_id` belongs to a mounted file.
-    pub fn is_mounted(&self, block_id: BlockId) -> bool {
-        matches!(self.origins.get(block_id), Some(BlockOrigin::Mounted { .. }))
-    }
-
     /// Return `true` if the given canonical path is already mounted.
     ///
     /// Used for cycle detection: prevents mounting a file that is already
@@ -138,22 +126,6 @@ mod tests {
     fn make_ids(count: usize) -> Vec<BlockId> {
         let mut sm: SlotMap<BlockId, ()> = SlotMap::with_key();
         (0..count).map(|_| sm.insert(())).collect()
-    }
-
-    #[test]
-    fn default_origin_is_main() {
-        let table = MountTable::new();
-        let ids = make_ids(1);
-        assert_eq!(table.origin_of(ids[0]), &BlockOrigin::Main);
-    }
-
-    #[test]
-    fn set_and_query_origin() {
-        let mut table = MountTable::new();
-        let ids = make_ids(2);
-        let origin = BlockOrigin::Mounted { mount_point: ids[0] };
-        table.set_origin(ids[1], origin.clone());
-        assert_eq!(table.origin_of(ids[1]), &origin);
     }
 
     #[test]
@@ -193,30 +165,7 @@ mod tests {
 
         let removed = table.remove_entry(ids[0]).unwrap();
         assert_eq!(removed.block_ids.len(), 2);
-        assert_eq!(table.origin_of(ids[1]), &BlockOrigin::Main);
-        assert_eq!(table.origin_of(ids[2]), &BlockOrigin::Main);
         assert!(table.entry(ids[0]).is_none());
-    }
-
-    #[test]
-    fn is_mounted_reflects_origin() {
-        let mut table = MountTable::new();
-        let ids = make_ids(2);
-        assert!(!table.is_mounted(ids[0]));
-
-        table.set_origin(ids[0], BlockOrigin::Mounted { mount_point: ids[1] });
-        assert!(table.is_mounted(ids[0]));
-    }
-
-    #[test]
-    fn remove_origin_single_block() {
-        let mut table = MountTable::new();
-        let ids = make_ids(2);
-        table.set_origin(ids[0], BlockOrigin::Mounted { mount_point: ids[1] });
-        assert!(table.is_mounted(ids[0]));
-
-        table.remove_origin(ids[0]);
-        assert!(!table.is_mounted(ids[0]));
     }
 
     #[test]

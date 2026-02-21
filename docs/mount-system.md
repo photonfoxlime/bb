@@ -103,9 +103,9 @@ MountTable
   entries: SecondaryMap<BlockId, MountEntry>     // per-mount-point metadata
 ```
 
-`BlockOrigin::Main` is the implicit default for any block not in the
-`origins` map. `BlockOrigin::Mounted { mount_point }` records which
-mount loaded the block.
+Only blocks loaded from mounted files have an entry in `origins`.
+`BlockOrigin::Mounted { mount_point }` records which mount loaded the block.
+Blocks belonging to the main document are not tracked (absence = main).
 
 `MountEntry` stores:
 - `path` -- canonical absolute path for cycle detection and save-back.
