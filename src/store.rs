@@ -6,44 +6,52 @@
 use crate::llm;
 use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
-use slotmap::SlotMap;
+use slotmap::{SecondaryMap, SlotMap};
 use std::{fs, io};
 
 slotmap::new_key_type! {
     pub struct BlockId;
 }
 
-/// One node in the block store: a text point and ordered child ids.
+/// One node in the block tree: ordered child ids only.
+///
+/// Text content (the "point") is stored separately in
+/// [`BlockStore::points`] so that structure and content can be
+/// queried and mutated independently.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct BlockNode {
-    pub point: String,
     pub children: Vec<BlockId>,
 }
 
 impl BlockNode {
-    /// Create a node with the given text point and child ids.
-    pub fn new(point: impl ToString, children: Vec<BlockId>) -> Self {
-        Self { point: point.to_string(), children }
+    /// Create a node with the given child ids.
+    pub fn new(children: Vec<BlockId>) -> Self {
+        Self { children }
     }
 }
 
-/// Forest of blocks: root ids and a map from block id to node.
+/// Forest of blocks: root ids, a structural map, and a content map.
 ///
 /// Invariant: every id in `roots` and in any node's `children` must exist as
-/// a key in `nodes`. The store always has at least one root.
+/// a key in `nodes` **and** in `points`. The store always has at least one root.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockStore {
     roots: Vec<BlockId>,
     nodes: SlotMap<BlockId, BlockNode>,
+    /// Text content for each block, keyed by the same `BlockId`.
+    points: SecondaryMap<BlockId, String>,
 }
 
 impl BlockStore {
-    /// Construct a store from pre-built roots and nodes.
+    /// Construct a store from pre-built roots, nodes, and points.
     ///
     /// Caller must ensure every id in `roots` and in each node's `children`
-    /// exists as a key in `nodes`.
-    pub fn new(roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>) -> Self {
-        Self { roots, nodes }
+    /// exists as a key in both `nodes` and `points`.
+    pub fn new(
+        roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
+        points: SecondaryMap<BlockId, String>,
+    ) -> Self {
+        Self { roots, nodes, points }
     }
 
     /// The ordered root block ids.
@@ -81,13 +89,13 @@ impl BlockStore {
 
     /// Return the text point of a block, or `None` if the id is unknown.
     pub fn point(&self, id: &BlockId) -> Option<String> {
-        self.node(id).map(|node| node.point.clone())
+        self.points.get(*id).cloned()
     }
 
     /// Overwrite the text point of an existing block. No-op if `id` is unknown.
     pub fn update_point(&mut self, id: &BlockId, value: String) {
-        if let Some(node) = self.nodes.get_mut(*id) {
-            node.point = value;
+        if self.nodes.contains_key(*id) {
+            self.points.insert(*id, value);
         }
     }
 
@@ -97,18 +105,20 @@ impl BlockStore {
             return None;
         }
 
-        let child_id = self.nodes.insert(BlockNode::new(point, vec![]));
+        let child_id = self.nodes.insert(BlockNode::new(vec![]));
+        self.points.insert(child_id, point);
         if let Some(parent) = self.nodes.get_mut(*parent_id) {
             parent.children.push(child_id);
         }
         Some(child_id)
     }
 
-    /// Insert an empty sibling block immediately after `block_id` in its parent's
+    /// Insert a sibling block immediately after `block_id` in its parent's
     /// child list (or in roots if `block_id` is a root). Returns the new id.
     pub fn append_sibling(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
-        let sibling_id = self.nodes.insert(BlockNode::new(point, vec![]));
+        let sibling_id = self.nodes.insert(BlockNode::new(vec![]));
+        self.points.insert(sibling_id, point);
 
         if let Some(parent_id) = parent_id {
             let parent = self.nodes.get_mut(parent_id)?;
@@ -151,10 +161,12 @@ impl BlockStore {
         self.collect_subtree_ids(block_id, &mut removed_ids);
         for id in &removed_ids {
             self.nodes.remove(*id);
+            self.points.remove(*id);
         }
 
         if self.roots.is_empty() {
-            let root_id = self.nodes.insert(BlockNode::new(String::new(), vec![]));
+            let root_id = self.nodes.insert(BlockNode::new(vec![]));
+            self.points.insert(root_id, String::new());
             self.roots.push(root_id);
         }
 
@@ -164,15 +176,14 @@ impl BlockStore {
     /// Return lineage points from one root to the target id (DFS).
     pub fn lineage_points_for_id(&self, target: &BlockId) -> llm::Lineage {
         for root in &self.roots {
-            let mut points = Vec::new();
-            if self.collect_lineage_points(root, target, &mut points) {
-                return llm::Lineage::from_points(points);
+            let mut collected = Vec::new();
+            if self.collect_lineage_points(root, target, &mut collected) {
+                return llm::Lineage::from_points(collected);
             }
         }
         llm::Lineage::from_points(vec![])
     }
 
-    /// Find the parent id (or `None` for roots) and the child-list index of `target`.
     fn parent_and_index_of(&self, target: &BlockId) -> Option<(Option<BlockId>, usize)> {
         if let Some(index) = self.roots.iter().position(|id| id == target) {
             return Some((None, index));
@@ -186,19 +197,19 @@ impl BlockStore {
         None
     }
 
-    /// Recursively clone a subtree, assigning fresh ids to every node.
     fn clone_subtree_with_new_ids(&mut self, source_id: &BlockId) -> Option<BlockId> {
         let source_node = self.node(source_id)?.clone();
+        let source_point = self.point(source_id).unwrap_or_default();
         let mut child_ids = Vec::with_capacity(source_node.children.len());
         for child in source_node.children {
             child_ids.push(self.clone_subtree_with_new_ids(&child)?);
         }
 
-        let next_id = self.nodes.insert(BlockNode::new(source_node.point, child_ids));
+        let next_id = self.nodes.insert(BlockNode::new(child_ids));
+        self.points.insert(next_id, source_point);
         Some(next_id)
     }
 
-    /// Collect all ids reachable from `current` (inclusive) via DFS.
     fn collect_subtree_ids(&self, current: &BlockId, out: &mut Vec<BlockId>) {
         let Some(node) = self.node(current) else {
             return;
@@ -209,42 +220,45 @@ impl BlockStore {
         }
     }
 
-    /// DFS helper: accumulate ancestor points from `current` toward `target`.
-    /// Returns `true` when the target is found and `points` contains the full
-    /// root-to-target path.
     fn collect_lineage_points(
-        &self, current: &BlockId, target: &BlockId, points: &mut Vec<String>,
+        &self, current: &BlockId, target: &BlockId, out: &mut Vec<String>,
     ) -> bool {
-        let Some(node) = self.node(current) else {
+        if !self.nodes.contains_key(*current) {
             return false;
-        };
+        }
 
-        points.push(node.point.clone());
+        let point = self.points.get(*current).cloned().unwrap_or_default();
+        out.push(point);
         if current == target {
             return true;
         }
 
-        for child in &node.children {
-            if self.collect_lineage_points(child, target, points) {
+        let children = self.node(current).map(|n| n.children.clone()).unwrap_or_default();
+        for child in &children {
+            if self.collect_lineage_points(child, target, out) {
                 return true;
             }
         }
 
-        points.pop();
+        out.pop();
         false
     }
 
-    /// Build the built-in demo store used when no data file exists.
     fn default_store() -> Self {
         let mut nodes = SlotMap::with_key();
-        let child_ids = [
-            nodes.insert(BlockNode::new("马克思：《资本论》", vec![])),
-            nodes.insert(BlockNode::new("马克思·韦伯：《新教伦理与资本主义精神》", vec![])),
-            nodes.insert(BlockNode::new("Ivan Zhao: Steam, Steel, and Invisible Minds", vec![])),
-        ];
-        let root_id =
-            nodes.insert(BlockNode::new("Notes on liberating productivity", child_ids.to_vec()));
-        BlockStore::new(vec![root_id], nodes)
+        let mut points = SecondaryMap::new();
+
+        let c1 = nodes.insert(BlockNode::new(vec![]));
+        points.insert(c1, "马克思：《资本论》".to_string());
+        let c2 = nodes.insert(BlockNode::new(vec![]));
+        points.insert(c2, "马克思·韦伯：《新教伦理与资本主义精神》".to_string());
+        let c3 = nodes.insert(BlockNode::new(vec![]));
+        points.insert(c3, "Ivan Zhao: Steam, Steel, and Invisible Minds".to_string());
+
+        let root_id = nodes.insert(BlockNode::new(vec![c1, c2, c3]));
+        points.insert(root_id, "Notes on liberating productivity".to_string());
+
+        BlockStore::new(vec![root_id], nodes, points)
     }
 }
 
@@ -267,10 +281,16 @@ mod tests {
     /// ```
     fn simple_store() -> (BlockStore, BlockId, BlockId, BlockId) {
         let mut nodes = SlotMap::with_key();
-        let child_a = nodes.insert(BlockNode::new("child_a", vec![]));
-        let child_b = nodes.insert(BlockNode::new("child_b", vec![]));
-        let root = nodes.insert(BlockNode::new("root", vec![child_a, child_b]));
-        let store = BlockStore::new(vec![root], nodes);
+        let mut points = SecondaryMap::new();
+
+        let child_a = nodes.insert(BlockNode::new(vec![]));
+        points.insert(child_a, "child_a".to_string());
+        let child_b = nodes.insert(BlockNode::new(vec![]));
+        points.insert(child_b, "child_b".to_string());
+        let root = nodes.insert(BlockNode::new(vec![child_a, child_b]));
+        points.insert(root, "root".to_string());
+
+        let store = BlockStore::new(vec![root], nodes, points);
         (store, root, child_a, child_b)
     }
 
@@ -279,18 +299,17 @@ mod tests {
     #[test]
     fn block_id_new_produces_distinct_ids() {
         let mut nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
-        let a = nodes.insert(BlockNode::new("a", vec![]));
-        let b = nodes.insert(BlockNode::new("b", vec![]));
+        let a = nodes.insert(BlockNode::new(vec![]));
+        let b = nodes.insert(BlockNode::new(vec![]));
         assert_ne!(a, b);
     }
 
     // -- BlockNode --
 
     #[test]
-    fn block_node_stores_point_and_children() {
+    fn block_node_stores_children() {
         let child = BlockId::default();
-        let node = BlockNode::new("hello", vec![child]);
-        assert_eq!(node.point, "hello");
+        let node = BlockNode::new(vec![child]);
         assert_eq!(node.children, vec![child]);
     }
 
@@ -451,8 +470,10 @@ mod tests {
     #[test]
     fn remove_last_root_inserts_fresh_root() {
         let mut nodes = SlotMap::with_key();
-        let id = nodes.insert(BlockNode::new("only", vec![]));
-        let mut store = BlockStore::new(vec![id], nodes);
+        let mut points = SecondaryMap::new();
+        let id = nodes.insert(BlockNode::new(vec![]));
+        points.insert(id, "only".to_string());
+        let mut store = BlockStore::new(vec![id], nodes, points);
 
         store.remove_block_subtree(&id).unwrap();
         assert_eq!(store.roots().len(), 1);
@@ -516,5 +537,7 @@ impl PartialEq for BlockStore {
         self.roots == other.roots
             && self.nodes.len() == other.nodes.len()
             && self.nodes.iter().all(|(id, node)| other.nodes.get(id) == Some(node))
+            && self.points.len() == other.points.len()
+            && self.points.iter().all(|(id, pt)| other.points.get(id) == Some(pt))
     }
 }

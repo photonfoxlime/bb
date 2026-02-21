@@ -1,6 +1,6 @@
 //! Parallel text editor buffer storage keyed by block id.
 
-use crate::store::{BlockId, BlockNode, BlockStore};
+use crate::store::{BlockId, BlockStore};
 use iced::widget::text_editor;
 use slotmap::SecondaryMap;
 
@@ -29,10 +29,11 @@ impl EditorStore {
 
     pub(crate) fn populate(&mut self, block_store: &BlockStore, ids: &[BlockId]) {
         for id in ids {
-            let Some(node): Option<&BlockNode> = block_store.node(id) else {
+            let Some(node) = block_store.node(id) else {
                 continue;
             };
-            self.buffers.insert(*id, text_editor::Content::with_text(&node.point));
+            let point = block_store.point(id).unwrap_or_default();
+            self.buffers.insert(*id, text_editor::Content::with_text(&point));
             self.populate(block_store, &node.children);
         }
     }
@@ -58,11 +59,12 @@ impl EditorStore {
     }
 
     pub(crate) fn ensure_subtree(&mut self, block_store: &BlockStore, block_id: &BlockId) {
-        let Some(node): Option<&BlockNode> = block_store.node(block_id) else {
+        let Some(node) = block_store.node(block_id) else {
             return;
         };
         if !self.buffers.contains_key(*block_id) {
-            self.buffers.insert(*block_id, text_editor::Content::with_text(&node.point));
+            let point = block_store.point(block_id).unwrap_or_default();
+            self.buffers.insert(*block_id, text_editor::Content::with_text(&point));
         }
         for child in &node.children {
             self.ensure_subtree(block_store, child);
