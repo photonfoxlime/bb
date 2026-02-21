@@ -23,7 +23,7 @@ and `expansion_drafts`:
 | SummarizeDone (success) | Yes |
 | ExpandDone (success) | Yes -- undoing removes the expansion draft |
 | Text editing (point edits) | Yes -- coalesced per block; switching blocks or performing a structural action starts a new undo entry |
-| UI state (overflow menu, focus) | No |
+| UI state (`overflow_open_for`, `active_block_id`, `focused_block_id`, `editing_block_id`) | No |
 
 ## Architecture
 

@@ -27,6 +27,14 @@ Status chip appears below the row (left-indented to align with text) when active
 
 `Ctrl+.` expand, `Ctrl+,` reduce, `Ctrl+Enter` add child, `Ctrl+Shift+Enter` add sibling, `Ctrl+Shift+A` accept all, `Ctrl+Backspace` archive. Pointer and keyboard both route through `ActionId -> dispatch`.
 
+When a block point editor is focused, these shortcuts are handled by the editor widget's
+`key_binding` hook and emitted as app messages (`Message::ShortcutFor`). This keeps
+shortcuts available while typing, and still preserves normal text editing bindings
+because unmatched keys fall back to iced's default editor bindings.
+
+Shortcut target resolution in `AppState` is: `focused_block_id` first, then
+`active_block_id`, then the first root block.
+
 ## State Rules
 
 - Busy states disable only conflicting actions.

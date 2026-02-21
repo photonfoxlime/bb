@@ -50,10 +50,16 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 | `ExpandState` | `app/state.rs` | Per-row expand lifecycle (Idle, Loading, Error) |
 | `ExpansionDraft` | `app/draft.rs` | Pending expand result: optional rewrite + child suggestions |
 | `EditorStore` | `app/editor_store.rs` | SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers |
-| `AppState` | `app.rs` | Full UI state: store, editors, LLM config, lifecycle, drafts. Per-block maps use SecondaryMap. |
+| `AppState` | `app.rs` | Full UI state: store, editors, LLM config, lifecycle, drafts, and focused/active block tracking. Per-block maps use SecondaryMap. |
 | `TreeView` | `app/view.rs` | Pure renderer: borrows immutable AppState, produces Element tree |
 | `LlmClient` | `llm.rs` | HTTP client for summarize and expand requests |
 | `LlmConfig` | `llm.rs` | base_url, api_key, model. Loaded from env vars or `llm.toml` |
+
+### AppState block selectors
+
+- `active_block_id` -- Last interacted block for action dispatch and non-editor shortcut fallback.
+- `focused_block_id` -- Block whose `text_editor` is currently focused; first target for shortcuts while typing.
+- `editing_block_id` -- Undo coalescing marker for point edits; not a focus signal and not persisted in snapshots.
 
 ### Design decisions
 
