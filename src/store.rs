@@ -1,26 +1,16 @@
 //! Block store: the core document data model.
 //!
-//! A document is a forest of blocks. Each block has a UUID identity, a text
+//! A document is a forest of blocks. Each block has a slotmap identity, a text
 //! point, and ordered children. The store is serialized as JSON for persistence.
 
 use crate::llm;
 use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, io};
-use uuid::Uuid;
+use slotmap::SlotMap;
+use std::{fs, io};
 
-/// Unique id for a block in the store.
-///
-/// Invariant: always a valid UUID. Constructed only via `BlockId::new`.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct BlockId(Uuid);
-
-impl BlockId {
-    /// Generate a fresh, random block id (UUID v4).
-    pub fn new() -> Self {
-        Self(Uuid::new_v4())
-    }
+slotmap::new_key_type! {
+    pub struct BlockId;
 }
 
 /// One node in the block store: a text point and ordered child ids.
@@ -41,10 +31,10 @@ impl BlockNode {
 ///
 /// Invariant: every id in `roots` and in any node's `children` must exist as
 /// a key in `nodes`. The store always has at least one root.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockStore {
     roots: Vec<BlockId>,
-    nodes: HashMap<BlockId, BlockNode>,
+    nodes: SlotMap<BlockId, BlockNode>,
 }
 
 impl BlockStore {
@@ -52,7 +42,7 @@ impl BlockStore {
     ///
     /// Caller must ensure every id in `roots` and in each node's `children`
     /// exists as a key in `nodes`.
-    pub fn new(roots: Vec<BlockId>, nodes: HashMap<BlockId, BlockNode>) -> Self {
+    pub fn new(roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>) -> Self {
         Self { roots, nodes }
     }
 
@@ -86,7 +76,7 @@ impl BlockStore {
 
     /// Look up a node by id.
     pub fn node(&self, id: &BlockId) -> Option<&BlockNode> {
-        self.nodes.get(id)
+        self.nodes.get(*id)
     }
 
     /// Return the text point of a block, or `None` if the id is unknown.
@@ -96,21 +86,20 @@ impl BlockStore {
 
     /// Overwrite the text point of an existing block. No-op if `id` is unknown.
     pub fn update_point(&mut self, id: &BlockId, value: String) {
-        if let Some(node) = self.nodes.get_mut(id) {
+        if let Some(node) = self.nodes.get_mut(*id) {
             node.point = value;
         }
     }
 
     /// Add one child block under the parent and return the new child id.
     pub fn append_child(&mut self, parent_id: &BlockId, point: String) -> Option<BlockId> {
-        if !self.nodes.contains_key(parent_id) {
+        if !self.nodes.contains_key(*parent_id) {
             return None;
         }
 
-        let child_id = BlockId::new();
-        self.nodes.insert(child_id.clone(), BlockNode::new(point, vec![]));
-        if let Some(parent) = self.nodes.get_mut(parent_id) {
-            parent.children.push(child_id.clone());
+        let child_id = self.nodes.insert(BlockNode::new(point, vec![]));
+        if let Some(parent) = self.nodes.get_mut(*parent_id) {
+            parent.children.push(child_id);
         }
         Some(child_id)
     }
@@ -119,14 +108,13 @@ impl BlockStore {
     /// child list (or in roots if `block_id` is a root). Returns the new id.
     pub fn append_sibling(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
-        let sibling_id = BlockId::new();
-        self.nodes.insert(sibling_id.clone(), BlockNode::new(point, vec![]));
+        let sibling_id = self.nodes.insert(BlockNode::new(point, vec![]));
 
         if let Some(parent_id) = parent_id {
-            let parent = self.nodes.get_mut(&parent_id)?;
-            parent.children.insert(index + 1, sibling_id.clone());
+            let parent = self.nodes.get_mut(parent_id)?;
+            parent.children.insert(index + 1, sibling_id);
         } else {
-            self.roots.insert(index + 1, sibling_id.clone());
+            self.roots.insert(index + 1, sibling_id);
         }
         Some(sibling_id)
     }
@@ -138,10 +126,10 @@ impl BlockStore {
         let duplicate_id = self.clone_subtree_with_new_ids(block_id)?;
 
         if let Some(parent_id) = parent_id {
-            let parent = self.nodes.get_mut(&parent_id)?;
-            parent.children.insert(index + 1, duplicate_id.clone());
+            let parent = self.nodes.get_mut(parent_id)?;
+            parent.children.insert(index + 1, duplicate_id);
         } else {
-            self.roots.insert(index + 1, duplicate_id.clone());
+            self.roots.insert(index + 1, duplicate_id);
         }
         Some(duplicate_id)
     }
@@ -152,7 +140,7 @@ impl BlockStore {
     pub fn remove_block_subtree(&mut self, block_id: &BlockId) -> Option<Vec<BlockId>> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
         if let Some(parent_id) = parent_id {
-            if let Some(parent) = self.nodes.get_mut(&parent_id) {
+            if let Some(parent) = self.nodes.get_mut(parent_id) {
                 parent.children.remove(index);
             }
         } else {
@@ -162,12 +150,11 @@ impl BlockStore {
         let mut removed_ids = Vec::new();
         self.collect_subtree_ids(block_id, &mut removed_ids);
         for id in &removed_ids {
-            self.nodes.remove(id);
+            self.nodes.remove(*id);
         }
 
         if self.roots.is_empty() {
-            let root_id = BlockId::new();
-            self.nodes.insert(root_id.clone(), BlockNode::new(String::new(), vec![]));
+            let root_id = self.nodes.insert(BlockNode::new(String::new(), vec![]));
             self.roots.push(root_id);
         }
 
@@ -193,7 +180,7 @@ impl BlockStore {
 
         for (parent_id, node) in &self.nodes {
             if let Some(index) = node.children.iter().position(|id| id == target) {
-                return Some((Some(parent_id.clone()), index));
+                return Some((Some(parent_id), index));
             }
         }
         None
@@ -207,8 +194,7 @@ impl BlockStore {
             child_ids.push(self.clone_subtree_with_new_ids(&child)?);
         }
 
-        let next_id = BlockId::new();
-        self.nodes.insert(next_id.clone(), BlockNode::new(source_node.point, child_ids));
+        let next_id = self.nodes.insert(BlockNode::new(source_node.point, child_ids));
         Some(next_id)
     }
 
@@ -217,7 +203,7 @@ impl BlockStore {
         let Some(node) = self.node(current) else {
             return;
         };
-        out.push(current.clone());
+        out.push(*current);
         for child in &node.children {
             self.collect_subtree_ids(child, out);
         }
@@ -250,22 +236,14 @@ impl BlockStore {
 
     /// Build the built-in demo store used when no data file exists.
     fn default_store() -> Self {
-        let root_id = BlockId::new();
-        let child_ids = [BlockId::new(), BlockId::new(), BlockId::new()];
-        let mut nodes = HashMap::new();
-        nodes.insert(child_ids[0].clone(), BlockNode::new("马克思：《资本论》", vec![]));
-        nodes.insert(
-            child_ids[1].clone(),
-            BlockNode::new("马克思·韦伯：《新教伦理与资本主义精神》", vec![]),
-        );
-        nodes.insert(
-            child_ids[2].clone(),
-            BlockNode::new("Ivan Zhao: Steam, Steel, and Invisible Minds", vec![]),
-        );
-        nodes.insert(
-            root_id.clone(),
-            BlockNode::new("Notes on liberating productivity", child_ids.to_vec()),
-        );
+        let mut nodes = SlotMap::with_key();
+        let child_ids = [
+            nodes.insert(BlockNode::new("马克思：《资本论》", vec![])),
+            nodes.insert(BlockNode::new("马克思·韦伯：《新教伦理与资本主义精神》", vec![])),
+            nodes.insert(BlockNode::new("Ivan Zhao: Steam, Steel, and Invisible Minds", vec![])),
+        ];
+        let root_id =
+            nodes.insert(BlockNode::new("Notes on liberating productivity", child_ids.to_vec()));
         BlockStore::new(vec![root_id], nodes)
     }
 }
@@ -288,14 +266,11 @@ mod tests {
     /// └── child_b("child_b")
     /// ```
     fn simple_store() -> (BlockStore, BlockId, BlockId, BlockId) {
-        let root = BlockId::new();
-        let child_a = BlockId::new();
-        let child_b = BlockId::new();
-        let mut nodes = HashMap::new();
-        nodes.insert(child_a.clone(), BlockNode::new("child_a", vec![]));
-        nodes.insert(child_b.clone(), BlockNode::new("child_b", vec![]));
-        nodes.insert(root.clone(), BlockNode::new("root", vec![child_a.clone(), child_b.clone()]));
-        let store = BlockStore::new(vec![root.clone()], nodes);
+        let mut nodes = SlotMap::with_key();
+        let child_a = nodes.insert(BlockNode::new("child_a", vec![]));
+        let child_b = nodes.insert(BlockNode::new("child_b", vec![]));
+        let root = nodes.insert(BlockNode::new("root", vec![child_a, child_b]));
+        let store = BlockStore::new(vec![root], nodes);
         (store, root, child_a, child_b)
     }
 
@@ -303,8 +278,9 @@ mod tests {
 
     #[test]
     fn block_id_new_produces_distinct_ids() {
-        let a = BlockId::new();
-        let b = BlockId::new();
+        let mut nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
+        let a = nodes.insert(BlockNode::new("a", vec![]));
+        let b = nodes.insert(BlockNode::new("b", vec![]));
         assert_ne!(a, b);
     }
 
@@ -312,8 +288,8 @@ mod tests {
 
     #[test]
     fn block_node_stores_point_and_children() {
-        let child = BlockId::new();
-        let node = BlockNode::new("hello", vec![child.clone()]);
+        let child = BlockId::default();
+        let node = BlockNode::new("hello", vec![child]);
         assert_eq!(node.point, "hello");
         assert_eq!(node.children, vec![child]);
     }
@@ -329,7 +305,7 @@ mod tests {
     #[test]
     fn node_returns_none_for_unknown_id() {
         let (store, _, _, _) = simple_store();
-        let unknown = BlockId::new();
+        let unknown = BlockId::default();
         assert!(store.node(&unknown).is_none());
     }
 
@@ -357,7 +333,7 @@ mod tests {
     #[test]
     fn update_point_noop_for_unknown_id() {
         let (mut store, _, _, _) = simple_store();
-        let unknown = BlockId::new();
+        let unknown = BlockId::default();
         store.update_point(&unknown, "nope".to_string());
     }
 
@@ -388,7 +364,7 @@ mod tests {
     #[test]
     fn append_child_returns_none_for_unknown_parent() {
         let (mut store, _, _, _) = simple_store();
-        let unknown = BlockId::new();
+        let unknown = BlockId::default();
         assert_eq!(store.append_child(&unknown, "x".to_string()), None);
     }
 
@@ -412,7 +388,7 @@ mod tests {
     #[test]
     fn append_sibling_returns_none_for_unknown() {
         let (mut store, _, _, _) = simple_store();
-        let unknown = BlockId::new();
+        let unknown = BlockId::default();
         assert_eq!(store.append_sibling(&unknown, "x".to_string()), None);
     }
 
@@ -423,7 +399,7 @@ mod tests {
         let (mut store, root, child_a, child_b) = simple_store();
         let dup = store.duplicate_subtree_after(&child_a).unwrap();
         let parent = store.node(&root).unwrap();
-        assert_eq!(parent.children, vec![child_a, dup.clone(), child_b]);
+        assert_eq!(parent.children, vec![child_a, dup, child_b]);
         assert_eq!(store.point(&dup), Some("child_a".to_string()));
     }
 
@@ -446,7 +422,7 @@ mod tests {
     #[test]
     fn duplicate_returns_none_for_unknown() {
         let (mut store, _, _, _) = simple_store();
-        let unknown = BlockId::new();
+        let unknown = BlockId::default();
         assert_eq!(store.duplicate_subtree_after(&unknown), None);
     }
 
@@ -474,22 +450,21 @@ mod tests {
 
     #[test]
     fn remove_last_root_inserts_fresh_root() {
-        let id = BlockId::new();
-        let mut nodes = HashMap::new();
-        nodes.insert(id.clone(), BlockNode::new("only", vec![]));
-        let mut store = BlockStore::new(vec![id.clone()], nodes);
+        let mut nodes = SlotMap::with_key();
+        let id = nodes.insert(BlockNode::new("only", vec![]));
+        let mut store = BlockStore::new(vec![id], nodes);
 
         store.remove_block_subtree(&id).unwrap();
         assert_eq!(store.roots().len(), 1);
-        let new_root = &store.roots()[0];
-        assert_ne!(new_root, &id);
-        assert_eq!(store.point(new_root), Some(String::new()));
+        let new_root = store.roots()[0];
+        assert_ne!(new_root, id);
+        assert_eq!(store.point(&new_root), Some(String::new()));
     }
 
     #[test]
     fn remove_returns_none_for_unknown() {
         let (mut store, _, _, _) = simple_store();
-        let unknown = BlockId::new();
+        let unknown = BlockId::default();
         assert_eq!(store.remove_block_subtree(&unknown), None);
     }
 
@@ -519,7 +494,7 @@ mod tests {
     #[test]
     fn lineage_for_unknown_is_empty() {
         let (store, _, _, _) = simple_store();
-        let unknown = BlockId::new();
+        let unknown = BlockId::default();
         let lineage = store.lineage_points_for_id(&unknown);
         let expected = llm::Lineage::from_points(vec![]);
         assert_eq!(lineage, expected);
@@ -533,5 +508,13 @@ mod tests {
         let json = serde_json::to_string(&store).unwrap();
         let restored: BlockStore = serde_json::from_str(&json).unwrap();
         assert_eq!(store, restored);
+    }
+}
+
+impl PartialEq for BlockStore {
+    fn eq(&self, other: &Self) -> bool {
+        self.roots == other.roots
+            && self.nodes.len() == other.nodes.len()
+            && self.nodes.iter().all(|(id, node)| other.nodes.get(id) == Some(node))
     }
 }

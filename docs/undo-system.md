@@ -8,7 +8,7 @@ discard the redo future.
 
 ## Scope
 
-Undo covers structural and LLM-driven mutations to the `BlockGraph`
+Undo covers structural and LLM-driven mutations to the `BlockStore`
 and `expansion_drafts`:
 
 | Operation | Undoable |
@@ -29,13 +29,13 @@ and `expansion_drafts`:
 
 `UndoHistory` holds two `Vec<UndoSnapshot>` stacks (undo and redo) with a
 configurable capacity (default 64). Each `UndoSnapshot` captures
-`BlockGraph` and `expansion_drafts`. The live state is never stored in
+`BlockStore` and `expansion_drafts`. The live state is never stored in
 the stacks -- only prior states are.
 
 ### Snapshot protocol
 
 Before any mutation, the handler calls `state.snapshot_for_undo()`,
-which clones the current `BlockGraph` and `expansion_drafts` into an
+which clones the current `BlockStore` and `expansion_drafts` into an
 `UndoSnapshot` and pushes it onto the undo stack. This clears the redo
 stack.
 

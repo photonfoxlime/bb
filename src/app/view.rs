@@ -60,7 +60,7 @@ impl<'a> TreeView<'a> {
         let editor_content =
             self.state.editors.get(block_id).expect("editor content is populated from store");
 
-        let block_id_for_edit = block_id.clone();
+        let block_id_for_edit = *block_id;
         let row_context = self.action_row_context(block_id, editor_content.text(), node);
         let action_bar =
             project_for_viewport(build_action_bar_vm(&row_context), self.viewport_bucket());
@@ -83,9 +83,7 @@ impl<'a> TreeView<'a> {
                 text_editor(editor_content)
                     .placeholder("point")
                     .style(theme::point_editor)
-                    .on_action(move |action| {
-                        Message::PointEdited(block_id_for_edit.clone(), action)
-                    })
+                    .on_action(move |action| Message::PointEdited(block_id_for_edit, action))
                     .height(Length::Shrink),
             )
             .push(self.render_action_buttons(block_id, &action_bar));
@@ -97,10 +95,10 @@ impl<'a> TreeView<'a> {
                     .padding(iced::Padding::ZERO.left(16.0)),
             );
         }
-        if let Some(draft) = self.state.expansion_drafts.get(block_id) {
+        if let Some(draft) = self.state.expansion_drafts.get(*block_id) {
             block = block.push(self.render_expansion_panel(block_id, draft));
         }
-        if let Some(draft) = self.state.summary_drafts.get(block_id) {
+        if let Some(draft) = self.state.summary_drafts.get(*block_id) {
             block = block.push(self.render_summary_panel(block_id, draft));
         }
 
@@ -178,12 +176,12 @@ impl<'a> TreeView<'a> {
                             .push(
                                 button(text("Apply rewrite").font(theme::INTER).size(13))
                                     .style(theme::action_button)
-                                    .on_press(Message::ApplyExpandedRewrite(block_id.clone())),
+                                    .on_press(Message::ApplyExpandedRewrite(*block_id)),
                             )
                             .push(
                                 button(text("Dismiss rewrite").font(theme::INTER).size(13))
                                     .style(theme::destructive_button)
-                                    .on_press(Message::RejectExpandedRewrite(block_id.clone())),
+                                    .on_press(Message::RejectExpandedRewrite(*block_id)),
                             ),
                     ),
             );
@@ -197,12 +195,12 @@ impl<'a> TreeView<'a> {
                     .push(
                         button(text("Accept all").font(theme::INTER).size(13))
                             .style(theme::action_button)
-                            .on_press(Message::AcceptAllExpandedChildren(block_id.clone())),
+                            .on_press(Message::AcceptAllExpandedChildren(*block_id)),
                     )
                     .push(
                         button(text("Discard all").font(theme::INTER).size(13))
                             .style(theme::destructive_button)
-                            .on_press(Message::DiscardExpansion(block_id.clone())),
+                            .on_press(Message::DiscardExpansion(*block_id)),
                     ),
             );
 
@@ -214,12 +212,12 @@ impl<'a> TreeView<'a> {
                         .push(
                             button(text("Keep").font(theme::INTER).size(13))
                                 .style(theme::action_button)
-                                .on_press(Message::AcceptExpandedChild(block_id.clone(), index)),
+                                .on_press(Message::AcceptExpandedChild(*block_id, index)),
                         )
                         .push(
                             button(text("Drop").font(theme::INTER).size(13))
                                 .style(theme::destructive_button)
-                                .on_press(Message::RejectExpandedChild(block_id.clone(), index)),
+                                .on_press(Message::RejectExpandedChild(*block_id, index)),
                         ),
                 );
             }
@@ -291,12 +289,12 @@ impl<'a> TreeView<'a> {
                         .push(
                             button(text("Apply summary").font(theme::INTER).size(13))
                                 .style(theme::action_button)
-                                .on_press(Message::ApplySummary(block_id.clone())),
+                                .on_press(Message::ApplySummary(*block_id)),
                         )
                         .push(
                             button(text("Dismiss summary").font(theme::INTER).size(13))
                                 .style(theme::destructive_button)
-                                .on_press(Message::RejectSummary(block_id.clone())),
+                                .on_press(Message::RejectSummary(*block_id)),
                         ),
                 ),
         )
@@ -308,22 +306,22 @@ impl<'a> TreeView<'a> {
     fn action_row_context(
         &self, block_id: &BlockId, point_text: String, _node: &BlockNode,
     ) -> RowContext {
-        let expansion_draft = self.state.expansion_drafts.get(block_id);
-        let summary_draft = self.state.summary_drafts.get(block_id);
+        let expansion_draft = self.state.expansion_drafts.get(*block_id);
+        let summary_draft = self.state.summary_drafts.get(*block_id);
         RowContext {
-            block_id: block_id.clone(),
+            block_id: *block_id,
             point_text,
             has_draft: expansion_draft.is_some() || summary_draft.is_some(),
             draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0),
             has_expand_error: self
                 .state
                 .expand_states
-                .get(block_id)
+                .get(*block_id)
                 .is_some_and(|s| matches!(s, ExpandState::Error { .. })),
             has_reduce_error: self
                 .state
                 .summary_states
-                .get(block_id)
+                .get(*block_id)
                 .is_some_and(|s| matches!(s, SummaryState::Error { .. })),
             is_expanding: self.state.is_expanding(block_id),
             is_reducing: self.state.is_summarizing(block_id),
@@ -367,7 +365,7 @@ impl<'a> TreeView<'a> {
             let btn = button(icon.size(16))
                 .style(theme::action_button)
                 .padding(4)
-                .on_press(Message::ToggleOverflow(block_id.clone()));
+                .on_press(Message::ToggleOverflow(*block_id));
 
             actions_row = actions_row.push(
                 tooltip(btn, text(label).size(12).font(theme::INTER), tooltip::Position::Bottom)

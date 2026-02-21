@@ -382,25 +382,25 @@ pub fn action_to_message_by_id(
     state: &AppState, block_id: &BlockId, action_id: ActionId,
 ) -> Option<Message> {
     match action_id {
-        | ActionId::Expand => Some(Message::Expand(block_id.clone())),
-        | ActionId::Reduce => Some(Message::Summarize(block_id.clone())),
-        | ActionId::AddChild => Some(Message::AddChild(block_id.clone())),
-        | ActionId::AcceptAll => Some(Message::AcceptAllExpandedChildren(block_id.clone())),
+        | ActionId::Expand => Some(Message::Expand(*block_id)),
+        | ActionId::Reduce => Some(Message::Summarize(*block_id)),
+        | ActionId::AddChild => Some(Message::AddChild(*block_id)),
+        | ActionId::AcceptAll => Some(Message::AcceptAllExpandedChildren(*block_id)),
         | ActionId::Retry => retry_message_for_block(state, block_id),
         | ActionId::DismissDraft => {
             // Dismiss whichever draft exists (or both if both exist)
             // The message handler will check and dismiss appropriately
-            if state.summary_drafts.contains_key(block_id) {
-                Some(Message::RejectSummary(block_id.clone()))
-            } else if state.expansion_drafts.contains_key(block_id) {
-                Some(Message::DiscardExpansion(block_id.clone()))
+            if state.summary_drafts.contains_key(*block_id) {
+                Some(Message::RejectSummary(*block_id))
+            } else if state.expansion_drafts.contains_key(*block_id) {
+                Some(Message::DiscardExpansion(*block_id))
             } else {
                 None
             }
         }
-        | ActionId::AddSibling => Some(Message::AddSibling(block_id.clone())),
-        | ActionId::DuplicateBlock => Some(Message::DuplicateBlock(block_id.clone())),
-        | ActionId::ArchiveBlock => Some(Message::ArchiveBlock(block_id.clone())),
+        | ActionId::AddSibling => Some(Message::AddSibling(*block_id)),
+        | ActionId::DuplicateBlock => Some(Message::DuplicateBlock(*block_id)),
+        | ActionId::ArchiveBlock => Some(Message::ArchiveBlock(*block_id)),
         | ActionId::Overflow
         | ActionId::CollapseBranch
         | ActionId::ExpandBranch
@@ -409,11 +409,12 @@ pub fn action_to_message_by_id(
 }
 
 fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
-    if state.expand_states.get(block_id).is_some_and(|s| matches!(s, ExpandState::Error { .. })) {
-        return Some(Message::Expand(block_id.clone()));
+    if state.expand_states.get(*block_id).is_some_and(|s| matches!(s, ExpandState::Error { .. })) {
+        return Some(Message::Expand(*block_id));
     }
-    if state.summary_states.get(block_id).is_some_and(|s| matches!(s, SummaryState::Error { .. })) {
-        return Some(Message::Summarize(block_id.clone()));
+    if state.summary_states.get(*block_id).is_some_and(|s| matches!(s, SummaryState::Error { .. }))
+    {
+        return Some(Message::Summarize(*block_id));
     }
     None
 }
@@ -424,7 +425,7 @@ mod tests {
 
     fn row_context() -> RowContext {
         RowContext {
-            block_id: BlockId::new(),
+            block_id: BlockId::default(),
             point_text: "hello".to_string(),
             has_draft: false,
             draft_suggestion_count: 0,
