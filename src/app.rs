@@ -44,7 +44,7 @@ const UNDO_CAPACITY: usize = 64;
 /// All mutable application state for the iced Elm architecture.
 ///
 /// Owns the document store, editor buffers, undo history, LLM config,
-/// async operation states, and transient UI state (active block, overflow menu).
+/// async operation states, and transient UI state (overflow, active/focused/editing block ids).
 #[derive(Clone)]
 pub struct AppState {
     store: BlockStore,
@@ -57,8 +57,11 @@ pub struct AppState {
     summary_drafts: SecondaryMap<BlockId, SummaryDraft>,
     editors: EditorStore,
     overflow_open_for: Option<BlockId>,
+    /// Last block interacted with by actions or edits.
     active_block_id: Option<BlockId>,
-    /// Tracks which block is mid-edit to coalesce keystrokes into one undo entry.
+    /// Block whose point editor currently has keyboard focus.
+    focused_block_id: Option<BlockId>,
+    /// Block currently coalescing point edits into a single undo entry.
     editing_block_id: Option<BlockId>,
 }
 
@@ -83,6 +86,7 @@ impl AppState {
             editors,
             overflow_open_for: None,
             active_block_id: None,
+            focused_block_id: None,
             editing_block_id: None,
         }
     }
@@ -99,8 +103,11 @@ impl AppState {
         self.expand_states.get(*block_id).is_some_and(|s| matches!(s, ExpandState::Loading))
     }
 
+    /// Resolve shortcut target priority: focused editor, then active block, then first root.
     fn current_block_for_shortcuts(&self) -> Option<BlockId> {
-        self.active_block_id.or_else(|| self.store.roots().first().copied())
+        self.focused_block_id
+            .or(self.active_block_id)
+            .or_else(|| self.store.roots().first().copied())
     }
 
     fn set_active_block(&mut self, block_id: &BlockId) {
@@ -124,6 +131,7 @@ impl AppState {
         self.summary_drafts = snapshot.summary_drafts;
         self.summary_states.clear();
         self.expand_states.clear();
+        self.focused_block_id = None;
         self.editing_block_id = None;
         self.active_block_id = self.store.roots().first().copied();
         if let Err(err) = self.save_tree() {
@@ -139,6 +147,7 @@ pub enum Message {
     Redo,
     PointEdited(BlockId, text_editor::Action),
     Shortcut(ActionId),
+    ShortcutFor(BlockId, ActionId),
     Summarize(BlockId),
     SummarizeDone(BlockId, Result<String, UiError>),
     ApplySummary(BlockId),
@@ -190,45 +199,15 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             let Some(block_id) = state.current_block_for_shortcuts() else {
                 return Task::none();
             };
-
-            let point_text =
-                state.editors.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
-            let draft = state.expansion_drafts.get(block_id);
-            let row_context = RowContext {
-                block_id,
-                point_text,
-                has_draft: draft.is_some(),
-                draft_suggestion_count: draft.map(|d| d.children.len()).unwrap_or(0),
-                has_expand_error: state
-                    .expand_states
-                    .get(block_id)
-                    .is_some_and(|s| matches!(s, ExpandState::Error { .. })),
-                has_reduce_error: state
-                    .summary_states
-                    .get(block_id)
-                    .is_some_and(|s| matches!(s, SummaryState::Error { .. })),
-                is_expanding: state.is_expanding(&block_id),
-                is_reducing: state.is_summarizing(&block_id),
-            };
-            let vm = project_for_viewport(build_action_bar_vm(&row_context), ViewportBucket::Wide);
-
-            let is_enabled = vm
-                .primary
-                .iter()
-                .chain(vm.contextual.iter())
-                .chain(vm.overflow.iter())
-                .find(|item| item.id == action_id)
-                .is_some_and(|descriptor| descriptor.availability == ActionAvailability::Enabled);
-
-            if is_enabled {
-                if let Some(next) = action_to_message_by_id(state, &block_id, action_id) {
-                    return update(state, next);
-                }
-            }
-            Task::none()
+            run_shortcut_for_block(state, block_id, action_id)
+        }
+        | Message::ShortcutFor(block_id, action_id) => {
+            state.focused_block_id = Some(block_id);
+            run_shortcut_for_block(state, block_id, action_id)
         }
         | Message::PointEdited(block_id, action) => {
             state.set_active_block(&block_id);
+            state.focused_block_id = Some(block_id);
             if state.editing_block_id.as_ref() != Some(&block_id) {
                 state.snapshot_for_undo();
                 state.editing_block_id = Some(block_id);
@@ -497,6 +476,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
         | Message::CloseOverflow => {
             state.overflow_open_for = None;
+            state.focused_block_id = None;
             Task::none()
         }
         | Message::AddChild(block_id) => {
@@ -544,6 +524,9 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if let Some(removed_ids) = state.store.remove_block_subtree(&block_id) {
                 tracing::info!(block_id = ?block_id, removed = removed_ids.len(), "archived block subtree");
                 state.editors.remove_blocks(&removed_ids);
+                if removed_ids.iter().any(|id| Some(*id) == state.focused_block_id) {
+                    state.focused_block_id = None;
+                }
                 // Ensure editor buffers exist for any roots created by removal
                 // (e.g. when the last root is archived, a fresh empty root is inserted).
                 for root_id in state.store.roots() {
@@ -596,6 +579,49 @@ fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) 
         | Event::Mouse(mouse::Event::ButtonPressed(_)) => Some(Message::CloseOverflow),
         | _ => None,
     }
+}
+
+fn run_shortcut_for_block(
+    state: &mut AppState, block_id: BlockId, action_id: ActionId,
+) -> Task<Message> {
+    state.set_active_block(&block_id);
+
+    let point_text =
+        state.editors.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
+    let draft = state.expansion_drafts.get(block_id);
+    let row_context = RowContext {
+        block_id,
+        point_text,
+        has_draft: draft.is_some(),
+        draft_suggestion_count: draft.map(|d| d.children.len()).unwrap_or(0),
+        has_expand_error: state
+            .expand_states
+            .get(block_id)
+            .is_some_and(|s| matches!(s, ExpandState::Error { .. })),
+        has_reduce_error: state
+            .summary_states
+            .get(block_id)
+            .is_some_and(|s| matches!(s, SummaryState::Error { .. })),
+        is_expanding: state.is_expanding(&block_id),
+        is_reducing: state.is_summarizing(&block_id),
+    };
+    let vm = project_for_viewport(build_action_bar_vm(&row_context), ViewportBucket::Wide);
+
+    let is_enabled = vm
+        .primary
+        .iter()
+        .chain(vm.contextual.iter())
+        .chain(vm.overflow.iter())
+        .find(|item| item.id == action_id)
+        .is_some_and(|descriptor| descriptor.availability == ActionAvailability::Enabled);
+
+    if is_enabled {
+        if let Some(next) = action_to_message_by_id(state, &block_id, action_id) {
+            return update(state, next);
+        }
+    }
+
+    Task::none()
 }
 
 /// Top-level view: error banner + scrollable block tree.

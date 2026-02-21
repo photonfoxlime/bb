@@ -1,6 +1,7 @@
 use super::action_bar::{
     ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
     ViewportBucket, action_to_message, build_action_bar_vm, project_for_viewport,
+    shortcut_to_action,
 };
 use super::diff::{WordChange, word_diff};
 use super::{AppState, ExpandState, ExpansionDraft, Message, SummaryDraft, SummaryState};
@@ -84,6 +85,7 @@ impl<'a> TreeView<'a> {
                     .placeholder("point")
                     .style(theme::point_editor)
                     .on_action(move |action| Message::PointEdited(block_id_for_edit, action))
+                    .key_binding(move |key_press| editor_key_binding(block_id_for_edit, key_press))
                     .height(Length::Shrink),
             )
             .push(self.render_action_buttons(block_id, &action_bar));
@@ -412,4 +414,14 @@ impl<'a> TreeView<'a> {
             .gap(4)
             .into()
     }
+}
+
+fn editor_key_binding(
+    block_id: BlockId, key_press: text_editor::KeyPress,
+) -> Option<text_editor::Binding<Message>> {
+    if let Some(action_id) = shortcut_to_action(key_press.key.clone(), key_press.modifiers) {
+        return Some(text_editor::Binding::Custom(Message::ShortcutFor(block_id, action_id)));
+    }
+
+    text_editor::Binding::from_key_press(key_press)
 }
