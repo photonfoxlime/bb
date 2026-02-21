@@ -2,6 +2,7 @@
 //! application.
 
 mod app;
+mod mount;
 mod store;
 mod llm;
 mod paths;
