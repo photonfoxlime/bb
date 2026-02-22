@@ -10,7 +10,6 @@ For current architecture, see [architecture.md](architecture.md).
 - ~~Conflict-safe editing during async operations.~~ Done (lineage request signatures drop stale expand/reduce responses after local edits).
 
 ## Expand/Reduce quality
-- Retry and fallback parsing for expand JSON.
 - Prompt tuning for concise, non-overlapping suggestions.
 - ~~Per-request cancellation and timeout in UI.~~ Done (Cancel action while loading + 30s request timeout for expand/reduce).
 
