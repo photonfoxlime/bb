@@ -5,19 +5,17 @@
 
 use crate::llm;
 use crate::paths::AppPaths;
-use crate::store::{BlockId, BlockStore};
+use crate::store::{BlockId, BlockStore, ExpansionDraftRecord, ReductionDraftRecord};
 use crate::theme;
 use crate::undo::UndoHistory;
 use std::collections::HashSet;
 use std::time::Duration;
 mod action_bar;
 mod diff;
-mod draft;
 mod editor_store;
 mod state;
 mod view;
 
-use draft::{ExpansionDraft, ReductionDraft};
 use editor_store::EditorStore;
 use state::{AppError, ExpandState, ReduceState, RequestSignature, UiError};
 
@@ -34,14 +32,12 @@ use slotmap::SecondaryMap;
 
 /// Snapshot of undoable application state.
 ///
-/// Contains only the store and expansion drafts. Editor buffers are
+/// Contains only the store. Editor buffers are
 /// rebuilt from the store on restore since `text_editor::Content` is
 /// not cheaply cloneable with full cursor state.
 #[derive(Clone)]
 struct UndoSnapshot {
     store: BlockStore,
-    expansion_drafts: SecondaryMap<BlockId, ExpansionDraft>,
-    reduction_drafts: SecondaryMap<BlockId, ReductionDraft>,
 }
 
 /// Default capacity: 64 undo steps.
@@ -64,8 +60,6 @@ pub struct AppState {
     expand_handle: Option<(BlockId, task::Handle)>,
     pending_reduce_signatures: SecondaryMap<BlockId, RequestSignature>,
     pending_expand_signatures: SecondaryMap<BlockId, RequestSignature>,
-    expansion_drafts: SecondaryMap<BlockId, ExpansionDraft>,
-    reduction_drafts: SecondaryMap<BlockId, ReductionDraft>,
     editors: EditorStore,
     overflow_open_for: Option<BlockId>,
     /// Last block interacted with by actions or edits.
@@ -90,14 +84,6 @@ impl AppState {
             .err()
             .map(|err| AppError::Configuration(UiError::from_message(err)));
         let store = BlockStore::load();
-        let mut expansion_drafts = SecondaryMap::new();
-        for (id, draft) in store.expansion_drafts().iter() {
-            expansion_drafts.insert(id, ExpansionDraft::from_record(draft.clone()));
-        }
-        let mut reduction_drafts = SecondaryMap::new();
-        for (id, draft) in store.reduction_drafts().iter() {
-            reduction_drafts.insert(id, ReductionDraft::from_record(draft.clone()));
-        }
         let editors = EditorStore::from_store(&store);
         let is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
         tracing::info!(is_dark, "detected system appearance");
@@ -112,8 +98,6 @@ impl AppState {
             expand_handle: None,
             pending_reduce_signatures: SecondaryMap::new(),
             pending_expand_signatures: SecondaryMap::new(),
-            expansion_drafts,
-            reduction_drafts,
             editors,
             overflow_open_for: None,
             active_block_id: None,
@@ -124,20 +108,7 @@ impl AppState {
         }
     }
 
-    fn sync_drafts_to_store(&mut self) {
-        let mut expansion = SecondaryMap::new();
-        for (id, draft) in self.expansion_drafts.iter() {
-            expansion.insert(id, draft.to_record());
-        }
-        let mut reduction = SecondaryMap::new();
-        for (id, draft) in self.reduction_drafts.iter() {
-            reduction.insert(id, draft.to_record());
-        }
-        self.store.replace_drafts(expansion, reduction);
-    }
-
     fn save_tree(&mut self) -> std::io::Result<()> {
-        self.sync_drafts_to_store();
         self.store.save()?;
         self.store.save_mounts()
     }
@@ -163,20 +134,13 @@ impl AppState {
 
     /// Snapshot the current store into undo history before a mutation.
     fn snapshot_for_undo(&mut self) {
-        self.sync_drafts_to_store();
-        self.undo_history.push(UndoSnapshot {
-            store: self.store.clone(),
-            expansion_drafts: self.expansion_drafts.clone(),
-            reduction_drafts: self.reduction_drafts.clone(),
-        });
+        self.undo_history.push(UndoSnapshot { store: self.store.clone() });
         self.editing_block_id = None;
     }
 
     fn restore_snapshot(&mut self, snapshot: UndoSnapshot) {
         self.editors = EditorStore::from_store(&snapshot.store);
         self.store = snapshot.store;
-        self.expansion_drafts = snapshot.expansion_drafts;
-        self.reduction_drafts = snapshot.reduction_drafts;
         self.reduce_states.clear();
         self.expand_states.clear();
         if let Some((_, handle)) = self.reduce_handle.take() {
@@ -257,12 +221,7 @@ pub enum Message {
 pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
     match message {
         | Message::Undo => {
-            state.sync_drafts_to_store();
-            let current = UndoSnapshot {
-                store: state.store.clone(),
-                expansion_drafts: state.expansion_drafts.clone(),
-                reduction_drafts: state.reduction_drafts.clone(),
-            };
+            let current = UndoSnapshot { store: state.store.clone() };
             if let Some(previous) = state.undo_history.undo(current) {
                 tracing::info!("undo applied");
                 state.restore_snapshot(previous);
@@ -270,12 +229,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
         | Message::Redo => {
-            state.sync_drafts_to_store();
-            let current = UndoSnapshot {
-                store: state.store.clone(),
-                expansion_drafts: state.expansion_drafts.clone(),
-                reduction_drafts: state.reduction_drafts.clone(),
-            };
+            let current = UndoSnapshot { store: state.store.clone() };
             if let Some(next) = state.undo_history.redo(current) {
                 tracing::info!("redo applied");
                 state.restore_snapshot(next);
@@ -436,7 +390,9 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 | Ok(reduction) => {
                     tracing::info!(block_id = ?block_id, chars = reduction.len(), "reduce request succeeded");
                     state.snapshot_for_undo();
-                    state.reduction_drafts.insert(block_id, ReductionDraft::new(reduction));
+                    state
+                        .store
+                        .insert_reduction_draft(block_id, ReductionDraftRecord { reduction });
                     state.error = None;
                     if let Err(err) = state.save_tree() {
                         tracing::error!(%err, "failed to save tree after creating reduction draft");
@@ -456,7 +412,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.set_active_block(&block_id);
             state.snapshot_for_undo();
             let mut should_save = false;
-            if let Some(draft) = state.reduction_drafts.remove(block_id) {
+            if let Some(draft) = state.store.remove_reduction_draft(&block_id) {
                 tracing::info!(block_id = ?block_id, chars = draft.reduction.len(), "applied reduction");
                 state.store.update_point(&block_id, draft.reduction.clone());
                 state.editors.set_text(&block_id, &draft.reduction);
@@ -472,7 +428,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::RejectReduction(block_id) => {
             state.set_active_block(&block_id);
             tracing::info!(block_id = ?block_id, "rejected reduction");
-            state.reduction_drafts.remove(block_id);
+            state.store.remove_reduction_draft(&block_id);
             if let Err(err) = state.save_tree() {
                 tracing::error!(%err, "failed to save tree after rejecting reduction");
             }
@@ -554,14 +510,22 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             }
             match result {
                 | Ok(raw_result) => {
-                    let draft = ExpansionDraft::from_expand_result(raw_result);
+                    let (rewrite, children) = raw_result.into_parts();
+                    let rewrite =
+                        rewrite.map(|value| value.trim().to_string()).filter(|v| !v.is_empty());
+                    let children = children
+                        .into_iter()
+                        .map(llm::ExpandSuggestion::into_point)
+                        .map(|value| value.trim().to_string())
+                        .filter(|v| !v.is_empty())
+                        .collect::<Vec<_>>();
                     tracing::info!(
                         block_id = ?block_id,
-                        has_rewrite = draft.rewrite.is_some(),
-                        child_count = draft.children.len(),
+                        has_rewrite = rewrite.is_some(),
+                        child_count = children.len(),
                         "expand request succeeded"
                     );
-                    if draft.is_empty() {
+                    if rewrite.is_none() && children.is_empty() {
                         let reason = UiError::from_message("expand returned no usable suggestions");
                         state
                             .expand_states
@@ -570,7 +534,10 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                         return Task::none();
                     }
                     state.snapshot_for_undo();
-                    state.expansion_drafts.insert(block_id, draft);
+                    state.store.insert_expansion_draft(
+                        block_id,
+                        ExpansionDraftRecord { rewrite, children },
+                    );
                     state.error = None;
                     if let Err(err) = state.save_tree() {
                         tracing::error!(%err, "failed to save tree after creating expansion draft");
@@ -591,19 +558,19 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.snapshot_for_undo();
             let mut should_save = false;
             let mut should_remove_draft = false;
-            if let Some(draft) = state.expansion_drafts.get_mut(block_id) {
-                if let Some(rewrite) = draft.rewrite.take() {
-                    tracing::info!(block_id = ?block_id, chars = rewrite.len(), "applied expanded rewrite");
-                    state.store.update_point(&block_id, rewrite.clone());
-                    state.editors.set_text(&block_id, &rewrite);
-                    should_save = true;
-                }
-                if draft.is_empty() {
-                    should_remove_draft = true;
-                }
+            let mut applied_rewrite: Option<String> = None;
+            if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
+                applied_rewrite = draft.rewrite.take();
+                should_remove_draft = draft.rewrite.is_none() && draft.children.is_empty();
+            }
+            if let Some(rewrite) = applied_rewrite {
+                tracing::info!(block_id = ?block_id, chars = rewrite.len(), "applied expanded rewrite");
+                state.store.update_point(&block_id, rewrite.clone());
+                state.editors.set_text(&block_id, &rewrite);
+                should_save = true;
             }
             if should_remove_draft {
-                state.expansion_drafts.remove(block_id);
+                state.store.remove_expansion_draft(&block_id);
             }
             if should_save {
                 if let Err(err) = state.save_tree() {
@@ -615,13 +582,15 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::RejectExpandedRewrite(block_id) => {
             state.set_active_block(&block_id);
             let mut changed = false;
-            if let Some(draft) = state.expansion_drafts.get_mut(block_id) {
+            let mut should_remove_draft = false;
+            if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
                 draft.rewrite = None;
                 tracing::info!(block_id = ?block_id, "rejected expanded rewrite");
-                if draft.is_empty() {
-                    state.expansion_drafts.remove(block_id);
-                }
+                should_remove_draft = draft.rewrite.is_none() && draft.children.is_empty();
                 changed = true;
+            }
+            if should_remove_draft {
+                state.store.remove_expansion_draft(&block_id);
             }
             if changed {
                 if let Err(err) = state.save_tree() {
@@ -635,26 +604,29 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.snapshot_for_undo();
             let mut should_save = false;
             let mut should_remove_draft = false;
-            if let Some(draft) = state.expansion_drafts.get_mut(block_id) {
+            let mut accepted_child_point: Option<String> = None;
+            if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
                 if child_index < draft.children.len() {
-                    let point = draft.children.remove(child_index);
-                    if let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
-                        tracing::info!(
-                            parent_block_id = ?block_id,
-                            child_block_id = ?child_id,
-                            chars = point.len(),
-                            "accepted expanded child"
-                        );
-                        state.editors.set_text(&child_id, &point);
-                        should_save = true;
-                    }
+                    accepted_child_point = Some(draft.children.remove(child_index));
                 }
-                if draft.is_empty() {
+                if draft.rewrite.is_none() && draft.children.is_empty() {
                     should_remove_draft = true;
                 }
             }
+            if let Some(point) = accepted_child_point {
+                if let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
+                    tracing::info!(
+                        parent_block_id = ?block_id,
+                        child_block_id = ?child_id,
+                        chars = point.len(),
+                        "accepted expanded child"
+                    );
+                    state.editors.set_text(&child_id, &point);
+                    should_save = true;
+                }
+            }
             if should_remove_draft {
-                state.expansion_drafts.remove(block_id);
+                state.store.remove_expansion_draft(&block_id);
             }
             if should_save {
                 if let Err(err) = state.save_tree() {
@@ -666,15 +638,17 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::RejectExpandedChild(block_id, child_index) => {
             state.set_active_block(&block_id);
             let mut changed = false;
-            if let Some(draft) = state.expansion_drafts.get_mut(block_id) {
+            let mut should_remove_draft = false;
+            if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
                 if child_index < draft.children.len() {
                     draft.children.remove(child_index);
                     tracing::info!(block_id = ?block_id, child_index, "rejected expanded child");
                     changed = true;
                 }
-                if draft.is_empty() {
-                    state.expansion_drafts.remove(block_id);
-                }
+                should_remove_draft = draft.rewrite.is_none() && draft.children.is_empty();
+            }
+            if should_remove_draft {
+                state.store.remove_expansion_draft(&block_id);
             }
             if changed {
                 if let Err(err) = state.save_tree() {
@@ -686,7 +660,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::AcceptAllExpandedChildren(block_id) => {
             state.set_active_block(&block_id);
             state.snapshot_for_undo();
-            if let Some(mut draft) = state.expansion_drafts.remove(block_id) {
+            if let Some(mut draft) = state.store.remove_expansion_draft(&block_id) {
                 for point in draft.children.drain(..) {
                     if let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
                         tracing::info!(
@@ -699,7 +673,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     }
                 }
                 if draft.rewrite.is_some() {
-                    state.expansion_drafts.insert(block_id, draft);
+                    state.store.insert_expansion_draft(block_id, draft);
                 }
                 if let Err(err) = state.save_tree() {
                     tracing::error!(%err, "failed to save tree after accepting expanded children");
@@ -710,7 +684,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::DiscardExpansion(block_id) => {
             state.set_active_block(&block_id);
             tracing::info!(block_id = ?block_id, "discarded expansion draft");
-            if state.expansion_drafts.remove(block_id).is_some() {
+            if state.store.remove_expansion_draft(&block_id).is_some() {
                 if let Err(err) = state.save_tree() {
                     tracing::error!(%err, "failed to save tree after discarding expansion draft");
                 }
@@ -975,8 +949,6 @@ mod tests {
             expand_handle: None,
             pending_reduce_signatures: SecondaryMap::new(),
             pending_expand_signatures: SecondaryMap::new(),
-            expansion_drafts: SecondaryMap::new(),
-            reduction_drafts: SecondaryMap::new(),
             overflow_open_for: None,
             active_block_id: None,
             focused_block_id: None,
@@ -1061,12 +1033,13 @@ fn run_shortcut_for_block(
 
     let point_text =
         state.editors.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
-    let draft = state.expansion_drafts.get(block_id);
+    let expansion_draft = state.store.expansion_draft(&block_id);
+    let reduction_draft = state.store.reduction_draft(&block_id);
     let row_context = RowContext {
         block_id,
         point_text,
-        has_draft: draft.is_some(),
-        draft_suggestion_count: draft.map(|d| d.children.len()).unwrap_or(0),
+        has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
+        draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0),
         has_expand_error: state
             .expand_states
             .get(block_id)

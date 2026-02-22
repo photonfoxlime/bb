@@ -190,23 +190,32 @@ impl BlockStore {
         Ok(())
     }
 
-    /// Borrow persisted expansion drafts.
-    pub fn expansion_drafts(&self) -> &SecondaryMap<BlockId, ExpansionDraftRecord> {
-        &self.expansion_drafts
+    pub fn expansion_draft(&self, id: &BlockId) -> Option<&ExpansionDraftRecord> {
+        self.expansion_drafts.get(*id)
     }
 
-    /// Borrow persisted reduction drafts.
-    pub fn reduction_drafts(&self) -> &SecondaryMap<BlockId, ReductionDraftRecord> {
-        &self.reduction_drafts
+    pub fn expansion_draft_mut(&mut self, id: &BlockId) -> Option<&mut ExpansionDraftRecord> {
+        self.expansion_drafts.get_mut(*id)
     }
 
-    /// Replace all persisted drafts in one atomic update.
-    pub fn replace_drafts(
-        &mut self, expansion_drafts: SecondaryMap<BlockId, ExpansionDraftRecord>,
-        reduction_drafts: SecondaryMap<BlockId, ReductionDraftRecord>,
-    ) {
-        self.expansion_drafts = expansion_drafts;
-        self.reduction_drafts = reduction_drafts;
+    pub fn insert_expansion_draft(&mut self, id: BlockId, draft: ExpansionDraftRecord) {
+        self.expansion_drafts.insert(id, draft);
+    }
+
+    pub fn remove_expansion_draft(&mut self, id: &BlockId) -> Option<ExpansionDraftRecord> {
+        self.expansion_drafts.remove(*id)
+    }
+
+    pub fn reduction_draft(&self, id: &BlockId) -> Option<&ReductionDraftRecord> {
+        self.reduction_drafts.get(*id)
+    }
+
+    pub fn insert_reduction_draft(&mut self, id: BlockId, draft: ReductionDraftRecord) {
+        self.reduction_drafts.insert(id, draft);
+    }
+
+    pub fn remove_reduction_draft(&mut self, id: &BlockId) -> Option<ReductionDraftRecord> {
+        self.reduction_drafts.remove(*id)
     }
 
     /// Build a serialization-ready snapshot that restores mount nodes and
@@ -1214,8 +1223,8 @@ mod tests {
         let restored: BlockStore = serde_json::from_str(&json).unwrap();
 
         assert_eq!(store, restored);
-        assert!(restored.expansion_drafts().get(root).is_some());
-        assert!(restored.reduction_drafts().get(child_a).is_some());
+        assert!(restored.expansion_draft(&root).is_some());
+        assert!(restored.reduction_draft(&child_a).is_some());
     }
 
     #[test]
@@ -1232,8 +1241,8 @@ mod tests {
         store.remove_block_subtree(&child_a).unwrap();
         store.remove_block_subtree(&child_b).unwrap();
 
-        assert!(store.expansion_drafts().get(child_a).is_none());
-        assert!(store.reduction_drafts().get(child_b).is_none());
+        assert!(store.expansion_draft(&child_a).is_none());
+        assert!(store.reduction_draft(&child_b).is_none());
     }
 
     #[test]
@@ -1244,8 +1253,8 @@ mod tests {
         value.as_object_mut().unwrap().remove("reduction_drafts");
 
         let restored: BlockStore = serde_json::from_value(value).unwrap();
-        assert_eq!(restored.expansion_drafts().len(), 0);
-        assert_eq!(restored.reduction_drafts().len(), 0);
+        assert_eq!(restored.expansion_drafts.len(), 0);
+        assert_eq!(restored.reduction_drafts.len(), 0);
     }
 
     // -- expand_mount / collapse_mount --

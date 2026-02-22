@@ -428,9 +428,9 @@ pub fn action_to_message_by_id(
         | ActionId::DismissDraft => {
             // Dismiss whichever draft exists (or both if both exist)
             // The message handler will check and dismiss appropriately
-            if state.reduction_drafts.contains_key(*block_id) {
+            if state.store.reduction_draft(block_id).is_some() {
                 Some(Message::RejectReduction(*block_id))
-            } else if state.expansion_drafts.contains_key(*block_id) {
+            } else if state.store.expansion_draft(block_id).is_some() {
                 Some(Message::DiscardExpansion(*block_id))
             } else {
                 None

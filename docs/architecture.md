@@ -38,7 +38,6 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 - `src/main.rs` -- Iced app entry. Loads fonts (WenKai, Inter, Lucide), wires theme via `.theme(|state| theme::app_theme(state.is_dark))`.
 - `src/app.rs` -- Orchestration: AppState, Message enum, update loop, subscription (event + system theme changes), view dispatch.
 - `src/app/state.rs` -- UI error types and async lifecycle data (UiError, AppError, ReduceState, ExpandState, RequestSignature).
-- `src/app/draft.rs` -- ExpansionDraft + ReductionDraft: typed in-memory draft staging with conversion to/from persisted store draft records.
 - `src/app/editor_store.rs` -- EditorStore: SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers, plus SecondaryMap\<BlockId, widget::Id\> for programmatic focus.
 - `src/app/view.rs` -- TreeView: pure renderer from immutable AppState into widget tree.
 - `src/app/action_bar/` -- Typed action bar: types, selector (state-to-VM), responsive projection, keyboard shortcuts, dispatch.
@@ -66,10 +65,8 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 | `AppError` | `app/state.rs` | Tagged application error source (config, reduce, expand, mount). |
 | `ReductionState` | `app/state.rs` | Per-row reduce lifecycle (Idle, Loading, Error). |
 | `ExpandState` | `app/state.rs` | Per-row expand lifecycle (Idle, Loading, Error). |
-| `ExpansionDraft` | `app/draft.rs` | Pending expand result: optional rewrite + child suggestions. Converts to/from `ExpansionDraftRecord` for persistence. |
-| `ReductionDraft` | `app/draft.rs` | Pending reduce result. Converts to/from `ReductionDraftRecord` for persistence. |
 | `EditorStore` | `app/editor_store.rs` | SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers; SecondaryMap\<BlockId, widget::Id\> for programmatic focus targeting. |
-| `AppState` | `app.rs` | Full UI state: store, editors, LLM config, lifecycle, drafts, focused/active block tracking, `collapsed` set for fold state, and `is_dark` flag for theme mode. Per-block maps use SecondaryMap. |
+| `AppState` | `app.rs` | Full UI state: store, editors, LLM config, lifecycle, focused/active block tracking, `collapsed` set for fold state, and `is_dark` flag for theme mode. Per-block maps use SecondaryMap. |
 | `TreeView` | `app/view.rs` | Pure renderer: borrows immutable AppState, produces Element tree. |
 | `LlmClient` | `llm.rs` | HTTP client for reduce and expand requests. |
 | `LlmConfig` | `llm.rs` | base_url, api_key, model. Loaded from env vars or `llm.toml`. |
@@ -88,7 +85,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 - **Conflict-safe async responses**. Expand/reduce requests capture a lineage signature (root-to-target points) at dispatch time; responses are discarded as stale if that lineage changes before completion.
 - **Per-request cancel and timeout**. While reduce/expand is loading, UI exposes a cancel action that clears pending request tracking for that block; async LLM calls are wrapped with a 30-second timeout.
 - **Draft-then-apply with persisted drafts**. Expand and reduce results are staged as drafts and persisted in `BlockStore` (not transient-only). Rewrite and each child are accepted/rejected independently; reduction drafts are applied/rejected explicitly.
-- **Single source for persisted draft truth**. `AppState` mirrors draft maps for UI ergonomics, and `save_tree()` synchronizes them into `BlockStore` before writing files. No legacy transient-only persistence path remains.
+- **Single source for persisted draft truth**. Drafts live only in `BlockStore`; UI and update logic read/write draft records directly through store accessors.
 - **Pure renderer**. `TreeView` borrows immutable state, produces widgets. No mutation during rendering.
 - **System theme tracking**. Dark/light mode detected at startup via `dark_light::detect()` and tracked at runtime through `iced::system::theme_changes()` subscription. The `AppState.is_dark` flag drives `app_theme(is_dark)`, which embeds the mode in the Iced extended palette. All style functions resolve colors via `active_palette(theme)`, which reads `theme.mode()` (from the `iced::theme::Base` trait). No manual color switching needed in the view layer.
 - **Lazy mount loading**. Mount nodes reference external files but are not loaded until the user expands them. See [mount-system.md](mount-system.md).

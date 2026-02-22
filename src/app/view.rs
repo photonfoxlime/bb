@@ -4,8 +4,9 @@ use super::action_bar::{
     shortcut_to_action,
 };
 use super::diff::{WordChange, word_diff};
-use super::{AppState, ExpandState, ExpansionDraft, Message, ReduceState, ReductionDraft};
+use super::{AppState, ExpandState, Message, ReduceState};
 use crate::store::BlockId;
+use crate::store::{ExpansionDraftRecord, ReductionDraftRecord};
 use crate::theme;
 use iced::widget::{button, column, container, row, rule, text, text_editor, tooltip};
 use iced::{Element, Fill, Length, Padding};
@@ -133,10 +134,10 @@ impl<'a> TreeView<'a> {
                     .padding(Padding::ZERO.left(theme::INDENT)),
             );
         }
-        if let Some(draft) = self.state.expansion_drafts.get(*block_id) {
+        if let Some(draft) = self.state.store.expansion_draft(block_id) {
             block = block.push(self.render_expansion_panel(block_id, draft));
         }
-        if let Some(draft) = self.state.reduction_drafts.get(*block_id) {
+        if let Some(draft) = self.state.store.reduction_draft(block_id) {
             block = block.push(self.render_reduction_panel(block_id, draft));
         }
 
@@ -165,7 +166,7 @@ impl<'a> TreeView<'a> {
     }
 
     fn render_expansion_panel(
-        &self, block_id: &BlockId, draft: &'a ExpansionDraft,
+        &self, block_id: &BlockId, draft: &'a ExpansionDraftRecord,
     ) -> Element<'a, Message> {
         let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
 
@@ -284,7 +285,7 @@ impl<'a> TreeView<'a> {
     }
 
     fn render_reduction_panel(
-        &self, block_id: &BlockId, draft: &'a ReductionDraft,
+        &self, block_id: &BlockId, draft: &'a ReductionDraftRecord,
     ) -> Element<'a, Message> {
         // Get current block text for diff comparison
         let old_text = self.state.store.point(block_id).unwrap_or_default();
@@ -361,8 +362,8 @@ impl<'a> TreeView<'a> {
     }
 
     fn action_row_context(&self, block_id: &BlockId, point_text: String) -> RowContext {
-        let expansion_draft = self.state.expansion_drafts.get(*block_id);
-        let reduction_draft = self.state.reduction_drafts.get(*block_id);
+        let expansion_draft = self.state.store.expansion_draft(block_id);
+        let reduction_draft = self.state.store.reduction_draft(block_id);
         let node = self.state.store.node(block_id);
         RowContext {
             block_id: *block_id,
