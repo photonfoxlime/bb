@@ -4,7 +4,10 @@ use super::action_bar::{
     shortcut_to_action,
 };
 use super::diff::{WordChange, word_diff};
-use super::{AppState, ExpandState, Message, ReduceState};
+use super::{
+    AppState, EditMessage, ExpandMessage, ExpandState, Message, MountFileMessage, OverlayMessage,
+    ReduceMessage, ReduceState, ShortcutMessage, StructureMessage,
+};
 use crate::store::BlockId;
 use crate::store::{ExpansionDraftRecord, ReductionDraftRecord};
 use crate::theme;
@@ -102,11 +105,11 @@ impl<'a> TreeView<'a> {
                 ActionId::CollapseBranch
             };
             let msg = if unexpanded_mount_path.is_some() {
-                Message::ExpandMount(*block_id)
+                Message::MountFile(MountFileMessage::ExpandMount(*block_id))
             } else if is_expanded_mount {
-                Message::CollapseMount(*block_id)
+                Message::MountFile(MountFileMessage::CollapseMount(*block_id))
             } else {
-                Message::ToggleFold(*block_id)
+                Message::Structure(StructureMessage::ToggleFold(*block_id))
             };
             button(centered_icon(action_icon(icon)))
                 .style(theme::action_button)
@@ -136,7 +139,12 @@ impl<'a> TreeView<'a> {
                 let mut editor = text_editor(editor_content)
                     .placeholder("point")
                     .style(theme::point_editor)
-                    .on_action(move |action| Message::PointEdited(block_id_for_edit, action))
+                    .on_action(move |action| {
+                        Message::Edit(EditMessage::PointEdited {
+                            block_id: block_id_for_edit,
+                            action,
+                        })
+                    })
                     .key_binding(move |key_press| editor_key_binding(block_id_for_edit, key_press))
                     .height(Length::Shrink);
                 if let Some(wid) = self.state.editors.widget_id(block_id) {
@@ -204,12 +212,16 @@ impl<'a> TreeView<'a> {
                             .push(
                                 button(text("Apply rewrite").font(theme::INTER).size(13))
                                     .style(theme::action_button)
-                                    .on_press(Message::ApplyExpandedRewrite(*block_id)),
+                                    .on_press(Message::Expand(ExpandMessage::ApplyRewrite(
+                                        *block_id,
+                                    ))),
                             )
                             .push(
                                 button(text("Dismiss rewrite").font(theme::INTER).size(13))
                                     .style(theme::destructive_button)
-                                    .on_press(Message::RejectExpandedRewrite(*block_id)),
+                                    .on_press(Message::Expand(ExpandMessage::RejectRewrite(
+                                        *block_id,
+                                    ))),
                             ),
                     ),
             );
@@ -223,12 +235,12 @@ impl<'a> TreeView<'a> {
                     .push(
                         button(text("Accept all").font(theme::INTER).size(13))
                             .style(theme::action_button)
-                            .on_press(Message::AcceptAllExpandedChildren(*block_id)),
+                            .on_press(Message::Expand(ExpandMessage::AcceptAllChildren(*block_id))),
                     )
                     .push(
                         button(text("Discard all").font(theme::INTER).size(13))
                             .style(theme::destructive_button)
-                            .on_press(Message::DiscardExpansion(*block_id)),
+                            .on_press(Message::Expand(ExpandMessage::Discard(*block_id))),
                     ),
             );
 
@@ -240,12 +252,18 @@ impl<'a> TreeView<'a> {
                         .push(
                             button(text("Keep").font(theme::INTER).size(13))
                                 .style(theme::action_button)
-                                .on_press(Message::AcceptExpandedChild(*block_id, index)),
+                                .on_press(Message::Expand(ExpandMessage::AcceptChild {
+                                    block_id: *block_id,
+                                    child_index: index,
+                                })),
                         )
                         .push(
                             button(text("Drop").font(theme::INTER).size(13))
                                 .style(theme::destructive_button)
-                                .on_press(Message::RejectExpandedChild(*block_id, index)),
+                                .on_press(Message::Expand(ExpandMessage::RejectChild {
+                                    block_id: *block_id,
+                                    child_index: index,
+                                })),
                         ),
                 );
             }
@@ -274,12 +292,12 @@ impl<'a> TreeView<'a> {
                         .push(
                             button(text("Apply reduction").font(theme::INTER).size(13))
                                 .style(theme::action_button)
-                                .on_press(Message::ApplyReduction(*block_id)),
+                                .on_press(Message::Reduce(ReduceMessage::Apply(*block_id))),
                         )
                         .push(
                             button(text("Dismiss reduction").font(theme::INTER).size(13))
                                 .style(theme::destructive_button)
-                                .on_press(Message::RejectReduction(*block_id)),
+                                .on_press(Message::Reduce(ReduceMessage::Reject(*block_id))),
                         ),
                 ),
         )
@@ -397,7 +415,7 @@ impl<'a> TreeView<'a> {
                 .padding(0)
                 .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::ToggleOverflow(*block_id));
+                .on_press(Message::Overlay(OverlayMessage::ToggleOverflow(*block_id)));
 
             actions_row = actions_row.push(
                 tooltip(btn, text(label).size(12).font(theme::INTER), tooltip::Position::Bottom)
@@ -470,7 +488,10 @@ fn editor_key_binding(
     block_id: BlockId, key_press: text_editor::KeyPress,
 ) -> Option<text_editor::Binding<Message>> {
     if let Some(action_id) = shortcut_to_action(key_press.key.clone(), key_press.modifiers) {
-        return Some(text_editor::Binding::Custom(Message::ShortcutFor(block_id, action_id)));
+        return Some(text_editor::Binding::Custom(Message::Shortcut(ShortcutMessage::ForBlock {
+            block_id,
+            action_id,
+        })));
     }
 
     text_editor::Binding::from_key_press(key_press)

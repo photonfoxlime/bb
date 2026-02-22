@@ -261,141 +261,104 @@ enum VerticalDir {
 /// Elm-architecture messages driving all state transitions.
 #[derive(Debug, Clone)]
 pub enum Message {
+    UndoRedo(UndoRedoMessage),
+    Edit(EditMessage),
+    Shortcut(ShortcutMessage),
+    Reduce(ReduceMessage),
+    Expand(ExpandMessage),
+    Structure(StructureMessage),
+    Overlay(OverlayMessage),
+    MountFile(MountFileMessage),
+}
+
+#[derive(Debug, Clone)]
+pub enum UndoRedoMessage {
     Undo,
     Redo,
-    PointEdited(BlockId, text_editor::Action),
-    Shortcut(ActionId),
-    ShortcutFor(BlockId, ActionId),
-    Reduce(BlockId),
-    CancelReduce(BlockId),
-    ReduceDone(BlockId, RequestSignature, Result<String, UiError>),
-    ApplyReduction(BlockId),
-    RejectReduction(BlockId),
-    Expand(BlockId),
-    CancelExpand(BlockId),
-    ExpandDone(BlockId, RequestSignature, Result<llm::ExpandResult, UiError>),
-    ApplyExpandedRewrite(BlockId),
-    RejectExpandedRewrite(BlockId),
-    AcceptExpandedChild(BlockId, usize),
-    RejectExpandedChild(BlockId, usize),
-    AcceptAllExpandedChildren(BlockId),
-    DiscardExpansion(BlockId),
+}
+
+#[derive(Debug, Clone)]
+pub enum EditMessage {
+    PointEdited { block_id: BlockId, action: text_editor::Action },
+}
+
+#[derive(Debug, Clone)]
+pub enum ShortcutMessage {
+    Trigger(ActionId),
+    ForBlock { block_id: BlockId, action_id: ActionId },
+}
+
+#[derive(Debug, Clone)]
+pub enum ReduceMessage {
+    Start(BlockId),
+    Cancel(BlockId),
+    Done { block_id: BlockId, request_signature: RequestSignature, result: Result<String, UiError> },
+    Apply(BlockId),
+    Reject(BlockId),
+}
+
+#[derive(Debug, Clone)]
+pub enum ExpandMessage {
+    Start(BlockId),
+    Cancel(BlockId),
+    Done {
+        block_id: BlockId,
+        request_signature: RequestSignature,
+        result: Result<llm::ExpandResult, UiError>,
+    },
+    ApplyRewrite(BlockId),
+    RejectRewrite(BlockId),
+    AcceptChild {
+        block_id: BlockId,
+        child_index: usize,
+    },
+    RejectChild {
+        block_id: BlockId,
+        child_index: usize,
+    },
+    AcceptAllChildren(BlockId),
+    Discard(BlockId),
+}
+
+#[derive(Debug, Clone)]
+pub enum StructureMessage {
     AddChild(BlockId),
     AddSibling(BlockId),
     DuplicateBlock(BlockId),
     ArchiveBlock(BlockId),
+    ToggleFold(BlockId),
+}
+
+#[derive(Debug, Clone)]
+pub enum OverlayMessage {
     ToggleOverflow(BlockId),
     CloseOverflow,
-    ToggleFold(BlockId),
+}
+
+#[derive(Debug, Clone)]
+pub enum MountFileMessage {
     ExpandMount(BlockId),
     CollapseMount(BlockId),
     SaveToFile(BlockId),
-    SaveToFilePicked(BlockId, Option<std::path::PathBuf>),
+    SaveToFilePicked { block_id: BlockId, path: Option<std::path::PathBuf> },
     LoadFromFile(BlockId),
-    LoadFromFilePicked(BlockId, Option<std::path::PathBuf>),
+    LoadFromFilePicked { block_id: BlockId, path: Option<std::path::PathBuf> },
     SystemThemeChanged(Mode),
 }
 
 /// Process one message and return a follow-up task (if any).
 pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
     match message {
-        | Message::Undo => handle_undo_redo(state, Message::Undo),
-        | Message::Redo => handle_undo_redo(state, Message::Redo),
-        | Message::Shortcut(action_id) => {
-            handle_shortcut_message(state, Message::Shortcut(action_id))
+        | Message::UndoRedo(message) => handle_undo_redo(state, message),
+        | Message::Shortcut(message) => handle_shortcut_message(state, message),
+        | Message::Edit(EditMessage::PointEdited { block_id, action }) => {
+            handle_point_edited(state, block_id, action)
         }
-        | Message::ShortcutFor(block_id, action_id) => {
-            handle_shortcut_message(state, Message::ShortcutFor(block_id, action_id))
-        }
-        | Message::PointEdited(block_id, action) => handle_point_edited(state, block_id, action),
-        | Message::Reduce(block_id) => handle_reduce_message(state, Message::Reduce(block_id)),
-        | Message::CancelReduce(block_id) => {
-            handle_reduce_message(state, Message::CancelReduce(block_id))
-        }
-        | Message::ReduceDone(block_id, request_signature, result) => {
-            handle_reduce_message(state, Message::ReduceDone(block_id, request_signature, result))
-        }
-        | Message::ApplyReduction(block_id) => {
-            handle_reduce_message(state, Message::ApplyReduction(block_id))
-        }
-        | Message::RejectReduction(block_id) => {
-            handle_reduce_message(state, Message::RejectReduction(block_id))
-        }
-        | Message::Expand(block_id) => handle_expand_message(state, Message::Expand(block_id)),
-        | Message::CancelExpand(block_id) => {
-            handle_expand_message(state, Message::CancelExpand(block_id))
-        }
-        | Message::ExpandDone(block_id, request_signature, result) => {
-            handle_expand_message(state, Message::ExpandDone(block_id, request_signature, result))
-        }
-        | Message::ApplyExpandedRewrite(block_id) => {
-            handle_expand_message(state, Message::ApplyExpandedRewrite(block_id))
-        }
-        | Message::RejectExpandedRewrite(block_id) => {
-            handle_expand_message(state, Message::RejectExpandedRewrite(block_id))
-        }
-        | Message::AcceptExpandedChild(block_id, child_index) => {
-            handle_expand_message(state, Message::AcceptExpandedChild(block_id, child_index))
-        }
-        | Message::RejectExpandedChild(block_id, child_index) => {
-            handle_expand_message(state, Message::RejectExpandedChild(block_id, child_index))
-        }
-        | Message::AcceptAllExpandedChildren(block_id) => {
-            handle_expand_message(state, Message::AcceptAllExpandedChildren(block_id))
-        }
-        | Message::DiscardExpansion(block_id) => {
-            handle_expand_message(state, Message::DiscardExpansion(block_id))
-        }
-        | Message::ToggleOverflow(block_id) => {
-            state.set_active_block(&block_id);
-            if state.overflow_open_for == Some(block_id) {
-                state.overflow_open_for = None;
-            } else {
-                state.overflow_open_for = Some(block_id);
-            }
-            Task::none()
-        }
-        | Message::CloseOverflow => {
-            state.overflow_open_for = None;
-            state.focused_block_id = None;
-            Task::none()
-        }
-        | Message::AddChild(block_id) => {
-            handle_structure_message(state, Message::AddChild(block_id))
-        }
-        | Message::AddSibling(block_id) => {
-            handle_structure_message(state, Message::AddSibling(block_id))
-        }
-        | Message::DuplicateBlock(block_id) => {
-            handle_structure_message(state, Message::DuplicateBlock(block_id))
-        }
-        | Message::ArchiveBlock(block_id) => {
-            handle_structure_message(state, Message::ArchiveBlock(block_id))
-        }
-        | Message::ToggleFold(block_id) => {
-            handle_structure_message(state, Message::ToggleFold(block_id))
-        }
-        | Message::ExpandMount(block_id) => {
-            handle_mount_and_file_message(state, Message::ExpandMount(block_id))
-        }
-        | Message::CollapseMount(block_id) => {
-            handle_mount_and_file_message(state, Message::CollapseMount(block_id))
-        }
-        | Message::SaveToFile(block_id) => {
-            handle_mount_and_file_message(state, Message::SaveToFile(block_id))
-        }
-        | Message::SaveToFilePicked(block_id, path) => {
-            handle_mount_and_file_message(state, Message::SaveToFilePicked(block_id, path))
-        }
-        | Message::LoadFromFile(block_id) => {
-            handle_mount_and_file_message(state, Message::LoadFromFile(block_id))
-        }
-        | Message::SystemThemeChanged(mode) => {
-            handle_mount_and_file_message(state, Message::SystemThemeChanged(mode))
-        }
-        | Message::LoadFromFilePicked(block_id, path) => {
-            handle_mount_and_file_message(state, Message::LoadFromFilePicked(block_id, path))
-        }
+        | Message::Reduce(message) => handle_reduce_message(state, message),
+        | Message::Expand(message) => handle_expand_message(state, message),
+        | Message::Overlay(message) => handle_overlay_message(state, message),
+        | Message::Structure(message) => handle_structure_message(state, message),
+        | Message::MountFile(message) => handle_mount_and_file_message(state, message),
     }
 }
 
@@ -404,7 +367,8 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
 pub fn subscription(_state: &AppState) -> Subscription<Message> {
     Subscription::batch([
         event::listen_with(handle_event),
-        system::theme_changes().map(Message::SystemThemeChanged),
+        system::theme_changes()
+            .map(|mode| Message::MountFile(MountFileMessage::SystemThemeChanged(mode))),
     ])
 }
 
@@ -417,23 +381,25 @@ fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) 
         | Event::Keyboard(keyboard::Event::KeyPressed {
             key: keyboard::Key::Named(keyboard::key::Named::Escape),
             ..
-        }) => Some(Message::CloseOverflow),
+        }) => Some(Message::Overlay(OverlayMessage::CloseOverflow)),
         | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
             if modifiers.command() {
                 match &key {
                     | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
                         return if modifiers.shift() {
-                            Some(Message::Redo)
+                            Some(Message::UndoRedo(UndoRedoMessage::Redo))
                         } else {
-                            Some(Message::Undo)
+                            Some(Message::UndoRedo(UndoRedoMessage::Undo))
                         };
                     }
                     | _ => {}
                 }
             }
-            shortcut_to_action(key, modifiers).map(Message::Shortcut)
+            shortcut_to_action(key, modifiers).map(ShortcutMessage::Trigger).map(Message::Shortcut)
         }
-        | Event::Mouse(mouse::Event::ButtonPressed(_)) => Some(Message::CloseOverflow),
+        | Event::Mouse(mouse::Event::ButtonPressed(_)) => {
+            Some(Message::Overlay(OverlayMessage::CloseOverflow))
+        }
         | _ => None,
     }
 }
@@ -483,9 +449,9 @@ fn run_shortcut_for_block(
     Task::none()
 }
 
-fn handle_undo_redo(state: &mut AppState, message: Message) -> Task<Message> {
+fn handle_undo_redo(state: &mut AppState, message: UndoRedoMessage) -> Task<Message> {
     match message {
-        | Message::Undo => {
+        | UndoRedoMessage::Undo => {
             let current = UndoSnapshot { store: state.store.clone() };
             if let Some(previous) = state.undo_history.undo(current) {
                 tracing::info!("undo applied");
@@ -493,7 +459,7 @@ fn handle_undo_redo(state: &mut AppState, message: Message) -> Task<Message> {
             }
             Task::none()
         }
-        | Message::Redo => {
+        | UndoRedoMessage::Redo => {
             let current = UndoSnapshot { store: state.store.clone() };
             if let Some(next) = state.undo_history.redo(current) {
                 tracing::info!("redo applied");
@@ -501,29 +467,27 @@ fn handle_undo_redo(state: &mut AppState, message: Message) -> Task<Message> {
             }
             Task::none()
         }
-        | _ => Task::none(),
     }
 }
 
-fn handle_shortcut_message(state: &mut AppState, message: Message) -> Task<Message> {
+fn handle_shortcut_message(state: &mut AppState, message: ShortcutMessage) -> Task<Message> {
     match message {
-        | Message::Shortcut(action_id) => {
+        | ShortcutMessage::Trigger(action_id) => {
             let Some(block_id) = state.current_block_for_shortcuts() else {
                 return Task::none();
             };
             run_shortcut_for_block(state, block_id, action_id)
         }
-        | Message::ShortcutFor(block_id, action_id) => {
+        | ShortcutMessage::ForBlock { block_id, action_id } => {
             state.focused_block_id = Some(block_id);
             run_shortcut_for_block(state, block_id, action_id)
         }
-        | _ => Task::none(),
     }
 }
 
-fn handle_reduce_message(state: &mut AppState, message: Message) -> Task<Message> {
+fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<Message> {
     match message {
-        | Message::Reduce(block_id) => {
+        | ReduceMessage::Start(block_id) => {
             state.set_active_block(&block_id);
             state.overflow_open_for = None;
             if state.is_reducing(&block_id) {
@@ -548,13 +512,15 @@ fn handle_reduce_message(state: &mut AppState, message: Message) -> Task<Message
                         "reduce request timed out after 30 seconds",
                     )
                 },
-                move |result| Message::ReduceDone(block_id, request_signature, result),
+                move |result| {
+                    Message::Reduce(ReduceMessage::Done { block_id, request_signature, result })
+                },
             );
             let (request_task, handle) = Task::abortable(request_task);
             state.reduce_handle = Some((block_id, handle.abort_on_drop()));
             request_task
         }
-        | Message::CancelReduce(block_id) => {
+        | ReduceMessage::Cancel(block_id) => {
             state.set_active_block(&block_id);
             if state.is_reducing(&block_id) {
                 tracing::info!(block_id = ?block_id, "reduce request cancelled");
@@ -568,7 +534,7 @@ fn handle_reduce_message(state: &mut AppState, message: Message) -> Task<Message
             }
             Task::none()
         }
-        | Message::ReduceDone(block_id, request_signature, result) => {
+        | ReduceMessage::Done { block_id, request_signature, result } => {
             if state.reduce_handle.as_ref().is_some_and(|(active, _)| *active == block_id) {
                 state.reduce_handle = None;
             }
@@ -608,7 +574,7 @@ fn handle_reduce_message(state: &mut AppState, message: Message) -> Task<Message
             }
             Task::none()
         }
-        | Message::ApplyReduction(block_id) => {
+        | ReduceMessage::Apply(block_id) => {
             state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after applying reduction", |state| {
                 if let Some(draft) = state.store.remove_reduction_draft(&block_id) {
@@ -621,20 +587,19 @@ fn handle_reduce_message(state: &mut AppState, message: Message) -> Task<Message
             });
             Task::none()
         }
-        | Message::RejectReduction(block_id) => {
+        | ReduceMessage::Reject(block_id) => {
             state.set_active_block(&block_id);
             tracing::info!(block_id = ?block_id, "rejected reduction");
             state.store.remove_reduction_draft(&block_id);
             state.persist_with_context("after rejecting reduction");
             Task::none()
         }
-        | _ => Task::none(),
     }
 }
 
-fn handle_expand_message(state: &mut AppState, message: Message) -> Task<Message> {
+fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<Message> {
     match message {
-        | Message::Expand(block_id) => {
+        | ExpandMessage::Start(block_id) => {
             state.set_active_block(&block_id);
             state.overflow_open_for = None;
             if state.is_expanding(&block_id) {
@@ -660,13 +625,15 @@ fn handle_expand_message(state: &mut AppState, message: Message) -> Task<Message
                         "expand request timed out after 30 seconds",
                     )
                 },
-                move |result| Message::ExpandDone(block_id, request_signature, result),
+                move |result| {
+                    Message::Expand(ExpandMessage::Done { block_id, request_signature, result })
+                },
             );
             let (request_task, handle) = Task::abortable(request_task);
             state.expand_handle = Some((block_id, handle.abort_on_drop()));
             request_task
         }
-        | Message::CancelExpand(block_id) => {
+        | ExpandMessage::Cancel(block_id) => {
             state.set_active_block(&block_id);
             if state.is_expanding(&block_id) {
                 tracing::info!(block_id = ?block_id, "expand request cancelled");
@@ -680,7 +647,7 @@ fn handle_expand_message(state: &mut AppState, message: Message) -> Task<Message
             }
             Task::none()
         }
-        | Message::ExpandDone(block_id, request_signature, result) => {
+        | ExpandMessage::Done { block_id, request_signature, result } => {
             if state.expand_handle.as_ref().is_some_and(|(active, _)| *active == block_id) {
                 state.expand_handle = None;
             }
@@ -743,7 +710,7 @@ fn handle_expand_message(state: &mut AppState, message: Message) -> Task<Message
             }
             Task::none()
         }
-        | Message::ApplyExpandedRewrite(block_id) => {
+        | ExpandMessage::ApplyRewrite(block_id) => {
             state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after applying rewrite", |state| {
                 let mut should_save = false;
@@ -766,7 +733,7 @@ fn handle_expand_message(state: &mut AppState, message: Message) -> Task<Message
             });
             Task::none()
         }
-        | Message::RejectExpandedRewrite(block_id) => {
+        | ExpandMessage::RejectRewrite(block_id) => {
             state.set_active_block(&block_id);
             let mut changed = false;
             let mut should_remove_draft = false;
@@ -784,7 +751,7 @@ fn handle_expand_message(state: &mut AppState, message: Message) -> Task<Message
             }
             Task::none()
         }
-        | Message::AcceptExpandedChild(block_id, child_index) => {
+        | ExpandMessage::AcceptChild { block_id, child_index } => {
             state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after accepting expanded child", |state| {
                 let mut should_save = false;
@@ -817,7 +784,7 @@ fn handle_expand_message(state: &mut AppState, message: Message) -> Task<Message
             });
             Task::none()
         }
-        | Message::RejectExpandedChild(block_id, child_index) => {
+        | ExpandMessage::RejectChild { block_id, child_index } => {
             state.set_active_block(&block_id);
             let mut changed = false;
             let mut should_remove_draft = false;
@@ -837,7 +804,7 @@ fn handle_expand_message(state: &mut AppState, message: Message) -> Task<Message
             }
             Task::none()
         }
-        | Message::AcceptAllExpandedChildren(block_id) => {
+        | ExpandMessage::AcceptAllChildren(block_id) => {
             state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after accepting expanded children", |state| {
                 if let Some(mut draft) = state.store.remove_expansion_draft(&block_id) {
@@ -861,7 +828,7 @@ fn handle_expand_message(state: &mut AppState, message: Message) -> Task<Message
             });
             Task::none()
         }
-        | Message::DiscardExpansion(block_id) => {
+        | ExpandMessage::Discard(block_id) => {
             state.set_active_block(&block_id);
             tracing::info!(block_id = ?block_id, "discarded expansion draft");
             if state.store.remove_expansion_draft(&block_id).is_some() {
@@ -869,13 +836,12 @@ fn handle_expand_message(state: &mut AppState, message: Message) -> Task<Message
             }
             Task::none()
         }
-        | _ => Task::none(),
     }
 }
 
-fn handle_structure_message(state: &mut AppState, message: Message) -> Task<Message> {
+fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> Task<Message> {
     match message {
-        | Message::AddChild(block_id) => {
+        | StructureMessage::AddChild(block_id) => {
             state.set_active_block(&block_id);
             state.overflow_open_for = None;
             state.mutate_with_undo_and_persist("after adding child", |state| {
@@ -888,7 +854,7 @@ fn handle_structure_message(state: &mut AppState, message: Message) -> Task<Mess
             });
             Task::none()
         }
-        | Message::AddSibling(block_id) => {
+        | StructureMessage::AddSibling(block_id) => {
             state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after adding sibling", |state| {
                 if let Some(sibling_id) = state.store.append_sibling(&block_id, String::new()) {
@@ -901,7 +867,7 @@ fn handle_structure_message(state: &mut AppState, message: Message) -> Task<Mess
             });
             Task::none()
         }
-        | Message::DuplicateBlock(block_id) => {
+        | StructureMessage::DuplicateBlock(block_id) => {
             state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after duplicating subtree", |state| {
                 if let Some(duplicate_id) = state.store.duplicate_subtree_after(&block_id) {
@@ -914,7 +880,7 @@ fn handle_structure_message(state: &mut AppState, message: Message) -> Task<Mess
             });
             Task::none()
         }
-        | Message::ArchiveBlock(block_id) => {
+        | StructureMessage::ArchiveBlock(block_id) => {
             state.set_active_block(&block_id);
             state.snapshot_for_undo();
             if let Some(removed_ids) = state.store.remove_block_subtree(&block_id) {
@@ -950,19 +916,37 @@ fn handle_structure_message(state: &mut AppState, message: Message) -> Task<Mess
             }
             Task::none()
         }
-        | Message::ToggleFold(block_id) => {
+        | StructureMessage::ToggleFold(block_id) => {
             if !state.collapsed.remove(&block_id) {
                 state.collapsed.insert(block_id);
             }
             Task::none()
         }
-        | _ => Task::none(),
     }
 }
 
-fn handle_mount_and_file_message(state: &mut AppState, message: Message) -> Task<Message> {
+fn handle_overlay_message(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
     match message {
-        | Message::ExpandMount(block_id) => {
+        | OverlayMessage::ToggleOverflow(block_id) => {
+            state.set_active_block(&block_id);
+            if state.overflow_open_for == Some(block_id) {
+                state.overflow_open_for = None;
+            } else {
+                state.overflow_open_for = Some(block_id);
+            }
+            Task::none()
+        }
+        | OverlayMessage::CloseOverflow => {
+            state.overflow_open_for = None;
+            state.focused_block_id = None;
+            Task::none()
+        }
+    }
+}
+
+fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage) -> Task<Message> {
+    match message {
+        | MountFileMessage::ExpandMount(block_id) => {
             state.set_active_block(&block_id);
             let base_dir = AppPaths::data_dir().unwrap_or_default();
             state.mutate_with_undo_and_persist("after expanding mount", |state| {
@@ -983,7 +967,7 @@ fn handle_mount_and_file_message(state: &mut AppState, message: Message) -> Task
             });
             Task::none()
         }
-        | Message::CollapseMount(block_id) => {
+        | MountFileMessage::CollapseMount(block_id) => {
             state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after collapsing mount", |state| {
                 if let Some(()) = state.store.collapse_mount(&block_id) {
@@ -995,7 +979,7 @@ fn handle_mount_and_file_message(state: &mut AppState, message: Message) -> Task
             });
             Task::none()
         }
-        | Message::SaveToFile(block_id) => {
+        | MountFileMessage::SaveToFile(block_id) => {
             state.set_active_block(&block_id);
             state.overflow_open_for = None;
             Task::perform(
@@ -1007,10 +991,12 @@ fn handle_mount_and_file_message(state: &mut AppState, message: Message) -> Task
                         .await;
                     dialog.map(|handle| handle.path().to_path_buf())
                 },
-                move |path| Message::SaveToFilePicked(block_id, path),
+                move |path| {
+                    Message::MountFile(MountFileMessage::SaveToFilePicked { block_id, path })
+                },
             )
         }
-        | Message::SaveToFilePicked(block_id, path) => {
+        | MountFileMessage::SaveToFilePicked { block_id, path } => {
             if let Some(path) = path {
                 let base_dir = AppPaths::data_dir().unwrap_or_default();
                 state.mutate_with_undo_and_persist("after save-to-file", |state| {
@@ -1040,7 +1026,7 @@ fn handle_mount_and_file_message(state: &mut AppState, message: Message) -> Task
             }
             Task::none()
         }
-        | Message::LoadFromFile(block_id) => {
+        | MountFileMessage::LoadFromFile(block_id) => {
             state.set_active_block(&block_id);
             state.overflow_open_for = None;
             Task::perform(
@@ -1052,10 +1038,12 @@ fn handle_mount_and_file_message(state: &mut AppState, message: Message) -> Task
                         .await;
                     dialog.map(|handle| handle.path().to_path_buf())
                 },
-                move |path| Message::LoadFromFilePicked(block_id, path),
+                move |path| {
+                    Message::MountFile(MountFileMessage::LoadFromFilePicked { block_id, path })
+                },
             )
         }
-        | Message::LoadFromFilePicked(block_id, path) => {
+        | MountFileMessage::LoadFromFilePicked { block_id, path } => {
             if let Some(path) = path {
                 let base_dir = AppPaths::data_dir().unwrap_or_default();
                 state.mutate_with_undo_and_persist("after load-from-file", |state| {
@@ -1084,7 +1072,7 @@ fn handle_mount_and_file_message(state: &mut AppState, message: Message) -> Task
             }
             Task::none()
         }
-        | Message::SystemThemeChanged(mode) => {
+        | MountFileMessage::SystemThemeChanged(mode) => {
             let dark = matches!(mode, Mode::Dark);
             if state.is_dark != dark {
                 tracing::info!(is_dark = dark, "system theme changed");
@@ -1092,7 +1080,6 @@ fn handle_mount_and_file_message(state: &mut AppState, message: Message) -> Task
             }
             Task::none()
         }
-        | _ => Task::none(),
     }
 }
 
@@ -1179,6 +1166,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 #[cfg(test)]
 mod tests {
     use super::{AppState, Message, update};
+    use super::{ExpandMessage, ReduceMessage};
     use crate::llm;
     use crate::store::{BlockStore, ExpansionDraftRecord, ReductionDraftRecord};
     use crate::undo::UndoHistory;
@@ -1244,14 +1232,14 @@ mod tests {
         state.pending_expand_signatures.insert(root, signature);
         let _ = update(
             &mut state,
-            Message::ExpandDone(
-                root,
-                signature,
-                Ok(llm::ExpandResult::new(
+            Message::Expand(ExpandMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Ok(llm::ExpandResult::new(
                     Some("rewrite".to_string()),
                     vec![llm::ExpandSuggestion::new("child".to_string())],
                 )),
-            ),
+            }),
         );
         let draft = state.store.expansion_draft(&root).expect("draft is created");
         assert_eq!(draft.rewrite.as_deref(), Some("rewrite"));
@@ -1266,14 +1254,14 @@ mod tests {
         state.store.update_point(&root, "edited while pending".to_string());
         let _ = update(
             &mut state,
-            Message::ExpandDone(
-                root,
-                signature,
-                Ok(llm::ExpandResult::new(
+            Message::Expand(ExpandMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Ok(llm::ExpandResult::new(
                     Some("stale rewrite".to_string()),
                     vec![llm::ExpandSuggestion::new("stale child".to_string())],
                 )),
-            ),
+            }),
         );
         assert!(state.store.expansion_draft(&root).is_none());
     }
@@ -1281,10 +1269,10 @@ mod tests {
     #[test]
     fn cancel_expand_clears_loading_state_and_pending_signature() {
         let (mut state, root) = test_state();
-        let _ = update(&mut state, Message::Expand(root));
+        let _ = update(&mut state, Message::Expand(ExpandMessage::Start(root)));
         assert!(state.is_expanding(&root));
         assert!(state.pending_expand_signatures.get(root).is_some());
-        let _ = update(&mut state, Message::CancelExpand(root));
+        let _ = update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
         assert!(!state.is_expanding(&root));
         assert!(state.pending_expand_signatures.get(root).is_none());
     }
@@ -1296,7 +1284,7 @@ mod tests {
             root,
             ExpansionDraftRecord { rewrite: Some("rewritten point".to_string()), children: vec![] },
         );
-        let _ = update(&mut state, Message::ApplyExpandedRewrite(root));
+        let _ = update(&mut state, Message::Expand(ExpandMessage::ApplyRewrite(root)));
         assert_eq!(state.store.point(&root).as_deref(), Some("rewritten point"));
         assert!(state.store.expansion_draft(&root).is_none());
     }
@@ -1311,7 +1299,7 @@ mod tests {
                 children: vec!["child a".to_string()],
             },
         );
-        let _ = update(&mut state, Message::RejectExpandedRewrite(root));
+        let _ = update(&mut state, Message::Expand(ExpandMessage::RejectRewrite(root)));
         let draft = state.store.expansion_draft(&root).expect("draft remains with children");
         assert!(draft.rewrite.is_none());
         assert_eq!(draft.children, vec!["child a".to_string()]);
@@ -1328,7 +1316,10 @@ mod tests {
                 children: vec!["child a".to_string(), "child b".to_string()],
             },
         );
-        let _ = update(&mut state, Message::AcceptExpandedChild(root, 0));
+        let _ = update(
+            &mut state,
+            Message::Expand(ExpandMessage::AcceptChild { block_id: root, child_index: 0 }),
+        );
         let children = state.store.children(&root);
         assert_eq!(children.len(), before_children_len + 1);
         let child_id = *children.last().expect("new child is appended");
@@ -1348,7 +1339,7 @@ mod tests {
                 children: vec!["child a".to_string(), "child b".to_string()],
             },
         );
-        let _ = update(&mut state, Message::AcceptAllExpandedChildren(root));
+        let _ = update(&mut state, Message::Expand(ExpandMessage::AcceptAllChildren(root)));
         let children = state.store.children(&root);
         assert_eq!(children.len(), before_children_len + 2);
         let first = children[before_children_len];
@@ -1367,7 +1358,7 @@ mod tests {
             root,
             ExpansionDraftRecord { rewrite: None, children: vec!["child a".to_string()] },
         );
-        let _ = update(&mut state, Message::DiscardExpansion(root));
+        let _ = update(&mut state, Message::Expand(ExpandMessage::Discard(root)));
         assert!(state.store.expansion_draft(&root).is_none());
     }
 
@@ -1376,7 +1367,14 @@ mod tests {
         let (mut state, root) = test_state();
         let signature = state.lineage_signature(&root).expect("root has lineage");
         state.pending_reduce_signatures.insert(root, signature);
-        let _ = update(&mut state, Message::ReduceDone(root, signature, Ok("reduced".to_string())));
+        let _ = update(
+            &mut state,
+            Message::Reduce(ReduceMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Ok("reduced".to_string()),
+            }),
+        );
         let draft = state.store.reduction_draft(&root).expect("reduction draft is created");
         assert_eq!(draft.reduction, "reduced".to_string());
     }
@@ -1389,7 +1387,11 @@ mod tests {
         state.store.update_point(&root, "edited while pending".to_string());
         let _ = update(
             &mut state,
-            Message::ReduceDone(root, signature, Ok("stale reduction".to_string())),
+            Message::Reduce(ReduceMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Ok("stale reduction".to_string()),
+            }),
         );
         assert!(state.store.reduction_draft(&root).is_none());
     }
@@ -1397,10 +1399,10 @@ mod tests {
     #[test]
     fn cancel_reduce_clears_loading_state_and_pending_signature() {
         let (mut state, root) = test_state();
-        let _ = update(&mut state, Message::Reduce(root));
+        let _ = update(&mut state, Message::Reduce(ReduceMessage::Start(root)));
         assert!(state.is_reducing(&root));
         assert!(state.pending_reduce_signatures.get(root).is_some());
-        let _ = update(&mut state, Message::CancelReduce(root));
+        let _ = update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
         assert!(!state.is_reducing(&root));
         assert!(state.pending_reduce_signatures.get(root).is_none());
     }
@@ -1412,7 +1414,7 @@ mod tests {
             root,
             ReductionDraftRecord { reduction: "reduced point".to_string() },
         );
-        let _ = update(&mut state, Message::ApplyReduction(root));
+        let _ = update(&mut state, Message::Reduce(ReduceMessage::Apply(root)));
         assert_eq!(state.store.point(&root).as_deref(), Some("reduced point"));
         assert!(state.store.reduction_draft(&root).is_none());
     }
@@ -1424,7 +1426,7 @@ mod tests {
             root,
             ReductionDraftRecord { reduction: "reduced point".to_string() },
         );
-        let _ = update(&mut state, Message::RejectReduction(root));
+        let _ = update(&mut state, Message::Reduce(ReduceMessage::Reject(root)));
         assert!(state.store.reduction_draft(&root).is_none());
     }
 
@@ -1435,7 +1437,10 @@ mod tests {
             root,
             ExpansionDraftRecord { rewrite: None, children: vec!["only child".to_string()] },
         );
-        let _ = update(&mut state, Message::RejectExpandedChild(root, 0));
+        let _ = update(
+            &mut state,
+            Message::Expand(ExpandMessage::RejectChild { block_id: root, child_index: 0 }),
+        );
         assert!(state.store.expansion_draft(&root).is_none());
     }
 
@@ -1446,7 +1451,11 @@ mod tests {
         state.pending_expand_signatures.insert(root, signature);
         let _ = update(
             &mut state,
-            Message::ExpandDone(root, signature, Err(super::UiError::from_message("failed"))),
+            Message::Expand(ExpandMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Err(super::UiError::from_message("failed")),
+            }),
         );
         assert!(
             state
@@ -1463,7 +1472,11 @@ mod tests {
         state.pending_reduce_signatures.insert(root, signature);
         let _ = update(
             &mut state,
-            Message::ReduceDone(root, signature, Err(super::UiError::from_message("failed"))),
+            Message::Reduce(ReduceMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Err(super::UiError::from_message("failed")),
+            }),
         );
         assert!(
             state
@@ -1479,17 +1492,17 @@ mod tests {
         let signature = state.lineage_signature(&root).expect("root has lineage");
         state.pending_expand_signatures.insert(root, signature);
         state.expand_states.insert(root, super::ExpandState::Loading);
-        let _ = update(&mut state, Message::CancelExpand(root));
+        let _ = update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
         let _ = update(
             &mut state,
-            Message::ExpandDone(
-                root,
-                signature,
-                Ok(llm::ExpandResult::new(
+            Message::Expand(ExpandMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Ok(llm::ExpandResult::new(
                     Some("late rewrite".to_string()),
                     vec![llm::ExpandSuggestion::new("late child".to_string())],
                 )),
-            ),
+            }),
         );
         assert!(state.store.expansion_draft(&root).is_none());
         assert!(state.expand_states.get(root).is_none());
@@ -1501,10 +1514,14 @@ mod tests {
         let signature = state.lineage_signature(&root).expect("root has lineage");
         state.pending_reduce_signatures.insert(root, signature);
         state.reduce_states.insert(root, super::ReduceState::Loading);
-        let _ = update(&mut state, Message::CancelReduce(root));
+        let _ = update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
         let _ = update(
             &mut state,
-            Message::ReduceDone(root, signature, Ok("late reduction".to_string())),
+            Message::Reduce(ReduceMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Ok("late reduction".to_string()),
+            }),
         );
         assert!(state.store.reduction_draft(&root).is_none());
         assert!(state.reduce_states.get(root).is_none());

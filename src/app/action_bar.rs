@@ -7,7 +7,10 @@
 //! `ActionBarVm` is a view-model: it carries no mutable state and is rebuilt
 //! on every frame from the current `RowContext`.
 
-use super::{AppState, ExpandState, Message, ReduceState};
+use super::{
+    AppState, ExpandMessage, ExpandState, Message, MountFileMessage, ReduceMessage, ReduceState,
+    StructureMessage,
+};
 use crate::store::BlockId;
 use iced::keyboard::{Key, Modifiers, key::Named};
 
@@ -413,48 +416,54 @@ pub fn action_to_message_by_id(
     state: &AppState, block_id: &BlockId, action_id: ActionId,
 ) -> Option<Message> {
     match action_id {
-        | ActionId::Expand => Some(Message::Expand(*block_id)),
-        | ActionId::Reduce => Some(Message::Reduce(*block_id)),
-        | ActionId::AddChild => Some(Message::AddChild(*block_id)),
-        | ActionId::AcceptAll => Some(Message::AcceptAllExpandedChildren(*block_id)),
+        | ActionId::Expand => Some(Message::Expand(ExpandMessage::Start(*block_id))),
+        | ActionId::Reduce => Some(Message::Reduce(ReduceMessage::Start(*block_id))),
+        | ActionId::AddChild => Some(Message::Structure(StructureMessage::AddChild(*block_id))),
+        | ActionId::AcceptAll => Some(Message::Expand(ExpandMessage::AcceptAllChildren(*block_id))),
         | ActionId::Cancel => cancel_message_for_block(state, block_id),
         | ActionId::Retry => retry_message_for_block(state, block_id),
         | ActionId::DismissDraft => {
             // Dismiss whichever draft exists (or both if both exist)
             // The message handler will check and dismiss appropriately
             if state.store.reduction_draft(block_id).is_some() {
-                Some(Message::RejectReduction(*block_id))
+                Some(Message::Reduce(ReduceMessage::Reject(*block_id)))
             } else if state.store.expansion_draft(block_id).is_some() {
-                Some(Message::DiscardExpansion(*block_id))
+                Some(Message::Expand(ExpandMessage::Discard(*block_id)))
             } else {
                 None
             }
         }
-        | ActionId::AddSibling => Some(Message::AddSibling(*block_id)),
-        | ActionId::DuplicateBlock => Some(Message::DuplicateBlock(*block_id)),
-        | ActionId::ArchiveBlock => Some(Message::ArchiveBlock(*block_id)),
-        | ActionId::SaveToFile => Some(Message::SaveToFile(*block_id)),
-        | ActionId::LoadFromFile => Some(Message::LoadFromFile(*block_id)),
+        | ActionId::AddSibling => Some(Message::Structure(StructureMessage::AddSibling(*block_id))),
+        | ActionId::DuplicateBlock => {
+            Some(Message::Structure(StructureMessage::DuplicateBlock(*block_id)))
+        }
+        | ActionId::ArchiveBlock => {
+            Some(Message::Structure(StructureMessage::ArchiveBlock(*block_id)))
+        }
+        | ActionId::SaveToFile => Some(Message::MountFile(MountFileMessage::SaveToFile(*block_id))),
+        | ActionId::LoadFromFile => {
+            Some(Message::MountFile(MountFileMessage::LoadFromFile(*block_id)))
+        }
         | ActionId::CollapseBranch | ActionId::ExpandBranch => None,
     }
 }
 
 fn cancel_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
     if state.expand_states.get(*block_id).is_some_and(|s| matches!(s, ExpandState::Loading)) {
-        return Some(Message::CancelExpand(*block_id));
+        return Some(Message::Expand(ExpandMessage::Cancel(*block_id)));
     }
     if state.reduce_states.get(*block_id).is_some_and(|s| matches!(s, ReduceState::Loading)) {
-        return Some(Message::CancelReduce(*block_id));
+        return Some(Message::Reduce(ReduceMessage::Cancel(*block_id)));
     }
     None
 }
 
 fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
     if state.expand_states.get(*block_id).is_some_and(|s| matches!(s, ExpandState::Error { .. })) {
-        return Some(Message::Expand(*block_id));
+        return Some(Message::Expand(ExpandMessage::Start(*block_id)));
     }
     if state.reduce_states.get(*block_id).is_some_and(|s| matches!(s, ReduceState::Error { .. })) {
-        return Some(Message::Reduce(*block_id));
+        return Some(Message::Reduce(ReduceMessage::Start(*block_id)));
     }
     None
 }
