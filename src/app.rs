@@ -25,7 +25,8 @@ use action_bar::{
     build_action_bar_vm, project_for_viewport, shortcut_to_action,
 };
 use iced::widget::{column, container, scrollable, text, text_editor};
-use iced::{Element, Event, Fill, Subscription, Task, event, keyboard, mouse, widget};
+use iced::theme::Mode;
+use iced::{Element, Event, Fill, Subscription, Task, event, keyboard, mouse, system, widget};
 use slotmap::SecondaryMap;
 
 /// Snapshot of undoable application state.
@@ -68,6 +69,9 @@ pub struct AppState {
     /// Blocks whose children are folded (hidden) in the UI.
     /// View-only state: not persisted, not part of undo.
     collapsed: HashSet<BlockId>,
+    /// Whether the current theme is dark. Detected from the system at startup
+    /// and updated live via `iced::system::theme_changes()`.
+    pub is_dark: bool,
 }
 
 impl AppState {
@@ -79,6 +83,8 @@ impl AppState {
             .map(|err| AppError::Configuration(UiError::from_message(err)));
         let store = BlockStore::load();
         let editors = EditorStore::from_store(&store);
+        let is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
+        tracing::info!(is_dark, "detected system appearance");
         Self {
             store,
             undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
@@ -94,6 +100,7 @@ impl AppState {
             focused_block_id: None,
             editing_block_id: None,
             collapsed: HashSet::new(),
+            is_dark,
         }
     }
 
@@ -189,6 +196,7 @@ pub enum Message {
     SaveToFilePicked(BlockId, Option<std::path::PathBuf>),
     LoadFromFile(BlockId),
     LoadFromFilePicked(BlockId, Option<std::path::PathBuf>),
+    SystemThemeChanged(Mode),
 }
 
 /// Process one message and return a follow-up task (if any).
@@ -716,6 +724,14 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 move |path| Message::LoadFromFilePicked(block_id, path),
             )
         }
+        | Message::SystemThemeChanged(mode) => {
+            let dark = matches!(mode, Mode::Dark);
+            if state.is_dark != dark {
+                tracing::info!(is_dark = dark, "system theme changed");
+                state.is_dark = dark;
+            }
+            Task::none()
+        }
         | Message::LoadFromFilePicked(block_id, path) => {
             if let Some(path) = path {
                 state.snapshot_for_undo();
@@ -749,9 +765,13 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
     }
 }
 
-/// Global event subscription: keyboard shortcuts, mouse clicks, escape.
+/// Global event subscription: keyboard shortcuts, mouse clicks, escape,
+/// and system theme changes.
 pub fn subscription(_state: &AppState) -> Subscription<Message> {
-    event::listen_with(handle_event)
+    Subscription::batch([
+        event::listen_with(handle_event),
+        system::theme_changes().map(Message::SystemThemeChanged),
+    ])
 }
 
 fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) -> Option<Message> {

@@ -1,24 +1,85 @@
 //! Calm paper-and-ink theme: palette, layout tokens, and per-widget style functions.
+//!
+//! Supports light and dark variants. The active palette is determined by the
+//! `Theme::mode()` at render time, so all style functions adapt automatically
+//! when the system appearance changes.
 
+use iced::theme::Mode;
 use iced::widget::{button, container, rule, text, text_editor};
+use iced::theme::Base;
 use iced::{Color, Font, Theme, border};
 
 pub const INTER: Font = Font::with_name("Inter");
 
 // ── Palette ──────────────────────────────────────────────────────────
 
-pub const PAPER: Color = Color::from_rgb(0.965, 0.957, 0.937);
-pub const INK: Color = Color::from_rgb(0.18, 0.17, 0.16);
-pub const ACCENT: Color = Color::from_rgb(0.35, 0.48, 0.62);
-pub const ACCENT_MUTED: Color = Color::from_rgb(0.55, 0.62, 0.70);
-pub const TINT: Color = Color::from_rgb(0.935, 0.925, 0.905);
-pub const SPINE: Color = Color::from_rgb(0.65, 0.63, 0.60);
-/// Lighter spine color for structural lines (less visual weight than markers).
-pub const SPINE_LIGHT: Color = Color::from_rgb(0.78, 0.76, 0.73);
-pub const DANGER: Color = Color::from_rgb(0.75, 0.28, 0.22);
-pub const SUCCESS: Color = Color::from_rgb(0.30, 0.60, 0.38);
-/// Very faint accent wash for active-block highlight.
-pub const FOCUS_WASH: Color = Color { r: 0.35, g: 0.48, b: 0.62, a: 0.06 };
+/// Semantic color slots shared by light and dark themes.
+///
+/// Every style function resolves colors through a `Palette` obtained via
+/// [`active_palette`], which inspects `Theme::mode()`.
+#[derive(Debug, Clone, Copy)]
+pub struct Palette {
+    /// Primary surface / background color.
+    pub paper: Color,
+    /// Primary text / foreground color.
+    pub ink: Color,
+    /// Brand accent — interactive elements, focus indicators.
+    pub accent: Color,
+    /// Subdued accent — secondary labels, disabled-ish text.
+    pub accent_muted: Color,
+    /// Subtle surface tint — hover backgrounds, panel fills.
+    pub tint: Color,
+    /// Structural gray — markers, placeholders, disabled text.
+    pub spine: Color,
+    /// Lighter structural gray — vertical rule lines.
+    pub spine_light: Color,
+    /// Danger / destructive action color.
+    pub danger: Color,
+    /// Success / positive feedback color.
+    pub success: Color,
+    /// Warning color.
+    pub warning: Color,
+    /// Very faint accent wash for active-block highlight.
+    pub focus_wash: Color,
+}
+
+/// Light palette: warm off-white paper, near-black ink, soft blue accent.
+pub const LIGHT: Palette = Palette {
+    paper: Color::from_rgb(0.965, 0.957, 0.937),
+    ink: Color::from_rgb(0.18, 0.17, 0.16),
+    accent: Color::from_rgb(0.35, 0.48, 0.62),
+    accent_muted: Color::from_rgb(0.55, 0.62, 0.70),
+    tint: Color::from_rgb(0.935, 0.925, 0.905),
+    spine: Color::from_rgb(0.65, 0.63, 0.60),
+    spine_light: Color::from_rgb(0.78, 0.76, 0.73),
+    danger: Color::from_rgb(0.75, 0.28, 0.22),
+    success: Color::from_rgb(0.30, 0.60, 0.38),
+    warning: Color::from_rgb(0.85, 0.65, 0.20),
+    focus_wash: Color { r: 0.35, g: 0.48, b: 0.62, a: 0.06 },
+};
+
+/// Dark palette: deep charcoal surface, warm off-white text, desaturated blue accent.
+pub const DARK: Palette = Palette {
+    paper: Color::from_rgb(0.11, 0.11, 0.12),
+    ink: Color::from_rgb(0.85, 0.83, 0.80),
+    accent: Color::from_rgb(0.50, 0.65, 0.82),
+    accent_muted: Color::from_rgb(0.45, 0.50, 0.58),
+    tint: Color::from_rgb(0.15, 0.15, 0.16),
+    spine: Color::from_rgb(0.38, 0.37, 0.35),
+    spine_light: Color::from_rgb(0.25, 0.24, 0.23),
+    danger: Color::from_rgb(0.85, 0.38, 0.32),
+    success: Color::from_rgb(0.40, 0.72, 0.48),
+    warning: Color::from_rgb(0.90, 0.72, 0.30),
+    focus_wash: Color { r: 0.50, g: 0.65, b: 0.82, a: 0.08 },
+};
+
+/// Resolve the active palette from the current theme's mode.
+fn active_palette(theme: &Theme) -> &'static Palette {
+    match theme.mode() {
+        | Mode::Dark => &DARK,
+        | _ => &LIGHT,
+    }
+}
 
 // ── Layout tokens ────────────────────────────────────────────────────
 
@@ -76,23 +137,25 @@ pub const OVERFLOW_PAD_V: f32 = 4.0;
 
 // ── Theme constructor ────────────────────────────────────────────────
 
-pub fn app_theme() -> Theme {
+/// Build the iced `Theme` for the given appearance mode.
+///
+/// The mode is embedded in the extended palette's `is_dark` flag so that
+/// style functions can resolve the correct palette via [`active_palette`].
+pub fn app_theme(is_dark: bool) -> Theme {
+    let pal = if is_dark { &DARK } else { &LIGHT };
     Theme::custom_with_fn(
-        "bb paper".to_string(),
+        if is_dark { "bb night".to_string() } else { "bb paper".to_string() },
         iced::theme::Palette {
-            background: PAPER,
-            text: INK,
-            primary: ACCENT,
-            success: SUCCESS,
-            warning: Color::from_rgb(0.85, 0.65, 0.20),
-            danger: DANGER,
+            background: pal.paper,
+            text: pal.ink,
+            primary: pal.accent,
+            success: pal.success,
+            warning: pal.warning,
+            danger: pal.danger,
         },
-        |palette| {
-            // Generate the extended palette from our custom base, then
-            // mark it as a light theme so built-in styles pick sensible
-            // defaults.
+        move |palette| {
             let mut ext = iced::theme::palette::Extended::generate(palette);
-            ext.is_dark = false;
+            ext.is_dark = is_dark;
             ext
         },
     )
@@ -103,10 +166,10 @@ pub fn app_theme() -> Theme {
 /// Annotation-style button: no background, subtle ink text that darkens on hover.
 /// Feels like a marginalia link rather than a toolbar control.
 pub fn action_button(theme: &Theme, status: button::Status) -> button::Style {
-    let _ = theme;
+    let p = active_palette(theme);
     let base = button::Style {
         background: None,
-        text_color: ACCENT_MUTED,
+        text_color: p.accent_muted,
         border: border::rounded(3).width(0).color(Color::TRANSPARENT),
         shadow: Default::default(),
         snap: false,
@@ -114,27 +177,27 @@ pub fn action_button(theme: &Theme, status: button::Status) -> button::Style {
     match status {
         | button::Status::Active => base,
         | button::Status::Hovered => button::Style {
-            text_color: INK,
-            background: Some(TINT.into()),
-            border: border::rounded(3).width(1).color(SPINE),
+            text_color: p.ink,
+            background: Some(p.tint.into()),
+            border: border::rounded(3).width(1).color(p.spine),
             ..base
         },
         | button::Status::Pressed => button::Style {
-            text_color: INK,
-            background: Some(Color { a: 0.15, ..ACCENT }.into()),
-            border: border::rounded(3).width(1).color(ACCENT_MUTED),
+            text_color: p.ink,
+            background: Some(Color { a: 0.15, ..p.accent }.into()),
+            border: border::rounded(3).width(1).color(p.accent_muted),
             ..base
         },
-        | button::Status::Disabled => button::Style { text_color: SPINE, ..base },
+        | button::Status::Disabled => button::Style { text_color: p.spine, ..base },
     }
 }
 
 /// Destructive action variant — uses danger color on hover/press.
 pub fn destructive_button(theme: &Theme, status: button::Status) -> button::Style {
-    let _ = theme;
+    let p = active_palette(theme);
     let base = button::Style {
         background: None,
-        text_color: ACCENT_MUTED,
+        text_color: p.accent_muted,
         border: border::rounded(3).width(0).color(Color::TRANSPARENT),
         shadow: Default::default(),
         snap: false,
@@ -142,50 +205,54 @@ pub fn destructive_button(theme: &Theme, status: button::Status) -> button::Styl
     match status {
         | button::Status::Active => base,
         | button::Status::Hovered => button::Style {
-            text_color: DANGER,
-            background: Some(Color { a: 0.08, ..DANGER }.into()),
-            border: border::rounded(3).width(1).color(Color { a: 0.3, ..DANGER }),
+            text_color: p.danger,
+            background: Some(Color { a: 0.08, ..p.danger }.into()),
+            border: border::rounded(3).width(1).color(Color { a: 0.3, ..p.danger }),
             ..base
         },
         | button::Status::Pressed => button::Style {
-            text_color: Color::from_rgb(0.9, 0.25, 0.18),
-            background: Some(Color { a: 0.14, ..DANGER }.into()),
+            text_color: Color { a: 1.0, ..Color::from_rgb(0.9, 0.25, 0.18) },
+            background: Some(Color { a: 0.14, ..p.danger }.into()),
             ..base
         },
-        | button::Status::Disabled => button::Style { text_color: SPINE, ..base },
+        | button::Status::Disabled => button::Style { text_color: p.spine, ..base },
     }
 }
 
 // ── Container styles ─────────────────────────────────────────────────
 
 /// Main canvas container — paper background.
-pub fn canvas(_theme: &Theme) -> container::Style {
-    container::Style { background: Some(PAPER.into()), ..Default::default() }
+pub fn canvas(theme: &Theme) -> container::Style {
+    let p = active_palette(theme);
+    container::Style { background: Some(p.paper.into()), ..Default::default() }
 }
 
 /// Draft / expansion panel — very subtle bordered region.
-pub fn draft_panel(_theme: &Theme) -> container::Style {
+pub fn draft_panel(theme: &Theme) -> container::Style {
+    let p = active_palette(theme);
     container::Style {
-        background: Some(TINT.into()),
-        border: border::rounded(4).width(1).color(SPINE),
+        background: Some(p.tint.into()),
+        border: border::rounded(4).width(1).color(p.spine),
         ..Default::default()
     }
 }
 
 /// Error banner container.
-pub fn error_banner(_theme: &Theme) -> container::Style {
+pub fn error_banner(theme: &Theme) -> container::Style {
+    let p = active_palette(theme);
     container::Style {
-        background: Some(Color { a: 0.08, ..DANGER }.into()),
-        border: border::rounded(4).width(1).color(Color { a: 0.3, ..DANGER }),
-        text_color: Some(DANGER),
+        background: Some(Color { a: 0.08, ..p.danger }.into()),
+        border: border::rounded(4).width(1).color(Color { a: 0.3, ..p.danger }),
+        text_color: Some(p.danger),
         ..Default::default()
     }
 }
 
 /// Active block row — faint accent wash to indicate which block is selected.
-pub fn active_block(_theme: &Theme) -> container::Style {
+pub fn active_block(theme: &Theme) -> container::Style {
+    let p = active_palette(theme);
     container::Style {
-        background: Some(FOCUS_WASH.into()),
+        background: Some(p.focus_wash.into()),
         border: border::rounded(4).width(0),
         ..Default::default()
     }
@@ -194,69 +261,76 @@ pub fn active_block(_theme: &Theme) -> container::Style {
 // ── Text editor style ────────────────────────────────────────────────
 
 /// Borderless editor that blends with the paper surface.
-pub fn point_editor(_theme: &Theme, status: text_editor::Status) -> text_editor::Style {
+pub fn point_editor(theme: &Theme, status: text_editor::Status) -> text_editor::Style {
+    let p = active_palette(theme);
     let base = text_editor::Style {
         background: Color::TRANSPARENT.into(),
         border: border::rounded(2).width(0).color(Color::TRANSPARENT),
-        placeholder: SPINE,
-        value: INK,
-        selection: Color { a: 0.18, ..ACCENT },
+        placeholder: p.spine,
+        value: p.ink,
+        selection: Color { a: 0.18, ..p.accent },
     };
     match status {
         | text_editor::Status::Active => base,
         | text_editor::Status::Hovered => text_editor::Style {
-            border: border::rounded(2).width(1).color(Color { a: 0.2, ..SPINE }),
+            border: border::rounded(2).width(1).color(Color { a: 0.2, ..p.spine }),
             ..base
         },
         | text_editor::Status::Focused { .. } => {
-            text_editor::Style { border: border::rounded(2).width(1).color(ACCENT_MUTED), ..base }
+            text_editor::Style { border: border::rounded(2).width(1).color(p.accent_muted), ..base }
         }
-        | text_editor::Status::Disabled => text_editor::Style { value: ACCENT_MUTED, ..base },
+        | text_editor::Status::Disabled => text_editor::Style { value: p.accent_muted, ..base },
     }
 }
 
 // ── Text styles ──────────────────────────────────────────────────────
 
 /// Spine / structural marker text — low-contrast gray.
-pub fn spine_text(_theme: &Theme) -> text::Style {
-    text::Style { color: Some(SPINE) }
+pub fn spine_text(theme: &Theme) -> text::Style {
+    let p = active_palette(theme);
+    text::Style { color: Some(p.spine) }
 }
 
 /// Status chip label text.
-pub fn status_text(_theme: &Theme) -> text::Style {
-    text::Style { color: Some(ACCENT_MUTED) }
+pub fn status_text(theme: &Theme) -> text::Style {
+    let p = active_palette(theme);
+    text::Style { color: Some(p.accent_muted) }
 }
 
 /// Diff deletion container — red-tinted background for removed words.
-pub fn diff_deletion(_theme: &Theme) -> container::Style {
+pub fn diff_deletion(theme: &Theme) -> container::Style {
+    let p = active_palette(theme);
     container::Style {
-        background: Some(Color { a: 0.08, ..DANGER }.into()),
-        text_color: Some(INK),
+        background: Some(Color { a: 0.08, ..p.danger }.into()),
+        text_color: Some(p.ink),
         ..Default::default()
     }
 }
 
 /// Diff addition container — green-tinted background for added words.
-pub fn diff_addition(_theme: &Theme) -> container::Style {
+pub fn diff_addition(theme: &Theme) -> container::Style {
+    let p = active_palette(theme);
     container::Style {
-        background: Some(Color { a: 0.08, ..SUCCESS }.into()),
-        text_color: Some(INK),
+        background: Some(Color { a: 0.08, ..p.success }.into()),
+        text_color: Some(p.ink),
         ..Default::default()
     }
 }
 
 /// Diff context text — neutral styling for unchanged words.
-pub fn diff_context(_theme: &Theme) -> text::Style {
-    text::Style { color: Some(INK) }
+pub fn diff_context(theme: &Theme) -> text::Style {
+    let p = active_palette(theme);
+    text::Style { color: Some(p.ink) }
 }
 
 // ── Rule styles ───────────────────────────────────────────────────────
 
 /// Spine rule — a thin, low-contrast vertical line for tree structure.
-/// Uses SPINE_LIGHT for subtlety; the bullet marker carries the stronger SPINE color.
-pub fn spine_rule(_theme: &Theme) -> rule::Style {
+/// Uses spine_light for subtlety; the bullet marker carries the stronger spine color.
+pub fn spine_rule(theme: &Theme) -> rule::Style {
+    let p = active_palette(theme);
     rule::Style {
-        color: SPINE_LIGHT,
+        color: p.spine_light,
         radius: 0.0.into(),
         fill_mode: rule::FillMode::Full,
         snap: true,
@@ -265,11 +339,12 @@ pub fn spine_rule(_theme: &Theme) -> rule::Style {
 
 // ── Tooltip style ────────────────────────────────────────────────────
 
-/// Tooltip container — ink background with paper text for high contrast.
-pub fn tooltip(_theme: &Theme) -> container::Style {
+/// Tooltip container — inverted colors for high contrast against the surface.
+pub fn tooltip(theme: &Theme) -> container::Style {
+    let p = active_palette(theme);
     container::Style {
-        background: Some(INK.into()),
-        text_color: Some(PAPER),
+        background: Some(p.ink.into()),
+        text_color: Some(p.paper),
         border: border::rounded(4).width(0),
         ..Default::default()
     }

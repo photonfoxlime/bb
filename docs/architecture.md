@@ -29,12 +29,13 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 - Structure visible through vertical spines and uniform dot markers, not decorative widgets.
 - Actions feel like marginalia annotations, not toolbar chrome.
 - Fonts: LXGW WenKai for point text (default), Inter for utility labels and buttons.
-- Palette defined in `src/theme.rs`: PAPER (warm off-white), INK (near-black), ACCENT (soft blue), ACCENT_MUTED, TINT (warm gray), SPINE (low-contrast gray), SPINE_LIGHT (lighter structural line), DANGER, SUCCESS, FOCUS_WASH (faint accent for active-block highlight).
+- Supports light and dark modes. Dark mode follows the same calm aesthetic with a deep charcoal surface and warm off-white text.
+- Palette defined in `src/theme.rs` as `Palette` struct with semantic color slots: `paper`, `ink`, `accent`, `accent_muted`, `tint`, `spine`, `spine_light`, `danger`, `success`, `warning`, `focus_wash`. Two const instances: `LIGHT` and `DARK`.
 
 ## Module Structure
 
-- `src/main.rs` -- Iced app entry. Loads fonts (WenKai, Inter, Lucide), wires theme.
-- `src/app.rs` -- Orchestration: AppState, Message enum, update loop, subscription, view dispatch.
+- `src/main.rs` -- Iced app entry. Loads fonts (WenKai, Inter, Lucide), wires theme via `.theme(|state| theme::app_theme(state.is_dark))`.
+- `src/app.rs` -- Orchestration: AppState, Message enum, update loop, subscription (event + system theme changes), view dispatch.
 - `src/app/state.rs` -- UI error types and async lifecycle enums (UiError, AppError, SummaryState, ExpandState).
 - `src/app/draft.rs` -- ExpansionDraft: pending expand result (rewrite + child suggestions).
 - `src/app/editor_store.rs` -- EditorStore: SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers, plus SecondaryMap\<BlockId, widget::Id\> for programmatic focus.
@@ -45,7 +46,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 - `src/paths.rs` -- Shared application directory paths (AppPaths).
 - `src/undo.rs` -- Generic undo/redo history (UndoHistory\<T\>).
 - `src/llm.rs` -- LLM client, config loading (env vars + TOML file), prompt construction, expand/summarize API.
-- `src/theme.rs` -- Custom paper-and-ink theme: palette constants, layout tokens (spacing, sizing, padding), and per-widget style functions.
+- `src/theme.rs` -- Custom paper-and-ink theme: `Palette` struct, `LIGHT` / `DARK` const palettes, `app_theme(is_dark)` constructor, `active_palette()` resolver via `Theme::mode()`, layout tokens, and per-widget style functions.
 
 ## Key Types
 
@@ -66,7 +67,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 | `ExpandState` | `app/state.rs` | Per-row expand lifecycle (Idle, Loading, Error). |
 | `ExpansionDraft` | `app/draft.rs` | Pending expand result: optional rewrite + child suggestions. |
 | `EditorStore` | `app/editor_store.rs` | SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers; SecondaryMap\<BlockId, widget::Id\> for programmatic focus targeting. |
-| `AppState` | `app.rs` | Full UI state: store, editors, LLM config, lifecycle, drafts, focused/active block tracking, and `collapsed` set for fold state. Per-block maps use SecondaryMap. |
+| `AppState` | `app.rs` | Full UI state: store, editors, LLM config, lifecycle, drafts, focused/active block tracking, `collapsed` set for fold state, and `is_dark` flag for theme mode. Per-block maps use SecondaryMap. |
 | `TreeView` | `app/view.rs` | Pure renderer: borrows immutable AppState, produces Element tree. |
 | `LlmClient` | `llm.rs` | HTTP client for summarize and expand requests. |
 | `LlmConfig` | `llm.rs` | base_url, api_key, model. Loaded from env vars or `llm.toml`. |
@@ -84,6 +85,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 - **Single-block async lifecycle**. One summarize and one expand operation active at a time (`SummaryState` / `ExpandState` enums).
 - **Draft-then-apply**. Expand results land in `ExpansionDraft` for review. Rewrite and each child accepted/rejected independently.
 - **Pure renderer**. `TreeView` borrows immutable state, produces widgets. No mutation during rendering.
+- **System theme tracking**. Dark/light mode detected at startup via `dark_light::detect()` and tracked at runtime through `iced::system::theme_changes()` subscription. The `AppState.is_dark` flag drives `app_theme(is_dark)`, which embeds the mode in the Iced extended palette. All style functions resolve colors via `active_palette(theme)`, which reads `theme.mode()` (from the `iced::theme::Base` trait). No manual color switching needed in the view layer.
 - **Lazy mount loading**. Mount nodes reference external files but are not loaded until the user expands them. See [mount-system.md](mount-system.md).
 
 ### Iced layout pitfall (keep in mind)
