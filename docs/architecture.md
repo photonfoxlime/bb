@@ -11,7 +11,7 @@ For project purpose, data model, and workflow, see [README.md](../README.md) (ca
 | [README.md](../README.md) | Project purpose, data model, workflow, UI concept |
 | [architecture.md](architecture.md) | Module map, key types, design decisions (this file) |
 | [action-bar.md](action-bar.md) | Action bar structure, shortcuts, responsive projection |
-| [mount-system.md](mount-system.md) | External file mounts, save/load to file, cycle detection |
+| [mount-system.md](mount-system.md) | External file mounts, save/load to file |
 | [undo-system.md](undo-system.md) | Undo/redo architecture, snapshot protocol |
 | [expansion-diff.md](expansion-diff.md) | Expansion draft diff rendering |
 | [async-conflict-safety.md](async-conflict-safety.md) | Stale-response guard for async expand/reduce |
@@ -58,7 +58,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 | `MountTable` | `mount.rs` | Runtime-only table tracking block origins and mount entries. Not serialized. |
 | `MountEntry` | `mount.rs` | Per-mount-point metadata: canonical path, relative path, root ids, block ids. |
 | `BlockOrigin` | `mount.rs` | Enum: `Mounted { mount_point: BlockId }`. Tracks which mount loaded a block. |
-| `MountError` | `mount.rs` | Error enum (via thiserror): NotAMount, UnknownBlock, CycleDetected, Read, Parse. |
+| `MountError` | `mount.rs` | Error enum (via thiserror): NotAMount, UnknownBlock, Read, Parse. |
 | `AppPaths` | `paths.rs` | Data file and config file paths via `directories` crate. |
 | `UndoHistory<T>` | `undo.rs` | Fixed-capacity undo/redo stack. |
 | `UiError` | `app/state.rs` | Display-safe error for UI messages. |
@@ -91,6 +91,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 - **Pure renderer**. `TreeView` borrows immutable state, produces widgets. No mutation during rendering.
 - **System theme tracking**. Dark/light mode detected at startup via `dark_light::detect()` and tracked at runtime through `iced::system::theme_changes()` subscription. The `AppState.is_dark` flag drives `app_theme(is_dark)`, which embeds the mode in the Iced extended palette. All style functions resolve colors via `active_palette(theme)`, which reads `theme.mode()` (from the `iced::theme::Base` trait). No manual color switching needed in the view layer.
 - **Lazy mount loading**. Mount nodes reference external files but are not loaded until the user expands them. See [mount-system.md](mount-system.md).
+- **No mount cycle detection by design**. Mount expansion does not block repeated/self-referential paths; mounted files are loaded only on explicit user expansion, so recursion is demand-driven rather than pre-expanded.
 
 ### Iced layout pitfall (keep in mind)
 

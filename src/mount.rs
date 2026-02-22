@@ -17,8 +17,6 @@ pub enum MountError {
     NotAMount,
     #[error("unknown block id")]
     UnknownBlock,
-    #[error("mount cycle detected: {path} is already mounted")]
-    CycleDetected { path: PathBuf },
     #[error("failed to read mount file {path}: {source}")]
     Read { path: PathBuf, source: std::io::Error },
     #[error("failed to parse mount file {path}: {source}")]
@@ -38,7 +36,7 @@ pub enum BlockOrigin {
 /// Metadata for a single mounted file.
 #[derive(Debug, Clone)]
 pub struct MountEntry {
-    /// Canonical (absolute) path used for cycle detection and save-back.
+    /// Canonical (absolute) path used for save-back.
     pub path: PathBuf,
     /// Original relative path as stored in the `BlockNode::Mount`.
     /// Restored on collapse to preserve the serialization form.
@@ -108,14 +106,6 @@ impl MountTable {
     pub fn entries(&self) -> impl Iterator<Item = (BlockId, &MountEntry)> {
         self.entries.iter()
     }
-
-    /// Return `true` if the given canonical path is already mounted.
-    ///
-    /// Used for cycle detection: prevents mounting a file that is already
-    /// expanded somewhere in the tree.
-    pub fn is_path_mounted(&self, canonical: &std::path::Path) -> bool {
-        self.entries.values().any(|entry| entry.path == canonical)
-    }
 }
 
 #[cfg(test)]
@@ -166,41 +156,5 @@ mod tests {
         let removed = table.remove_entry(ids[0]).unwrap();
         assert_eq!(removed.block_ids.len(), 2);
         assert!(table.entry(ids[0]).is_none());
-    }
-
-    #[test]
-    fn is_path_mounted_detects_existing() {
-        let mut table = MountTable::new();
-        let ids = make_ids(3);
-        let path = PathBuf::from("/abs/sub.json");
-        table.insert_entry(
-            ids[0],
-            MountEntry::new(
-                path.clone(),
-                PathBuf::from("sub.json"),
-                vec![ids[1]],
-                vec![ids[1], ids[2]],
-            ),
-        );
-        assert!(table.is_path_mounted(&path));
-        assert!(!table.is_path_mounted(std::path::Path::new("/other.json")));
-    }
-
-    #[test]
-    fn is_path_mounted_false_after_remove() {
-        let mut table = MountTable::new();
-        let ids = make_ids(3);
-        let path = PathBuf::from("/abs/sub.json");
-        table.insert_entry(
-            ids[0],
-            MountEntry::new(
-                path.clone(),
-                PathBuf::from("sub.json"),
-                vec![ids[1]],
-                vec![ids[1], ids[2]],
-            ),
-        );
-        table.remove_entry(ids[0]);
-        assert!(!table.is_path_mounted(&path));
     }
 }

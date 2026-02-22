@@ -530,10 +530,6 @@ impl BlockStore {
         let resolved = Self::resolve_mount_path(&rel_path, base_dir);
         let canonical = fs::canonicalize(&resolved).unwrap_or_else(|_| resolved.clone());
 
-        if self.mount_table.is_path_mounted(&canonical) {
-            return Err(MountError::CycleDetected { path: canonical });
-        }
-
         let contents = fs::read_to_string(&resolved)
             .map_err(|e| MountError::Read { path: resolved.clone(), source: e })?;
         let sub_store: BlockStore = serde_json::from_str(&contents)
@@ -1442,10 +1438,8 @@ mod tests {
         assert_eq!(saved_root_point, Some("modified root".to_string()));
     }
 
-    // -- cycle detection --
-
     #[test]
-    fn expand_mount_rejects_duplicate_path() {
+    fn expand_mount_allows_duplicate_path() {
         let tmp = tempfile::tempdir().unwrap();
         write_sub_store(tmp.path(), "sub.json");
 
@@ -1458,8 +1452,9 @@ mod tests {
         let mut store = BlockStore::new(vec![mount_a, mount_b], nodes, points);
 
         store.expand_mount(&mount_a, tmp.path()).unwrap();
-        let result = store.expand_mount(&mount_b, tmp.path());
-        assert!(matches!(result, Err(MountError::CycleDetected { .. })));
+        let second = store.expand_mount(&mount_b, tmp.path()).unwrap();
+        assert!(!second.is_empty());
+        assert!(!store.children(&mount_b).is_empty());
     }
 
     #[test]
@@ -1598,10 +1593,8 @@ mod tests {
         assert_eq!(store.point(&roots_2[0]), Some("edited root".to_string()));
     }
 
-    // -- integration: cycle detection with nested --
-
     #[test]
-    fn nested_cycle_detected_on_self_reference() {
+    fn nested_self_reference_can_expand_lazily() {
         let tmp = tempfile::tempdir().unwrap();
 
         let mut self_nodes = SlotMap::with_key();
@@ -1631,8 +1624,9 @@ mod tests {
             .collect();
         assert_eq!(nested.len(), 1);
 
-        let result = store.expand_mount(&nested[0], tmp.path());
-        assert!(matches!(result, Err(MountError::CycleDetected { .. })));
+        let inner_roots = store.expand_mount(&nested[0], tmp.path()).unwrap();
+        assert_eq!(inner_roots.len(), 1);
+        assert_eq!(store.point(&inner_roots[0]), Some("self-ref root".to_string()));
     }
 }
 

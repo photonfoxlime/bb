@@ -40,7 +40,7 @@ paths are used as-is.
    node is already `Children`.
 2. Resolve path against `base_dir` (the directory containing the main
    blocks file, from `AppPaths::data_dir()`).
-3. Canonicalize the resolved path and check the mount table for cycles.
+3. Canonicalize the resolved path for stable save-back behavior.
 4. Deserialize the file into a `BlockStore`.
 5. Re-key every block from the sub-store into the main `SlotMap` with
    fresh `BlockId`s (`rekey_sub_store`). Mount nodes inside the sub-store
@@ -49,6 +49,18 @@ paths are used as-is.
 7. Insert a `MountEntry` into the mount table with the canonical path,
    original relative path, root ids, and all block ids.
 8. Swap the mount-point node to `BlockNode::Children` with the new roots.
+
+### Design decision: no cycle detection
+
+Mount expansion intentionally does not perform cycle detection (direct or
+indirect). Because mounts are loaded lazily and only when the user expands
+them, recursive references are demand-driven instead of eagerly traversed.
+
+Implications:
+- Re-expanding the same file path at different mount points is allowed.
+- Self-referential mount chains can exist and expand one step at a time.
+- Safety remains bounded by explicit user actions (no automatic full-tree
+  recursive expansion).
 
 ### Collapse
 
@@ -86,18 +98,6 @@ Result: the main file never contains mounted block data.
 The app calls `save()` then `save_mounts()` in sequence via
 `save_tree()` in `app.rs`.
 
-## Cycle Detection
-
-Before expanding, `expand_mount` canonicalizes the resolved path and
-checks `MountTable::is_path_mounted(canonical)`. If any existing entry
-already references the same canonical path, expansion returns
-`MountError::CycleDetected { path }`.
-
-This prevents:
-- Direct self-reference (file A mounts file A).
-- Indirect cycles (file A mounts file B which mounts file A, since
-  both canonical paths would be in the table after the first expand).
-
 ## MountTable
 
 Runtime-only (`#[serde(skip)]`), reconstructed by re-expanding mount
@@ -114,7 +114,7 @@ Only blocks loaded from mounted files have an entry in `origins`.
 Blocks belonging to the main document are not tracked (absence = main).
 
 `MountEntry` stores:
-- `path` -- canonical absolute path for cycle detection and save-back.
+- `path` -- canonical absolute path for save-back.
 - `rel_path` -- original relative path from `BlockNode::Mount` for
   serialization.
 - `root_ids` -- re-keyed root block ids of the sub-store.
@@ -168,7 +168,6 @@ creates a buffer as usual.
 |---------|-------|
 | `NotAMount` | Tried to expand a `Children` node |
 | `UnknownBlock` | Block id not in the store |
-| `CycleDetected { path }` | Canonical path already mounted |
 | `Read { path, source }` | File I/O failure |
 | `Parse { path, source }` | JSON deserialization failure |
 
