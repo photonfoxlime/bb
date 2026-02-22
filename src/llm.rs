@@ -473,7 +473,7 @@ impl Prompt {
         }
 
         Self {
-            system: "You expand one target bullet point using its ancestors as context. Return strict JSON only with this shape: {\"rewrite\": string|null, \"children\": string[]}. Keep rewrite concise. Generate 3-6 concise child points. No markdown, no extra keys."
+            system: "You expand one target bullet point using its ancestors as context. Return strict JSON only with this shape: {\"rewrite\": string|null, \"children\": string[]}. Keep rewrite to one concise sentence. Generate 3-6 concise child points. Children must be mutually non-overlapping, each focused on a distinct subtopic, and should not restate the rewrite. No markdown, no extra keys."
                 .to_string(),
             user: format!("Expand the target point with context:\n{context_lines}"),
         }
@@ -582,6 +582,16 @@ mod tests {
         assert!(prompt.user.contains("Parent: first"));
         assert!(prompt.user.contains("Parent: second"));
         assert!(prompt.user.contains("Target: third"));
+    }
+
+    #[test]
+    fn expand_prompt_mentions_concise_and_non_overlapping_constraints() {
+        let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
+        let prompt = Prompt::expand_from_lineage(&lineage);
+        assert!(prompt.system.contains("one concise sentence"));
+        assert!(prompt.system.contains("mutually non-overlapping"));
+        assert!(prompt.system.contains("distinct subtopic"));
+        assert!(prompt.system.contains("should not restate the rewrite"));
     }
 
     // ExpandResponsePayload deserialization tests
