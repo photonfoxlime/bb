@@ -7,7 +7,7 @@
 //! `ActionBarVm` is a view-model: it carries no mutable state and is rebuilt
 //! on every frame from the current `RowContext`.
 
-use super::{AppState, ExpandState, Message, SummaryState};
+use super::{AppState, ExpandState, Message, ReduceState};
 use crate::store::BlockId;
 use iced::keyboard::{Key, Modifiers, key::Named};
 
@@ -410,15 +410,15 @@ pub fn action_to_message_by_id(
 ) -> Option<Message> {
     match action_id {
         | ActionId::Expand => Some(Message::Expand(*block_id)),
-        | ActionId::Reduce => Some(Message::Summarize(*block_id)),
+        | ActionId::Reduce => Some(Message::Reduce(*block_id)),
         | ActionId::AddChild => Some(Message::AddChild(*block_id)),
         | ActionId::AcceptAll => Some(Message::AcceptAllExpandedChildren(*block_id)),
         | ActionId::Retry => retry_message_for_block(state, block_id),
         | ActionId::DismissDraft => {
             // Dismiss whichever draft exists (or both if both exist)
             // The message handler will check and dismiss appropriately
-            if state.summary_drafts.contains_key(*block_id) {
-                Some(Message::RejectSummary(*block_id))
+            if state.reduction_drafts.contains_key(*block_id) {
+                Some(Message::RejectReduction(*block_id))
             } else if state.expansion_drafts.contains_key(*block_id) {
                 Some(Message::DiscardExpansion(*block_id))
             } else {
@@ -441,9 +441,8 @@ fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Messa
     if state.expand_states.get(*block_id).is_some_and(|s| matches!(s, ExpandState::Error { .. })) {
         return Some(Message::Expand(*block_id));
     }
-    if state.summary_states.get(*block_id).is_some_and(|s| matches!(s, SummaryState::Error { .. }))
-    {
-        return Some(Message::Summarize(*block_id));
+    if state.reduce_states.get(*block_id).is_some_and(|s| matches!(s, ReduceState::Error { .. })) {
+        return Some(Message::Reduce(*block_id));
     }
     None
 }

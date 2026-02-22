@@ -23,7 +23,7 @@ impl UiError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AppError {
     Configuration(UiError),
-    Summary(UiError),
+    Reduce(UiError),
     Expand(UiError),
     /// Error from a mount/unmount operation.
     Mount(UiError),
@@ -33,24 +33,24 @@ impl AppError {
     pub(crate) fn message(&self) -> &str {
         match self {
             | Self::Configuration(err)
-            | Self::Summary(err)
+            | Self::Reduce(err)
             | Self::Expand(err)
             | Self::Mount(err) => err.as_str(),
         }
     }
 }
 
-/// Per-block summarize (reduce) operation state: Idle → Loading → Idle/Error.
+/// Per-block reduce operation state: Idle → Loading → Idle/Error.
 ///
 /// Stored in a map keyed by `BlockId`; missing entry means Idle.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum SummaryState {
+pub(crate) enum ReduceState {
     Idle,
     Loading,
     Error { reason: UiError },
 }
 
-impl Default for SummaryState {
+impl Default for ReduceState {
     fn default() -> Self {
         Self::Idle
     }
@@ -97,8 +97,8 @@ mod tests {
     }
 
     #[test]
-    fn app_error_summary_message() {
-        let err = AppError::Summary(UiError::from_message("sum"));
+    fn app_error_reduce_message() {
+        let err = AppError::Reduce(UiError::from_message("sum"));
         assert_eq!(err.message(), "sum");
     }
 
@@ -114,10 +114,10 @@ mod tests {
         assert_eq!(err.message(), "mnt");
     }
 
-    // SummaryState tests
+    // ReductionState tests
     #[test]
-    fn summary_state_default_is_idle() {
-        assert_eq!(SummaryState::default(), SummaryState::Idle);
+    fn reduce_state_default_is_idle() {
+        assert_eq!(ReduceState::default(), ReduceState::Idle);
     }
 
     // ExpandState tests

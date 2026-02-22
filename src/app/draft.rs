@@ -1,6 +1,7 @@
-//! Transient draft staging for LLM results (expansion and summary).
+//! Transient draft staging for LLM results (expansion and reduction).
 
 use crate::llm;
+use crate::store::{ExpansionDraftRecord, ReductionDraftRecord};
 
 /// Staging area for one block's LLM expand results before user acceptance.
 ///
@@ -26,6 +27,36 @@ impl ExpansionDraft {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.rewrite.is_none() && self.children.is_empty()
+    }
+
+    pub(crate) fn from_record(record: ExpansionDraftRecord) -> Self {
+        Self::new(record.rewrite, record.children)
+    }
+
+    pub(crate) fn to_record(&self) -> ExpansionDraftRecord {
+        ExpansionDraftRecord { rewrite: self.rewrite.clone(), children: self.children.clone() }
+    }
+}
+
+/// Staging area for one block's LLM reduction result before user acceptance.
+///
+/// Invariant: removed from `AppState.reduction_drafts` when accepted or rejected.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ReductionDraft {
+    pub(crate) reduction: String,
+}
+
+impl ReductionDraft {
+    pub(crate) fn new(reduction: String) -> Self {
+        Self { reduction }
+    }
+
+    pub(crate) fn from_record(record: ReductionDraftRecord) -> Self {
+        Self::new(record.reduction)
+    }
+
+    pub(crate) fn to_record(&self) -> ReductionDraftRecord {
+        ReductionDraftRecord { reduction: self.reduction.clone() }
     }
 }
 
@@ -69,29 +100,10 @@ mod tests {
         assert_eq!(draft.rewrite, Some("rewritten".to_string()));
         assert_eq!(draft.children, vec!["c1".to_string()]);
     }
-}
-
-/// Staging area for one block's LLM summary result before user acceptance.
-///
-/// Invariant: removed from `AppState.summary_drafts` when accepted or rejected.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct SummaryDraft {
-    pub(crate) summary: String,
-}
-
-impl SummaryDraft {
-    pub(crate) fn new(summary: String) -> Self {
-        Self { summary }
-    }
-}
-
-#[cfg(test)]
-mod summary_tests {
-    use super::*;
 
     #[test]
-    fn summary_draft_new() {
-        let draft = SummaryDraft::new("summary text".to_string());
-        assert_eq!(draft.summary, "summary text");
+    fn reduction_draft_new() {
+        let draft = ReductionDraft::new("reduction text".to_string());
+        assert_eq!(draft.reduction, "reduction text");
     }
 }

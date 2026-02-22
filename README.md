@@ -30,7 +30,7 @@ The root is just a block. Higher-order blocks are naturally implemented as sub-b
    effectively back to step 1.
 5. Alternatively, the user can further *expand* on the initial *point* to
    retrieve more inspirations from the LLM, and then back to step 3.
-6. Alternatively, the user can summarize a verbose point to a concise one,
+6. Alternatively, the user can reduce a verbose point to a concise one,
    by clicking the *reduce* button that's attached to each block.
 
 ## UI Draft

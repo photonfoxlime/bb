@@ -12,7 +12,23 @@ use std::path::Path;
 use std::{fs, io};
 
 slotmap::new_key_type! {
-    pub struct BlockId;
+pub struct BlockId;
+}
+
+/// Persisted expansion draft payload keyed by [`BlockId`].
+///
+/// Stored in [`BlockStore`] so in-progress rewrite/child suggestions survive
+/// reloads and mount save/load round-trips.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExpansionDraftRecord {
+    pub rewrite: Option<String>,
+    pub children: Vec<String>,
+}
+
+/// Persisted reduction draft payload keyed by [`BlockId`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReductionDraftRecord {
+    pub reduction: String,
 }
 
 /// One node in the block tree.
@@ -86,6 +102,16 @@ pub struct BlockStore {
     /// re-expanding `BlockNode::Mount` nodes after deserialization.
     #[serde(skip)]
     mount_table: MountTable,
+    /// Persisted per-block expansion drafts (rewrite + suggested children).
+    ///
+    /// Invariant: keys should reference existing blocks in `nodes`.
+    #[serde(default)]
+    expansion_drafts: SecondaryMap<BlockId, ExpansionDraftRecord>,
+    /// Persisted per-block reduction drafts.
+    ///
+    /// Invariant: keys should reference existing blocks in `nodes`.
+    #[serde(default)]
+    reduction_drafts: SecondaryMap<BlockId, ReductionDraftRecord>,
 }
 
 impl BlockStore {
@@ -97,7 +123,23 @@ impl BlockStore {
         roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
         points: SecondaryMap<BlockId, String>,
     ) -> Self {
-        Self { roots, nodes, points, mount_table: MountTable::new() }
+        Self::new_with_drafts(roots, nodes, points, SecondaryMap::new(), SecondaryMap::new())
+    }
+
+    fn new_with_drafts(
+        roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
+        points: SecondaryMap<BlockId, String>,
+        expansion_drafts: SecondaryMap<BlockId, ExpansionDraftRecord>,
+        reduction_drafts: SecondaryMap<BlockId, ReductionDraftRecord>,
+    ) -> Self {
+        Self {
+            roots,
+            nodes,
+            points,
+            mount_table: MountTable::new(),
+            expansion_drafts,
+            reduction_drafts,
+        }
     }
 
     /// The ordered root block ids.
@@ -148,6 +190,25 @@ impl BlockStore {
         Ok(())
     }
 
+    /// Borrow persisted expansion drafts.
+    pub fn expansion_drafts(&self) -> &SecondaryMap<BlockId, ExpansionDraftRecord> {
+        &self.expansion_drafts
+    }
+
+    /// Borrow persisted reduction drafts.
+    pub fn reduction_drafts(&self) -> &SecondaryMap<BlockId, ReductionDraftRecord> {
+        &self.reduction_drafts
+    }
+
+    /// Replace all persisted drafts in one atomic update.
+    pub fn replace_drafts(
+        &mut self, expansion_drafts: SecondaryMap<BlockId, ExpansionDraftRecord>,
+        reduction_drafts: SecondaryMap<BlockId, ReductionDraftRecord>,
+    ) {
+        self.expansion_drafts = expansion_drafts;
+        self.reduction_drafts = reduction_drafts;
+    }
+
     /// Build a serialization-ready snapshot that restores mount nodes and
     /// excludes re-keyed blocks.
     ///
@@ -163,6 +224,10 @@ impl BlockStore {
 
         let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
         let mut sub_points: SecondaryMap<BlockId, String> = SecondaryMap::new();
+        let mut sub_expansion_drafts: SecondaryMap<BlockId, ExpansionDraftRecord> =
+            SecondaryMap::new();
+        let mut sub_reduction_drafts: SecondaryMap<BlockId, ReductionDraftRecord> =
+            SecondaryMap::new();
         let mut id_map: std::collections::HashMap<BlockId, BlockId> =
             std::collections::HashMap::new();
 
@@ -208,7 +273,25 @@ impl BlockStore {
 
         let sub_roots: Vec<BlockId> =
             self.roots.iter().filter_map(|r| id_map.get(r).copied()).collect();
-        BlockStore::new(sub_roots, sub_nodes, sub_points)
+
+        for (old_id, draft) in &self.expansion_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                sub_expansion_drafts.insert(new_id, draft.clone());
+            }
+        }
+        for (old_id, draft) in &self.reduction_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                sub_reduction_drafts.insert(new_id, draft.clone());
+            }
+        }
+
+        BlockStore::new_with_drafts(
+            sub_roots,
+            sub_nodes,
+            sub_points,
+            sub_expansion_drafts,
+            sub_reduction_drafts,
+        )
     }
 
     /// Extract blocks belonging to a mount entry into a standalone store.
@@ -218,6 +301,10 @@ impl BlockStore {
     fn extract_mount_store(&self, entry: &MountEntry) -> BlockStore {
         let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
         let mut sub_points: SecondaryMap<BlockId, String> = SecondaryMap::new();
+        let mut sub_expansion_drafts: SecondaryMap<BlockId, ExpansionDraftRecord> =
+            SecondaryMap::new();
+        let mut sub_reduction_drafts: SecondaryMap<BlockId, ReductionDraftRecord> =
+            SecondaryMap::new();
         let mut id_map: std::collections::HashMap<BlockId, BlockId> =
             std::collections::HashMap::new();
 
@@ -252,7 +339,25 @@ impl BlockStore {
 
         let sub_roots: Vec<BlockId> =
             entry.root_ids.iter().filter_map(|r| id_map.get(r).copied()).collect();
-        BlockStore::new(sub_roots, sub_nodes, sub_points)
+
+        for (old_id, draft) in &self.expansion_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                sub_expansion_drafts.insert(new_id, draft.clone());
+            }
+        }
+        for (old_id, draft) in &self.reduction_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                sub_reduction_drafts.insert(new_id, draft.clone());
+            }
+        }
+
+        BlockStore::new_with_drafts(
+            sub_roots,
+            sub_nodes,
+            sub_points,
+            sub_expansion_drafts,
+            sub_reduction_drafts,
+        )
     }
 
     /// Look up a node by id.
@@ -348,6 +453,8 @@ impl BlockStore {
         for id in &removed_ids {
             self.nodes.remove(*id);
             self.points.remove(*id);
+            self.expansion_drafts.remove(*id);
+            self.reduction_drafts.remove(*id);
             self.mount_table.remove_origin(*id);
         }
 
@@ -442,6 +549,8 @@ impl BlockStore {
         for &id in &entry.block_ids {
             self.nodes.remove(id);
             self.points.remove(id);
+            self.expansion_drafts.remove(id);
+            self.reduction_drafts.remove(id);
         }
         if let Some(node) = self.nodes.get_mut(*mount_point) {
             *node = BlockNode::with_path(entry.rel_path);
@@ -473,6 +582,10 @@ impl BlockStore {
         // Build a standalone sub-store.
         let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
         let mut sub_points: SecondaryMap<BlockId, String> = SecondaryMap::new();
+        let mut sub_expansion_drafts: SecondaryMap<BlockId, ExpansionDraftRecord> =
+            SecondaryMap::new();
+        let mut sub_reduction_drafts: SecondaryMap<BlockId, ReductionDraftRecord> =
+            SecondaryMap::new();
         let mut id_map: std::collections::HashMap<BlockId, BlockId> =
             std::collections::HashMap::new();
 
@@ -515,7 +628,24 @@ impl BlockStore {
         // Sub-store roots = re-mapped children of block_id.
         let sub_roots: Vec<BlockId> =
             children.iter().filter_map(|c| id_map.get(c).copied()).collect();
-        let sub_store = BlockStore::new(sub_roots, sub_nodes, sub_points);
+        for (old_id, draft) in &self.expansion_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                sub_expansion_drafts.insert(new_id, draft.clone());
+            }
+        }
+        for (old_id, draft) in &self.reduction_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                sub_reduction_drafts.insert(new_id, draft.clone());
+            }
+        }
+
+        let sub_store = BlockStore::new_with_drafts(
+            sub_roots,
+            sub_nodes,
+            sub_points,
+            sub_expansion_drafts,
+            sub_reduction_drafts,
+        );
 
         // Write to file.
         if let Some(parent) = path.parent() {
@@ -533,6 +663,8 @@ impl BlockStore {
                 for &id in &entry.block_ids {
                     self.nodes.remove(id);
                     self.points.remove(id);
+                    self.expansion_drafts.remove(id);
+                    self.reduction_drafts.remove(id);
                 }
             }
         }
@@ -541,6 +673,8 @@ impl BlockStore {
         for &id in &own_ids {
             self.nodes.remove(id);
             self.points.remove(id);
+            self.expansion_drafts.remove(id);
+            self.reduction_drafts.remove(id);
             self.mount_table.remove_origin(id);
         }
 
@@ -602,6 +736,18 @@ impl BlockStore {
 
         let new_roots: Vec<BlockId> =
             sub_store.roots.iter().filter_map(|r| id_map.get(r).copied()).collect();
+
+        for (old_id, draft) in &sub_store.expansion_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                self.expansion_drafts.insert(new_id, draft.clone());
+            }
+        }
+        for (old_id, draft) in &sub_store.reduction_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                self.reduction_drafts.insert(new_id, draft.clone());
+            }
+        }
+
         (new_roots, all_new_ids)
     }
 
@@ -1050,6 +1196,58 @@ mod tests {
         assert_eq!(store, restored);
     }
 
+    #[test]
+    fn serde_round_trip_preserves_persisted_drafts() {
+        let (mut store, root, child_a, _) = simple_store();
+        store.expansion_drafts.insert(
+            root,
+            ExpansionDraftRecord {
+                rewrite: Some("rewrite".to_string()),
+                children: vec!["child suggestion".to_string()],
+            },
+        );
+        store
+            .reduction_drafts
+            .insert(child_a, ReductionDraftRecord { reduction: "reduction".to_string() });
+
+        let json = serde_json::to_string(&store).unwrap();
+        let restored: BlockStore = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(store, restored);
+        assert!(restored.expansion_drafts().get(root).is_some());
+        assert!(restored.reduction_drafts().get(child_a).is_some());
+    }
+
+    #[test]
+    fn remove_subtree_cleans_persisted_drafts() {
+        let (mut store, _root, child_a, child_b) = simple_store();
+        store.expansion_drafts.insert(
+            child_a,
+            ExpansionDraftRecord { rewrite: None, children: vec!["draft".to_string()] },
+        );
+        store
+            .reduction_drafts
+            .insert(child_b, ReductionDraftRecord { reduction: "draft".to_string() });
+
+        store.remove_block_subtree(&child_a).unwrap();
+        store.remove_block_subtree(&child_b).unwrap();
+
+        assert!(store.expansion_drafts().get(child_a).is_none());
+        assert!(store.reduction_drafts().get(child_b).is_none());
+    }
+
+    #[test]
+    fn backward_compat_missing_draft_fields_defaults_empty() {
+        let (store, _, _, _) = simple_store();
+        let mut value = serde_json::to_value(&store).unwrap();
+        value.as_object_mut().unwrap().remove("expansion_drafts");
+        value.as_object_mut().unwrap().remove("reduction_drafts");
+
+        let restored: BlockStore = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.expansion_drafts().len(), 0);
+        assert_eq!(restored.reduction_drafts().len(), 0);
+    }
+
     // -- expand_mount / collapse_mount --
 
     fn write_sub_store(dir: &std::path::Path, filename: &str) -> (std::path::PathBuf, BlockStore) {
@@ -1393,5 +1591,15 @@ impl PartialEq for BlockStore {
             && self.nodes.iter().all(|(id, node)| other.nodes.get(id) == Some(node))
             && self.points.len() == other.points.len()
             && self.points.iter().all(|(id, pt)| other.points.get(id) == Some(pt))
+            && self.expansion_drafts.len() == other.expansion_drafts.len()
+            && self
+                .expansion_drafts
+                .iter()
+                .all(|(id, draft)| other.expansion_drafts.get(id) == Some(draft))
+            && self.reduction_drafts.len() == other.reduction_drafts.len()
+            && self
+                .reduction_drafts
+                .iter()
+                .all(|(id, draft)| other.reduction_drafts.get(id) == Some(draft))
     }
 }

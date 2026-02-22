@@ -9,7 +9,7 @@ For current architecture, see [architecture.md](architecture.md).
 - ~~Keyboard-first traversal (up/down, indent-level moves).~~ Done (arrow-key edge detection + DFS focus transfer).
 - Conflict-safe editing during async operations.
 
-## Expand/Summarize quality
+## Expand/Reduce quality
 - Retry and fallback parsing for expand JSON.
 - Prompt tuning for concise, non-overlapping suggestions.
 - Per-request cancellation and timeout in UI.
@@ -25,7 +25,7 @@ For current architecture, see [architecture.md](architecture.md).
  Uniform bullet sizing: root bullet is disproportionately large relative to child bullets.
  Breathing room between text editor and action icons (horizontal gap).
  Minimum width on text editor so short text does not collapse the block.
- Section headers with typographic hierarchy in draft panels (rewrite, child suggestions, summary).
+Section headers with typographic hierarchy in draft panels (rewrite, child suggestions, reduce).
  Empty-state placeholder when the document has no blocks.
  Subtle motion for expand/collapse and suggestion reveal.
  Narrow-width/mobile tuning.

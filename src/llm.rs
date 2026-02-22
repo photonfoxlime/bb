@@ -313,14 +313,14 @@ impl LlmClient {
         Self { config, http: reqwest::Client::new() }
     }
 
-    /// Summarize a block's point using its ancestor lineage as context.
-    pub async fn summarize_lineage(&self, lineage: &Lineage) -> Result<String, LlmError> {
+    /// Reduce a block's point using its ancestor lineage as context.
+    pub async fn reduce_lineage(&self, lineage: &Lineage) -> Result<String, LlmError> {
         if lineage.is_empty() {
             return Err(LlmError::InvalidRequest);
         }
 
-        let prompt = Prompt::summarize_from_lineage(lineage);
-        self.request_completion("summarize", prompt, 0.2, 200).await
+        let prompt = Prompt::reduce_from_lineage(lineage);
+        self.request_completion("reduce", prompt, 0.2, 200).await
     }
 
     /// Expand one target point into rewrite and concise child point candidates.
@@ -445,7 +445,7 @@ struct Prompt {
 }
 
 impl Prompt {
-    fn summarize_from_lineage(lineage: &Lineage) -> Self {
+    fn reduce_from_lineage(lineage: &Lineage) -> Self {
         let mut context_lines = String::new();
         let total = lineage.items.len();
         for (index, item) in lineage.iter().enumerate() {
@@ -454,9 +454,9 @@ impl Prompt {
         }
 
         Self {
-            system: "You summarize a bullet point using its ancestors as context. Output a single concise sentence. No quotes, no extra bullet points."
+            system: "You reduce a bullet point using its ancestors as context. Output a single concise sentence. No quotes, no extra bullet points."
                 .to_string(),
-            user: format!("Summarize the target point with context:\n{context_lines}"),
+            user: format!("Reduce the target point with context:\n{context_lines}"),
         }
     }
 
@@ -563,9 +563,9 @@ mod tests {
 
     // Prompt formatting tests
     #[test]
-    fn summarize_prompt_labels_target_last() {
+    fn reduce_prompt_labels_target_last() {
         let lineage = Lineage::from_points(vec!["first".into(), "second".into(), "third".into()]);
-        let prompt = Prompt::summarize_from_lineage(&lineage);
+        let prompt = Prompt::reduce_from_lineage(&lineage);
         assert!(prompt.user.contains("Parent: first"));
         assert!(prompt.user.contains("Parent: second"));
         assert!(prompt.user.contains("Target: third"));

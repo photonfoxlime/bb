@@ -11,7 +11,7 @@ discard the redo future.
 ## Scope
 
 Undo covers structural and LLM-driven mutations to the `BlockStore`
-and `expansion_drafts`:
+and both draft maps (`expansion_drafts`, `reduction_drafts`):
 
 | Operation | Undoable |
 |-----------|----------|
@@ -22,7 +22,7 @@ and `expansion_drafts`:
 | AcceptExpandedChild | Yes |
 | AcceptAllExpandedChildren | Yes |
 | ApplyExpandedRewrite | Yes |
-| SummarizeDone (success) | Yes |
+| ReduceDone (success) | Yes |
 | ExpandDone (success) | Yes -- undoing removes the expansion draft |
 | Text editing (point edits) | Yes -- coalesced per block; switching blocks or performing a structural action starts a new undo entry |
 | UI state (`overflow_open_for`, `active_block_id`, `focused_block_id`, `editing_block_id`) | No |
@@ -31,21 +31,21 @@ and `expansion_drafts`:
 
 `UndoHistory` holds two `Vec<UndoSnapshot>` stacks (undo and redo) with a
 configurable capacity (default 64). Each `UndoSnapshot` captures
-`BlockStore` and `expansion_drafts`. The live state is never stored in
-the stacks -- only prior states are.
+`BlockStore`, `expansion_drafts`, and `reduction_drafts`. The live state is
+never stored in the stacks -- only prior states are.
 
 ### Snapshot protocol
 
 Before any mutation, the handler calls `state.snapshot_for_undo()`,
-which clones the current `BlockStore` and `expansion_drafts` into an
-`UndoSnapshot` and pushes it onto the undo stack. This clears the redo
-stack.
+which syncs UI draft maps into `BlockStore`, then clones the current
+`BlockStore`, `expansion_drafts`, and `reduction_drafts` into an
+`UndoSnapshot` and pushes it onto the undo stack. This clears the redo stack.
 
 ### Restore protocol
 
 On undo, the current state is pushed to the redo stack and the top undo
 entry becomes live. `EditorStore` is rebuilt from the restored graph,
-expansion drafts are restored, and the file is persisted.
+both draft maps are restored, and the file is persisted.
 
 ## Upgrading to a branching undo-tree
 

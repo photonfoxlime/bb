@@ -4,7 +4,7 @@ use super::action_bar::{
     shortcut_to_action,
 };
 use super::diff::{WordChange, word_diff};
-use super::{AppState, ExpandState, ExpansionDraft, Message, SummaryDraft, SummaryState};
+use super::{AppState, ExpandState, ExpansionDraft, Message, ReduceState, ReductionDraft};
 use crate::store::BlockId;
 use crate::theme;
 use iced::widget::{button, column, container, row, rule, text, text_editor, tooltip};
@@ -135,8 +135,8 @@ impl<'a> TreeView<'a> {
         if let Some(draft) = self.state.expansion_drafts.get(*block_id) {
             block = block.push(self.render_expansion_panel(block_id, draft));
         }
-        if let Some(draft) = self.state.summary_drafts.get(*block_id) {
-            block = block.push(self.render_summary_panel(block_id, draft));
+        if let Some(draft) = self.state.reduction_drafts.get(*block_id) {
+            block = block.push(self.render_reduction_panel(block_id, draft));
         }
 
         // Unexpanded mount: show path label below the block.
@@ -282,12 +282,12 @@ impl<'a> TreeView<'a> {
             .into()
     }
 
-    fn render_summary_panel(
-        &self, block_id: &BlockId, draft: &'a SummaryDraft,
+    fn render_reduction_panel(
+        &self, block_id: &BlockId, draft: &'a ReductionDraft,
     ) -> Element<'a, Message> {
         // Get current block text for diff comparison
         let old_text = self.state.store.point(block_id).unwrap_or_default();
-        let changes = word_diff(&old_text, &draft.summary);
+        let changes = word_diff(&old_text, &draft.reduction);
 
         // Render diff view
         let mut diff_content = column![].spacing(theme::DIFF_LINE_GAP);
@@ -337,20 +337,20 @@ impl<'a> TreeView<'a> {
         container(
             column![]
                 .spacing(theme::PANEL_INNER_GAP)
-                .push(container(text("Summary")).width(Length::Fill))
+                .push(container(text("Reduce")).width(Length::Fill))
                 .push(container(diff_content).width(Length::Fill))
                 .push(
                     row![]
                         .spacing(theme::PANEL_BUTTON_GAP)
                         .push(
-                            button(text("Apply summary").font(theme::INTER).size(13))
+                            button(text("Apply reduction").font(theme::INTER).size(13))
                                 .style(theme::action_button)
-                                .on_press(Message::ApplySummary(*block_id)),
+                                .on_press(Message::ApplyReduction(*block_id)),
                         )
                         .push(
-                            button(text("Dismiss summary").font(theme::INTER).size(13))
+                            button(text("Dismiss reduction").font(theme::INTER).size(13))
                                 .style(theme::destructive_button)
-                                .on_press(Message::RejectSummary(*block_id)),
+                                .on_press(Message::RejectReduction(*block_id)),
                         ),
                 ),
         )
@@ -361,12 +361,12 @@ impl<'a> TreeView<'a> {
 
     fn action_row_context(&self, block_id: &BlockId, point_text: String) -> RowContext {
         let expansion_draft = self.state.expansion_drafts.get(*block_id);
-        let summary_draft = self.state.summary_drafts.get(*block_id);
+        let reduction_draft = self.state.reduction_drafts.get(*block_id);
         let node = self.state.store.node(block_id);
         RowContext {
             block_id: *block_id,
             point_text,
-            has_draft: expansion_draft.is_some() || summary_draft.is_some(),
+            has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
             draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0),
             has_expand_error: self
                 .state
@@ -375,11 +375,11 @@ impl<'a> TreeView<'a> {
                 .is_some_and(|s| matches!(s, ExpandState::Error { .. })),
             has_reduce_error: self
                 .state
-                .summary_states
+                .reduce_states
                 .get(*block_id)
-                .is_some_and(|s| matches!(s, SummaryState::Error { .. })),
+                .is_some_and(|s| matches!(s, ReduceState::Error { .. })),
             is_expanding: self.state.is_expanding(block_id),
-            is_reducing: self.state.is_summarizing(block_id),
+            is_reducing: self.state.is_reducing(block_id),
             is_mounted: self.state.store.mount_table().entry(*block_id).is_some(),
             is_unexpanded_mount: node.is_some_and(|n| n.mount_path().is_some()),
             has_children: !self.state.store.children(block_id).is_empty(),
@@ -393,7 +393,7 @@ impl<'a> TreeView<'a> {
     fn render_status_chip(&self, vm: &ActionBarVm) -> Element<'a, Message> {
         let label = match &vm.status_chip {
             | Some(StatusChipVm::Loading { op: ActionId::Expand }) => "Expanding...".to_string(),
-            | Some(StatusChipVm::Loading { op: ActionId::Reduce }) => "Summarizing...".to_string(),
+            | Some(StatusChipVm::Loading { op: ActionId::Reduce }) => "Reducing...".to_string(),
             | Some(StatusChipVm::Loading { .. }) => "Working...".to_string(),
             | Some(StatusChipVm::Error { message, .. }) => message.clone(),
             | Some(StatusChipVm::DraftActive { suggestion_count }) if *suggestion_count > 0 => {

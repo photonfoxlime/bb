@@ -69,6 +69,8 @@ paths are used as-is.
 - Restores every expanded mount-point back to `BlockNode::Mount { path }`
   using `entry.rel_path`.
 - Removes all re-keyed blocks from the snapshot.
+- Re-maps persisted draft keys (`expansion_drafts`, `reduction_drafts`) to the
+  compacted key space and drops drafts for excluded mounted blocks.
 
 Result: the main file never contains mounted block data.
 
@@ -77,6 +79,8 @@ Result: the main file never contains mounted block data.
 `BlockStore::save_mounts()` iterates all mount entries and for each:
 - Extracts the entry's blocks into a standalone `BlockStore` via
   `extract_mount_store`.
+- Carries over draft records for extracted blocks so mounted files preserve
+  their own pending reduce/expand drafts.
 - Serializes and writes to `entry.path` (the canonical absolute path).
 
 The app calls `save()` then `save_mounts()` in sequence via

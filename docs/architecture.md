@@ -36,8 +36,8 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 
 - `src/main.rs` -- Iced app entry. Loads fonts (WenKai, Inter, Lucide), wires theme via `.theme(|state| theme::app_theme(state.is_dark))`.
 - `src/app.rs` -- Orchestration: AppState, Message enum, update loop, subscription (event + system theme changes), view dispatch.
-- `src/app/state.rs` -- UI error types and async lifecycle enums (UiError, AppError, SummaryState, ExpandState).
-- `src/app/draft.rs` -- ExpansionDraft: pending expand result (rewrite + child suggestions).
+- `src/app/state.rs` -- UI error types and async lifecycle enums (UiError, AppError, ReductionState, ExpandState).
+- `src/app/draft.rs` -- ExpansionDraft + ReductionDraft: typed in-memory draft staging with conversion to/from persisted store draft records.
 - `src/app/editor_store.rs` -- EditorStore: SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers, plus SecondaryMap\<BlockId, widget::Id\> for programmatic focus.
 - `src/app/view.rs` -- TreeView: pure renderer from immutable AppState into widget tree.
 - `src/app/action_bar/` -- Typed action bar: types, selector (state-to-VM), responsive projection, keyboard shortcuts, dispatch.
@@ -45,7 +45,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 - `src/mount.rs` -- Mount table: MountTable, MountEntry, BlockOrigin, MountError. Tracks blocks loaded from external files.
 - `src/paths.rs` -- Shared application directory paths (AppPaths).
 - `src/undo.rs` -- Generic undo/redo history (UndoHistory\<T\>).
-- `src/llm.rs` -- LLM client, config loading (env vars + TOML file), prompt construction, expand/summarize API.
+- `src/llm.rs` -- LLM client, config loading (env vars + TOML file), prompt construction, expand/reduce API.
 - `src/theme.rs` -- Custom paper-and-ink theme: `Palette` struct, `LIGHT` / `DARK` const palettes, `app_theme(is_dark)` constructor, `active_palette()` resolver via `Theme::mode()`, layout tokens, and per-widget style functions.
 
 ## Key Types
@@ -53,7 +53,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 | Type | Location | Purpose |
 |------|----------|---------|
 | `BlockId` | `store.rs` | Slotmap key type (`new_key_type!`) for block identity. Copy, not UUID. |
-| `BlockStore` | `store.rs` | Roots + SlotMap\<BlockId, BlockNode\> + SecondaryMap\<BlockId, String\> (points). JSON persistence. |
+| `BlockStore` | `store.rs` | Roots + SlotMap\<BlockId, BlockNode\> + point map + persisted draft maps (`expansion_drafts`, `reduction_drafts`). JSON persistence. |
 | `BlockNode` | `store.rs` | Enum: `Children { children: Vec<BlockId> }` or `Mount { path: PathBuf }`. Text stored separately in points map. |
 | `MountTable` | `mount.rs` | Runtime-only table tracking block origins and mount entries. Not serialized. |
 | `MountEntry` | `mount.rs` | Per-mount-point metadata: canonical path, relative path, root ids, block ids. |
@@ -62,14 +62,15 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 | `AppPaths` | `paths.rs` | Data file and config file paths via `directories` crate. |
 | `UndoHistory<T>` | `undo.rs` | Fixed-capacity undo/redo stack. |
 | `UiError` | `app/state.rs` | Display-safe error for UI messages. |
-| `AppError` | `app/state.rs` | Tagged application error source (config, summary, expand, mount). |
-| `SummaryState` | `app/state.rs` | Per-row summarize lifecycle (Idle, Loading, Error). |
+| `AppError` | `app/state.rs` | Tagged application error source (config, reduce, expand, mount). |
+| `ReductionState` | `app/state.rs` | Per-row reduce lifecycle (Idle, Loading, Error). |
 | `ExpandState` | `app/state.rs` | Per-row expand lifecycle (Idle, Loading, Error). |
-| `ExpansionDraft` | `app/draft.rs` | Pending expand result: optional rewrite + child suggestions. |
+| `ExpansionDraft` | `app/draft.rs` | Pending expand result: optional rewrite + child suggestions. Converts to/from `ExpansionDraftRecord` for persistence. |
+| `ReductionDraft` | `app/draft.rs` | Pending reduce result. Converts to/from `ReductionDraftRecord` for persistence. |
 | `EditorStore` | `app/editor_store.rs` | SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers; SecondaryMap\<BlockId, widget::Id\> for programmatic focus targeting. |
 | `AppState` | `app.rs` | Full UI state: store, editors, LLM config, lifecycle, drafts, focused/active block tracking, `collapsed` set for fold state, and `is_dark` flag for theme mode. Per-block maps use SecondaryMap. |
 | `TreeView` | `app/view.rs` | Pure renderer: borrows immutable AppState, produces Element tree. |
-| `LlmClient` | `llm.rs` | HTTP client for summarize and expand requests. |
+| `LlmClient` | `llm.rs` | HTTP client for reduce and expand requests. |
 | `LlmConfig` | `llm.rs` | base_url, api_key, model. Loaded from env vars or `llm.toml`. |
 
 ## AppState Block Selectors
@@ -80,10 +81,11 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 
 ## Design Decisions
 
-- **Slotmap-based addressing**. Block identity uses `slotmap::new_key_type!` (`BlockId`). Keys are generated by `SlotMap::insert` and are Copy. All per-block side maps (`expansion_drafts`, `summary_states`, `expand_states`, `errors`, `overflow_open`, `editor_store`) use `slotmap::SecondaryMap<BlockId, V>`.
-- **Lineage-based context**. Summarize and expand use DFS root-to-target lineage as LLM context.
-- **Single-block async lifecycle**. One summarize and one expand operation active at a time (`SummaryState` / `ExpandState` enums).
-- **Draft-then-apply**. Expand results land in `ExpansionDraft` for review. Rewrite and each child accepted/rejected independently.
+- **Slotmap-based addressing**. Block identity uses `slotmap::new_key_type!` (`BlockId`). Keys are generated by `SlotMap::insert` and are Copy. All per-block side maps (`expansion_drafts`, `reduce_states`, `expand_states`, `errors`, `overflow_open`, `editor_store`) use `slotmap::SecondaryMap<BlockId, V>`.
+- **Lineage-based context**. Reduce and expand use DFS root-to-target lineage as LLM context.
+- **Single-block async lifecycle**. One reduce and one expand operation active at a time (`ReductionState` / `ExpandState` enums).
+- **Draft-then-apply with persisted drafts**. Expand and reduce results are staged as drafts and persisted in `BlockStore` (not transient-only). Rewrite and each child are accepted/rejected independently; reduction drafts are applied/rejected explicitly.
+- **Single source for persisted draft truth**. `AppState` mirrors draft maps for UI ergonomics, and `save_tree()` synchronizes them into `BlockStore` before writing files. No legacy transient-only persistence path remains.
 - **Pure renderer**. `TreeView` borrows immutable state, produces widgets. No mutation during rendering.
 - **System theme tracking**. Dark/light mode detected at startup via `dark_light::detect()` and tracked at runtime through `iced::system::theme_changes()` subscription. The `AppState.is_dark` flag drives `app_theme(is_dark)`, which embeds the mode in the Iced extended palette. All style functions resolve colors via `active_palette(theme)`, which reads `theme.mode()` (from the `iced::theme::Base` trait). No manual color switching needed in the view layer.
 - **Lazy mount loading**. Mount nodes reference external files but are not loaded until the user expands them. See [mount-system.md](mount-system.md).
