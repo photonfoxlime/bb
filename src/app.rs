@@ -927,9 +927,9 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
 
 #[cfg(test)]
 mod tests {
-    use super::AppState;
+    use super::{AppState, Message, update};
     use crate::llm;
-    use crate::store::BlockStore;
+    use crate::store::{BlockStore, ExpansionDraftRecord, ReductionDraftRecord};
     use crate::undo::UndoHistory;
     use slotmap::SecondaryMap;
     use std::collections::HashSet;
@@ -983,6 +983,214 @@ mod tests {
         state.store.update_point(&root, "root changed".to_string());
         let after = state.lineage_signature(&child).expect("child has lineage");
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn expand_done_success_persists_draft_in_store() {
+        let (mut state, root) = test_state();
+        let signature = state.lineage_signature(&root).expect("root has lineage");
+        state.pending_expand_signatures.insert(root, signature);
+        let _ = update(
+            &mut state,
+            Message::ExpandDone(
+                root,
+                signature,
+                Ok(llm::ExpandResult::new(
+                    Some("rewrite".to_string()),
+                    vec![llm::ExpandSuggestion::new("child".to_string())],
+                )),
+            ),
+        );
+        let draft = state.store.expansion_draft(&root).expect("draft is created");
+        assert_eq!(draft.rewrite.as_deref(), Some("rewrite"));
+        assert_eq!(draft.children, vec!["child".to_string()]);
+    }
+
+    #[test]
+    fn expand_done_stale_response_is_ignored() {
+        let (mut state, root) = test_state();
+        let signature = state.lineage_signature(&root).expect("root has lineage");
+        state.pending_expand_signatures.insert(root, signature);
+        state.store.update_point(&root, "edited while pending".to_string());
+        let _ = update(
+            &mut state,
+            Message::ExpandDone(
+                root,
+                signature,
+                Ok(llm::ExpandResult::new(
+                    Some("stale rewrite".to_string()),
+                    vec![llm::ExpandSuggestion::new("stale child".to_string())],
+                )),
+            ),
+        );
+        assert!(state.store.expansion_draft(&root).is_none());
+    }
+
+    #[test]
+    fn cancel_expand_clears_loading_state_and_pending_signature() {
+        let (mut state, root) = test_state();
+        let _ = update(&mut state, Message::Expand(root));
+        assert!(state.is_expanding(&root));
+        assert!(state.pending_expand_signatures.get(root).is_some());
+        let _ = update(&mut state, Message::CancelExpand(root));
+        assert!(!state.is_expanding(&root));
+        assert!(state.pending_expand_signatures.get(root).is_none());
+    }
+
+    #[test]
+    fn apply_expanded_rewrite_updates_point_and_clears_empty_draft() {
+        let (mut state, root) = test_state();
+        state.store.insert_expansion_draft(
+            root,
+            ExpansionDraftRecord { rewrite: Some("rewritten point".to_string()), children: vec![] },
+        );
+        let _ = update(&mut state, Message::ApplyExpandedRewrite(root));
+        assert_eq!(state.store.point(&root).as_deref(), Some("rewritten point"));
+        assert!(state.store.expansion_draft(&root).is_none());
+    }
+
+    #[test]
+    fn reject_expanded_rewrite_keeps_child_suggestions() {
+        let (mut state, root) = test_state();
+        state.store.insert_expansion_draft(
+            root,
+            ExpansionDraftRecord {
+                rewrite: Some("rewrite".to_string()),
+                children: vec!["child a".to_string()],
+            },
+        );
+        let _ = update(&mut state, Message::RejectExpandedRewrite(root));
+        let draft = state.store.expansion_draft(&root).expect("draft remains with children");
+        assert!(draft.rewrite.is_none());
+        assert_eq!(draft.children, vec!["child a".to_string()]);
+    }
+
+    #[test]
+    fn accept_expanded_child_appends_child_and_updates_draft() {
+        let (mut state, root) = test_state();
+        let before_children_len = state.store.children(&root).len();
+        state.store.insert_expansion_draft(
+            root,
+            ExpansionDraftRecord {
+                rewrite: None,
+                children: vec!["child a".to_string(), "child b".to_string()],
+            },
+        );
+        let _ = update(&mut state, Message::AcceptExpandedChild(root, 0));
+        let children = state.store.children(&root);
+        assert_eq!(children.len(), before_children_len + 1);
+        let child_id = *children.last().expect("new child is appended");
+        assert_eq!(state.store.point(&child_id).as_deref(), Some("child a"));
+        let draft = state.store.expansion_draft(&root).expect("draft remains with one child");
+        assert_eq!(draft.children, vec!["child b".to_string()]);
+    }
+
+    #[test]
+    fn accept_all_expanded_children_keeps_rewrite_and_clears_children() {
+        let (mut state, root) = test_state();
+        let before_children_len = state.store.children(&root).len();
+        state.store.insert_expansion_draft(
+            root,
+            ExpansionDraftRecord {
+                rewrite: Some("rewrite".to_string()),
+                children: vec!["child a".to_string(), "child b".to_string()],
+            },
+        );
+        let _ = update(&mut state, Message::AcceptAllExpandedChildren(root));
+        let children = state.store.children(&root);
+        assert_eq!(children.len(), before_children_len + 2);
+        let first = children[before_children_len];
+        let second = children[before_children_len + 1];
+        assert_eq!(state.store.point(&first).as_deref(), Some("child a"));
+        assert_eq!(state.store.point(&second).as_deref(), Some("child b"));
+        let draft = state.store.expansion_draft(&root).expect("rewrite-only draft remains");
+        assert_eq!(draft.rewrite.as_deref(), Some("rewrite"));
+        assert!(draft.children.is_empty());
+    }
+
+    #[test]
+    fn discard_expansion_removes_draft() {
+        let (mut state, root) = test_state();
+        state.store.insert_expansion_draft(
+            root,
+            ExpansionDraftRecord { rewrite: None, children: vec!["child a".to_string()] },
+        );
+        let _ = update(&mut state, Message::DiscardExpansion(root));
+        assert!(state.store.expansion_draft(&root).is_none());
+    }
+
+    #[test]
+    fn reduce_done_success_persists_draft_in_store() {
+        let (mut state, root) = test_state();
+        let signature = state.lineage_signature(&root).expect("root has lineage");
+        state.pending_reduce_signatures.insert(root, signature);
+        let _ = update(&mut state, Message::ReduceDone(root, signature, Ok("reduced".to_string())));
+        let draft = state.store.reduction_draft(&root).expect("reduction draft is created");
+        assert_eq!(draft.reduction, "reduced".to_string());
+    }
+
+    #[test]
+    fn reduce_done_stale_response_is_ignored() {
+        let (mut state, root) = test_state();
+        let signature = state.lineage_signature(&root).expect("root has lineage");
+        state.pending_reduce_signatures.insert(root, signature);
+        state.store.update_point(&root, "edited while pending".to_string());
+        let _ = update(
+            &mut state,
+            Message::ReduceDone(root, signature, Ok("stale reduction".to_string())),
+        );
+        assert!(state.store.reduction_draft(&root).is_none());
+    }
+
+    #[test]
+    fn cancel_reduce_clears_loading_state_and_pending_signature() {
+        let (mut state, root) = test_state();
+        let _ = update(&mut state, Message::Reduce(root));
+        assert!(state.is_reducing(&root));
+        assert!(state.pending_reduce_signatures.get(root).is_some());
+        let _ = update(&mut state, Message::CancelReduce(root));
+        assert!(!state.is_reducing(&root));
+        assert!(state.pending_reduce_signatures.get(root).is_none());
+    }
+
+    #[test]
+    fn apply_reduction_updates_point_and_clears_draft() {
+        let (mut state, root) = test_state();
+        state.store.insert_reduction_draft(
+            root,
+            ReductionDraftRecord { reduction: "reduced point".to_string() },
+        );
+        let _ = update(&mut state, Message::ApplyReduction(root));
+        assert_eq!(state.store.point(&root).as_deref(), Some("reduced point"));
+        assert!(state.store.reduction_draft(&root).is_none());
+    }
+
+    #[test]
+    fn reject_reduction_clears_draft() {
+        let (mut state, root) = test_state();
+        state.store.insert_reduction_draft(
+            root,
+            ReductionDraftRecord { reduction: "reduced point".to_string() },
+        );
+        let _ = update(&mut state, Message::RejectReduction(root));
+        assert!(state.store.reduction_draft(&root).is_none());
+    }
+
+    #[test]
+    fn reduce_done_error_sets_reduce_error_state() {
+        let (mut state, root) = test_state();
+        let signature = state.lineage_signature(&root).expect("root has lineage");
+        state.pending_reduce_signatures.insert(root, signature);
+        let _ = update(
+            &mut state,
+            Message::ReduceDone(root, signature, Err(super::UiError::from_message("failed"))),
+        );
+        assert!(
+            state
+                .reduce_states
+                .get(root)
+                .is_some_and(|s| matches!(s, super::ReduceState::Error { .. }))
+        );
     }
 }
 

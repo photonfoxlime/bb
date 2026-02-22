@@ -37,6 +37,6 @@ Section headers with typographic hierarchy in draft panels (rewrite, child sugge
 
 ## Testing
 - Graph mutation and lineage resolution unit tests.
-- Expand draft state transition tests.
+- ~~Expand draft state transition tests.~~ Done (expand/reduce transition coverage in app update tests, including stale/cancel/apply/reject paths).
 - Serialization round-trip tests.
 - Save/load integration tests with malformed data.
