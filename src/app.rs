@@ -24,8 +24,8 @@ use action_bar::{
     ActionAvailability, ActionId, RowContext, ViewportBucket, action_to_message_by_id,
     build_action_bar_vm, project_for_viewport, shortcut_to_action,
 };
-use iced::widget::{column, container, scrollable, text, text_editor};
 use iced::theme::Mode;
+use iced::widget::{column, container, scrollable, text, text_editor};
 use iced::{Element, Event, Fill, Subscription, Task, event, keyboard, mouse, system, widget};
 use slotmap::SecondaryMap;
 
@@ -249,9 +249,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             // performing it, so we can check visual edge after the move.
             let vertical_direction = match &action {
                 | text_editor::Action::Move(text_editor::Motion::Up) => Some(VerticalDir::Up),
-                | text_editor::Action::Move(text_editor::Motion::Down) => {
-                    Some(VerticalDir::Down)
-                }
+                | text_editor::Action::Move(text_editor::Motion::Down) => Some(VerticalDir::Down),
                 | _ => None,
             };
 
@@ -693,8 +691,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                             }
                             | Err(err) => {
                                 tracing::error!(block_id = ?block_id, %err, "failed to re-expand after save-to-file");
-                                state.error =
-                                    Some(AppError::Mount(UiError::from_message(&err)));
+                                state.error = Some(AppError::Mount(UiError::from_message(&err)));
                             }
                         }
                         if let Err(err) = state.save_tree() {

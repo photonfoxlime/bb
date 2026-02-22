@@ -4,9 +4,9 @@
 //! `Theme::mode()` at render time, so all style functions adapt automatically
 //! when the system appearance changes.
 
+use iced::theme::Base;
 use iced::theme::Mode;
 use iced::widget::{button, container, rule, text, text_editor};
-use iced::theme::Base;
 use iced::{Color, Font, Theme, border};
 
 pub const INTER: Font = Font::with_name("Inter");

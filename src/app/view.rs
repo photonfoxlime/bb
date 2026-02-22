@@ -93,11 +93,7 @@ impl<'a> TreeView<'a> {
             } else {
                 Message::ToggleFold(*block_id)
             };
-            button(chevron.size(12))
-                .style(theme::action_button)
-                .padding(0)
-                .on_press(msg)
-                .into()
+            button(chevron.size(12)).style(theme::action_button).padding(0).on_press(msg).into()
         } else {
             container(text("\u{2022}").size(12).style(theme::spine_text))
                 .width(Length::Fixed(theme::MARKER_WIDTH))
@@ -161,7 +157,6 @@ impl<'a> TreeView<'a> {
                 );
             }
         }
-
 
         let is_active = self.state.focused_block_id == Some(*block_id)
             || self.state.active_block_id == Some(*block_id);

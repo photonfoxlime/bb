@@ -191,10 +191,8 @@ impl BlockStore {
             } else {
                 match old_node {
                     | BlockNode::Children { children } => {
-                        let new_children: Vec<BlockId> = children
-                            .iter()
-                            .filter_map(|c| id_map.get(c).copied())
-                            .collect();
+                        let new_children: Vec<BlockId> =
+                            children.iter().filter_map(|c| id_map.get(c).copied()).collect();
                         if let Some(node) = sub_nodes.get_mut(new_id) {
                             *node = BlockNode::with_children(new_children);
                         }
@@ -237,10 +235,8 @@ impl BlockStore {
             if let Some(old_node) = self.nodes.get(old_id) {
                 match old_node {
                     | BlockNode::Children { children } => {
-                        let new_children: Vec<BlockId> = children
-                            .iter()
-                            .filter_map(|c| id_map.get(c).copied())
-                            .collect();
+                        let new_children: Vec<BlockId> =
+                            children.iter().filter_map(|c| id_map.get(c).copied()).collect();
                         if let Some(node) = sub_nodes.get_mut(new_id) {
                             *node = BlockNode::with_children(new_children);
                         }
@@ -501,10 +497,8 @@ impl BlockStore {
             } else if let Some(old_node) = self.nodes.get(old_id) {
                 match old_node {
                     | BlockNode::Children { children } => {
-                        let new_children: Vec<BlockId> = children
-                            .iter()
-                            .filter_map(|c| id_map.get(c).copied())
-                            .collect();
+                        let new_children: Vec<BlockId> =
+                            children.iter().filter_map(|c| id_map.get(c).copied()).collect();
                         if let Some(node) = sub_nodes.get_mut(new_id) {
                             *node = BlockNode::with_children(new_children);
                         }
@@ -726,8 +720,7 @@ impl BlockStore {
     /// points encountered during traversal (they are also included in
     /// `own_ids` since the mount-point node itself belongs to this store).
     fn collect_own_subtree_ids(
-        &self, current: &BlockId, own_ids: &mut Vec<BlockId>,
-        mount_points: &mut Vec<BlockId>,
+        &self, current: &BlockId, own_ids: &mut Vec<BlockId>, mount_points: &mut Vec<BlockId>,
     ) {
         let Some(node) = self.node(current) else {
             return;
