@@ -13,7 +13,7 @@ use std::{fs, io};
 use thiserror::Error;
 
 slotmap::new_key_type! {
-pub struct BlockId;
+    pub struct BlockId;
 }
 
 /// Persisted expansion draft payload keyed by [`BlockId`].
