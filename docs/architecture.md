@@ -12,6 +12,7 @@ For project purpose, data model, and workflow, see [README.md](../README.md) (ca
 | [architecture.md](architecture.md) | Module map, key types, design decisions (this file) |
 | [action-bar.md](action-bar.md) | Action bar structure, shortcuts, responsive projection |
 | [mount-system.md](mount-system.md) | External file mounts, save/load to file |
+| [persistence.md](persistence.md) | Main-file and mount-file load/save pipeline |
 | [undo-system.md](undo-system.md) | Undo/redo architecture, snapshot protocol |
 | [expansion-diff.md](expansion-diff.md) | Expansion draft diff rendering |
 | [async-conflict-safety.md](async-conflict-safety.md) | Stale-response guard for async expand/reduce |

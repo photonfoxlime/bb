@@ -174,7 +174,8 @@ impl BlockStore {
             fs::create_dir_all(parent)?;
         }
         let clean = self.snapshot_for_save();
-        let contents = serde_json::to_string_pretty(&clean).unwrap_or_else(|_| "{}".to_string());
+        let contents = serde_json::to_string_pretty(&clean)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
         fs::write(path, contents)
     }
 
@@ -188,7 +189,8 @@ impl BlockStore {
             if let Some(parent) = entry.path.parent() {
                 fs::create_dir_all(parent)?;
             }
-            let json = serde_json::to_string_pretty(&sub).unwrap_or_else(|_| "{}".to_string());
+            let json = serde_json::to_string_pretty(&sub)
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
             fs::write(&entry.path, json)?;
         }
         Ok(())
