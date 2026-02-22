@@ -1177,6 +1177,34 @@ mod tests {
     }
 
     #[test]
+    fn reject_expanded_child_removes_draft_when_last_child() {
+        let (mut state, root) = test_state();
+        state.store.insert_expansion_draft(
+            root,
+            ExpansionDraftRecord { rewrite: None, children: vec!["only child".to_string()] },
+        );
+        let _ = update(&mut state, Message::RejectExpandedChild(root, 0));
+        assert!(state.store.expansion_draft(&root).is_none());
+    }
+
+    #[test]
+    fn expand_done_error_sets_expand_error_state() {
+        let (mut state, root) = test_state();
+        let signature = state.lineage_signature(&root).expect("root has lineage");
+        state.pending_expand_signatures.insert(root, signature);
+        let _ = update(
+            &mut state,
+            Message::ExpandDone(root, signature, Err(super::UiError::from_message("failed"))),
+        );
+        assert!(
+            state
+                .expand_states
+                .get(root)
+                .is_some_and(|s| matches!(s, super::ExpandState::Error { .. }))
+        );
+    }
+
+    #[test]
     fn reduce_done_error_sets_reduce_error_state() {
         let (mut state, root) = test_state();
         let signature = state.lineage_signature(&root).expect("root has lineage");
@@ -1191,6 +1219,43 @@ mod tests {
                 .get(root)
                 .is_some_and(|s| matches!(s, super::ReduceState::Error { .. }))
         );
+    }
+
+    #[test]
+    fn cancel_expand_then_late_response_is_ignored() {
+        let (mut state, root) = test_state();
+        let signature = state.lineage_signature(&root).expect("root has lineage");
+        state.pending_expand_signatures.insert(root, signature);
+        state.expand_states.insert(root, super::ExpandState::Loading);
+        let _ = update(&mut state, Message::CancelExpand(root));
+        let _ = update(
+            &mut state,
+            Message::ExpandDone(
+                root,
+                signature,
+                Ok(llm::ExpandResult::new(
+                    Some("late rewrite".to_string()),
+                    vec![llm::ExpandSuggestion::new("late child".to_string())],
+                )),
+            ),
+        );
+        assert!(state.store.expansion_draft(&root).is_none());
+        assert!(state.expand_states.get(root).is_none());
+    }
+
+    #[test]
+    fn cancel_reduce_then_late_response_is_ignored() {
+        let (mut state, root) = test_state();
+        let signature = state.lineage_signature(&root).expect("root has lineage");
+        state.pending_reduce_signatures.insert(root, signature);
+        state.reduce_states.insert(root, super::ReduceState::Loading);
+        let _ = update(&mut state, Message::CancelReduce(root));
+        let _ = update(
+            &mut state,
+            Message::ReduceDone(root, signature, Ok("late reduction".to_string())),
+        );
+        assert!(state.store.reduction_draft(&root).is_none());
+        assert!(state.reduce_states.get(root).is_none());
     }
 }
 
