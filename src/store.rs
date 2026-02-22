@@ -166,7 +166,7 @@ impl BlockStore {
     }
 
     fn load_from_path(path: &Path) -> Result<Self, StoreLoadError> {
-        match fs::read_to_string(&path) {
+        match fs::read_to_string(path) {
             | Ok(contents) => serde_json::from_str(&contents)
                 .map_err(|source| StoreLoadError::Parse { path: path.to_path_buf(), source }),
             | Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
@@ -440,11 +440,10 @@ impl BlockStore {
         if let Some(mount_point) = self.inherited_mount_point_for_anchor(parent_id) {
             self.mount_table.set_origin(child_id, BlockOrigin::Mounted { mount_point });
         }
-        if let Some(parent) = self.nodes.get_mut(*parent_id) {
-            if let Some(children) = parent.children_mut() {
+        if let Some(parent) = self.nodes.get_mut(*parent_id)
+            && let Some(children) = parent.children_mut() {
                 children.push(child_id);
             }
-        }
         Some(child_id)
     }
 
@@ -492,11 +491,10 @@ impl BlockStore {
     pub fn remove_block_subtree(&mut self, block_id: &BlockId) -> Option<Vec<BlockId>> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
         if let Some(parent_id) = parent_id {
-            if let Some(parent) = self.nodes.get_mut(parent_id) {
-                if let Some(children) = parent.children_mut() {
+            if let Some(parent) = self.nodes.get_mut(parent_id)
+                && let Some(children) = parent.children_mut() {
                     children.remove(index);
                 }
-            }
         } else {
             self.roots.remove(index);
         }
@@ -673,11 +671,10 @@ impl BlockStore {
             let new_id = id_map[&old_id];
             if nested_mounts.contains(&old_id) {
                 // Expanded mount point: restore as a Mount node.
-                if let Some(entry) = self.mount_table.entry(old_id) {
-                    if let Some(node) = sub_nodes.get_mut(new_id) {
+                if let Some(entry) = self.mount_table.entry(old_id)
+                    && let Some(node) = sub_nodes.get_mut(new_id) {
                         *node = BlockNode::with_path(entry.rel_path.clone());
                     }
-                }
             } else if let Some(old_node) = self.nodes.get(old_id) {
                 match old_node {
                     | BlockNode::Children { children } => {

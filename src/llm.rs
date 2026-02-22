@@ -8,7 +8,6 @@ use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
 use std::{env, fs, io, path::PathBuf};
 use thiserror::Error;
-use tracing;
 
 /// Validated LLM endpoint configuration.
 ///

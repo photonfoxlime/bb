@@ -304,8 +304,8 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 // Edge-detection: if a vertical move did not change the cursor
                 // position, we are at the visual boundary (accounting for
                 // wrapped lines) and should navigate to the adjacent block.
-                if let Some(dir) = vertical_direction {
-                    if cursor_before == cursor_after {
+                if let Some(dir) = vertical_direction
+                    && cursor_before == cursor_after {
                         navigate_to = match dir {
                             | VerticalDir::Up => {
                                 state.store.prev_visible_in_dfs(&block_id, &state.collapsed)
@@ -315,7 +315,6 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                             }
                         };
                     }
-                }
 
                 // If we are NOT navigating away, persist the text change.
                 if navigate_to.is_none() {
@@ -329,8 +328,8 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             } // mutable borrow on `state.editors` dropped here
 
             // Phase 2: navigate to the adjacent block (immutable borrow).
-            if let Some(target_id) = navigate_to {
-                if let Some(wid) = state.editors.widget_id(&target_id) {
+            if let Some(target_id) = navigate_to
+                && let Some(wid) = state.editors.widget_id(&target_id) {
                     state.focused_block_id = Some(target_id);
                     tracing::debug!(
                         from = ?block_id,
@@ -339,7 +338,6 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     );
                     return widget::operation::focus(wid.clone());
                 }
-            }
             Task::none()
         }
         | Message::Reduce(block_id) => {
@@ -370,7 +368,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     match tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.reduce_lineage(&lineage))
                         .await
                     {
-                        | Ok(result) => result.map_err(|err| UiError::from_message(err)),
+                        | Ok(result) => result.map_err(UiError::from_message),
                         | Err(_) => {
                             Err(UiError::from_message("reduce request timed out after 30 seconds"))
                         }
@@ -386,11 +384,10 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.set_active_block(&block_id);
             if state.is_reducing(&block_id) {
                 tracing::info!(block_id = ?block_id, "reduce request cancelled");
-                if let Some((active_block_id, handle)) = state.reduce_handle.take() {
-                    if active_block_id == block_id {
+                if let Some((active_block_id, handle)) = state.reduce_handle.take()
+                    && active_block_id == block_id {
                         handle.abort();
                     }
-                }
                 state.reduce_states.remove(block_id);
                 state.pending_reduce_signatures.remove(block_id);
             }
@@ -447,11 +444,10 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 state.editors.set_text(&block_id, &draft.reduction);
                 should_save = true;
             }
-            if should_save {
-                if let Err(err) = state.save_tree() {
+            if should_save
+                && let Err(err) = state.save_tree() {
                     tracing::error!(%err, "failed to save tree after applying reduction");
                 }
-            }
             Task::none()
         }
         | Message::RejectReduction(block_id) => {
@@ -492,7 +488,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     match tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.expand_lineage(&lineage))
                         .await
                     {
-                        | Ok(result) => result.map_err(|err| UiError::from_message(err)),
+                        | Ok(result) => result.map_err(UiError::from_message),
                         | Err(_) => {
                             Err(UiError::from_message("expand request timed out after 30 seconds"))
                         }
@@ -508,11 +504,10 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.set_active_block(&block_id);
             if state.is_expanding(&block_id) {
                 tracing::info!(block_id = ?block_id, "expand request cancelled");
-                if let Some((active_block_id, handle)) = state.expand_handle.take() {
-                    if active_block_id == block_id {
+                if let Some((active_block_id, handle)) = state.expand_handle.take()
+                    && active_block_id == block_id {
                         handle.abort();
                     }
-                }
                 state.expand_states.remove(block_id);
                 state.pending_expand_signatures.remove(block_id);
             }
@@ -601,11 +596,10 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if should_remove_draft {
                 state.store.remove_expansion_draft(&block_id);
             }
-            if should_save {
-                if let Err(err) = state.save_tree() {
+            if should_save
+                && let Err(err) = state.save_tree() {
                     tracing::error!(%err, "failed to save tree after applying rewrite");
                 }
-            }
             Task::none()
         }
         | Message::RejectExpandedRewrite(block_id) => {
@@ -621,11 +615,10 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if should_remove_draft {
                 state.store.remove_expansion_draft(&block_id);
             }
-            if changed {
-                if let Err(err) = state.save_tree() {
+            if changed
+                && let Err(err) = state.save_tree() {
                     tracing::error!(%err, "failed to save tree after rejecting rewrite");
                 }
-            }
             Task::none()
         }
         | Message::AcceptExpandedChild(block_id, child_index) => {
@@ -642,8 +635,8 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     should_remove_draft = true;
                 }
             }
-            if let Some(point) = accepted_child_point {
-                if let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
+            if let Some(point) = accepted_child_point
+                && let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
                     tracing::info!(
                         parent_block_id = ?block_id,
                         child_block_id = ?child_id,
@@ -653,15 +646,13 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     state.editors.set_text(&child_id, &point);
                     should_save = true;
                 }
-            }
             if should_remove_draft {
                 state.store.remove_expansion_draft(&block_id);
             }
-            if should_save {
-                if let Err(err) = state.save_tree() {
+            if should_save
+                && let Err(err) = state.save_tree() {
                     tracing::error!(%err, "failed to save tree after accepting expanded child");
                 }
-            }
             Task::none()
         }
         | Message::RejectExpandedChild(block_id, child_index) => {
@@ -679,11 +670,10 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if should_remove_draft {
                 state.store.remove_expansion_draft(&block_id);
             }
-            if changed {
-                if let Err(err) = state.save_tree() {
+            if changed
+                && let Err(err) = state.save_tree() {
                     tracing::error!(%err, "failed to save tree after rejecting expanded child");
                 }
-            }
             Task::none()
         }
         | Message::AcceptAllExpandedChildren(block_id) => {
@@ -713,11 +703,10 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         | Message::DiscardExpansion(block_id) => {
             state.set_active_block(&block_id);
             tracing::info!(block_id = ?block_id, "discarded expansion draft");
-            if state.store.remove_expansion_draft(&block_id).is_some() {
-                if let Err(err) = state.save_tree() {
+            if state.store.remove_expansion_draft(&block_id).is_some()
+                && let Err(err) = state.save_tree() {
                     tracing::error!(%err, "failed to save tree after discarding expansion draft");
                 }
-            }
             Task::none()
         }
         | Message::ToggleOverflow(block_id) => {
@@ -780,16 +769,14 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 tracing::info!(block_id = ?block_id, removed = removed_ids.len(), "archived block subtree");
                 state.editors.remove_blocks(&removed_ids);
                 for id in &removed_ids {
-                    if state.reduce_handle.as_ref().is_some_and(|(active, _)| *active == *id) {
-                        if let Some((_, handle)) = state.reduce_handle.take() {
+                    if state.reduce_handle.as_ref().is_some_and(|(active, _)| *active == *id)
+                        && let Some((_, handle)) = state.reduce_handle.take() {
                             handle.abort();
                         }
-                    }
-                    if state.expand_handle.as_ref().is_some_and(|(active, _)| *active == *id) {
-                        if let Some((_, handle)) = state.expand_handle.take() {
+                    if state.expand_handle.as_ref().is_some_and(|(active, _)| *active == *id)
+                        && let Some((_, handle)) = state.expand_handle.take() {
                             handle.abort();
                         }
-                    }
                     state.pending_reduce_signatures.remove(*id);
                     state.pending_expand_signatures.remove(*id);
                     state.reduce_states.remove(*id);
@@ -1367,11 +1354,10 @@ fn run_shortcut_for_block(
         .find(|item| item.id == action_id)
         .is_some_and(|descriptor| descriptor.availability == ActionAvailability::Enabled);
 
-    if is_enabled {
-        if let Some(next) = action_to_message_by_id(state, &block_id, action_id) {
+    if is_enabled
+        && let Some(next) = action_to_message_by_id(state, &block_id, action_id) {
             return update(state, next);
         }
-    }
 
     Task::none()
 }

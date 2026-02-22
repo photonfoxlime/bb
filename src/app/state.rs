@@ -49,33 +49,27 @@ impl AppError {
 ///
 /// Stored in a map keyed by `BlockId`; missing entry means Idle.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub(crate) enum ReduceState {
+    #[default]
     Idle,
     Loading,
     Error { reason: UiError },
 }
 
-impl Default for ReduceState {
-    fn default() -> Self {
-        Self::Idle
-    }
-}
 
 /// Per-block expand operation state: Idle → Loading → Idle/Error.
 ///
 /// Stored in a map keyed by `BlockId`; missing entry means Idle.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Default)]
 pub(crate) enum ExpandState {
+    #[default]
     Idle,
     Loading,
     Error { reason: UiError },
 }
 
-impl Default for ExpandState {
-    fn default() -> Self {
-        Self::Idle
-    }
-}
 
 /// Captured request-context fingerprint for async expand/reduce.
 ///
