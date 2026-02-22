@@ -16,7 +16,7 @@ For project purpose, data model, and workflow, see [README.md](../README.md) (ca
 | [undo-system.md](undo-system.md) | Undo/redo architecture, snapshot protocol |
 | [expansion-diff.md](expansion-diff.md) | Expansion draft diff rendering |
 | [async-conflict-safety.md](async-conflict-safety.md) | Stale-response guard for async expand/reduce |
-| [code-quality-review-2026-02-22.md](code-quality-review-2026-02-22.md) | Repo-wide quality findings and refactor priorities |
+| [message-routing.md](message-routing.md) | Typed message families and exhaustive routing |
 | [backlog.md](backlog.md) | Unimplemented ideas and exploration items |
 | [keyboard.md](keyboard.md) | Keyboard navigation: block traversal, focus transfer |
 
@@ -38,11 +38,11 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 ## Module Structure
 
 - `src/main.rs` -- Iced app entry. Loads fonts (WenKai, Inter, Lucide), wires theme via `.theme(|state| theme::app_theme(state.is_dark))`.
-- `src/app.rs` -- Orchestration: AppState, Message enum, update loop, subscription (event + system theme changes), view dispatch.
+- `src/app.rs` -- Orchestration: AppState, typed message families, update routing, subscription (event + system theme changes), view dispatch.
 - `src/app/state.rs` -- UI error types and async lifecycle data (UiError, AppError, ReduceState, ExpandState, RequestSignature).
 - `src/app/editor_store.rs` -- EditorStore: SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers, plus SecondaryMap\<BlockId, widget::Id\> for programmatic focus.
 - `src/app/view.rs` -- TreeView: pure renderer from immutable AppState into widget tree.
-- `src/app/action_bar/` -- Typed action bar: types, selector (state-to-VM), responsive projection, keyboard shortcuts, dispatch.
+- `src/app/action_bar.rs` -- Typed action bar: types, selector (state-to-VM), responsive projection, keyboard shortcuts, dispatch.
 - `src/store.rs` -- Block store data model: BlockId (slotmap key), BlockNode enum, BlockStore (SlotMap + SecondaryMaps). JSON persistence.
 - `src/mount.rs` -- Mount table: MountTable, MountEntry, BlockOrigin, MountError. Tracks blocks loaded from external files.
 - `src/paths.rs` -- Shared application directory paths (AppPaths).
@@ -65,7 +65,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 | `UndoHistory<T>` | `undo.rs` | Fixed-capacity undo/redo stack. |
 | `UiError` | `app/state.rs` | Display-safe error for UI messages. |
 | `AppError` | `app/state.rs` | Tagged application error source (config, persistence, reduce, expand, mount). |
-| `ReductionState` | `app/state.rs` | Per-row reduce lifecycle (Idle, Loading, Error). |
+| `ReduceState` | `app/state.rs` | Per-row reduce lifecycle (Idle, Loading, Error). |
 | `ExpandState` | `app/state.rs` | Per-row expand lifecycle (Idle, Loading, Error). |
 | `EditorStore` | `app/editor_store.rs` | SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers; SecondaryMap\<BlockId, widget::Id\> for programmatic focus targeting. |
 | `AppState` | `app.rs` | Full UI state: store, editors, LLM config, lifecycle, focused/active block tracking, `collapsed` set for fold state, and `is_dark` flag for theme mode. Per-block maps use SecondaryMap. |
@@ -85,8 +85,9 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 - **Lineage-based context**. Reduce and expand use DFS root-to-target lineage as LLM context.
 - **Strict expand JSON contract**. Expand accepts only strict JSON with shape `{\"rewrite\": string|null, \"children\": string[]}`; there is no retry/fallback parser. Non-conforming responses fail fast as `InvalidExpandResponse` so output quality issues remain visible and deterministic.
 - **Expand output quality guardrails**. Expand prompt requires a one-sentence rewrite and 3-6 mutually non-overlapping child suggestions that each cover distinct subtopics without repeating rewrite content.
-- **Single-block async lifecycle**. One reduce and one expand operation active at a time (`ReductionState` / `ExpandState` enums).
+- **Single-block async lifecycle**. One reduce and one expand operation active at a time (`ReduceState` / `ExpandState` enums).
 - **Conflict-safe async responses**. Expand/reduce requests capture a lineage signature (root-to-target points) at dispatch time; responses are discarded as stale if that lineage changes before completion.
+- **Typed message routing with exhaustiveness checks**. `Message` is split into domain enums (`UndoRedoMessage`, `ReduceMessage`, `ExpandMessage`, etc.). `update` routes by domain, then each domain handler performs exhaustive matching on its own enum.
 - **Per-request cancel and timeout**. While reduce/expand is loading, UI exposes a cancel action that clears pending request tracking for that block; async LLM calls are wrapped with a 30-second timeout.
 - **Draft-then-apply with persisted drafts**. Expand and reduce results are staged as drafts and persisted in `BlockStore` (not transient-only). Rewrite and each child are accepted/rejected independently; reduction drafts are applied/rejected explicitly.
 - **Single source for persisted draft truth**. Drafts live only in `BlockStore`; UI and update logic read/write draft records directly through store accessors.

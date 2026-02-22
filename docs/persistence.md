@@ -4,89 +4,66 @@ For overall architecture and document index, see [architecture.md](architecture.
 
 ## Overview
 
-Persistence is split into two layers:
+Persistence has two write targets:
 
-- Main document file (`blocks.json`) under `AppPaths::data_dir()`.
-- Mounted external files referenced by `BlockNode::Mount { path }`.
+1. Main document file (`blocks.json`) under `AppPaths::data_dir()`.
+2. Mounted files referenced by `BlockNode::Mount { path }`.
 
-`AppState::save_tree()` is the single persistence entry point in app logic.
-It writes the main file first, then writes every expanded mount file.
+`AppState::save_tree()` is the single app-level entry point. It runs:
+
+1. `BlockStore::save()` for main file snapshot.
+2. `BlockStore::save_mounts()` for expanded mount entries.
 
 ## Startup Load
 
 `AppState::load()` calls `BlockStore::load()`:
 
-1. Resolve `<data_dir>/blocks.json` via `AppPaths::data_file()`.
-2. Read JSON and deserialize `BlockStore`.
-3. If the file is missing, start from `BlockStore::default()`.
-4. If data path resolution fails, read fails for other reasons, or JSON
-   is malformed, startup enters a guarded state:
-   - In-memory store starts from `BlockStore::default()`.
-   - UI shows a persistence error banner.
-   - Further saves are blocked for the session to avoid overwriting data.
+- Missing `blocks.json` -> start from `BlockStore::default()`.
+- Path/read/parse failure -> guarded mode:
+  - in-memory store starts as default,
+  - persistence error is shown in UI,
+  - saves are blocked for the session (`persistence_blocked = true`).
 
-Mount table metadata is runtime-only (`#[serde(skip)]`) and starts empty.
-Mounts are reconstructed lazily when users expand mount nodes.
+Reasoning: guarded mode prevents accidental overwrite after a corrupted or unreadable startup state.
 
-## Save Pipeline
+## Save Semantics
 
-`AppState::save_tree()` runs this sequence:
+`save_tree()` is called after edits, structure changes, mount actions, and undo/redo restore.
 
-1. `BlockStore::save()` writes the main document snapshot.
-2. `BlockStore::save_mounts()` writes all expanded mounted sub-stores.
+- Serialization is strict (`serde_json::to_string_pretty` failures return errors).
+- No fallback payload is written.
+- Persistence errors are surfaced as `AppError::Persistence`.
 
-This function is called after point edits, structure edits, draft updates,
-undo/redo restores, and mount actions.
+## Snapshot Behavior
 
-If persistence is blocked due to startup load failure, `save_tree()` returns
-an error and keeps the banner visible instead of writing files.
+Main-file save uses `snapshot_for_save()` to avoid inlining mounted file content:
 
-## Main Document Save (`BlockStore::save`)
+- Expanded mount points are restored to `Mount { rel_path }`.
+- Mounted descendants are excluded from main snapshot.
+- Draft keys are remapped to compacted ids; drafts for excluded mounted blocks are dropped.
 
-Before serialization, `snapshot_for_save()` builds a compact snapshot:
+Mounted-file save extracts each expanded mount subtree from live state and writes it back to the mount file. Expanded nested mounts are serialized as mount links (not inlined).
 
-- Excludes re-keyed blocks that were loaded from mounted files.
-- Restores expanded mount points back to `BlockNode::Mount { rel_path }`.
-- Remaps persisted draft keys to the compacted key-space.
+## Failure-Mode Matrix
 
-Result: the main file stores mount references, not mounted inline content.
+| Stage | Failure | Runtime behavior | User impact | Data risk |
+|---|---|---|---|---|
+| Startup load | Path/read/parse error | Enter guarded mode, block future saves | Error banner, no save-through this session | Prevents overwrite of unknown/corrupt source |
+| Main save (`save`) | IO/serialize error | `save_tree()` fails, mount saves are skipped | Error banner; mutation remains in memory | No on-disk update this call |
+| Mount save (`save_mounts`) after successful main save | IO/serialize error for one mount | `save_tree()` fails after partial write | Error banner; main file may be newer than some mount files | Temporary cross-file skew until next successful save |
 
-## Mounted File Save (`BlockStore::save_mounts`)
+## Why main-first then mounts
 
-For each `MountEntry` in `MountTable`:
+Current order (`save` then `save_mounts`) prioritizes keeping the main graph shape current (including mount links). The tradeoff is possible temporary skew if a later mount write fails.
 
-- Extract mounted blocks from the current live subtree under the mount
-  point into a standalone `BlockStore`.
-- Collapse expanded nested mount points back to `Mount { path }` in the
-  serialized parent file.
-- Preserve draft records for mounted blocks.
-- Serialize and write to the mount entry's canonical absolute path.
+Operational guidance:
 
-Nested relative mount paths resolve against their parent mount file
-directory (not globally against the app data directory).
+- Treat persistence errors as actionable and retry after fixing file-system conditions.
+- Avoid forceful app termination immediately after a mount-save error.
 
-## Load/Save-To-File UI Actions
+## UI Actions and Persistence Hooks
 
-`Load from file` (`Message::LoadFromFilePicked`):
-
-1. Ensure target block exists and has no children.
-2. Replace node with `BlockNode::Mount { rel_path }`.
-3. Expand the mount immediately.
-4. Persist through `save_tree()`.
-
-`Save to file` (`Message::SaveToFilePicked`):
-
-1. Extract the block's children subtree into a standalone store file.
-2. Replace the block with `BlockNode::Mount { rel_path }`.
-3. Re-expand immediately for uninterrupted UI.
-4. Persist through `save_tree()`.
-
-## Serialization Error Policy
-
-Serialization is strict:
-
-- If `serde_json::to_string_pretty(...)` fails for main or mounted saves,
-  the save returns an error and nothing is written for that save target.
-- There is no `{}` fallback payload.
-
-This avoids silently writing structurally-valid but semantically-wrong files.
+- `Message::MountFile(MountFileMessage::LoadFromFilePicked { ... })`:
+  convert block to mount path, expand immediately, then persist.
+- `Message::MountFile(MountFileMessage::SaveToFilePicked { ... })`:
+  extract subtree to file, replace with mount link, re-expand, then persist.

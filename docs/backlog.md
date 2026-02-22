@@ -1,42 +1,43 @@
 # Exploration Backlog
 
-Unimplemented ideas and future directions. Not committed work -- just captured for reference.
+Unimplemented ideas and future directions.
 
 For current architecture, see [architecture.md](architecture.md).
 
-## Interaction
-- ~~Collapse/expand subtree visibility.~~ Done (disclosure chevron on marker).
-- ~~Keyboard-first traversal (up/down, indent-level moves).~~ Done (arrow-key edge detection + DFS focus transfer).
-- ~~Conflict-safe editing during async operations.~~ Done (lineage request signatures drop stale expand/reduce responses after local edits).
+## Active Priorities
 
-## Expand/Reduce quality
-- ~~Prompt tuning for concise, non-overlapping suggestions.~~ Done (expand prompt now requires one-sentence rewrite and distinct non-overlapping children).
-- ~~Per-request cancellation and timeout in UI.~~ Done (Cancel action while loading + 30s request timeout for expand/reduce).
-
-## Data model
+### Data model
 - Versioned storage schema for migrations.
-- Graph integrity checks (dangling ids, cycles).
-- Typed metadata on blocks (references, open-as-document flag).
+- Graph integrity checks (dangling ids, structural validation).
+- Typed block metadata (references, open-as-document flag).
 - Import/export format.
 
-## Polish
-- ~~Style tokens in one theme module (spacing, type ramp, radii).~~ Done.
-- Uniform bullet sizing: root bullet is disproportionately large relative to child bullets.
-- Breathing room between text editor and action icons (horizontal gap).
-- Minimum width on text editor so short text does not collapse the block.
-- Section headers with typographic hierarchy in draft panels (rewrite, child suggestions, reduce).
-- Empty-state placeholder when the document has no blocks.
+### UX polish
+- Uniform bullet sizing (root bullet is visually heavier than child bullets).
+- More horizontal breathing room between editor and action icons.
+- Minimum editor width for short text rows.
+- Draft panel typographic hierarchy for section labels.
+- Empty-state placeholder for blank document.
 - Subtle motion for expand/collapse and suggestion reveal.
 - Narrow-width/mobile tuning.
 
-## Safety
+### Safety and observability
 - Confirmation for destructive operations.
-- Autosave feedback and recovery indicator.
+- Autosave/recovery indicator.
 - Operation log for AI-generated changes.
 
-## Testing
+### Testing
 - Graph mutation and lineage resolution unit tests.
-- ~~Expand draft state transition tests.~~ Done (expand/reduce transition coverage in app update tests, including stale/cancel/apply/reject paths).
 - Serialization round-trip tests.
-- ~~Save/load integration tests with malformed data.~~ Done (malformed JSON now returns a strict parse error; dangling-child graph still loads and is normalized in save snapshot).
-- ~~Mounted persistence regressions (new descendants, siblings, duplicates, nested save-back).~~ Done (store tests now cover low-to-complex mounted persistence regressions, including previously buggy deep-node and nested save paths).
+
+## Recently Completed (kept for context)
+
+- Collapse/expand subtree visibility.
+- Keyboard-first traversal across visible DFS order.
+- Stale async response guard via lineage signatures.
+- Prompt tuning for concise, non-overlapping expansion suggestions.
+- Per-request cancellation and timeout for expand/reduce.
+- Centralized style tokens in theme module.
+- Expand/reduce state transition tests.
+- Strict malformed JSON load behavior and save normalization path coverage.
+- Mounted persistence regression coverage (deep nodes, siblings, duplicates, nested save-back).

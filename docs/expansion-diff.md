@@ -2,129 +2,39 @@
 
 For overall architecture and document index, see [architecture.md](architecture.md).
 
-## Overview
+## Current Behavior
 
-Expansion drafts use a git-diff-style format for the rewrite section only, showing word-wise changes between old and new text. Child suggestions are displayed as a simple list without diff highlighting.
+Expansion draft UI has two sections:
 
-## Visual Design
+1. **Rewrite diff** (when `draft.rewrite` exists)
+2. **Child suggestions list** (plain text, no diff)
 
-### Rewrite Section
+Reduce drafts use the same rewrite-style diff renderer.
 
-When `draft.rewrite` is present, show a unified diff view with word-wise highlighting:
+## Diff Algorithm
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Rewrite                                                     │
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ Original text continues with some changes               │ │
-│ │   [red highlight on "some"]                             │ │
-│ │                                                         │ │
-│ │ New rewritten text continues differently with changes   │ │
-│ │   [green highlight on "differently"]                    │ │
-│ └─────────────────────────────────────────────────────────┘ │
-│ [Apply rewrite] [Dismiss rewrite]                           │
-└─────────────────────────────────────────────────────────────┘
-```
+Implemented in `src/app/diff.rs`:
 
-Where words are highlighted inline:
-- Old: "Original text continues with [some] changes" (red highlight on deleted words)
-- New: "New rewritten text continues [differently] with changes" (green highlight on added words)
+- tokenization preserves whitespace tokens,
+- `similar::TextDiff` compares word-token slices,
+- output is a sequence of `WordChange::{Unchanged, Deleted, Added}`.
 
-**Word-wise diff:**
-- **Deletions**: Red background (`Color { a: 0.08, ..DANGER }`) on removed words
-- **Additions**: Green background (`Color { a: 0.08, ..SUCCESS }`) on added words
-- **Context** (unchanged): Neutral background, normal text
-- **Layout**: Old text shown first (with deletions highlighted), then new text (with additions highlighted)
-- **Inline highlighting**: Words are highlighted within their lines, preserving natural text flow
+Renderer in `src/app/view.rs` draws:
 
-### Children Section
+- old line with deletions highlighted,
+- new line with additions highlighted.
 
-Child suggestions are displayed as a simple list (no diff view):
+## Styling
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│ Child suggestions                                           │
-│ ┌─────────────────────────────────────────────────────────┐ │
-│ │ First suggested child block text                        │ │
-│ │ [Keep] [Drop]                                           │ │
-│ ├─────────────────────────────────────────────────────────┤ │
-│ │ Second suggested child block text                       │ │
-│ │ [Keep] [Drop]                                           │ │
-│ └─────────────────────────────────────────────────────────┘ │
-│ [Accept all] [Discard all]                                  │
-└─────────────────────────────────────────────────────────────┘
-```
+- Deletions: `theme::diff_deletion`
+- Additions: `theme::diff_addition`
+- Context: `theme::diff_context`
 
-Each child:
-- Simple text display (no diff highlighting)
-- Individual "Keep" / "Drop" buttons per child
-- "Accept all" / "Discard all" buttons at section header
-- Note: Children are new additions only, so no diff comparison needed
+Diff appears inside the draft panel (`theme::draft_panel`) with existing apply/reject controls.
 
-## Implementation
+## Scope Decision
 
-### Diff Algorithm
+Children are intentionally not diffed:
 
-**Rewrite section only:** Use word-wise diffing to highlight changes at the word level:
-1. Tokenize old/new text into words (split on whitespace, preserve punctuation)
-2. Compute word-by-word differences (insertions, deletions, unchanged)
-3. Render with inline word-level highlighting
-
-**Dependencies:**
-- Use `similar` crate for word-level diff (Myers algorithm on word sequences)
-- Or implement simple word-by-word comparison for MVP
-- Consider preserving whitespace/punctuation as separate tokens for accurate alignment
-
-**Children section:** No diff algorithm needed; display as simple text list.
-
-### Styling
-
-**New theme functions:**
-- `diff_deletion`: Red-tinted background for removed words (inline spans)
-- `diff_addition`: Green-tinted background for added words (inline spans)
-- `diff_context`: Neutral background for unchanged words
-
-**Color scheme:**
-- Deletions: `Color { a: 0.08, ..DANGER }` background on word spans
-- Additions: `Color { a: 0.08, ..SUCCESS }` background on word spans
-- Text: `INK` color
-- Use inline text spans with background styling for word-level highlighting
-
-### Layout Structure
-
-```rust
-fn render_expansion_panel(...) -> Element {
-    column![]
-        .spacing(6)
-        .push(render_rewrite_diff(...))  // if rewrite present
-        .push(render_children_diff(...))  // if children present
-        .push(render_action_buttons(...))
-}
-```
-
-**Rewrite diff:**
-- Header: "Rewrite" label
-- Diff view: Old text (with deletions highlighted) followed by new text (with additions highlighted)
-- Word-level highlighting: Inline spans with colored backgrounds
-- Action buttons: Apply/Dismiss
-
-**Children section:**
-- Header: "Child suggestions" + Accept all/Discard all buttons
-- Simple list display: Each child shown as plain text (no diff view)
-- Per-child Keep/Drop buttons
-
-## User Experience
-
-**Benefits:**
-- Clear visual distinction between old and new rewrite content at word level
-- Easy to see exactly which words changed in the rewrite
-- Preserves natural text flow (no line breaks for diff markers)
-- More granular than line-wise diff for understanding precise changes
-- Children remain simple and easy to scan without diff complexity
-
-**Considerations:**
-- Word tokenization must handle punctuation and whitespace correctly
-- For very long texts, consider truncating or scrolling
-- Ensure diff algorithm handles edge cases (empty text, single word, punctuation-only changes)
-- May need to handle multi-word phrases that changed together as units
-- Diff view applies only to rewrite section; children use simple list display
+- they are new suggestions, not edits to an existing child buffer,
+- plain list + per-item keep/drop is easier to scan and decide quickly.
