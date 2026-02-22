@@ -26,9 +26,9 @@ enum BlockNode {
 - `{"children": [...]}` for inline nodes (backward compatible).
 - `{"path": "relative/sub.json"}` for mount points.
 
-Mount paths are stored relative to the parent file when possible.
-Resolution tries `base_dir.join(rel_path)` for relative paths; absolute
-paths are used as-is.
+Mount paths are stored relative to the owning file when possible.
+Resolution for relative paths uses the mount file directory for nested
+mounts and the main data directory for top-level mounts.
 
 ## Lifecycle
 
@@ -38,8 +38,9 @@ paths are used as-is.
 
 1. Read `BlockNode::Mount { path }` from the mount point. Error if the
    node is already `Children`.
-2. Resolve path against `base_dir` (the directory containing the main
-   blocks file, from `AppPaths::data_dir()`).
+2. Resolve path against an effective base directory:
+   - top-level mount: `base_dir` (main data directory)
+   - nested mount: directory containing the parent mount file
 3. Canonicalize the resolved path for stable save-back behavior.
 4. Deserialize the file into a `BlockStore`.
 5. Re-key every block from the sub-store into the main `SlotMap` with
@@ -91,6 +92,8 @@ Result: the main file never contains mounted block data.
 `BlockStore::save_mounts()` iterates all mount entries and for each:
 - Extracts the entry's blocks into a standalone `BlockStore` via
   `extract_mount_store`.
+- Restores expanded nested mount points to `BlockNode::Mount { path }`
+  so nested file links are preserved in parent mount files.
 - Carries over draft records for extracted blocks so mounted files preserve
   their own pending reduce/expand drafts.
 - Serializes and writes to `entry.path` (the canonical absolute path).

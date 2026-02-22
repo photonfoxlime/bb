@@ -102,6 +102,10 @@ impl MountTable {
         self.origins.remove(block_id);
     }
 
+    pub fn origin(&self, block_id: BlockId) -> Option<&BlockOrigin> {
+        self.origins.get(block_id)
+    }
+
     /// Iterate over all mount entries as `(mount_point_id, entry)` pairs.
     pub fn entries(&self) -> impl Iterator<Item = (BlockId, &MountEntry)> {
         self.entries.iter()

@@ -346,6 +346,12 @@ impl BlockStore {
         // Second pass: rewrite node contents with remapped ids.
         for &old_id in &entry.block_ids {
             let new_id = id_map[&old_id];
+            if let Some(nested_entry) = self.mount_table.entry(old_id) {
+                if let Some(node) = sub_nodes.get_mut(new_id) {
+                    *node = BlockNode::with_path(nested_entry.rel_path.clone());
+                }
+                continue;
+            }
             if let Some(old_node) = self.nodes.get(old_id) {
                 match old_node {
                     | BlockNode::Children { children } => {
@@ -541,7 +547,11 @@ impl BlockStore {
             | BlockNode::Children { .. } => return Err(MountError::NotAMount),
         };
 
-        let resolved = Self::resolve_mount_path(&rel_path, base_dir);
+        let effective_base_dir = self
+            .mount_origin_path(mount_point)
+            .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+            .unwrap_or_else(|| base_dir.to_path_buf());
+        let resolved = Self::resolve_mount_path(&rel_path, &effective_base_dir);
         let canonical = fs::canonicalize(&resolved).unwrap_or_else(|_| resolved.clone());
 
         let contents = fs::read_to_string(&resolved)
@@ -779,6 +789,15 @@ impl BlockStore {
     /// If the path is relative, join it with `base_dir`. Otherwise use as-is.
     fn resolve_mount_path(rel_path: &Path, base_dir: &Path) -> std::path::PathBuf {
         if rel_path.is_relative() { base_dir.join(rel_path) } else { rel_path.to_path_buf() }
+    }
+
+    fn mount_origin_path(&self, block_id: &BlockId) -> Option<&Path> {
+        let origin = self.mount_table.origin(*block_id)?;
+        match origin {
+            | BlockOrigin::Mounted { mount_point } => {
+                self.mount_table.entry(*mount_point).map(|entry| entry.path.as_path())
+            }
+        }
     }
 
     fn parent_and_index_of(&self, target: &BlockId) -> Option<(Option<BlockId>, usize)> {
@@ -1576,6 +1595,98 @@ mod tests {
         let inner_children = store.expand_mount(&nested_mount_id, tmp.path()).unwrap();
         assert_eq!(inner_children.len(), 1);
         assert_eq!(store.point(&inner_children[0]), Some("root".to_string()));
+    }
+
+    #[test]
+    fn nested_mount_path_resolves_relative_to_parent_mount_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nested_dir = tmp.path().join("nested");
+        fs::create_dir_all(&nested_dir).unwrap();
+
+        let (inner_store, _, _, _) = simple_store();
+        write_store(&nested_dir, "inner.json", &inner_store);
+
+        let mut outer_nodes = SlotMap::with_key();
+        let mut outer_points = SecondaryMap::new();
+        let inner_mount =
+            outer_nodes.insert(BlockNode::with_path(std::path::PathBuf::from("inner.json")));
+        outer_points.insert(inner_mount, String::new());
+        let outer_root = outer_nodes.insert(BlockNode::with_children(vec![inner_mount]));
+        outer_points.insert(outer_root, "outer root".to_string());
+        let outer_store = BlockStore::new(vec![outer_root], outer_nodes, outer_points);
+        write_store(&nested_dir, "outer.json", &outer_store);
+
+        let mut main_nodes = SlotMap::with_key();
+        let mut main_points = SecondaryMap::new();
+        let outer_mount =
+            main_nodes.insert(BlockNode::with_path(std::path::PathBuf::from("nested/outer.json")));
+        main_points.insert(outer_mount, String::new());
+        let mut store = BlockStore::new(vec![outer_mount], main_nodes, main_points);
+
+        let outer_children = store.expand_mount(&outer_mount, tmp.path()).unwrap();
+        let rekeyed_outer_root = outer_children[0];
+        let nested_mount = *store
+            .children(&rekeyed_outer_root)
+            .iter()
+            .find(|id| store.node(id).unwrap().mount_path().is_some())
+            .unwrap();
+
+        let inner_children = store.expand_mount(&nested_mount, tmp.path()).unwrap();
+        assert_eq!(inner_children.len(), 1);
+        assert_eq!(store.point(&inner_children[0]), Some("root".to_string()));
+    }
+
+    #[test]
+    fn save_mounts_preserves_nested_mount_nodes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nested_dir = tmp.path().join("nested");
+        fs::create_dir_all(&nested_dir).unwrap();
+
+        let (inner_store, _, _, _) = simple_store();
+        write_store(&nested_dir, "inner.json", &inner_store);
+
+        let mut outer_nodes = SlotMap::with_key();
+        let mut outer_points = SecondaryMap::new();
+        let inner_mount =
+            outer_nodes.insert(BlockNode::with_path(std::path::PathBuf::from("inner.json")));
+        outer_points.insert(inner_mount, String::new());
+        let outer_root = outer_nodes.insert(BlockNode::with_children(vec![inner_mount]));
+        outer_points.insert(outer_root, "outer root".to_string());
+        let outer_store = BlockStore::new(vec![outer_root], outer_nodes, outer_points);
+        write_store(&nested_dir, "outer.json", &outer_store);
+
+        let mut main_nodes = SlotMap::with_key();
+        let mut main_points = SecondaryMap::new();
+        let outer_mount =
+            main_nodes.insert(BlockNode::with_path(std::path::PathBuf::from("nested/outer.json")));
+        main_points.insert(outer_mount, String::new());
+        let mut store = BlockStore::new(vec![outer_mount], main_nodes, main_points);
+
+        let outer_children = store.expand_mount(&outer_mount, tmp.path()).unwrap();
+        let rekeyed_outer_root = outer_children[0];
+        let nested_mount = *store
+            .children(&rekeyed_outer_root)
+            .iter()
+            .find(|id| store.node(id).unwrap().mount_path().is_some())
+            .unwrap();
+        let inner_children = store.expand_mount(&nested_mount, tmp.path()).unwrap();
+        store.update_point(&inner_children[0], "edited nested root".to_string());
+
+        store.save_mounts().unwrap();
+
+        let outer_json = fs::read_to_string(nested_dir.join("outer.json")).unwrap();
+        let saved_outer: BlockStore = serde_json::from_str(&outer_json).unwrap();
+        let saved_outer_root = saved_outer.roots()[0];
+        let saved_nested_mount = saved_outer.children(&saved_outer_root)[0];
+        let saved_nested_path = saved_outer.node(&saved_nested_mount).unwrap().mount_path();
+        assert_eq!(saved_nested_path, Some(std::path::Path::new("inner.json")));
+
+        let inner_json = fs::read_to_string(nested_dir.join("inner.json")).unwrap();
+        let saved_inner: BlockStore = serde_json::from_str(&inner_json).unwrap();
+        assert_eq!(
+            saved_inner.point(&saved_inner.roots()[0]),
+            Some("edited nested root".to_string())
+        );
     }
 
     // -- integration: round-trip persistence --

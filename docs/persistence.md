@@ -56,8 +56,13 @@ Result: the main file stores mount references, not mounted inline content.
 For each `MountEntry` in `MountTable`:
 
 - Extract mounted blocks into a standalone `BlockStore`.
+- Collapse expanded nested mount points back to `Mount { path }` in the
+  serialized parent file.
 - Preserve draft records for mounted blocks.
 - Serialize and write to the mount entry's canonical absolute path.
+
+Nested relative mount paths resolve against their parent mount file
+directory (not globally against the app data directory).
 
 ## Load/Save-To-File UI Actions
 
