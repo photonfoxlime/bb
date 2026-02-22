@@ -76,11 +76,11 @@ The description should say *what changed*, not *why* (the diff shows what; the d
 |--------|-------------|
 | `feat`  | A user-visible capability that did not exist before. |
 | `incr`  | Incremental progress on an existing feature: bug fixes, polish, tuning, small additions. |
-| `docs`  | Documentation-only changes (AGENTS.md, docs/, README, code comments). |
-| `repo`  | Repository housekeeping: migrations, dependency changes, formatter config, file reorganization, one-off maintenance. |
 | `sisy`  | Mechanical changes: formatting, linting, renaming passes, internal restructuring with no behavior change. |
-| `test`  | Adding or updating tests without changing production code. |
 | `vibe`  | Exploratory, prototype-quality work. Expect rough edges; may be revised or replaced. |
+| `repo`  | Repository housekeeping: migrations, dependency changes, formatter config, file reorganization, one-off maintenance. |
+| `docs`  | Documentation-only changes (AGENTS.md, docs/, README, code comments). |
+| `test`  | Adding or updating tests without changing production code. |
 
 #### Guidelines
 
