@@ -247,6 +247,55 @@ impl AppState {
         self.lineage_signature(block_id)
             .is_none_or(|current_signature| current_signature != request_signature)
     }
+
+    fn dispatch_message(&mut self, message: Message) -> Task<Message> {
+        match message {
+            | Message::UndoRedo(message) => self.handle_undo_redo(message),
+            | Message::Shortcut(message) => self.handle_shortcut_message(message),
+            | Message::Edit(EditMessage::PointEdited { block_id, action }) => {
+                self.handle_point_edited(block_id, action)
+            }
+            | Message::Reduce(message) => self.handle_reduce_message(message),
+            | Message::Expand(message) => self.handle_expand_message(message),
+            | Message::Overlay(message) => self.handle_overlay_message(message),
+            | Message::Structure(message) => self.handle_structure_message(message),
+            | Message::MountFile(message) => self.handle_mount_and_file_message(message),
+        }
+    }
+
+    fn handle_undo_redo(&mut self, message: UndoRedoMessage) -> Task<Message> {
+        handle_undo_redo(self, message)
+    }
+
+    fn handle_shortcut_message(&mut self, message: ShortcutMessage) -> Task<Message> {
+        handle_shortcut_message(self, message)
+    }
+
+    fn handle_point_edited(
+        &mut self, block_id: BlockId, action: text_editor::Action,
+    ) -> Task<Message> {
+        handle_point_edited(self, block_id, action)
+    }
+
+    fn handle_reduce_message(&mut self, message: ReduceMessage) -> Task<Message> {
+        handle_reduce_message(self, message)
+    }
+
+    fn handle_expand_message(&mut self, message: ExpandMessage) -> Task<Message> {
+        handle_expand_message(self, message)
+    }
+
+    fn handle_overlay_message(&mut self, message: OverlayMessage) -> Task<Message> {
+        handle_overlay_message(self, message)
+    }
+
+    fn handle_structure_message(&mut self, message: StructureMessage) -> Task<Message> {
+        handle_structure_message(self, message)
+    }
+
+    fn handle_mount_and_file_message(&mut self, message: MountFileMessage) -> Task<Message> {
+        handle_mount_and_file_message(self, message)
+    }
 }
 
 /// Direction tag for vertical cursor movement edge-detection.
@@ -348,18 +397,7 @@ pub enum MountFileMessage {
 
 /// Process one message and return a follow-up task (if any).
 pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
-    match message {
-        | Message::UndoRedo(message) => handle_undo_redo(state, message),
-        | Message::Shortcut(message) => handle_shortcut_message(state, message),
-        | Message::Edit(EditMessage::PointEdited { block_id, action }) => {
-            handle_point_edited(state, block_id, action)
-        }
-        | Message::Reduce(message) => handle_reduce_message(state, message),
-        | Message::Expand(message) => handle_expand_message(state, message),
-        | Message::Overlay(message) => handle_overlay_message(state, message),
-        | Message::Structure(message) => handle_structure_message(state, message),
-        | Message::MountFile(message) => handle_mount_and_file_message(state, message),
-    }
+    state.dispatch_message(message)
 }
 
 /// Global event subscription: keyboard shortcuts, mouse clicks, escape,
