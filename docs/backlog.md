@@ -5,7 +5,7 @@ Unimplemented ideas and future directions. Not committed work -- just captured f
 For current architecture, see [architecture.md](architecture.md).
 
 ## Interaction
-- Collapse/expand subtree visibility.
+- ~~Collapse/expand subtree visibility.~~ Done (disclosure chevron on marker).
 - Keyboard-first traversal (up/down, indent-level moves).
 - Conflict-safe editing during async operations.
 

@@ -76,25 +76,38 @@ impl<'a> TreeView<'a> {
         let spine = container(rule::vertical(1).style(theme::spine_rule))
             .width(Length::Fixed(theme::SPINE_WIDTH))
             .align_x(iced::alignment::Horizontal::Center);
-        let marker = container(text("\u{2022}").size(12).style(theme::spine_text))
-            .width(Length::Fixed(theme::MARKER_WIDTH))
-            .align_x(iced::alignment::Horizontal::Center)
-            .padding(Padding::ZERO.top(theme::MARKER_TOP));
+        let has_children = !self.state.store.children(block_id).is_empty();
+        let is_collapsed = self.state.collapsed.contains(block_id);
+        let is_foldable = has_children || is_expanded_mount || unexpanded_mount_path.is_some();
 
-        let mut action_buttons: Element<'a, Message> =
+        let marker: Element<'a, Message> = if is_foldable {
+            let chevron = if is_collapsed || unexpanded_mount_path.is_some() {
+                icons::icon_chevron_right()
+            } else {
+                icons::icon_chevron_down()
+            };
+            let msg = if unexpanded_mount_path.is_some() {
+                Message::ExpandMount(*block_id)
+            } else if is_expanded_mount {
+                Message::CollapseMount(*block_id)
+            } else {
+                Message::ToggleFold(*block_id)
+            };
+            button(chevron.size(12))
+                .style(theme::action_button)
+                .padding(0)
+                .on_press(msg)
+                .into()
+        } else {
+            container(text("\u{2022}").size(12).style(theme::spine_text))
+                .width(Length::Fixed(theme::MARKER_WIDTH))
+                .align_x(iced::alignment::Horizontal::Center)
+                .padding(Padding::ZERO.top(theme::MARKER_TOP))
+                .into()
+        };
+
+        let action_buttons: Element<'a, Message> =
             self.render_action_buttons(block_id, &action_bar);
-        if is_expanded_mount {
-            action_buttons = row![]
-                .spacing(theme::ROW_GAP)
-                .push(
-                    button(text("Collapse").font(theme::INTER).size(13))
-                        .style(theme::action_button)
-                        .padding(theme::BUTTON_PAD)
-                        .on_press(Message::CollapseMount(*block_id)),
-                )
-                .push(action_buttons)
-                .into();
-        }
 
         let row_content = row![]
             .spacing(theme::ROW_GAP)
@@ -126,7 +139,7 @@ impl<'a> TreeView<'a> {
             block = block.push(self.render_summary_panel(block_id, draft));
         }
 
-        // Unexpanded mount: show mount indicator with path and Load button.
+        // Unexpanded mount: show path label below the block.
         if let Some(mount_path) = unexpanded_mount_path {
             block = block.push(
                 container(self.render_mount_indicator(block_id, mount_path))
@@ -134,11 +147,15 @@ impl<'a> TreeView<'a> {
             );
         }
 
-        let children = self.state.store.children(block_id);
-        if !children.is_empty() {
-            block = block.push(
-                container(self.render_line(children)).padding(Padding::ZERO.left(theme::INDENT)),
-            );
+        // Render children only when not folded.
+        if !is_collapsed {
+            let children = self.state.store.children(block_id);
+            if !children.is_empty() {
+                block = block.push(
+                    container(self.render_line(children))
+                        .padding(Padding::ZERO.left(theme::INDENT)),
+                );
+            }
         }
 
 
@@ -456,28 +473,18 @@ impl<'a> TreeView<'a> {
             .into()
     }
 
-    /// Render a mount indicator showing the file path and a Load button.
+    /// Render a mount indicator showing the file path.
     ///
     /// Displayed below the node's own content for unexpanded mounts,
     /// indicating that children live in an external file.
+    /// The chevron marker handles load/unload; this only shows the path.
     fn render_mount_indicator(
-        &self, block_id: &BlockId, mount_path: &'a std::path::Path,
+        &self, _block_id: &BlockId, mount_path: &'a std::path::Path,
     ) -> Element<'a, Message> {
-        let path_label = text(mount_path.display().to_string())
+        text(mount_path.display().to_string())
             .font(theme::INTER)
             .size(13)
-            .style(theme::spine_text);
-
-        let load_btn = button(text("Load").font(theme::INTER).size(13))
-            .style(theme::action_button)
-            .padding(theme::BUTTON_PAD)
-            .on_press(Message::ExpandMount(*block_id));
-
-        row![]
-            .spacing(theme::ROW_GAP)
-            .align_y(iced::Alignment::Center)
-            .push(path_label)
-            .push(load_btn)
+            .style(theme::spine_text)
             .into()
     }
 }

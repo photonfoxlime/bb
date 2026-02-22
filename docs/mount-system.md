@@ -130,19 +130,26 @@ bar for every block, including mount nodes. Mounts only affect the
 children portion of the node:
 
 - **Unexpanded mount** (`BlockNode::Mount`): renders the standard
-  text editor + action bar, followed by a mount indicator showing the
-  file path and a "Load" button (`Message::ExpandMount`). The mount
-  indicator appears where children would normally be, indented to the
-  child level. The action bar hides SaveToFile and LoadFromFile for
-  unexpanded mounts (via `is_unexpanded_mount` in `RowContext`).
+  text editor + action bar. The block marker is a right-pointing
+  chevron (▸) instead of the usual dot. Clicking the chevron
+  dispatches `Message::ExpandMount`. The action bar hides SaveToFile
+  and LoadFromFile for unexpanded mounts (via `is_unexpanded_mount`
+  in `RowContext`).
 - **Expanded mount** (has a `MountTable` entry): renders the normal
-  block editor plus a "Collapse" button prepended to the action row,
-  sending `Message::CollapseMount(id)`. Children are rendered normally.
-- **Regular block**: unchanged rendering path.
+  block editor with a down-pointing chevron (▾) as its marker.
+  Clicking the chevron dispatches `Message::CollapseMount(id)`.
+  Children are rendered normally below.
+- **Regular block with children**: marker becomes a disclosure
+  chevron (▾ expanded, ▸ collapsed). Clicking dispatches
+  `Message::ToggleFold(id)`, toggling membership in the
+  `AppState::collapsed` set. Collapsed blocks hide their children.
+- **Leaf block**: unchanged dot marker.
 
-This design reflects the user's mental model: mount paths logically
-correspond to children only, not to the node itself. The node's own
-text and action bar are always accessible regardless of mount state.
+This design unifies fold/unfold and mount load/unload behind a
+single disclosure chevron gesture. The chevron replaces the dot
+marker only when a block is foldable (has children, is an expanded
+mount, or is an unexpanded mount). The node's own text and action
+bar are always accessible regardless of mount or fold state.
 
 `EditorStore` creates editor buffers for mount nodes because their
 point text is preserved in the `points` SecondaryMap (set by

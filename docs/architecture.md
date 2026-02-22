@@ -65,7 +65,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 | `ExpandState` | `app/state.rs` | Per-row expand lifecycle (Idle, Loading, Error). |
 | `ExpansionDraft` | `app/draft.rs` | Pending expand result: optional rewrite + child suggestions. |
 | `EditorStore` | `app/editor_store.rs` | SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers. |
-| `AppState` | `app.rs` | Full UI state: store, editors, LLM config, lifecycle, drafts, and focused/active block tracking. Per-block maps use SecondaryMap. |
+| `AppState` | `app.rs` | Full UI state: store, editors, LLM config, lifecycle, drafts, focused/active block tracking, and `collapsed` set for fold state. Per-block maps use SecondaryMap. |
 | `TreeView` | `app/view.rs` | Pure renderer: borrows immutable AppState, produces Element tree. |
 | `LlmClient` | `llm.rs` | HTTP client for summarize and expand requests. |
 | `LlmConfig` | `llm.rs` | base_url, api_key, model. Loaded from env vars or `llm.toml`. |
@@ -96,7 +96,7 @@ Layout tokens are defined in `src/theme.rs` and used throughout the view layer. 
 - Canvas: `CANVAS_PAD` (24px) outer padding, `CANVAS_MAX_WIDTH` (720px) content width, `CANVAS_TOP` (12px) top padding.
 - Block gaps: `BLOCK_GAP` (10px) between siblings, `BLOCK_INNER_GAP` (4px) within a block, `ROW_GAP` / `ACTION_GAP` (6px) horizontal.
 - Spine: `rule::vertical(1)` styled with `SPINE_LIGHT` via `spine_rule`, inside a `SPINE_WIDTH` (4px) container.
-- Marker: bullet character, `MARKER_WIDTH` (12px) column, `MARKER_TOP` (3px) top padding for baseline alignment.
+- Marker: disclosure chevron (▾/▸) for foldable blocks (children, mounts), bullet dot for leaf blocks. `MARKER_WIDTH` (12px) column, `MARKER_TOP` (3px) top padding for baseline alignment.
 - Child indent: `INDENT` (16px) left padding.
 - Draft panels: `PANEL_PAD_V` / `PANEL_PAD_H` (8/16px) internal padding, `PANEL_BUTTON_GAP` (8px) between buttons.
 - Active block: focused or active block wrapped in `active_block` container style (`FOCUS_WASH` -- 6% accent overlay).

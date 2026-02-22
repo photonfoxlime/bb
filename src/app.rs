@@ -8,6 +8,7 @@ use crate::paths::AppPaths;
 use crate::store::{BlockId, BlockStore};
 use crate::theme;
 use crate::undo::UndoHistory;
+use std::collections::HashSet;
 mod action_bar;
 mod diff;
 mod draft;
@@ -64,6 +65,9 @@ pub struct AppState {
     focused_block_id: Option<BlockId>,
     /// Block currently coalescing point edits into a single undo entry.
     editing_block_id: Option<BlockId>,
+    /// Blocks whose children are folded (hidden) in the UI.
+    /// View-only state: not persisted, not part of undo.
+    collapsed: HashSet<BlockId>,
 }
 
 impl AppState {
@@ -89,6 +93,7 @@ impl AppState {
             active_block_id: None,
             focused_block_id: None,
             editing_block_id: None,
+            collapsed: HashSet::new(),
         }
     }
 
@@ -168,6 +173,7 @@ pub enum Message {
     ArchiveBlock(BlockId),
     ToggleOverflow(BlockId),
     CloseOverflow,
+    ToggleFold(BlockId),
     ExpandMount(BlockId),
     CollapseMount(BlockId),
     SaveToFile(BlockId),
@@ -547,6 +553,12 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 if let Err(err) = state.save_tree() {
                     tracing::error!(%err, "failed to save tree after archiving subtree");
                 }
+            }
+            Task::none()
+        }
+        | Message::ToggleFold(block_id) => {
+            if !state.collapsed.remove(&block_id) {
+                state.collapsed.insert(block_id);
             }
             Task::none()
         }
