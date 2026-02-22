@@ -72,13 +72,18 @@ impl<'a> TreeView<'a> {
     }
 
     fn render_block(&self, block_id: &BlockId) -> Element<'a, Message> {
-        let node = self.state.store.node(block_id).expect("node exists for rendered block");
+        let Some(node) = self.state.store.node(block_id) else {
+            return container(text("")).into();
+        };
 
         let is_expanded_mount = self.state.store.mount_table().entry(*block_id).is_some();
         let unexpanded_mount_path = node.mount_path();
 
-        let editor_content =
-            self.state.editors.get(block_id).expect("editor content is populated from store");
+        let Some(editor_content) = self.state.editors.get(block_id) else {
+            let fallback_text = self.state.store.point(block_id).unwrap_or_default();
+            tracing::error!(block_id = ?block_id, "missing editor content for rendered block");
+            return container(text(fallback_text).style(theme::spine_text)).into();
+        };
 
         let block_id_for_edit = *block_id;
         let row_context = self.action_row_context(block_id, editor_content.text());
@@ -187,54 +192,8 @@ impl<'a> TreeView<'a> {
         let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
 
         if let Some(rewrite) = &draft.rewrite {
-            // Get current block text for diff comparison
             let old_text = self.state.store.point(block_id).unwrap_or_default();
-            let changes = word_diff(&old_text, rewrite);
-
-            // Render diff view
-            let mut diff_content = column![].spacing(theme::DIFF_LINE_GAP);
-
-            // Old text with deletions highlighted
-            let mut old_line = row![].spacing(0);
-            for change in &changes {
-                match change {
-                    | WordChange::Unchanged(s) => {
-                        old_line = old_line.push(text(s.clone()).style(theme::diff_context));
-                    }
-                    | WordChange::Deleted(s) => {
-                        old_line = old_line.push(
-                            container(text(s.clone()))
-                                .style(theme::diff_deletion)
-                                .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
-                        );
-                    }
-                    | WordChange::Added(_) => {
-                        // Skip additions in old text view
-                    }
-                }
-            }
-            diff_content = diff_content.push(old_line);
-
-            // New text with additions highlighted
-            let mut new_line = row![].spacing(0);
-            for change in &changes {
-                match change {
-                    | WordChange::Unchanged(s) => {
-                        new_line = new_line.push(text(s.clone()).style(theme::diff_context));
-                    }
-                    | WordChange::Deleted(_) => {
-                        // Skip deletions in new text view
-                    }
-                    | WordChange::Added(s) => {
-                        new_line = new_line.push(
-                            container(text(s.clone()))
-                                .style(theme::diff_addition)
-                                .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
-                        );
-                    }
-                }
-            }
-            diff_content = diff_content.push(new_line);
+            let diff_content = self.render_diff_content(&old_text, rewrite);
 
             panel = panel.push(
                 column![]
@@ -303,54 +262,8 @@ impl<'a> TreeView<'a> {
     fn render_reduction_panel(
         &self, block_id: &BlockId, draft: &'a ReductionDraftRecord,
     ) -> Element<'a, Message> {
-        // Get current block text for diff comparison
         let old_text = self.state.store.point(block_id).unwrap_or_default();
-        let changes = word_diff(&old_text, &draft.reduction);
-
-        // Render diff view
-        let mut diff_content = column![].spacing(theme::DIFF_LINE_GAP);
-
-        // Old text with deletions highlighted
-        let mut old_line = row![].spacing(0);
-        for change in &changes {
-            match change {
-                | WordChange::Unchanged(s) => {
-                    old_line = old_line.push(text(s.clone()).style(theme::diff_context));
-                }
-                | WordChange::Deleted(s) => {
-                    old_line = old_line.push(
-                        container(text(s.clone()))
-                            .style(theme::diff_deletion)
-                            .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
-                    );
-                }
-                | WordChange::Added(_) => {
-                    // Skip additions in old text view
-                }
-            }
-        }
-        diff_content = diff_content.push(old_line);
-
-        // New text with additions highlighted
-        let mut new_line = row![].spacing(0);
-        for change in &changes {
-            match change {
-                | WordChange::Unchanged(s) => {
-                    new_line = new_line.push(text(s.clone()).style(theme::diff_context));
-                }
-                | WordChange::Deleted(_) => {
-                    // Skip deletions in new text view
-                }
-                | WordChange::Added(s) => {
-                    new_line = new_line.push(
-                        container(text(s.clone()))
-                            .style(theme::diff_addition)
-                            .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
-                    );
-                }
-            }
-        }
-        diff_content = diff_content.push(new_line);
+        let diff_content = self.render_diff_content(&old_text, &draft.reduction);
 
         container(
             column![]
@@ -402,6 +315,49 @@ impl<'a> TreeView<'a> {
             is_unexpanded_mount: node.is_some_and(|n| n.mount_path().is_some()),
             has_children: !self.state.store.children(block_id).is_empty(),
         }
+    }
+
+    fn render_diff_content(&self, old_text: &str, new_text: &str) -> Element<'a, Message> {
+        let changes = word_diff(old_text, new_text);
+        let mut diff_content = column![].spacing(theme::DIFF_LINE_GAP);
+
+        let mut old_line = row![].spacing(0);
+        for change in &changes {
+            match change {
+                | WordChange::Unchanged(s) => {
+                    old_line = old_line.push(text(s.clone()).style(theme::diff_context));
+                }
+                | WordChange::Deleted(s) => {
+                    old_line = old_line.push(
+                        container(text(s.clone()))
+                            .style(theme::diff_deletion)
+                            .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
+                    );
+                }
+                | WordChange::Added(_) => {}
+            }
+        }
+        diff_content = diff_content.push(old_line);
+
+        let mut new_line = row![].spacing(0);
+        for change in &changes {
+            match change {
+                | WordChange::Unchanged(s) => {
+                    new_line = new_line.push(text(s.clone()).style(theme::diff_context));
+                }
+                | WordChange::Deleted(_) => {}
+                | WordChange::Added(s) => {
+                    new_line = new_line.push(
+                        container(text(s.clone()))
+                            .style(theme::diff_addition)
+                            .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
+                    );
+                }
+            }
+        }
+        diff_content = diff_content.push(new_line);
+
+        container(diff_content).width(Length::Fill).into()
     }
 
     fn viewport_bucket(&self) -> ViewportBucket {

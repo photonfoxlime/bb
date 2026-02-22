@@ -910,7 +910,11 @@ impl BlockStore {
             if children.is_empty() {
                 return Some(target);
             }
-            target = *children.last().unwrap();
+            if let Some(&last) = children.last() {
+                target = last;
+            } else {
+                return Some(target);
+            }
         }
     }
 

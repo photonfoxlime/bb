@@ -16,6 +16,7 @@ For project purpose, data model, and workflow, see [README.md](../README.md) (ca
 | [undo-system.md](undo-system.md) | Undo/redo architecture, snapshot protocol |
 | [expansion-diff.md](expansion-diff.md) | Expansion draft diff rendering |
 | [async-conflict-safety.md](async-conflict-safety.md) | Stale-response guard for async expand/reduce |
+| [code-quality-review-2026-02-22.md](code-quality-review-2026-02-22.md) | Repo-wide quality findings and refactor priorities |
 | [backlog.md](backlog.md) | Unimplemented ideas and exploration items |
 | [keyboard.md](keyboard.md) | Keyboard navigation: block traversal, focus transfer |
 
@@ -63,7 +64,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 | `AppPaths` | `paths.rs` | Data file and config file paths via `directories` crate. |
 | `UndoHistory<T>` | `undo.rs` | Fixed-capacity undo/redo stack. |
 | `UiError` | `app/state.rs` | Display-safe error for UI messages. |
-| `AppError` | `app/state.rs` | Tagged application error source (config, reduce, expand, mount). |
+| `AppError` | `app/state.rs` | Tagged application error source (config, persistence, reduce, expand, mount). |
 | `ReductionState` | `app/state.rs` | Per-row reduce lifecycle (Idle, Loading, Error). |
 | `ExpandState` | `app/state.rs` | Per-row expand lifecycle (Idle, Loading, Error). |
 | `EditorStore` | `app/editor_store.rs` | SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers; SecondaryMap\<BlockId, widget::Id\> for programmatic focus targeting. |

@@ -142,6 +142,48 @@ impl AppState {
         }
     }
 
+    fn persist_with_context(&mut self, context: &'static str) {
+        if let Err(err) = self.save_tree() {
+            tracing::error!(%err, context, "failed to save tree");
+        }
+    }
+
+    fn llm_config_for_reduce(&mut self, block_id: BlockId) -> Option<llm::LlmConfig> {
+        match &self.llm_config {
+            | Ok(config) => Some(config.clone()),
+            | Err(err) => {
+                let ui_err = UiError::from_message(err);
+                self.error = Some(AppError::Configuration(ui_err.clone()));
+                self.reduce_states.insert(block_id, ReduceState::Error { reason: ui_err });
+                None
+            }
+        }
+    }
+
+    fn llm_config_for_expand(&mut self, block_id: BlockId) -> Option<llm::LlmConfig> {
+        match &self.llm_config {
+            | Ok(config) => Some(config.clone()),
+            | Err(err) => {
+                let ui_err = UiError::from_message(err);
+                self.error = Some(AppError::Configuration(ui_err.clone()));
+                self.expand_states.insert(block_id, ExpandState::Error { reason: ui_err });
+                None
+            }
+        }
+    }
+
+    fn resolve_llm_request<T, E>(
+        result: Result<Result<T, E>, tokio::time::error::Elapsed>, timeout_message: &'static str,
+    ) -> Result<T, UiError>
+    where
+        E: ToString,
+    {
+        match result {
+            | Ok(inner) => inner.map_err(UiError::from_message),
+            | Err(_) => Err(UiError::from_message(timeout_message)),
+        }
+    }
+
     fn is_reducing(&self, block_id: &BlockId) -> bool {
         self.reduce_states.get(*block_id).is_some_and(|s| matches!(s, ReduceState::Loading))
     }
@@ -183,9 +225,7 @@ impl AppState {
         self.focused_block_id = None;
         self.editing_block_id = None;
         self.active_block_id = self.store.roots().first().copied();
-        if let Err(err) = self.save_tree() {
-            tracing::error!(%err, "failed to save tree after undo/redo");
-        }
+        self.persist_with_context("after undo/redo");
     }
 
     fn lineage_signature(&self, block_id: &BlockId) -> Option<RequestSignature> {
@@ -322,9 +362,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     let next_text = content.text();
                     tracing::debug!(block_id = ?block_id, chars = next_text.len(), "point edited");
                     state.store.update_point(&block_id, next_text);
-                    if let Err(err) = state.save_tree() {
-                        tracing::error!(%err, "failed to save tree after edit");
-                    }
+                    state.persist_with_context("after edit");
                 }
             } // mutable borrow on `state.editors` dropped here
 
@@ -349,14 +387,8 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 return Task::none();
             }
             let lineage = state.store.lineage_points_for_id(&block_id);
-            let config = match &state.llm_config {
-                | Ok(config) => config.clone(),
-                | Err(err) => {
-                    let ui_err = UiError::from_message(err);
-                    state.error = Some(AppError::Configuration(ui_err.clone()));
-                    state.reduce_states.insert(block_id, ReduceState::Error { reason: ui_err });
-                    return Task::none();
-                }
+            let Some(config) = state.llm_config_for_reduce(block_id) else {
+                return Task::none();
             };
             tracing::info!(block_id = ?block_id, "reduce request started");
             let Some(request_signature) = RequestSignature::from_lineage(&lineage) else {
@@ -367,14 +399,11 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
-                    match tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.reduce_lineage(&lineage))
-                        .await
-                    {
-                        | Ok(result) => result.map_err(UiError::from_message),
-                        | Err(_) => {
-                            Err(UiError::from_message("reduce request timed out after 30 seconds"))
-                        }
-                    }
+                    AppState::resolve_llm_request(
+                        tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.reduce_lineage(&lineage))
+                            .await,
+                        "reduce request timed out after 30 seconds",
+                    )
                 },
                 move |result| Message::ReduceDone(block_id, request_signature, result),
             );
@@ -423,9 +452,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                         .store
                         .insert_reduction_draft(block_id, ReductionDraftRecord { reduction });
                     state.error = None;
-                    if let Err(err) = state.save_tree() {
-                        tracing::error!(%err, "failed to save tree after creating reduction draft");
-                    }
+                    state.persist_with_context("after creating reduction draft");
                 }
                 | Err(reason) => {
                     tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "reduce request failed");
@@ -447,8 +474,8 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 state.editors.set_text(&block_id, &draft.reduction);
                 should_save = true;
             }
-            if should_save && let Err(err) = state.save_tree() {
-                tracing::error!(%err, "failed to save tree after applying reduction");
+            if should_save {
+                state.persist_with_context("after applying reduction");
             }
             Task::none()
         }
@@ -456,9 +483,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.set_active_block(&block_id);
             tracing::info!(block_id = ?block_id, "rejected reduction");
             state.store.remove_reduction_draft(&block_id);
-            if let Err(err) = state.save_tree() {
-                tracing::error!(%err, "failed to save tree after rejecting reduction");
-            }
+            state.persist_with_context("after rejecting reduction");
             Task::none()
         }
         | Message::Expand(block_id) => {
@@ -468,14 +493,8 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 return Task::none();
             }
             let lineage = state.store.lineage_points_for_id(&block_id);
-            let config = match &state.llm_config {
-                | Ok(config) => config.clone(),
-                | Err(err) => {
-                    let ui_err = UiError::from_message(err);
-                    state.error = Some(AppError::Configuration(ui_err.clone()));
-                    state.expand_states.insert(block_id, ExpandState::Error { reason: ui_err });
-                    return Task::none();
-                }
+            let Some(config) = state.llm_config_for_expand(block_id) else {
+                return Task::none();
             };
 
             tracing::info!(block_id = ?block_id, "expand request started");
@@ -487,14 +506,11 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
-                    match tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.expand_lineage(&lineage))
-                        .await
-                    {
-                        | Ok(result) => result.map_err(UiError::from_message),
-                        | Err(_) => {
-                            Err(UiError::from_message("expand request timed out after 30 seconds"))
-                        }
-                    }
+                    AppState::resolve_llm_request(
+                        tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.expand_lineage(&lineage))
+                            .await,
+                        "expand request timed out after 30 seconds",
+                    )
                 },
                 move |result| Message::ExpandDone(block_id, request_signature, result),
             );
@@ -566,9 +582,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                         ExpansionDraftRecord { rewrite, children },
                     );
                     state.error = None;
-                    if let Err(err) = state.save_tree() {
-                        tracing::error!(%err, "failed to save tree after creating expansion draft");
-                    }
+                    state.persist_with_context("after creating expansion draft");
                 }
                 | Err(reason) => {
                     tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "expand request failed");
@@ -599,8 +613,8 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if should_remove_draft {
                 state.store.remove_expansion_draft(&block_id);
             }
-            if should_save && let Err(err) = state.save_tree() {
-                tracing::error!(%err, "failed to save tree after applying rewrite");
+            if should_save {
+                state.persist_with_context("after applying rewrite");
             }
             Task::none()
         }
@@ -617,8 +631,8 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if should_remove_draft {
                 state.store.remove_expansion_draft(&block_id);
             }
-            if changed && let Err(err) = state.save_tree() {
-                tracing::error!(%err, "failed to save tree after rejecting rewrite");
+            if changed {
+                state.persist_with_context("after rejecting rewrite");
             }
             Task::none()
         }
@@ -651,8 +665,8 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if should_remove_draft {
                 state.store.remove_expansion_draft(&block_id);
             }
-            if should_save && let Err(err) = state.save_tree() {
-                tracing::error!(%err, "failed to save tree after accepting expanded child");
+            if should_save {
+                state.persist_with_context("after accepting expanded child");
             }
             Task::none()
         }
@@ -671,8 +685,8 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if should_remove_draft {
                 state.store.remove_expansion_draft(&block_id);
             }
-            if changed && let Err(err) = state.save_tree() {
-                tracing::error!(%err, "failed to save tree after rejecting expanded child");
+            if changed {
+                state.persist_with_context("after rejecting expanded child");
             }
             Task::none()
         }
@@ -694,19 +708,15 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 if draft.rewrite.is_some() {
                     state.store.insert_expansion_draft(block_id, draft);
                 }
-                if let Err(err) = state.save_tree() {
-                    tracing::error!(%err, "failed to save tree after accepting expanded children");
-                }
+                state.persist_with_context("after accepting expanded children");
             }
             Task::none()
         }
         | Message::DiscardExpansion(block_id) => {
             state.set_active_block(&block_id);
             tracing::info!(block_id = ?block_id, "discarded expansion draft");
-            if state.store.remove_expansion_draft(&block_id).is_some()
-                && let Err(err) = state.save_tree()
-            {
-                tracing::error!(%err, "failed to save tree after discarding expansion draft");
+            if state.store.remove_expansion_draft(&block_id).is_some() {
+                state.persist_with_context("after discarding expansion draft");
             }
             Task::none()
         }
@@ -731,9 +741,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if let Some(child_id) = state.store.append_child(&block_id, String::new()) {
                 tracing::info!(parent_block_id = ?block_id, child_block_id = ?child_id, "added child block");
                 state.editors.set_text(&child_id, "");
-                if let Err(err) = state.save_tree() {
-                    tracing::error!(%err, "failed to save tree after adding child");
-                }
+                state.persist_with_context("after adding child");
             }
             Task::none()
         }
@@ -744,9 +752,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 tracing::info!(block_id = ?block_id, sibling_block_id = ?sibling_id, "added sibling block");
                 state.editors.set_text(&sibling_id, "");
                 state.overflow_open_for = None;
-                if let Err(err) = state.save_tree() {
-                    tracing::error!(%err, "failed to save tree after adding sibling");
-                }
+                state.persist_with_context("after adding sibling");
             }
             Task::none()
         }
@@ -757,9 +763,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 tracing::info!(block_id = ?block_id, duplicate_block_id = ?duplicate_id, "duplicated block subtree");
                 state.editors.ensure_subtree(&state.store, &duplicate_id);
                 state.overflow_open_for = None;
-                if let Err(err) = state.save_tree() {
-                    tracing::error!(%err, "failed to save tree after duplicating subtree");
-                }
+                state.persist_with_context("after duplicating subtree");
             }
             Task::none()
         }
@@ -797,9 +801,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 if state.active_block_id == Some(block_id) {
                     state.active_block_id = state.store.roots().first().copied();
                 }
-                if let Err(err) = state.save_tree() {
-                    tracing::error!(%err, "failed to save tree after archiving subtree");
-                }
+                state.persist_with_context("after archiving subtree");
             }
             Task::none()
         }
@@ -819,9 +821,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                     for &id in &new_roots {
                         state.editors.ensure_subtree(&state.store, &id);
                     }
-                    if let Err(err) = state.save_tree() {
-                        tracing::error!(%err, "failed to save tree after expanding mount");
-                    }
+                    state.persist_with_context("after expanding mount");
                 }
                 | Err(err) => {
                     tracing::error!(block_id = ?block_id, %err, "failed to expand mount");
@@ -836,9 +836,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if let Some(()) = state.store.collapse_mount(&block_id) {
                 tracing::info!(block_id = ?block_id, "collapsed mount");
                 state.editors = EditorStore::from_store(&state.store);
-                if let Err(err) = state.save_tree() {
-                    tracing::error!(%err, "failed to save tree after collapsing mount");
-                }
+                state.persist_with_context("after collapsing mount");
             }
             Task::none()
         }
@@ -876,9 +874,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                                 state.error = Some(AppError::Mount(UiError::from_message(&err)));
                             }
                         }
-                        if let Err(err) = state.save_tree() {
-                            tracing::error!(%err, "failed to save tree after save-to-file");
-                        }
+                        state.persist_with_context("after save-to-file");
                     }
                     | Err(err) => {
                         tracing::error!(block_id = ?block_id, %err, "failed to save subtree to file");
@@ -935,9 +931,7 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                         state.error = Some(AppError::Mount(UiError::from_message(&err)));
                     }
                 }
-                if let Err(err) = state.save_tree() {
-                    tracing::error!(%err, "failed to save tree after load-from-file");
-                }
+                state.persist_with_context("after load-from-file");
             }
             Task::none()
         }
