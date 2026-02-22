@@ -305,16 +305,17 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 // position, we are at the visual boundary (accounting for
                 // wrapped lines) and should navigate to the adjacent block.
                 if let Some(dir) = vertical_direction
-                    && cursor_before == cursor_after {
-                        navigate_to = match dir {
-                            | VerticalDir::Up => {
-                                state.store.prev_visible_in_dfs(&block_id, &state.collapsed)
-                            }
-                            | VerticalDir::Down => {
-                                state.store.next_visible_in_dfs(&block_id, &state.collapsed)
-                            }
-                        };
-                    }
+                    && cursor_before == cursor_after
+                {
+                    navigate_to = match dir {
+                        | VerticalDir::Up => {
+                            state.store.prev_visible_in_dfs(&block_id, &state.collapsed)
+                        }
+                        | VerticalDir::Down => {
+                            state.store.next_visible_in_dfs(&block_id, &state.collapsed)
+                        }
+                    };
+                }
 
                 // If we are NOT navigating away, persist the text change.
                 if navigate_to.is_none() {
@@ -329,15 +330,16 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
 
             // Phase 2: navigate to the adjacent block (immutable borrow).
             if let Some(target_id) = navigate_to
-                && let Some(wid) = state.editors.widget_id(&target_id) {
-                    state.focused_block_id = Some(target_id);
-                    tracing::debug!(
-                        from = ?block_id,
-                        to = ?target_id,
-                        "keyboard traversal"
-                    );
-                    return widget::operation::focus(wid.clone());
-                }
+                && let Some(wid) = state.editors.widget_id(&target_id)
+            {
+                state.focused_block_id = Some(target_id);
+                tracing::debug!(
+                    from = ?block_id,
+                    to = ?target_id,
+                    "keyboard traversal"
+                );
+                return widget::operation::focus(wid.clone());
+            }
             Task::none()
         }
         | Message::Reduce(block_id) => {
@@ -385,9 +387,10 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if state.is_reducing(&block_id) {
                 tracing::info!(block_id = ?block_id, "reduce request cancelled");
                 if let Some((active_block_id, handle)) = state.reduce_handle.take()
-                    && active_block_id == block_id {
-                        handle.abort();
-                    }
+                    && active_block_id == block_id
+                {
+                    handle.abort();
+                }
                 state.reduce_states.remove(block_id);
                 state.pending_reduce_signatures.remove(block_id);
             }
@@ -444,10 +447,9 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 state.editors.set_text(&block_id, &draft.reduction);
                 should_save = true;
             }
-            if should_save
-                && let Err(err) = state.save_tree() {
-                    tracing::error!(%err, "failed to save tree after applying reduction");
-                }
+            if should_save && let Err(err) = state.save_tree() {
+                tracing::error!(%err, "failed to save tree after applying reduction");
+            }
             Task::none()
         }
         | Message::RejectReduction(block_id) => {
@@ -505,9 +507,10 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if state.is_expanding(&block_id) {
                 tracing::info!(block_id = ?block_id, "expand request cancelled");
                 if let Some((active_block_id, handle)) = state.expand_handle.take()
-                    && active_block_id == block_id {
-                        handle.abort();
-                    }
+                    && active_block_id == block_id
+                {
+                    handle.abort();
+                }
                 state.expand_states.remove(block_id);
                 state.pending_expand_signatures.remove(block_id);
             }
@@ -596,10 +599,9 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if should_remove_draft {
                 state.store.remove_expansion_draft(&block_id);
             }
-            if should_save
-                && let Err(err) = state.save_tree() {
-                    tracing::error!(%err, "failed to save tree after applying rewrite");
-                }
+            if should_save && let Err(err) = state.save_tree() {
+                tracing::error!(%err, "failed to save tree after applying rewrite");
+            }
             Task::none()
         }
         | Message::RejectExpandedRewrite(block_id) => {
@@ -615,10 +617,9 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if should_remove_draft {
                 state.store.remove_expansion_draft(&block_id);
             }
-            if changed
-                && let Err(err) = state.save_tree() {
-                    tracing::error!(%err, "failed to save tree after rejecting rewrite");
-                }
+            if changed && let Err(err) = state.save_tree() {
+                tracing::error!(%err, "failed to save tree after rejecting rewrite");
+            }
             Task::none()
         }
         | Message::AcceptExpandedChild(block_id, child_index) => {
@@ -636,23 +637,23 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 }
             }
             if let Some(point) = accepted_child_point
-                && let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
-                    tracing::info!(
-                        parent_block_id = ?block_id,
-                        child_block_id = ?child_id,
-                        chars = point.len(),
-                        "accepted expanded child"
-                    );
-                    state.editors.set_text(&child_id, &point);
-                    should_save = true;
-                }
+                && let Some(child_id) = state.store.append_child(&block_id, point.clone())
+            {
+                tracing::info!(
+                    parent_block_id = ?block_id,
+                    child_block_id = ?child_id,
+                    chars = point.len(),
+                    "accepted expanded child"
+                );
+                state.editors.set_text(&child_id, &point);
+                should_save = true;
+            }
             if should_remove_draft {
                 state.store.remove_expansion_draft(&block_id);
             }
-            if should_save
-                && let Err(err) = state.save_tree() {
-                    tracing::error!(%err, "failed to save tree after accepting expanded child");
-                }
+            if should_save && let Err(err) = state.save_tree() {
+                tracing::error!(%err, "failed to save tree after accepting expanded child");
+            }
             Task::none()
         }
         | Message::RejectExpandedChild(block_id, child_index) => {
@@ -670,10 +671,9 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if should_remove_draft {
                 state.store.remove_expansion_draft(&block_id);
             }
-            if changed
-                && let Err(err) = state.save_tree() {
-                    tracing::error!(%err, "failed to save tree after rejecting expanded child");
-                }
+            if changed && let Err(err) = state.save_tree() {
+                tracing::error!(%err, "failed to save tree after rejecting expanded child");
+            }
             Task::none()
         }
         | Message::AcceptAllExpandedChildren(block_id) => {
@@ -704,9 +704,10 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.set_active_block(&block_id);
             tracing::info!(block_id = ?block_id, "discarded expansion draft");
             if state.store.remove_expansion_draft(&block_id).is_some()
-                && let Err(err) = state.save_tree() {
-                    tracing::error!(%err, "failed to save tree after discarding expansion draft");
-                }
+                && let Err(err) = state.save_tree()
+            {
+                tracing::error!(%err, "failed to save tree after discarding expansion draft");
+            }
             Task::none()
         }
         | Message::ToggleOverflow(block_id) => {
@@ -770,13 +771,15 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 state.editors.remove_blocks(&removed_ids);
                 for id in &removed_ids {
                     if state.reduce_handle.as_ref().is_some_and(|(active, _)| *active == *id)
-                        && let Some((_, handle)) = state.reduce_handle.take() {
-                            handle.abort();
-                        }
+                        && let Some((_, handle)) = state.reduce_handle.take()
+                    {
+                        handle.abort();
+                    }
                     if state.expand_handle.as_ref().is_some_and(|(active, _)| *active == *id)
-                        && let Some((_, handle)) = state.expand_handle.take() {
-                            handle.abort();
-                        }
+                        && let Some((_, handle)) = state.expand_handle.take()
+                    {
+                        handle.abort();
+                    }
                     state.pending_reduce_signatures.remove(*id);
                     state.pending_expand_signatures.remove(*id);
                     state.reduce_states.remove(*id);
@@ -939,6 +942,116 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             Task::none()
         }
     }
+}
+
+/// Global event subscription: keyboard shortcuts, mouse clicks, escape,
+/// and system theme changes.
+pub fn subscription(_state: &AppState) -> Subscription<Message> {
+    Subscription::batch([
+        event::listen_with(handle_event),
+        system::theme_changes().map(Message::SystemThemeChanged),
+    ])
+}
+
+fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) -> Option<Message> {
+    if status == event::Status::Captured {
+        return None;
+    }
+
+    match event {
+        | Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Named(keyboard::key::Named::Escape),
+            ..
+        }) => Some(Message::CloseOverflow),
+        | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+            if modifiers.command() {
+                match &key {
+                    | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
+                        return if modifiers.shift() {
+                            Some(Message::Redo)
+                        } else {
+                            Some(Message::Undo)
+                        };
+                    }
+                    | _ => {}
+                }
+            }
+            shortcut_to_action(key, modifiers).map(Message::Shortcut)
+        }
+        | Event::Mouse(mouse::Event::ButtonPressed(_)) => Some(Message::CloseOverflow),
+        | _ => None,
+    }
+}
+
+fn run_shortcut_for_block(
+    state: &mut AppState, block_id: BlockId, action_id: ActionId,
+) -> Task<Message> {
+    state.set_active_block(&block_id);
+
+    let point_text =
+        state.editors.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
+    let expansion_draft = state.store.expansion_draft(&block_id);
+    let reduction_draft = state.store.reduction_draft(&block_id);
+    let row_context = RowContext {
+        block_id,
+        point_text,
+        has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
+        draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0),
+        has_expand_error: state
+            .expand_states
+            .get(block_id)
+            .is_some_and(|s| matches!(s, ExpandState::Error { .. })),
+        has_reduce_error: state
+            .reduce_states
+            .get(block_id)
+            .is_some_and(|s| matches!(s, ReduceState::Error { .. })),
+        is_expanding: state.is_expanding(&block_id),
+        is_reducing: state.is_reducing(&block_id),
+        is_mounted: state.store.mount_table().entry(block_id).is_some(),
+        has_children: !state.store.children(&block_id).is_empty(),
+        is_unexpanded_mount: state.store.node(&block_id).is_some_and(|n| n.mount_path().is_some()),
+    };
+    let vm = project_for_viewport(build_action_bar_vm(&row_context), ViewportBucket::Wide);
+
+    let is_enabled = vm
+        .primary
+        .iter()
+        .chain(vm.contextual.iter())
+        .chain(vm.overflow.iter())
+        .find(|item| item.id == action_id)
+        .is_some_and(|descriptor| descriptor.availability == ActionAvailability::Enabled);
+
+    if is_enabled && let Some(next) = action_to_message_by_id(state, &block_id, action_id) {
+        return update(state, next);
+    }
+
+    Task::none()
+}
+
+/// Top-level view: error banner + scrollable block tree.
+pub fn view(state: &AppState) -> Element<'_, Message> {
+    let mut layout = column![].spacing(theme::LAYOUT_GAP);
+    if let Some(error) = &state.error {
+        layout = layout.push(
+            container(text(format!("Error: {}", error.message())))
+                .style(theme::error_banner)
+                .padding(theme::BANNER_PAD),
+        );
+    }
+
+    let tree = view::TreeView::new(state).render_roots();
+    let content = container(tree).padding(theme::CANVAS_PAD).max_width(theme::CANVAS_MAX_WIDTH);
+    layout = layout.push(
+        scrollable(
+            container(content)
+                .width(Fill)
+                .center_x(Fill)
+                .padding(iced::Padding::ZERO.top(theme::CANVAS_TOP)),
+        )
+        .height(Fill),
+    );
+
+    container(layout).style(theme::canvas).width(Fill).height(Fill).into()
 }
 
 #[cfg(test)]
@@ -1274,116 +1387,4 @@ mod tests {
         assert!(state.store.reduction_draft(&root).is_none());
         assert!(state.reduce_states.get(root).is_none());
     }
-}
-
-/// Global event subscription: keyboard shortcuts, mouse clicks, escape,
-/// and system theme changes.
-pub fn subscription(_state: &AppState) -> Subscription<Message> {
-    Subscription::batch([
-        event::listen_with(handle_event),
-        system::theme_changes().map(Message::SystemThemeChanged),
-    ])
-}
-
-fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) -> Option<Message> {
-    if status == event::Status::Captured {
-        return None;
-    }
-
-    match event {
-        | Event::Keyboard(keyboard::Event::KeyPressed { key, .. })
-            if key == keyboard::Key::Named(keyboard::key::Named::Escape) =>
-        {
-            Some(Message::CloseOverflow)
-        }
-        | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-            if modifiers.command() {
-                match &key {
-                    | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
-                        return if modifiers.shift() {
-                            Some(Message::Redo)
-                        } else {
-                            Some(Message::Undo)
-                        };
-                    }
-                    | _ => {}
-                }
-            }
-            shortcut_to_action(key, modifiers).map(Message::Shortcut)
-        }
-        | Event::Mouse(mouse::Event::ButtonPressed(_)) => Some(Message::CloseOverflow),
-        | _ => None,
-    }
-}
-
-fn run_shortcut_for_block(
-    state: &mut AppState, block_id: BlockId, action_id: ActionId,
-) -> Task<Message> {
-    state.set_active_block(&block_id);
-
-    let point_text =
-        state.editors.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
-    let expansion_draft = state.store.expansion_draft(&block_id);
-    let reduction_draft = state.store.reduction_draft(&block_id);
-    let row_context = RowContext {
-        block_id,
-        point_text,
-        has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
-        draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0),
-        has_expand_error: state
-            .expand_states
-            .get(block_id)
-            .is_some_and(|s| matches!(s, ExpandState::Error { .. })),
-        has_reduce_error: state
-            .reduce_states
-            .get(block_id)
-            .is_some_and(|s| matches!(s, ReduceState::Error { .. })),
-        is_expanding: state.is_expanding(&block_id),
-        is_reducing: state.is_reducing(&block_id),
-        is_mounted: state.store.mount_table().entry(block_id).is_some(),
-        has_children: !state.store.children(&block_id).is_empty(),
-        is_unexpanded_mount: state.store.node(&block_id).is_some_and(|n| n.mount_path().is_some()),
-    };
-    let vm = project_for_viewport(build_action_bar_vm(&row_context), ViewportBucket::Wide);
-
-    let is_enabled = vm
-        .primary
-        .iter()
-        .chain(vm.contextual.iter())
-        .chain(vm.overflow.iter())
-        .find(|item| item.id == action_id)
-        .is_some_and(|descriptor| descriptor.availability == ActionAvailability::Enabled);
-
-    if is_enabled
-        && let Some(next) = action_to_message_by_id(state, &block_id, action_id) {
-            return update(state, next);
-        }
-
-    Task::none()
-}
-
-/// Top-level view: error banner + scrollable block tree.
-pub fn view(state: &AppState) -> Element<'_, Message> {
-    let mut layout = column![].spacing(theme::LAYOUT_GAP);
-    if let Some(error) = &state.error {
-        layout = layout.push(
-            container(text(format!("Error: {}", error.message())))
-                .style(theme::error_banner)
-                .padding(theme::BANNER_PAD),
-        );
-    }
-
-    let tree = view::TreeView::new(state).render_roots();
-    let content = container(tree).padding(theme::CANVAS_PAD).max_width(theme::CANVAS_MAX_WIDTH);
-    layout = layout.push(
-        scrollable(
-            container(content)
-                .width(Fill)
-                .center_x(Fill)
-                .padding(iced::Padding::ZERO.top(theme::CANVAS_TOP)),
-        )
-        .height(Fill),
-    );
-
-    container(layout).style(theme::canvas).width(Fill).height(Fill).into()
 }

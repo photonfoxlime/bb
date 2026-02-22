@@ -441,9 +441,10 @@ impl BlockStore {
             self.mount_table.set_origin(child_id, BlockOrigin::Mounted { mount_point });
         }
         if let Some(parent) = self.nodes.get_mut(*parent_id)
-            && let Some(children) = parent.children_mut() {
-                children.push(child_id);
-            }
+            && let Some(children) = parent.children_mut()
+        {
+            children.push(child_id);
+        }
         Some(child_id)
     }
 
@@ -492,9 +493,10 @@ impl BlockStore {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
         if let Some(parent_id) = parent_id {
             if let Some(parent) = self.nodes.get_mut(parent_id)
-                && let Some(children) = parent.children_mut() {
-                    children.remove(index);
-                }
+                && let Some(children) = parent.children_mut()
+            {
+                children.remove(index);
+            }
         } else {
             self.roots.remove(index);
         }
@@ -672,9 +674,10 @@ impl BlockStore {
             if nested_mounts.contains(&old_id) {
                 // Expanded mount point: restore as a Mount node.
                 if let Some(entry) = self.mount_table.entry(old_id)
-                    && let Some(node) = sub_nodes.get_mut(new_id) {
-                        *node = BlockNode::with_path(entry.rel_path.clone());
-                    }
+                    && let Some(node) = sub_nodes.get_mut(new_id)
+                {
+                    *node = BlockNode::with_path(entry.rel_path.clone());
+                }
             } else if let Some(old_node) = self.nodes.get(old_id) {
                 match old_node {
                     | BlockNode::Children { children } => {
@@ -1021,6 +1024,26 @@ impl BlockStore {
 impl Default for BlockStore {
     fn default() -> Self {
         Self::default_store()
+    }
+}
+
+impl PartialEq for BlockStore {
+    fn eq(&self, other: &Self) -> bool {
+        self.roots == other.roots
+            && self.nodes.len() == other.nodes.len()
+            && self.nodes.iter().all(|(id, node)| other.nodes.get(id) == Some(node))
+            && self.points.len() == other.points.len()
+            && self.points.iter().all(|(id, pt)| other.points.get(id) == Some(pt))
+            && self.expansion_drafts.len() == other.expansion_drafts.len()
+            && self
+                .expansion_drafts
+                .iter()
+                .all(|(id, draft)| other.expansion_drafts.get(id) == Some(draft))
+            && self.reduction_drafts.len() == other.reduction_drafts.len()
+            && self
+                .reduction_drafts
+                .iter()
+                .all(|(id, draft)| other.reduction_drafts.get(id) == Some(draft))
     }
 }
 
@@ -1586,7 +1609,7 @@ mod tests {
         assert!(snapshot.node(&mount_id).unwrap().mount_path().is_some());
 
         store.expand_mount(&mount_id, tmp.path()).unwrap();
-        assert!(!store.node(&mount_id).unwrap().mount_path().is_some());
+        assert!(store.node(&mount_id).unwrap().mount_path().is_none());
         assert!(!store.children(&mount_id).is_empty());
 
         // Restoring the snapshot should give back the unexpanded mount.
@@ -1996,25 +2019,5 @@ mod tests {
         let inner_roots = store.expand_mount(&nested[0], tmp.path()).unwrap();
         assert_eq!(inner_roots.len(), 1);
         assert_eq!(store.point(&inner_roots[0]), Some("self-ref root".to_string()));
-    }
-}
-
-impl PartialEq for BlockStore {
-    fn eq(&self, other: &Self) -> bool {
-        self.roots == other.roots
-            && self.nodes.len() == other.nodes.len()
-            && self.nodes.iter().all(|(id, node)| other.nodes.get(id) == Some(node))
-            && self.points.len() == other.points.len()
-            && self.points.iter().all(|(id, pt)| other.points.get(id) == Some(pt))
-            && self.expansion_drafts.len() == other.expansion_drafts.len()
-            && self
-                .expansion_drafts
-                .iter()
-                .all(|(id, draft)| other.expansion_drafts.get(id) == Some(draft))
-            && self.reduction_drafts.len() == other.reduction_drafts.len()
-            && self
-                .reduction_drafts
-                .iter()
-                .all(|(id, draft)| other.reduction_drafts.get(id) == Some(draft))
     }
 }
