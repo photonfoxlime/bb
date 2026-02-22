@@ -91,7 +91,8 @@ Result: the main file never contains mounted block data.
 
 `BlockStore::save_mounts()` iterates all mount entries and for each:
 - Extracts the entry's blocks into a standalone `BlockStore` via
-  `extract_mount_store`.
+  `extract_mount_store`, using the live subtree under the current
+  mount-point children (not a stale cached id list).
 - Restores expanded nested mount points to `BlockNode::Mount { path }`
   so nested file links are preserved in parent mount files.
 - Carries over draft records for extracted blocks so mounted files preserve

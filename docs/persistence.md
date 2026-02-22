@@ -55,7 +55,8 @@ Result: the main file stores mount references, not mounted inline content.
 
 For each `MountEntry` in `MountTable`:
 
-- Extract mounted blocks into a standalone `BlockStore`.
+- Extract mounted blocks from the current live subtree under the mount
+  point into a standalone `BlockStore`.
 - Collapse expanded nested mount points back to `Mount { path }` in the
   serialized parent file.
 - Preserve draft records for mounted blocks.
