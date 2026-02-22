@@ -18,6 +18,7 @@ lucide-icons = { version = "0.563.0", features = ["iced"] }
 similar = "2.5"
 rfd = "0.15"
 dark-light = "2.0.0"
+tokio = { version = "1", features = ["time"] }
 
 [dev-dependencies]
 tempfile = "3"

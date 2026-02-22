@@ -15,6 +15,7 @@ fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
     let icon = match id {
         | ActionId::Expand => icons::icon_maximize_2(),
         | ActionId::Reduce => icons::icon_minimize_2(),
+        | ActionId::Cancel => icons::icon_circle_x(),
         | ActionId::AddChild => icons::icon_corner_down_right(),
         | ActionId::AcceptAll => icons::icon_check_check(),
         | ActionId::Retry => icons::icon_refresh_cw(),

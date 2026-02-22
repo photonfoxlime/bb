@@ -86,6 +86,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 - **Lineage-based context**. Reduce and expand use DFS root-to-target lineage as LLM context.
 - **Single-block async lifecycle**. One reduce and one expand operation active at a time (`ReductionState` / `ExpandState` enums).
 - **Conflict-safe async responses**. Expand/reduce requests capture a lineage signature (root-to-target points) at dispatch time; responses are discarded as stale if that lineage changes before completion.
+- **Per-request cancel and timeout**. While reduce/expand is loading, UI exposes a cancel action that clears pending request tracking for that block; async LLM calls are wrapped with a 30-second timeout.
 - **Draft-then-apply with persisted drafts**. Expand and reduce results are staged as drafts and persisted in `BlockStore` (not transient-only). Rewrite and each child are accepted/rejected independently; reduction drafts are applied/rejected explicitly.
 - **Single source for persisted draft truth**. `AppState` mirrors draft maps for UI ergonomics, and `save_tree()` synchronizes them into `BlockStore` before writing files. No legacy transient-only persistence path remains.
 - **Pure renderer**. `TreeView` borrows immutable state, produces widgets. No mutation during rendering.

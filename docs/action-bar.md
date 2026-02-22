@@ -11,7 +11,7 @@ Row zones: spine, marker, text editor, action buttons.
 Status chip appears below the row (left-indented to align with text) when active (loading, error, or draft state). Hidden when idle.
 
 - **Primary** (always visible): Expand, Reduce, Add child.
-- **Contextual** (state-driven): Accept all, Retry, Dismiss draft.
+- **Contextual** (state-driven): Accept all, Retry, Cancel, Dismiss draft.
 - **Overflow** (toggle menu): Add sibling, Duplicate, Archive, Collapse/Expand branch, Open as focus.
 
 ## Responsive Projection
@@ -37,7 +37,7 @@ Shortcut target resolution in `AppState` is: `focused_block_id` first, then
 
 ## State Rules
 
-- Busy states disable only conflicting actions.
+- Busy states disable only conflicting actions and expose `Cancel` for the active request.
 - Error shows chip + retry. Draft surfaces accept/dismiss.
 - Empty point gates reduce; add child remains available.
 - Overflow auto-closes on outside click or Escape.

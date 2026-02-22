@@ -9,6 +9,7 @@ use crate::store::{BlockId, BlockStore};
 use crate::theme;
 use crate::undo::UndoHistory;
 use std::collections::HashSet;
+use std::time::Duration;
 mod action_bar;
 mod diff;
 mod draft;
@@ -26,7 +27,9 @@ use action_bar::{
 };
 use iced::theme::Mode;
 use iced::widget::{column, container, scrollable, text, text_editor};
-use iced::{Element, Event, Fill, Subscription, Task, event, keyboard, mouse, system, widget};
+use iced::{
+    Element, Event, Fill, Subscription, Task, event, keyboard, mouse, system, task, widget,
+};
 use slotmap::SecondaryMap;
 
 /// Snapshot of undoable application state.
@@ -43,6 +46,7 @@ struct UndoSnapshot {
 
 /// Default capacity: 64 undo steps.
 const UNDO_CAPACITY: usize = 64;
+const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// All mutable application state for the iced Elm architecture.
 ///
@@ -56,6 +60,8 @@ pub struct AppState {
     error: Option<AppError>,
     reduce_states: SecondaryMap<BlockId, ReduceState>,
     expand_states: SecondaryMap<BlockId, ExpandState>,
+    reduce_handle: Option<(BlockId, task::Handle)>,
+    expand_handle: Option<(BlockId, task::Handle)>,
     pending_reduce_signatures: SecondaryMap<BlockId, RequestSignature>,
     pending_expand_signatures: SecondaryMap<BlockId, RequestSignature>,
     expansion_drafts: SecondaryMap<BlockId, ExpansionDraft>,
@@ -102,6 +108,8 @@ impl AppState {
             error,
             reduce_states: SecondaryMap::new(),
             expand_states: SecondaryMap::new(),
+            reduce_handle: None,
+            expand_handle: None,
             pending_reduce_signatures: SecondaryMap::new(),
             pending_expand_signatures: SecondaryMap::new(),
             expansion_drafts,
@@ -171,6 +179,12 @@ impl AppState {
         self.reduction_drafts = snapshot.reduction_drafts;
         self.reduce_states.clear();
         self.expand_states.clear();
+        if let Some((_, handle)) = self.reduce_handle.take() {
+            handle.abort();
+        }
+        if let Some((_, handle)) = self.expand_handle.take() {
+            handle.abort();
+        }
         self.pending_reduce_signatures.clear();
         self.pending_expand_signatures.clear();
         self.focused_block_id = None;
@@ -210,10 +224,12 @@ pub enum Message {
     Shortcut(ActionId),
     ShortcutFor(BlockId, ActionId),
     Reduce(BlockId),
+    CancelReduce(BlockId),
     ReduceDone(BlockId, RequestSignature, Result<String, UiError>),
     ApplyReduction(BlockId),
     RejectReduction(BlockId),
     Expand(BlockId),
+    CancelExpand(BlockId),
     ExpandDone(BlockId, RequestSignature, Result<llm::ExpandResult, UiError>),
     ApplyExpandedRewrite(BlockId),
     RejectExpandedRewrite(BlockId),
@@ -365,15 +381,42 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             };
             state.reduce_states.insert(block_id, ReduceState::Loading);
             state.pending_reduce_signatures.insert(block_id, request_signature);
-            Task::perform(
+            let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
-                    client.reduce_lineage(&lineage).await.map_err(UiError::from_message)
+                    match tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.reduce_lineage(&lineage))
+                        .await
+                    {
+                        | Ok(result) => result.map_err(|err| UiError::from_message(err)),
+                        | Err(_) => {
+                            Err(UiError::from_message("reduce request timed out after 30 seconds"))
+                        }
+                    }
                 },
                 move |result| Message::ReduceDone(block_id, request_signature, result),
-            )
+            );
+            let (request_task, handle) = Task::abortable(request_task);
+            state.reduce_handle = Some((block_id, handle.abort_on_drop()));
+            request_task
+        }
+        | Message::CancelReduce(block_id) => {
+            state.set_active_block(&block_id);
+            if state.is_reducing(&block_id) {
+                tracing::info!(block_id = ?block_id, "reduce request cancelled");
+                if let Some((active_block_id, handle)) = state.reduce_handle.take() {
+                    if active_block_id == block_id {
+                        handle.abort();
+                    }
+                }
+                state.reduce_states.remove(block_id);
+                state.pending_reduce_signatures.remove(block_id);
+            }
+            Task::none()
         }
         | Message::ReduceDone(block_id, request_signature, result) => {
+            if state.reduce_handle.as_ref().is_some_and(|(active, _)| *active == block_id) {
+                state.reduce_handle = None;
+            }
             state.reduce_states.remove(block_id);
             if state.store.node(&block_id).is_none() {
                 state.pending_reduce_signatures.remove(block_id);
@@ -458,15 +501,42 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             };
             state.expand_states.insert(block_id, ExpandState::Loading);
             state.pending_expand_signatures.insert(block_id, request_signature);
-            Task::perform(
+            let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
-                    client.expand_lineage(&lineage).await.map_err(UiError::from_message)
+                    match tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.expand_lineage(&lineage))
+                        .await
+                    {
+                        | Ok(result) => result.map_err(|err| UiError::from_message(err)),
+                        | Err(_) => {
+                            Err(UiError::from_message("expand request timed out after 30 seconds"))
+                        }
+                    }
                 },
                 move |result| Message::ExpandDone(block_id, request_signature, result),
-            )
+            );
+            let (request_task, handle) = Task::abortable(request_task);
+            state.expand_handle = Some((block_id, handle.abort_on_drop()));
+            request_task
+        }
+        | Message::CancelExpand(block_id) => {
+            state.set_active_block(&block_id);
+            if state.is_expanding(&block_id) {
+                tracing::info!(block_id = ?block_id, "expand request cancelled");
+                if let Some((active_block_id, handle)) = state.expand_handle.take() {
+                    if active_block_id == block_id {
+                        handle.abort();
+                    }
+                }
+                state.expand_states.remove(block_id);
+                state.pending_expand_signatures.remove(block_id);
+            }
+            Task::none()
         }
         | Message::ExpandDone(block_id, request_signature, result) => {
+            if state.expand_handle.as_ref().is_some_and(|(active, _)| *active == block_id) {
+                state.expand_handle = None;
+            }
             state.expand_states.remove(block_id);
             if state.store.node(&block_id).is_none() {
                 state.pending_expand_signatures.remove(block_id);
@@ -707,6 +777,16 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 tracing::info!(block_id = ?block_id, removed = removed_ids.len(), "archived block subtree");
                 state.editors.remove_blocks(&removed_ids);
                 for id in &removed_ids {
+                    if state.reduce_handle.as_ref().is_some_and(|(active, _)| *active == *id) {
+                        if let Some((_, handle)) = state.reduce_handle.take() {
+                            handle.abort();
+                        }
+                    }
+                    if state.expand_handle.as_ref().is_some_and(|(active, _)| *active == *id) {
+                        if let Some((_, handle)) = state.expand_handle.take() {
+                            handle.abort();
+                        }
+                    }
                     state.pending_reduce_signatures.remove(*id);
                     state.pending_expand_signatures.remove(*id);
                     state.reduce_states.remove(*id);
@@ -891,6 +971,8 @@ mod tests {
             error: None,
             reduce_states: SecondaryMap::new(),
             expand_states: SecondaryMap::new(),
+            reduce_handle: None,
+            expand_handle: None,
             pending_reduce_signatures: SecondaryMap::new(),
             pending_expand_signatures: SecondaryMap::new(),
             expansion_drafts: SecondaryMap::new(),

@@ -28,3 +28,5 @@ The LLM prompt includes lineage context, not just the target point. If an ancest
 
 - Real request failures still produce error state.
 - Stale responses do not show as errors; they are dropped quietly.
+- Loading requests expose a `Cancel` action in the action bar.
+- Expand/reduce requests time out after 30 seconds.

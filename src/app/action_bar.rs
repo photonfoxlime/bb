@@ -21,6 +21,7 @@ use iced::keyboard::{Key, Modifiers, key::Named};
 pub enum ActionId {
     Expand,
     Reduce,
+    Cancel,
     AddChild,
     AcceptAll,
     Retry,
@@ -256,6 +257,15 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
         ));
     }
 
+    if matches!(row_state, RowUiState::BusyExpand | RowUiState::BusyReduce) {
+        vm.contextual.push(ActionDescriptor::new(
+            ActionId::Cancel,
+            "Cancel",
+            ActionAvailability::Enabled,
+            ActionPriority::Contextual,
+        ));
+    }
+
     if ctx.has_draft {
         vm.contextual.push(ActionDescriptor::new(
             ActionId::DismissDraft,
@@ -413,6 +423,7 @@ pub fn action_to_message_by_id(
         | ActionId::Reduce => Some(Message::Reduce(*block_id)),
         | ActionId::AddChild => Some(Message::AddChild(*block_id)),
         | ActionId::AcceptAll => Some(Message::AcceptAllExpandedChildren(*block_id)),
+        | ActionId::Cancel => cancel_message_for_block(state, block_id),
         | ActionId::Retry => retry_message_for_block(state, block_id),
         | ActionId::DismissDraft => {
             // Dismiss whichever draft exists (or both if both exist)
@@ -435,6 +446,16 @@ pub fn action_to_message_by_id(
         | ActionId::ExpandBranch
         | ActionId::OpenAsFocus => None,
     }
+}
+
+fn cancel_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
+    if state.expand_states.get(*block_id).is_some_and(|s| matches!(s, ExpandState::Loading)) {
+        return Some(Message::CancelExpand(*block_id));
+    }
+    if state.reduce_states.get(*block_id).is_some_and(|s| matches!(s, ReduceState::Loading)) {
+        return Some(Message::CancelReduce(*block_id));
+    }
+    None
 }
 
 fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
@@ -489,6 +510,22 @@ mod tests {
         ctx.draft_suggestion_count = 2;
         let vm = build_action_bar_vm(&ctx);
         assert!(vm.contextual.iter().any(|action| action.id == ActionId::AcceptAll));
+    }
+
+    #[test]
+    fn shows_cancel_when_busy_expand() {
+        let mut ctx = row_context();
+        ctx.is_expanding = true;
+        let vm = build_action_bar_vm(&ctx);
+        assert!(vm.contextual.iter().any(|action| action.id == ActionId::Cancel));
+    }
+
+    #[test]
+    fn shows_cancel_when_busy_reduce() {
+        let mut ctx = row_context();
+        ctx.is_reducing = true;
+        let vm = build_action_bar_vm(&ctx);
+        assert!(vm.contextual.iter().any(|action| action.id == ActionId::Cancel));
     }
 
     #[test]

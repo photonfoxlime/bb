@@ -12,7 +12,7 @@ For current architecture, see [architecture.md](architecture.md).
 ## Expand/Reduce quality
 - Retry and fallback parsing for expand JSON.
 - Prompt tuning for concise, non-overlapping suggestions.
-- Per-request cancellation and timeout in UI.
+- ~~Per-request cancellation and timeout in UI.~~ Done (Cancel action while loading + 30s request timeout for expand/reduce).
 
 ## Data model
 - Versioned storage schema for migrations.
