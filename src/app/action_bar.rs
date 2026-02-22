@@ -13,10 +13,6 @@ use iced::keyboard::{Key, Modifiers, key::Named};
 
 /// Identifier for a user-visible action in the action bar.
 ///
-/// Some variants (`Overflow`, `CollapseBranch`, `ExpandBranch`, `OpenAsFocus`)
-/// are matched in dispatch and `action_icon` but not yet constructed; they
-/// represent planned actions.
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActionId {
     Expand,
@@ -26,11 +22,9 @@ pub enum ActionId {
     AcceptAll,
     Retry,
     DismissDraft,
-    Overflow,
     CollapseBranch,
     ExpandBranch,
     AddSibling,
-    OpenAsFocus,
     DuplicateBlock,
     ArchiveBlock,
     SaveToFile,
@@ -441,10 +435,7 @@ pub fn action_to_message_by_id(
         | ActionId::ArchiveBlock => Some(Message::ArchiveBlock(*block_id)),
         | ActionId::SaveToFile => Some(Message::SaveToFile(*block_id)),
         | ActionId::LoadFromFile => Some(Message::LoadFromFile(*block_id)),
-        | ActionId::Overflow
-        | ActionId::CollapseBranch
-        | ActionId::ExpandBranch
-        | ActionId::OpenAsFocus => None,
+        | ActionId::CollapseBranch | ActionId::ExpandBranch => None,
     }
 }
 
@@ -616,7 +607,7 @@ mod tests {
         assert!(visible.iter().any(|action| action.id == ActionId::Reduce));
         assert!(visible.iter().any(|action| action.id == ActionId::AddChild));
         assert!(visible.iter().any(|action| action.id == ActionId::DismissDraft));
-        assert!(!visible.iter().any(|action| action.id == ActionId::Overflow));
+        assert!(visible.iter().all(|action| action.priority != ActionPriority::OverflowOnly));
     }
 
     #[test]

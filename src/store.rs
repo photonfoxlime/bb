@@ -251,76 +251,20 @@ impl BlockStore {
             }
         }
 
-        let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
-        let mut sub_points: SecondaryMap<BlockId, String> = SecondaryMap::new();
-        let mut sub_expansion_drafts: SecondaryMap<BlockId, ExpansionDraftRecord> =
-            SecondaryMap::new();
-        let mut sub_reduction_drafts: SecondaryMap<BlockId, ReductionDraftRecord> =
-            SecondaryMap::new();
-        let mut id_map: std::collections::HashMap<BlockId, BlockId> =
-            std::collections::HashMap::new();
-
-        // First pass: allocate fresh ids for every non-mounted block.
+        let mut kept_ids = Vec::new();
         for (old_id, _node) in &self.nodes {
-            if mounted_ids.contains(&old_id) {
-                continue;
-            }
-            let point = self.points.get(old_id).cloned().unwrap_or_default();
-            let new_id = sub_nodes.insert(BlockNode::with_children(vec![]));
-            sub_points.insert(new_id, point);
-            id_map.insert(old_id, new_id);
-        }
-
-        // Second pass: rewrite node contents with remapped ids.
-        // Mount-point nodes are restored to Mount { path }.
-        for (old_id, old_node) in &self.nodes {
-            let Some(&new_id) = id_map.get(&old_id) else {
-                continue;
-            };
-            if let Some(entry) = self.mount_table.entry(old_id) {
-                // This is an expanded mount point: restore as Mount node.
-                if let Some(node) = sub_nodes.get_mut(new_id) {
-                    *node = BlockNode::with_path(entry.rel_path.clone());
-                }
-            } else {
-                match old_node {
-                    | BlockNode::Children { children } => {
-                        let new_children: Vec<BlockId> =
-                            children.iter().filter_map(|c| id_map.get(c).copied()).collect();
-                        if let Some(node) = sub_nodes.get_mut(new_id) {
-                            *node = BlockNode::with_children(new_children);
-                        }
-                    }
-                    | BlockNode::Mount { path } => {
-                        if let Some(node) = sub_nodes.get_mut(new_id) {
-                            *node = BlockNode::with_path(path.clone());
-                        }
-                    }
-                }
+            if !mounted_ids.contains(&old_id) {
+                kept_ids.push(old_id);
             }
         }
 
-        let sub_roots: Vec<BlockId> =
-            self.roots.iter().filter_map(|r| id_map.get(r).copied()).collect();
-
-        for (old_id, draft) in &self.expansion_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                sub_expansion_drafts.insert(new_id, draft.clone());
-            }
-        }
-        for (old_id, draft) in &self.reduction_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                sub_reduction_drafts.insert(new_id, draft.clone());
-            }
+        let mut mount_path_overrides: std::collections::HashMap<BlockId, std::path::PathBuf> =
+            std::collections::HashMap::new();
+        for (mount_point, entry) in self.mount_table.entries() {
+            mount_path_overrides.insert(mount_point, entry.rel_path.clone());
         }
 
-        BlockStore::new_with_drafts(
-            sub_roots,
-            sub_nodes,
-            sub_points,
-            sub_expansion_drafts,
-            sub_reduction_drafts,
-        )
+        self.build_projected_store(&kept_ids, &self.roots, &mount_path_overrides)
     }
 
     /// Extract blocks belonging to a mount entry into a standalone store.
@@ -340,71 +284,15 @@ impl BlockStore {
         let mut seen = std::collections::HashSet::new();
         own_ids.retain(|id| seen.insert(*id));
 
-        let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
-        let mut sub_points: SecondaryMap<BlockId, String> = SecondaryMap::new();
-        let mut sub_expansion_drafts: SecondaryMap<BlockId, ExpansionDraftRecord> =
-            SecondaryMap::new();
-        let mut sub_reduction_drafts: SecondaryMap<BlockId, ReductionDraftRecord> =
-            SecondaryMap::new();
-        let mut id_map: std::collections::HashMap<BlockId, BlockId> =
+        let mut mount_path_overrides: std::collections::HashMap<BlockId, std::path::PathBuf> =
             std::collections::HashMap::new();
-
-        // First pass: allocate fresh ids for every kept block.
         for &old_id in &own_ids {
-            let point = self.points.get(old_id).cloned().unwrap_or_default();
-            let new_id = sub_nodes.insert(BlockNode::with_children(vec![]));
-            sub_points.insert(new_id, point);
-            id_map.insert(old_id, new_id);
-        }
-
-        // Second pass: rewrite node contents with remapped ids.
-        for &old_id in &own_ids {
-            let new_id = id_map[&old_id];
             if let Some(nested_entry) = self.mount_table.entry(old_id) {
-                if let Some(node) = sub_nodes.get_mut(new_id) {
-                    *node = BlockNode::with_path(nested_entry.rel_path.clone());
-                }
-                continue;
-            }
-            if let Some(old_node) = self.nodes.get(old_id) {
-                match old_node {
-                    | BlockNode::Children { children } => {
-                        let new_children: Vec<BlockId> =
-                            children.iter().filter_map(|c| id_map.get(c).copied()).collect();
-                        if let Some(node) = sub_nodes.get_mut(new_id) {
-                            *node = BlockNode::with_children(new_children);
-                        }
-                    }
-                    | BlockNode::Mount { path } => {
-                        if let Some(node) = sub_nodes.get_mut(new_id) {
-                            *node = BlockNode::with_path(path.clone());
-                        }
-                    }
-                }
+                mount_path_overrides.insert(old_id, nested_entry.rel_path.clone());
             }
         }
 
-        let sub_roots: Vec<BlockId> =
-            root_ids.iter().filter_map(|r| id_map.get(r).copied()).collect();
-
-        for (old_id, draft) in &self.expansion_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                sub_expansion_drafts.insert(new_id, draft.clone());
-            }
-        }
-        for (old_id, draft) in &self.reduction_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                sub_reduction_drafts.insert(new_id, draft.clone());
-            }
-        }
-
-        BlockStore::new_with_drafts(
-            sub_roots,
-            sub_nodes,
-            sub_points,
-            sub_expansion_drafts,
-            sub_reduction_drafts,
-        )
+        self.build_projected_store(&own_ids, &root_ids, &mount_path_overrides)
     }
 
     /// Look up a node by id.
@@ -650,73 +538,14 @@ impl BlockStore {
             self.collect_own_subtree_ids(child, &mut own_ids, &mut nested_mounts);
         }
 
-        // Build a standalone sub-store.
-        let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
-        let mut sub_points: SecondaryMap<BlockId, String> = SecondaryMap::new();
-        let mut sub_expansion_drafts: SecondaryMap<BlockId, ExpansionDraftRecord> =
-            SecondaryMap::new();
-        let mut sub_reduction_drafts: SecondaryMap<BlockId, ReductionDraftRecord> =
-            SecondaryMap::new();
-        let mut id_map: std::collections::HashMap<BlockId, BlockId> =
+        let mut mount_path_overrides: std::collections::HashMap<BlockId, std::path::PathBuf> =
             std::collections::HashMap::new();
-
-        // First pass: allocate fresh ids.
-        for &old_id in &own_ids {
-            let new_id = sub_nodes.insert(BlockNode::with_children(vec![]));
-            let point = self.points.get(old_id).cloned().unwrap_or_default();
-            sub_points.insert(new_id, point);
-            id_map.insert(old_id, new_id);
-        }
-
-        // Second pass: rewrite node contents.
-        for &old_id in &own_ids {
-            let new_id = id_map[&old_id];
-            if nested_mounts.contains(&old_id) {
-                // Expanded mount point: restore as a Mount node.
-                if let Some(entry) = self.mount_table.entry(old_id)
-                    && let Some(node) = sub_nodes.get_mut(new_id)
-                {
-                    *node = BlockNode::with_path(entry.rel_path.clone());
-                }
-            } else if let Some(old_node) = self.nodes.get(old_id) {
-                match old_node {
-                    | BlockNode::Children { children } => {
-                        let new_children: Vec<BlockId> =
-                            children.iter().filter_map(|c| id_map.get(c).copied()).collect();
-                        if let Some(node) = sub_nodes.get_mut(new_id) {
-                            *node = BlockNode::with_children(new_children);
-                        }
-                    }
-                    | BlockNode::Mount { path } => {
-                        if let Some(node) = sub_nodes.get_mut(new_id) {
-                            *node = BlockNode::with_path(path.clone());
-                        }
-                    }
-                }
+        for &old_id in &nested_mounts {
+            if let Some(entry) = self.mount_table.entry(old_id) {
+                mount_path_overrides.insert(old_id, entry.rel_path.clone());
             }
         }
-
-        // Sub-store roots = re-mapped children of block_id.
-        let sub_roots: Vec<BlockId> =
-            children.iter().filter_map(|c| id_map.get(c).copied()).collect();
-        for (old_id, draft) in &self.expansion_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                sub_expansion_drafts.insert(new_id, draft.clone());
-            }
-        }
-        for (old_id, draft) in &self.reduction_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                sub_reduction_drafts.insert(new_id, draft.clone());
-            }
-        }
-
-        let sub_store = BlockStore::new_with_drafts(
-            sub_roots,
-            sub_nodes,
-            sub_points,
-            sub_expansion_drafts,
-            sub_reduction_drafts,
-        );
+        let sub_store = self.build_projected_store(&own_ids, &children, &mount_path_overrides);
 
         // Write to file.
         if let Some(parent) = path.parent() {
@@ -761,6 +590,77 @@ impl BlockStore {
         }
 
         Ok(())
+    }
+
+    fn build_projected_store(
+        &self, kept_ids: &[BlockId], roots: &[BlockId],
+        mount_path_overrides: &std::collections::HashMap<BlockId, std::path::PathBuf>,
+    ) -> BlockStore {
+        let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
+        let mut sub_points: SecondaryMap<BlockId, String> = SecondaryMap::new();
+        let mut sub_expansion_drafts: SecondaryMap<BlockId, ExpansionDraftRecord> =
+            SecondaryMap::new();
+        let mut sub_reduction_drafts: SecondaryMap<BlockId, ReductionDraftRecord> =
+            SecondaryMap::new();
+        let mut id_map: std::collections::HashMap<BlockId, BlockId> =
+            std::collections::HashMap::new();
+
+        for &old_id in kept_ids {
+            let point = self.points.get(old_id).cloned().unwrap_or_default();
+            let new_id = sub_nodes.insert(BlockNode::with_children(vec![]));
+            sub_points.insert(new_id, point);
+            id_map.insert(old_id, new_id);
+        }
+
+        for &old_id in kept_ids {
+            let Some(&new_id) = id_map.get(&old_id) else {
+                continue;
+            };
+            if let Some(path) = mount_path_overrides.get(&old_id) {
+                if let Some(node) = sub_nodes.get_mut(new_id) {
+                    *node = BlockNode::with_path(path.clone());
+                }
+                continue;
+            }
+
+            if let Some(old_node) = self.nodes.get(old_id) {
+                match old_node {
+                    | BlockNode::Children { children } => {
+                        let new_children: Vec<BlockId> =
+                            children.iter().filter_map(|c| id_map.get(c).copied()).collect();
+                        if let Some(node) = sub_nodes.get_mut(new_id) {
+                            *node = BlockNode::with_children(new_children);
+                        }
+                    }
+                    | BlockNode::Mount { path } => {
+                        if let Some(node) = sub_nodes.get_mut(new_id) {
+                            *node = BlockNode::with_path(path.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        let sub_roots: Vec<BlockId> = roots.iter().filter_map(|r| id_map.get(r).copied()).collect();
+
+        for (old_id, draft) in &self.expansion_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                sub_expansion_drafts.insert(new_id, draft.clone());
+            }
+        }
+        for (old_id, draft) in &self.reduction_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                sub_reduction_drafts.insert(new_id, draft.clone());
+            }
+        }
+
+        BlockStore::new_with_drafts(
+            sub_roots,
+            sub_nodes,
+            sub_points,
+            sub_expansion_drafts,
+            sub_reduction_drafts,
+        )
     }
 
     /// Re-key all blocks from `sub_store` into this store with fresh ids.

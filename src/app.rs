@@ -209,6 +209,16 @@ impl AppState {
         self.editing_block_id = None;
     }
 
+    fn mutate_with_undo_and_persist<F>(&mut self, context: &'static str, mutate: F)
+    where
+        F: FnOnce(&mut Self) -> bool,
+    {
+        self.snapshot_for_undo();
+        if mutate(self) {
+            self.persist_with_context(context);
+        }
+    }
+
     fn restore_snapshot(&mut self, snapshot: UndoSnapshot) {
         self.editors = EditorStore::from_store(&snapshot.store);
         self.store = snapshot.store;
@@ -289,6 +299,192 @@ pub enum Message {
 /// Process one message and return a follow-up task (if any).
 pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
     match message {
+        | Message::Undo => handle_undo_redo(state, Message::Undo),
+        | Message::Redo => handle_undo_redo(state, Message::Redo),
+        | Message::Shortcut(action_id) => {
+            handle_shortcut_message(state, Message::Shortcut(action_id))
+        }
+        | Message::ShortcutFor(block_id, action_id) => {
+            handle_shortcut_message(state, Message::ShortcutFor(block_id, action_id))
+        }
+        | Message::PointEdited(block_id, action) => handle_point_edited(state, block_id, action),
+        | Message::Reduce(block_id) => handle_reduce_message(state, Message::Reduce(block_id)),
+        | Message::CancelReduce(block_id) => {
+            handle_reduce_message(state, Message::CancelReduce(block_id))
+        }
+        | Message::ReduceDone(block_id, request_signature, result) => {
+            handle_reduce_message(state, Message::ReduceDone(block_id, request_signature, result))
+        }
+        | Message::ApplyReduction(block_id) => {
+            handle_reduce_message(state, Message::ApplyReduction(block_id))
+        }
+        | Message::RejectReduction(block_id) => {
+            handle_reduce_message(state, Message::RejectReduction(block_id))
+        }
+        | Message::Expand(block_id) => handle_expand_message(state, Message::Expand(block_id)),
+        | Message::CancelExpand(block_id) => {
+            handle_expand_message(state, Message::CancelExpand(block_id))
+        }
+        | Message::ExpandDone(block_id, request_signature, result) => {
+            handle_expand_message(state, Message::ExpandDone(block_id, request_signature, result))
+        }
+        | Message::ApplyExpandedRewrite(block_id) => {
+            handle_expand_message(state, Message::ApplyExpandedRewrite(block_id))
+        }
+        | Message::RejectExpandedRewrite(block_id) => {
+            handle_expand_message(state, Message::RejectExpandedRewrite(block_id))
+        }
+        | Message::AcceptExpandedChild(block_id, child_index) => {
+            handle_expand_message(state, Message::AcceptExpandedChild(block_id, child_index))
+        }
+        | Message::RejectExpandedChild(block_id, child_index) => {
+            handle_expand_message(state, Message::RejectExpandedChild(block_id, child_index))
+        }
+        | Message::AcceptAllExpandedChildren(block_id) => {
+            handle_expand_message(state, Message::AcceptAllExpandedChildren(block_id))
+        }
+        | Message::DiscardExpansion(block_id) => {
+            handle_expand_message(state, Message::DiscardExpansion(block_id))
+        }
+        | Message::ToggleOverflow(block_id) => {
+            state.set_active_block(&block_id);
+            if state.overflow_open_for == Some(block_id) {
+                state.overflow_open_for = None;
+            } else {
+                state.overflow_open_for = Some(block_id);
+            }
+            Task::none()
+        }
+        | Message::CloseOverflow => {
+            state.overflow_open_for = None;
+            state.focused_block_id = None;
+            Task::none()
+        }
+        | Message::AddChild(block_id) => {
+            handle_structure_message(state, Message::AddChild(block_id))
+        }
+        | Message::AddSibling(block_id) => {
+            handle_structure_message(state, Message::AddSibling(block_id))
+        }
+        | Message::DuplicateBlock(block_id) => {
+            handle_structure_message(state, Message::DuplicateBlock(block_id))
+        }
+        | Message::ArchiveBlock(block_id) => {
+            handle_structure_message(state, Message::ArchiveBlock(block_id))
+        }
+        | Message::ToggleFold(block_id) => {
+            handle_structure_message(state, Message::ToggleFold(block_id))
+        }
+        | Message::ExpandMount(block_id) => {
+            handle_mount_and_file_message(state, Message::ExpandMount(block_id))
+        }
+        | Message::CollapseMount(block_id) => {
+            handle_mount_and_file_message(state, Message::CollapseMount(block_id))
+        }
+        | Message::SaveToFile(block_id) => {
+            handle_mount_and_file_message(state, Message::SaveToFile(block_id))
+        }
+        | Message::SaveToFilePicked(block_id, path) => {
+            handle_mount_and_file_message(state, Message::SaveToFilePicked(block_id, path))
+        }
+        | Message::LoadFromFile(block_id) => {
+            handle_mount_and_file_message(state, Message::LoadFromFile(block_id))
+        }
+        | Message::SystemThemeChanged(mode) => {
+            handle_mount_and_file_message(state, Message::SystemThemeChanged(mode))
+        }
+        | Message::LoadFromFilePicked(block_id, path) => {
+            handle_mount_and_file_message(state, Message::LoadFromFilePicked(block_id, path))
+        }
+    }
+}
+
+/// Global event subscription: keyboard shortcuts, mouse clicks, escape,
+/// and system theme changes.
+pub fn subscription(_state: &AppState) -> Subscription<Message> {
+    Subscription::batch([
+        event::listen_with(handle_event),
+        system::theme_changes().map(Message::SystemThemeChanged),
+    ])
+}
+
+fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) -> Option<Message> {
+    if status == event::Status::Captured {
+        return None;
+    }
+
+    match event {
+        | Event::Keyboard(keyboard::Event::KeyPressed {
+            key: keyboard::Key::Named(keyboard::key::Named::Escape),
+            ..
+        }) => Some(Message::CloseOverflow),
+        | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+            if modifiers.command() {
+                match &key {
+                    | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
+                        return if modifiers.shift() {
+                            Some(Message::Redo)
+                        } else {
+                            Some(Message::Undo)
+                        };
+                    }
+                    | _ => {}
+                }
+            }
+            shortcut_to_action(key, modifiers).map(Message::Shortcut)
+        }
+        | Event::Mouse(mouse::Event::ButtonPressed(_)) => Some(Message::CloseOverflow),
+        | _ => None,
+    }
+}
+
+fn run_shortcut_for_block(
+    state: &mut AppState, block_id: BlockId, action_id: ActionId,
+) -> Task<Message> {
+    state.set_active_block(&block_id);
+
+    let point_text =
+        state.editors.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
+    let expansion_draft = state.store.expansion_draft(&block_id);
+    let reduction_draft = state.store.reduction_draft(&block_id);
+    let row_context = RowContext {
+        block_id,
+        point_text,
+        has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
+        draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0),
+        has_expand_error: state
+            .expand_states
+            .get(block_id)
+            .is_some_and(|s| matches!(s, ExpandState::Error { .. })),
+        has_reduce_error: state
+            .reduce_states
+            .get(block_id)
+            .is_some_and(|s| matches!(s, ReduceState::Error { .. })),
+        is_expanding: state.is_expanding(&block_id),
+        is_reducing: state.is_reducing(&block_id),
+        is_mounted: state.store.mount_table().entry(block_id).is_some(),
+        has_children: !state.store.children(&block_id).is_empty(),
+        is_unexpanded_mount: state.store.node(&block_id).is_some_and(|n| n.mount_path().is_some()),
+    };
+    let vm = project_for_viewport(build_action_bar_vm(&row_context), ViewportBucket::Wide);
+
+    let is_enabled = vm
+        .primary
+        .iter()
+        .chain(vm.contextual.iter())
+        .chain(vm.overflow.iter())
+        .find(|item| item.id == action_id)
+        .is_some_and(|descriptor| descriptor.availability == ActionAvailability::Enabled);
+
+    if is_enabled && let Some(next) = action_to_message_by_id(state, &block_id, action_id) {
+        return update(state, next);
+    }
+
+    Task::none()
+}
+
+fn handle_undo_redo(state: &mut AppState, message: Message) -> Task<Message> {
+    match message {
         | Message::Undo => {
             let current = UndoSnapshot { store: state.store.clone() };
             if let Some(previous) = state.undo_history.undo(current) {
@@ -305,6 +501,12 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+        | _ => Task::none(),
+    }
+}
+
+fn handle_shortcut_message(state: &mut AppState, message: Message) -> Task<Message> {
+    match message {
         | Message::Shortcut(action_id) => {
             let Some(block_id) = state.current_block_for_shortcuts() else {
                 return Task::none();
@@ -315,71 +517,12 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.focused_block_id = Some(block_id);
             run_shortcut_for_block(state, block_id, action_id)
         }
-        | Message::PointEdited(block_id, action) => {
-            state.set_active_block(&block_id);
-            state.focused_block_id = Some(block_id);
-            if state.editing_block_id.as_ref() != Some(&block_id) {
-                state.snapshot_for_undo();
-                state.editing_block_id = Some(block_id);
-            }
-            state.editors.ensure_block(&state.store, &block_id);
+        | _ => Task::none(),
+    }
+}
 
-            // Detect vertical direction of the action (if any) before
-            // performing it, so we can check visual edge after the move.
-            let vertical_direction = match &action {
-                | text_editor::Action::Move(text_editor::Motion::Up) => Some(VerticalDir::Up),
-                | text_editor::Action::Move(text_editor::Motion::Down) => Some(VerticalDir::Down),
-                | _ => None,
-            };
-
-            // Phase 1: perform the action and detect if navigation is needed.
-            // We must drop the mutable borrow on `state.editors` before
-            // calling `widget_id` (immutable borrow) in phase 2.
-            let mut navigate_to: Option<BlockId> = None;
-            if let Some(content) = state.editors.get_mut(&block_id) {
-                let cursor_before = content.cursor().position;
-                content.perform(action);
-                let cursor_after = content.cursor().position;
-
-                // Edge-detection: if a vertical move did not change the cursor
-                // position, we are at the visual boundary (accounting for
-                // wrapped lines) and should navigate to the adjacent block.
-                if let Some(dir) = vertical_direction
-                    && cursor_before == cursor_after
-                {
-                    navigate_to = match dir {
-                        | VerticalDir::Up => {
-                            state.store.prev_visible_in_dfs(&block_id, &state.collapsed)
-                        }
-                        | VerticalDir::Down => {
-                            state.store.next_visible_in_dfs(&block_id, &state.collapsed)
-                        }
-                    };
-                }
-
-                // If we are NOT navigating away, persist the text change.
-                if navigate_to.is_none() {
-                    let next_text = content.text();
-                    tracing::debug!(block_id = ?block_id, chars = next_text.len(), "point edited");
-                    state.store.update_point(&block_id, next_text);
-                    state.persist_with_context("after edit");
-                }
-            } // mutable borrow on `state.editors` dropped here
-
-            // Phase 2: navigate to the adjacent block (immutable borrow).
-            if let Some(target_id) = navigate_to
-                && let Some(wid) = state.editors.widget_id(&target_id)
-            {
-                state.focused_block_id = Some(target_id);
-                tracing::debug!(
-                    from = ?block_id,
-                    to = ?target_id,
-                    "keyboard traversal"
-                );
-                return widget::operation::focus(wid.clone());
-            }
-            Task::none()
-        }
+fn handle_reduce_message(state: &mut AppState, message: Message) -> Task<Message> {
+    match message {
         | Message::Reduce(block_id) => {
             state.set_active_block(&block_id);
             state.overflow_open_for = None;
@@ -447,12 +590,13 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             match result {
                 | Ok(reduction) => {
                     tracing::info!(block_id = ?block_id, chars = reduction.len(), "reduce request succeeded");
-                    state.snapshot_for_undo();
-                    state
-                        .store
-                        .insert_reduction_draft(block_id, ReductionDraftRecord { reduction });
-                    state.error = None;
-                    state.persist_with_context("after creating reduction draft");
+                    state.mutate_with_undo_and_persist("after creating reduction draft", |state| {
+                        state
+                            .store
+                            .insert_reduction_draft(block_id, ReductionDraftRecord { reduction });
+                        state.error = None;
+                        true
+                    });
                 }
                 | Err(reason) => {
                     tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "reduce request failed");
@@ -466,17 +610,15 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
         | Message::ApplyReduction(block_id) => {
             state.set_active_block(&block_id);
-            state.snapshot_for_undo();
-            let mut should_save = false;
-            if let Some(draft) = state.store.remove_reduction_draft(&block_id) {
-                tracing::info!(block_id = ?block_id, chars = draft.reduction.len(), "applied reduction");
-                state.store.update_point(&block_id, draft.reduction.clone());
-                state.editors.set_text(&block_id, &draft.reduction);
-                should_save = true;
-            }
-            if should_save {
-                state.persist_with_context("after applying reduction");
-            }
+            state.mutate_with_undo_and_persist("after applying reduction", |state| {
+                if let Some(draft) = state.store.remove_reduction_draft(&block_id) {
+                    tracing::info!(block_id = ?block_id, chars = draft.reduction.len(), "applied reduction");
+                    state.store.update_point(&block_id, draft.reduction.clone());
+                    state.editors.set_text(&block_id, &draft.reduction);
+                    return true;
+                }
+                false
+            });
             Task::none()
         }
         | Message::RejectReduction(block_id) => {
@@ -486,6 +628,12 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             state.persist_with_context("after rejecting reduction");
             Task::none()
         }
+        | _ => Task::none(),
+    }
+}
+
+fn handle_expand_message(state: &mut AppState, message: Message) -> Task<Message> {
+    match message {
         | Message::Expand(block_id) => {
             state.set_active_block(&block_id);
             state.overflow_open_for = None;
@@ -576,13 +724,14 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                         state.error = Some(AppError::Expand(reason));
                         return Task::none();
                     }
-                    state.snapshot_for_undo();
-                    state.store.insert_expansion_draft(
-                        block_id,
-                        ExpansionDraftRecord { rewrite, children },
-                    );
-                    state.error = None;
-                    state.persist_with_context("after creating expansion draft");
+                    state.mutate_with_undo_and_persist("after creating expansion draft", |state| {
+                        state.store.insert_expansion_draft(
+                            block_id,
+                            ExpansionDraftRecord { rewrite, children },
+                        );
+                        state.error = None;
+                        true
+                    });
                 }
                 | Err(reason) => {
                     tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "expand request failed");
@@ -596,26 +745,25 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
         | Message::ApplyExpandedRewrite(block_id) => {
             state.set_active_block(&block_id);
-            state.snapshot_for_undo();
-            let mut should_save = false;
-            let mut should_remove_draft = false;
-            let mut applied_rewrite: Option<String> = None;
-            if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
-                applied_rewrite = draft.rewrite.take();
-                should_remove_draft = draft.rewrite.is_none() && draft.children.is_empty();
-            }
-            if let Some(rewrite) = applied_rewrite {
-                tracing::info!(block_id = ?block_id, chars = rewrite.len(), "applied expanded rewrite");
-                state.store.update_point(&block_id, rewrite.clone());
-                state.editors.set_text(&block_id, &rewrite);
-                should_save = true;
-            }
-            if should_remove_draft {
-                state.store.remove_expansion_draft(&block_id);
-            }
-            if should_save {
-                state.persist_with_context("after applying rewrite");
-            }
+            state.mutate_with_undo_and_persist("after applying rewrite", |state| {
+                let mut should_save = false;
+                let mut should_remove_draft = false;
+                let mut applied_rewrite: Option<String> = None;
+                if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
+                    applied_rewrite = draft.rewrite.take();
+                    should_remove_draft = draft.rewrite.is_none() && draft.children.is_empty();
+                }
+                if let Some(rewrite) = applied_rewrite {
+                    tracing::info!(block_id = ?block_id, chars = rewrite.len(), "applied expanded rewrite");
+                    state.store.update_point(&block_id, rewrite.clone());
+                    state.editors.set_text(&block_id, &rewrite);
+                    should_save = true;
+                }
+                if should_remove_draft {
+                    state.store.remove_expansion_draft(&block_id);
+                }
+                should_save
+            });
             Task::none()
         }
         | Message::RejectExpandedRewrite(block_id) => {
@@ -638,36 +786,35 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
         | Message::AcceptExpandedChild(block_id, child_index) => {
             state.set_active_block(&block_id);
-            state.snapshot_for_undo();
-            let mut should_save = false;
-            let mut should_remove_draft = false;
-            let mut accepted_child_point: Option<String> = None;
-            if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
-                if child_index < draft.children.len() {
-                    accepted_child_point = Some(draft.children.remove(child_index));
+            state.mutate_with_undo_and_persist("after accepting expanded child", |state| {
+                let mut should_save = false;
+                let mut should_remove_draft = false;
+                let mut accepted_child_point: Option<String> = None;
+                if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
+                    if child_index < draft.children.len() {
+                        accepted_child_point = Some(draft.children.remove(child_index));
+                    }
+                    if draft.rewrite.is_none() && draft.children.is_empty() {
+                        should_remove_draft = true;
+                    }
                 }
-                if draft.rewrite.is_none() && draft.children.is_empty() {
-                    should_remove_draft = true;
+                if let Some(point) = accepted_child_point
+                    && let Some(child_id) = state.store.append_child(&block_id, point.clone())
+                {
+                    tracing::info!(
+                        parent_block_id = ?block_id,
+                        child_block_id = ?child_id,
+                        chars = point.len(),
+                        "accepted expanded child"
+                    );
+                    state.editors.set_text(&child_id, &point);
+                    should_save = true;
                 }
-            }
-            if let Some(point) = accepted_child_point
-                && let Some(child_id) = state.store.append_child(&block_id, point.clone())
-            {
-                tracing::info!(
-                    parent_block_id = ?block_id,
-                    child_block_id = ?child_id,
-                    chars = point.len(),
-                    "accepted expanded child"
-                );
-                state.editors.set_text(&child_id, &point);
-                should_save = true;
-            }
-            if should_remove_draft {
-                state.store.remove_expansion_draft(&block_id);
-            }
-            if should_save {
-                state.persist_with_context("after accepting expanded child");
-            }
+                if should_remove_draft {
+                    state.store.remove_expansion_draft(&block_id);
+                }
+                should_save
+            });
             Task::none()
         }
         | Message::RejectExpandedChild(block_id, child_index) => {
@@ -692,24 +839,26 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
         | Message::AcceptAllExpandedChildren(block_id) => {
             state.set_active_block(&block_id);
-            state.snapshot_for_undo();
-            if let Some(mut draft) = state.store.remove_expansion_draft(&block_id) {
-                for point in draft.children.drain(..) {
-                    if let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
-                        tracing::info!(
-                            parent_block_id = ?block_id,
-                            child_block_id = ?child_id,
-                            chars = point.len(),
-                            "accepted expanded child (bulk)"
-                        );
-                        state.editors.set_text(&child_id, &point);
+            state.mutate_with_undo_and_persist("after accepting expanded children", |state| {
+                if let Some(mut draft) = state.store.remove_expansion_draft(&block_id) {
+                    for point in draft.children.drain(..) {
+                        if let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
+                            tracing::info!(
+                                parent_block_id = ?block_id,
+                                child_block_id = ?child_id,
+                                chars = point.len(),
+                                "accepted expanded child (bulk)"
+                            );
+                            state.editors.set_text(&child_id, &point);
+                        }
                     }
+                    if draft.rewrite.is_some() {
+                        state.store.insert_expansion_draft(block_id, draft);
+                    }
+                    return true;
                 }
-                if draft.rewrite.is_some() {
-                    state.store.insert_expansion_draft(block_id, draft);
-                }
-                state.persist_with_context("after accepting expanded children");
-            }
+                false
+            });
             Task::none()
         }
         | Message::DiscardExpansion(block_id) => {
@@ -720,51 +869,49 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             }
             Task::none()
         }
-        | Message::ToggleOverflow(block_id) => {
-            state.set_active_block(&block_id);
-            if state.overflow_open_for == Some(block_id) {
-                state.overflow_open_for = None;
-            } else {
-                state.overflow_open_for = Some(block_id);
-            }
-            Task::none()
-        }
-        | Message::CloseOverflow => {
-            state.overflow_open_for = None;
-            state.focused_block_id = None;
-            Task::none()
-        }
+        | _ => Task::none(),
+    }
+}
+
+fn handle_structure_message(state: &mut AppState, message: Message) -> Task<Message> {
+    match message {
         | Message::AddChild(block_id) => {
             state.set_active_block(&block_id);
             state.overflow_open_for = None;
-            state.snapshot_for_undo();
-            if let Some(child_id) = state.store.append_child(&block_id, String::new()) {
-                tracing::info!(parent_block_id = ?block_id, child_block_id = ?child_id, "added child block");
-                state.editors.set_text(&child_id, "");
-                state.persist_with_context("after adding child");
-            }
+            state.mutate_with_undo_and_persist("after adding child", |state| {
+                if let Some(child_id) = state.store.append_child(&block_id, String::new()) {
+                    tracing::info!(parent_block_id = ?block_id, child_block_id = ?child_id, "added child block");
+                    state.editors.set_text(&child_id, "");
+                    return true;
+                }
+                false
+            });
             Task::none()
         }
         | Message::AddSibling(block_id) => {
             state.set_active_block(&block_id);
-            state.snapshot_for_undo();
-            if let Some(sibling_id) = state.store.append_sibling(&block_id, String::new()) {
-                tracing::info!(block_id = ?block_id, sibling_block_id = ?sibling_id, "added sibling block");
-                state.editors.set_text(&sibling_id, "");
-                state.overflow_open_for = None;
-                state.persist_with_context("after adding sibling");
-            }
+            state.mutate_with_undo_and_persist("after adding sibling", |state| {
+                if let Some(sibling_id) = state.store.append_sibling(&block_id, String::new()) {
+                    tracing::info!(block_id = ?block_id, sibling_block_id = ?sibling_id, "added sibling block");
+                    state.editors.set_text(&sibling_id, "");
+                    state.overflow_open_for = None;
+                    return true;
+                }
+                false
+            });
             Task::none()
         }
         | Message::DuplicateBlock(block_id) => {
             state.set_active_block(&block_id);
-            state.snapshot_for_undo();
-            if let Some(duplicate_id) = state.store.duplicate_subtree_after(&block_id) {
-                tracing::info!(block_id = ?block_id, duplicate_block_id = ?duplicate_id, "duplicated block subtree");
-                state.editors.ensure_subtree(&state.store, &duplicate_id);
-                state.overflow_open_for = None;
-                state.persist_with_context("after duplicating subtree");
-            }
+            state.mutate_with_undo_and_persist("after duplicating subtree", |state| {
+                if let Some(duplicate_id) = state.store.duplicate_subtree_after(&block_id) {
+                    tracing::info!(block_id = ?block_id, duplicate_block_id = ?duplicate_id, "duplicated block subtree");
+                    state.editors.ensure_subtree(&state.store, &duplicate_id);
+                    state.overflow_open_for = None;
+                    return true;
+                }
+                false
+            });
             Task::none()
         }
         | Message::ArchiveBlock(block_id) => {
@@ -792,8 +939,6 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 if removed_ids.iter().any(|id| Some(*id) == state.focused_block_id) {
                     state.focused_block_id = None;
                 }
-                // Ensure editor buffers exist for any roots created by removal
-                // (e.g. when the last root is archived, a fresh empty root is inserted).
                 for root_id in state.store.roots() {
                     state.editors.ensure_block(&state.store, root_id);
                 }
@@ -811,33 +956,43 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+        | _ => Task::none(),
+    }
+}
+
+fn handle_mount_and_file_message(state: &mut AppState, message: Message) -> Task<Message> {
+    match message {
         | Message::ExpandMount(block_id) => {
             state.set_active_block(&block_id);
-            state.snapshot_for_undo();
             let base_dir = AppPaths::data_dir().unwrap_or_default();
-            match state.store.expand_mount(&block_id, &base_dir) {
-                | Ok(new_roots) => {
-                    tracing::info!(block_id = ?block_id, children = new_roots.len(), "expanded mount");
-                    for &id in &new_roots {
-                        state.editors.ensure_subtree(&state.store, &id);
+            state.mutate_with_undo_and_persist("after expanding mount", |state| {
+                match state.store.expand_mount(&block_id, &base_dir) {
+                    | Ok(new_roots) => {
+                        tracing::info!(block_id = ?block_id, children = new_roots.len(), "expanded mount");
+                        for &id in &new_roots {
+                            state.editors.ensure_subtree(&state.store, &id);
+                        }
+                        true
                     }
-                    state.persist_with_context("after expanding mount");
+                    | Err(err) => {
+                        tracing::error!(block_id = ?block_id, %err, "failed to expand mount");
+                        state.error = Some(AppError::Mount(UiError::from_message(&err)));
+                        false
+                    }
                 }
-                | Err(err) => {
-                    tracing::error!(block_id = ?block_id, %err, "failed to expand mount");
-                    state.error = Some(AppError::Mount(UiError::from_message(&err)));
-                }
-            }
+            });
             Task::none()
         }
         | Message::CollapseMount(block_id) => {
             state.set_active_block(&block_id);
-            state.snapshot_for_undo();
-            if let Some(()) = state.store.collapse_mount(&block_id) {
-                tracing::info!(block_id = ?block_id, "collapsed mount");
-                state.editors = EditorStore::from_store(&state.store);
-                state.persist_with_context("after collapsing mount");
-            }
+            state.mutate_with_undo_and_persist("after collapsing mount", |state| {
+                if let Some(()) = state.store.collapse_mount(&block_id) {
+                    tracing::info!(block_id = ?block_id, "collapsed mount");
+                    state.editors = EditorStore::from_store(&state.store);
+                    return true;
+                }
+                false
+            });
             Task::none()
         }
         | Message::SaveToFile(block_id) => {
@@ -857,30 +1012,31 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
         }
         | Message::SaveToFilePicked(block_id, path) => {
             if let Some(path) = path {
-                state.snapshot_for_undo();
                 let base_dir = AppPaths::data_dir().unwrap_or_default();
-                match state.store.save_subtree_to_file(&block_id, &path, &base_dir) {
-                    | Ok(()) => {
-                        tracing::info!(block_id = ?block_id, path = %path.display(), "saved subtree to file");
-                        // Immediately expand the mount so the user sees no disruption.
-                        match state.store.expand_mount(&block_id, &base_dir) {
-                            | Ok(new_roots) => {
-                                for &id in &new_roots {
-                                    state.editors.ensure_subtree(&state.store, &id);
+                state.mutate_with_undo_and_persist("after save-to-file", |state| {
+                    match state.store.save_subtree_to_file(&block_id, &path, &base_dir) {
+                        | Ok(()) => {
+                            tracing::info!(block_id = ?block_id, path = %path.display(), "saved subtree to file");
+                            match state.store.expand_mount(&block_id, &base_dir) {
+                                | Ok(new_roots) => {
+                                    for &id in &new_roots {
+                                        state.editors.ensure_subtree(&state.store, &id);
+                                    }
+                                }
+                                | Err(err) => {
+                                    tracing::error!(block_id = ?block_id, %err, "failed to re-expand after save-to-file");
+                                    state.error = Some(AppError::Mount(UiError::from_message(&err)));
                                 }
                             }
-                            | Err(err) => {
-                                tracing::error!(block_id = ?block_id, %err, "failed to re-expand after save-to-file");
-                                state.error = Some(AppError::Mount(UiError::from_message(&err)));
-                            }
+                            true
                         }
-                        state.persist_with_context("after save-to-file");
+                        | Err(err) => {
+                            tracing::error!(block_id = ?block_id, %err, "failed to save subtree to file");
+                            state.error = Some(AppError::Mount(UiError::from_message(&err)));
+                            false
+                        }
                     }
-                    | Err(err) => {
-                        tracing::error!(block_id = ?block_id, %err, "failed to save subtree to file");
-                        state.error = Some(AppError::Mount(UiError::from_message(&err)));
-                    }
-                }
+                });
             }
             Task::none()
         }
@@ -899,6 +1055,35 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 move |path| Message::LoadFromFilePicked(block_id, path),
             )
         }
+        | Message::LoadFromFilePicked(block_id, path) => {
+            if let Some(path) = path {
+                let base_dir = AppPaths::data_dir().unwrap_or_default();
+                state.mutate_with_undo_and_persist("after load-from-file", |state| {
+                    let rel_path = path
+                        .strip_prefix(&base_dir)
+                        .map(|p| p.to_path_buf())
+                        .unwrap_or_else(|_| path.clone());
+                    if state.store.set_mount_path(&block_id, rel_path).is_none() {
+                        tracing::error!(block_id = ?block_id, "block has children or does not exist; cannot load");
+                        return false;
+                    }
+                    match state.store.expand_mount(&block_id, &base_dir) {
+                        | Ok(new_roots) => {
+                            tracing::info!(block_id = ?block_id, path = %path.display(), children = new_roots.len(), "loaded file into block");
+                            for &id in &new_roots {
+                                state.editors.ensure_subtree(&state.store, &id);
+                            }
+                        }
+                        | Err(err) => {
+                            tracing::error!(block_id = ?block_id, %err, "failed to expand after load-from-file");
+                            state.error = Some(AppError::Mount(UiError::from_message(&err)));
+                        }
+                    }
+                    true
+                });
+            }
+            Task::none()
+        }
         | Message::SystemThemeChanged(mode) => {
             let dark = matches!(mode, Mode::Dark);
             if state.is_dark != dark {
@@ -907,118 +1092,61 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             }
             Task::none()
         }
-        | Message::LoadFromFilePicked(block_id, path) => {
-            if let Some(path) = path {
-                state.snapshot_for_undo();
-                let base_dir = AppPaths::data_dir().unwrap_or_default();
-                let rel_path = path
-                    .strip_prefix(&base_dir)
-                    .map(|p| p.to_path_buf())
-                    .unwrap_or_else(|_| path.clone());
-                if state.store.set_mount_path(&block_id, rel_path).is_none() {
-                    tracing::error!(block_id = ?block_id, "block has children or does not exist; cannot load");
-                    return Task::none();
-                }
-                match state.store.expand_mount(&block_id, &base_dir) {
-                    | Ok(new_roots) => {
-                        tracing::info!(block_id = ?block_id, path = %path.display(), children = new_roots.len(), "loaded file into block");
-                        for &id in &new_roots {
-                            state.editors.ensure_subtree(&state.store, &id);
-                        }
-                    }
-                    | Err(err) => {
-                        tracing::error!(block_id = ?block_id, %err, "failed to expand after load-from-file");
-                        state.error = Some(AppError::Mount(UiError::from_message(&err)));
-                    }
-                }
-                state.persist_with_context("after load-from-file");
-            }
-            Task::none()
-        }
+        | _ => Task::none(),
     }
 }
 
-/// Global event subscription: keyboard shortcuts, mouse clicks, escape,
-/// and system theme changes.
-pub fn subscription(_state: &AppState) -> Subscription<Message> {
-    Subscription::batch([
-        event::listen_with(handle_event),
-        system::theme_changes().map(Message::SystemThemeChanged),
-    ])
-}
-
-fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) -> Option<Message> {
-    if status == event::Status::Captured {
-        return None;
-    }
-
-    match event {
-        | Event::Keyboard(keyboard::Event::KeyPressed {
-            key: keyboard::Key::Named(keyboard::key::Named::Escape),
-            ..
-        }) => Some(Message::CloseOverflow),
-        | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-            if modifiers.command() {
-                match &key {
-                    | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
-                        return if modifiers.shift() {
-                            Some(Message::Redo)
-                        } else {
-                            Some(Message::Undo)
-                        };
-                    }
-                    | _ => {}
-                }
-            }
-            shortcut_to_action(key, modifiers).map(Message::Shortcut)
-        }
-        | Event::Mouse(mouse::Event::ButtonPressed(_)) => Some(Message::CloseOverflow),
-        | _ => None,
-    }
-}
-
-fn run_shortcut_for_block(
-    state: &mut AppState, block_id: BlockId, action_id: ActionId,
+fn handle_point_edited(
+    state: &mut AppState, block_id: BlockId, action: text_editor::Action,
 ) -> Task<Message> {
     state.set_active_block(&block_id);
+    state.focused_block_id = Some(block_id);
+    if state.editing_block_id.as_ref() != Some(&block_id) {
+        state.snapshot_for_undo();
+        state.editing_block_id = Some(block_id);
+    }
+    state.editors.ensure_block(&state.store, &block_id);
 
-    let point_text =
-        state.editors.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
-    let expansion_draft = state.store.expansion_draft(&block_id);
-    let reduction_draft = state.store.reduction_draft(&block_id);
-    let row_context = RowContext {
-        block_id,
-        point_text,
-        has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
-        draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0),
-        has_expand_error: state
-            .expand_states
-            .get(block_id)
-            .is_some_and(|s| matches!(s, ExpandState::Error { .. })),
-        has_reduce_error: state
-            .reduce_states
-            .get(block_id)
-            .is_some_and(|s| matches!(s, ReduceState::Error { .. })),
-        is_expanding: state.is_expanding(&block_id),
-        is_reducing: state.is_reducing(&block_id),
-        is_mounted: state.store.mount_table().entry(block_id).is_some(),
-        has_children: !state.store.children(&block_id).is_empty(),
-        is_unexpanded_mount: state.store.node(&block_id).is_some_and(|n| n.mount_path().is_some()),
+    let vertical_direction = match &action {
+        | text_editor::Action::Move(text_editor::Motion::Up) => Some(VerticalDir::Up),
+        | text_editor::Action::Move(text_editor::Motion::Down) => Some(VerticalDir::Down),
+        | _ => None,
     };
-    let vm = project_for_viewport(build_action_bar_vm(&row_context), ViewportBucket::Wide);
 
-    let is_enabled = vm
-        .primary
-        .iter()
-        .chain(vm.contextual.iter())
-        .chain(vm.overflow.iter())
-        .find(|item| item.id == action_id)
-        .is_some_and(|descriptor| descriptor.availability == ActionAvailability::Enabled);
+    let mut navigate_to: Option<BlockId> = None;
+    if let Some(content) = state.editors.get_mut(&block_id) {
+        let cursor_before = content.cursor().position;
+        content.perform(action);
+        let cursor_after = content.cursor().position;
 
-    if is_enabled && let Some(next) = action_to_message_by_id(state, &block_id, action_id) {
-        return update(state, next);
+        if let Some(dir) = vertical_direction
+            && cursor_before == cursor_after
+        {
+            navigate_to = match dir {
+                | VerticalDir::Up => state.store.prev_visible_in_dfs(&block_id, &state.collapsed),
+                | VerticalDir::Down => state.store.next_visible_in_dfs(&block_id, &state.collapsed),
+            };
+        }
+
+        if navigate_to.is_none() {
+            let next_text = content.text();
+            tracing::debug!(block_id = ?block_id, chars = next_text.len(), "point edited");
+            state.store.update_point(&block_id, next_text);
+            state.persist_with_context("after edit");
+        }
     }
 
+    if let Some(target_id) = navigate_to
+        && let Some(wid) = state.editors.widget_id(&target_id)
+    {
+        state.focused_block_id = Some(target_id);
+        tracing::debug!(
+            from = ?block_id,
+            to = ?target_id,
+            "keyboard traversal"
+        );
+        return widget::operation::focus(wid.clone());
+    }
     Task::none()
 }
 
