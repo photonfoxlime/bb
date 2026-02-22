@@ -26,6 +26,7 @@ impl UiError {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AppError {
     Configuration(UiError),
+    Persistence(UiError),
     Reduce(UiError),
     Expand(UiError),
     /// Error from a mount/unmount operation.
@@ -36,6 +37,7 @@ impl AppError {
     pub(crate) fn message(&self) -> &str {
         match self {
             | Self::Configuration(err)
+            | Self::Persistence(err)
             | Self::Reduce(err)
             | Self::Expand(err)
             | Self::Mount(err) => err.as_str(),
@@ -134,6 +136,12 @@ mod tests {
     fn app_error_reduce_message() {
         let err = AppError::Reduce(UiError::from_message("sum"));
         assert_eq!(err.message(), "sum");
+    }
+
+    #[test]
+    fn app_error_persistence_message() {
+        let err = AppError::Persistence(UiError::from_message("persist"));
+        assert_eq!(err.message(), "persist");
     }
 
     #[test]

@@ -38,4 +38,4 @@ For current architecture, see [architecture.md](architecture.md).
 - Graph mutation and lineage resolution unit tests.
 - ~~Expand draft state transition tests.~~ Done (expand/reduce transition coverage in app update tests, including stale/cancel/apply/reject paths).
 - Serialization round-trip tests.
-- ~~Save/load integration tests with malformed data.~~ Done (malformed JSON falls back to default store; dangling-child graph loads safely and is normalized in save snapshot).
+- ~~Save/load integration tests with malformed data.~~ Done (malformed JSON now returns a strict parse error; dangling-child graph still loads and is normalized in save snapshot).

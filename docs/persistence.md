@@ -18,8 +18,12 @@ It writes the main file first, then writes every expanded mount file.
 
 1. Resolve `<data_dir>/blocks.json` via `AppPaths::data_file()`.
 2. Read JSON and deserialize `BlockStore`.
-3. If data path resolution fails, read fails, or JSON is malformed,
-   fall back to `BlockStore::default()`.
+3. If the file is missing, start from `BlockStore::default()`.
+4. If data path resolution fails, read fails for other reasons, or JSON
+   is malformed, startup enters a guarded state:
+   - In-memory store starts from `BlockStore::default()`.
+   - UI shows a persistence error banner.
+   - Further saves are blocked for the session to avoid overwriting data.
 
 Mount table metadata is runtime-only (`#[serde(skip)]`) and starts empty.
 Mounts are reconstructed lazily when users expand mount nodes.
@@ -33,6 +37,9 @@ Mounts are reconstructed lazily when users expand mount nodes.
 
 This function is called after point edits, structure edits, draft updates,
 undo/redo restores, and mount actions.
+
+If persistence is blocked due to startup load failure, `save_tree()` returns
+an error and keeps the banner visible instead of writing files.
 
 ## Main Document Save (`BlockStore::save`)
 

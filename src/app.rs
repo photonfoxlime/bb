@@ -61,6 +61,7 @@ pub struct AppState {
     pending_reduce_signatures: SecondaryMap<BlockId, RequestSignature>,
     pending_expand_signatures: SecondaryMap<BlockId, RequestSignature>,
     editors: EditorStore,
+    persistence_blocked: bool,
     overflow_open_for: Option<BlockId>,
     /// Last block interacted with by actions or edits.
     active_block_id: Option<BlockId>,
@@ -79,11 +80,20 @@ pub struct AppState {
 impl AppState {
     pub fn load() -> Self {
         let llm_config = llm::LlmConfig::load();
-        let error = llm_config
+        let mut error = llm_config
             .as_ref()
             .err()
             .map(|err| AppError::Configuration(UiError::from_message(err)));
-        let store = BlockStore::load();
+        let (store, persistence_blocked) = match BlockStore::load() {
+            | Ok(store) => (store, false),
+            | Err(err) => {
+                tracing::error!(%err, "failed to load block store; persistence disabled");
+                error = Some(AppError::Persistence(UiError::from_message(format!(
+                    "failed to load blocks.json: {err}; persistence is disabled for this session"
+                ))));
+                (BlockStore::default(), true)
+            }
+        };
         let editors = EditorStore::from_store(&store);
         let is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
         tracing::info!(is_dark, "detected system appearance");
@@ -99,6 +109,7 @@ impl AppState {
             pending_reduce_signatures: SecondaryMap::new(),
             pending_expand_signatures: SecondaryMap::new(),
             editors,
+            persistence_blocked,
             overflow_open_for: None,
             active_block_id: None,
             focused_block_id: None,
@@ -109,8 +120,26 @@ impl AppState {
     }
 
     fn save_tree(&mut self) -> std::io::Result<()> {
-        self.store.save()?;
-        self.store.save_mounts()
+        if self.persistence_blocked {
+            let err = std::io::Error::other("persistence disabled after initial load failure");
+            self.error = Some(AppError::Persistence(UiError::from_message(err.to_string())));
+            return Err(err);
+        }
+
+        match self.store.save().and_then(|_| self.store.save_mounts()) {
+            | Ok(()) => {
+                if self.error.as_ref().is_some_and(|err| matches!(err, AppError::Persistence(_))) {
+                    self.error = None;
+                }
+                Ok(())
+            }
+            | Err(err) => {
+                self.error = Some(AppError::Persistence(UiError::from_message(format!(
+                    "failed to persist data: {err}"
+                ))));
+                Err(err)
+            }
+        }
     }
 
     fn is_reducing(&self, block_id: &BlockId) -> bool {
@@ -953,6 +982,7 @@ mod tests {
             active_block_id: None,
             focused_block_id: None,
             editing_block_id: None,
+            persistence_blocked: false,
             collapsed: HashSet::new(),
             is_dark: false,
         };

@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 use slotmap::{SecondaryMap, SlotMap};
 use std::path::Path;
 use std::{fs, io};
+use thiserror::Error;
 
 slotmap::new_key_type! {
 pub struct BlockId;
@@ -29,6 +30,16 @@ pub struct ExpansionDraftRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReductionDraftRecord {
     pub reduction: String,
+}
+
+#[derive(Debug, Error)]
+pub enum StoreLoadError {
+    #[error("application data path is unavailable")]
+    PathUnavailable,
+    #[error("failed to read block store file {path}: {source}")]
+    Read { path: std::path::PathBuf, source: io::Error },
+    #[error("failed to parse block store file {path}: {source}")]
+    Parse { path: std::path::PathBuf, source: serde_json::Error },
 }
 
 /// One node in the block tree.
@@ -147,18 +158,19 @@ impl BlockStore {
         &self.roots
     }
 
-    /// Load the store from the app data file, falling back to the default demo store.
-    pub fn load() -> Self {
+    pub fn load() -> Result<Self, StoreLoadError> {
         let Some(path) = AppPaths::data_file() else {
-            return Self::default();
+            return Err(StoreLoadError::PathUnavailable);
         };
         Self::load_from_path(&path)
     }
 
-    fn load_from_path(path: &Path) -> Self {
+    fn load_from_path(path: &Path) -> Result<Self, StoreLoadError> {
         match fs::read_to_string(&path) {
-            | Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
-            | Err(_) => Self::default(),
+            | Ok(contents) => serde_json::from_str(&contents)
+                .map_err(|source| StoreLoadError::Parse { path: path.to_path_buf(), source }),
+            | Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
+            | Err(source) => Err(StoreLoadError::Read { path: path.to_path_buf(), source }),
         }
     }
 
@@ -1260,18 +1272,13 @@ mod tests {
     }
 
     #[test]
-    fn load_from_path_falls_back_to_default_on_malformed_json() {
+    fn load_from_path_returns_parse_error_on_malformed_json() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("broken.json");
         fs::write(&path, "{ not valid json").unwrap();
 
-        let loaded = BlockStore::load_from_path(&path);
-        let default_store = BlockStore::default();
-
-        assert_eq!(loaded.roots().len(), default_store.roots().len());
-        let loaded_root = loaded.roots()[0];
-        let default_root = default_store.roots()[0];
-        assert_eq!(loaded.point(&loaded_root), default_store.point(&default_root));
+        let err = BlockStore::load_from_path(&path).unwrap_err();
+        assert!(matches!(err, StoreLoadError::Parse { .. }));
     }
 
     #[test]
@@ -1287,7 +1294,7 @@ mod tests {
         let invalid_store = BlockStore::new(vec![root], nodes, points);
         fs::write(&path, serde_json::to_string_pretty(&invalid_store).unwrap()).unwrap();
 
-        let loaded = BlockStore::load_from_path(&path);
+        let loaded = BlockStore::load_from_path(&path).unwrap();
         assert!(loaded.node(&root).is_some());
         assert!(loaded.node(&dangling_child).is_none());
         let lineage = loaded.lineage_points_for_id(&root);
