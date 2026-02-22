@@ -1,8 +1,8 @@
 # Action Bar
 
-Design document for the action bar component. Separated from `design-understanding.md` for focused reference.
+Design document for the action bar component.
 
-For overall architecture and aesthetic direction, see `design-understanding.md`.
+For overall architecture and document index, see [architecture.md](architecture.md).
 
 ## Structure
 

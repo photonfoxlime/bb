@@ -1,5 +1,7 @@
 # Undo System
 
+For overall architecture and document index, see [architecture.md](architecture.md).
+
 ## Overview
 
 Global undo/redo for graph-level operations on the block tree.

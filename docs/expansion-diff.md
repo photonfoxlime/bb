@@ -1,5 +1,7 @@
 # Expansion Draft Diff Rendering
 
+For overall architecture and document index, see [architecture.md](architecture.md).
+
 ## Overview
 
 Expansion drafts use a git-diff-style format for the rewrite section only, showing word-wise changes between old and new text. Child suggestions are displayed as a simple list without diff highlighting.
@@ -16,11 +18,11 @@ When `draft.rewrite` is present, show a unified diff view with word-wise highlig
 │ ┌─────────────────────────────────────────────────────────┐ │
 │ │ Original text continues with some changes               │ │
 │ │   [red highlight on "some"]                             │ │
-│ │                                                          │ │
+│ │                                                         │ │
 │ │ New rewritten text continues differently with changes   │ │
 │ │   [green highlight on "differently"]                    │ │
 │ └─────────────────────────────────────────────────────────┘ │
-│ [Apply rewrite] [Dismiss rewrite]                            │
+│ [Apply rewrite] [Dismiss rewrite]                           │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -41,13 +43,13 @@ Child suggestions are displayed as a simple list (no diff view):
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ Child suggestions                                            │
+│ Child suggestions                                           │
 │ ┌─────────────────────────────────────────────────────────┐ │
-│ │ First suggested child block text                         │ │
-│ │ [Keep] [Drop]                                            │ │
+│ │ First suggested child block text                        │ │
+│ │ [Keep] [Drop]                                           │ │
 │ ├─────────────────────────────────────────────────────────┤ │
-│ │ Second suggested child block text                        │ │
-│ │ [Keep] [Drop]                                            │ │
+│ │ Second suggested child block text                       │ │
+│ │ [Keep] [Drop]                                           │ │
 │ └─────────────────────────────────────────────────────────┘ │
 │ [Accept all] [Discard all]                                  │
 └─────────────────────────────────────────────────────────────┘

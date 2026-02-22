@@ -1,6 +1,7 @@
 # LLM Instructions
 
 Above all: consolidate your key understandings and new findings and log them down in `docs/` folder if not already existed.
+Start with `docs/architecture.md` for the full architecture overview and index of all design documents.
 
 ## Documentation and Language
 

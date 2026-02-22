@@ -1,5 +1,7 @@
 # Mount System
 
+For overall architecture and document index, see [architecture.md](architecture.md).
+
 External file mounts for the block tree.
 
 ## Overview
