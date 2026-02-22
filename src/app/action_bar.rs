@@ -32,6 +32,8 @@ pub enum ActionId {
     OpenAsFocus,
     DuplicateBlock,
     ArchiveBlock,
+    SaveToFile,
+    LoadFromFile,
 }
 
 /// Whether an action can fire given the current row state.
@@ -139,6 +141,15 @@ pub struct RowContext {
     pub has_reduce_error: bool,
     pub is_expanding: bool,
     pub is_reducing: bool,
+    /// Whether this block is already part of a mounted file.
+    /// When true, "Save to file" is disabled (one node = one file).
+    pub is_mounted: bool,
+    /// Whether this block has any children.
+    /// When false and not mounted, "Load from file" is available.
+    pub has_children: bool,
+    /// Whether this block is an unexpanded mount (children still on disk).
+    /// When true, SaveToFile and LoadFromFile are hidden.
+    pub is_unexpanded_mount: bool,
 }
 
 /// Resolved UI state for a row, used to pick availability and status chips.
@@ -266,6 +277,22 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
         ActionAvailability::Enabled,
         ActionPriority::OverflowOnly,
     ));
+    if !ctx.is_mounted && !ctx.is_unexpanded_mount {
+        vm.overflow.push(ActionDescriptor::new(
+            ActionId::SaveToFile,
+            "Save to file",
+            ActionAvailability::Enabled,
+            ActionPriority::OverflowOnly,
+        ));
+    }
+    if !ctx.has_children && !ctx.is_mounted && !ctx.is_unexpanded_mount {
+        vm.overflow.push(ActionDescriptor::new(
+            ActionId::LoadFromFile,
+            "Load from file",
+            ActionAvailability::Enabled,
+            ActionPriority::OverflowOnly,
+        ));
+    }
     vm.overflow.push(
         ActionDescriptor::new(
             ActionId::ArchiveBlock,
@@ -401,6 +428,8 @@ pub fn action_to_message_by_id(
         | ActionId::AddSibling => Some(Message::AddSibling(*block_id)),
         | ActionId::DuplicateBlock => Some(Message::DuplicateBlock(*block_id)),
         | ActionId::ArchiveBlock => Some(Message::ArchiveBlock(*block_id)),
+        | ActionId::SaveToFile => Some(Message::SaveToFile(*block_id)),
+        | ActionId::LoadFromFile => Some(Message::LoadFromFile(*block_id)),
         | ActionId::Overflow
         | ActionId::CollapseBranch
         | ActionId::ExpandBranch
@@ -433,6 +462,9 @@ mod tests {
             has_reduce_error: false,
             is_expanding: false,
             is_reducing: false,
+            is_mounted: false,
+            has_children: true,
+            is_unexpanded_mount: false,
         }
     }
 

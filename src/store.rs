@@ -150,33 +150,113 @@ impl BlockStore {
 
     /// Build a serialization-ready snapshot that restores mount nodes and
     /// excludes re-keyed blocks.
+    ///
+    /// Builds a fresh `BlockStore` with compacted SlotMaps so that
+    /// serialization produces no vacant-slot nulls.
     fn snapshot_for_save(&self) -> BlockStore {
-        let mut snapshot = self.clone();
+        // Collect all block ids that belong to mounts (should be excluded).
+        let mounted_ids: std::collections::HashSet<BlockId> = self
+            .mount_table
+            .entries()
+            .flat_map(|(_, entry)| entry.block_ids.iter().copied())
+            .collect();
 
-        // Restore expanded mount-points to Mount { path } and remove re-keyed blocks.
-        for (mount_point, entry) in self.mount_table.entries() {
-            if let Some(node) = snapshot.nodes.get_mut(mount_point) {
-                *node = BlockNode::with_path(entry.rel_path.clone());
+        let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
+        let mut sub_points: SecondaryMap<BlockId, String> = SecondaryMap::new();
+        let mut id_map: std::collections::HashMap<BlockId, BlockId> =
+            std::collections::HashMap::new();
+
+        // First pass: allocate fresh ids for every non-mounted block.
+        for (old_id, _node) in &self.nodes {
+            if mounted_ids.contains(&old_id) {
+                continue;
             }
-            for &id in &entry.block_ids {
-                snapshot.nodes.remove(id);
-                snapshot.points.remove(id);
+            let point = self.points.get(old_id).cloned().unwrap_or_default();
+            let new_id = sub_nodes.insert(BlockNode::with_children(vec![]));
+            sub_points.insert(new_id, point);
+            id_map.insert(old_id, new_id);
+        }
+
+        // Second pass: rewrite node contents with remapped ids.
+        // Mount-point nodes are restored to Mount { path }.
+        for (old_id, old_node) in &self.nodes {
+            let Some(&new_id) = id_map.get(&old_id) else {
+                continue;
+            };
+            if let Some(entry) = self.mount_table.entry(old_id) {
+                // This is an expanded mount point: restore as Mount node.
+                if let Some(node) = sub_nodes.get_mut(new_id) {
+                    *node = BlockNode::with_path(entry.rel_path.clone());
+                }
+            } else {
+                match old_node {
+                    | BlockNode::Children { children } => {
+                        let new_children: Vec<BlockId> = children
+                            .iter()
+                            .filter_map(|c| id_map.get(c).copied())
+                            .collect();
+                        if let Some(node) = sub_nodes.get_mut(new_id) {
+                            *node = BlockNode::with_children(new_children);
+                        }
+                    }
+                    | BlockNode::Mount { path } => {
+                        if let Some(node) = sub_nodes.get_mut(new_id) {
+                            *node = BlockNode::with_path(path.clone());
+                        }
+                    }
+                }
             }
         }
 
-        snapshot
+        let sub_roots: Vec<BlockId> =
+            self.roots.iter().filter_map(|r| id_map.get(r).copied()).collect();
+        BlockStore::new(sub_roots, sub_nodes, sub_points)
     }
 
     /// Extract blocks belonging to a mount entry into a standalone store.
+    ///
+    /// Builds a fresh `BlockStore` with compacted SlotMaps so that
+    /// serialization produces no vacant-slot nulls.
     fn extract_mount_store(&self, entry: &MountEntry) -> BlockStore {
-        let mut snapshot = self.clone();
+        let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
+        let mut sub_points: SecondaryMap<BlockId, String> = SecondaryMap::new();
+        let mut id_map: std::collections::HashMap<BlockId, BlockId> =
+            std::collections::HashMap::new();
 
-        let keep: std::collections::HashSet<BlockId> = entry.block_ids.iter().copied().collect();
-        snapshot.nodes.retain(|id, _| keep.contains(&id));
-        snapshot.points.retain(|id, _| keep.contains(&id));
-        snapshot.roots = entry.root_ids.clone();
+        // First pass: allocate fresh ids for every kept block.
+        for &old_id in &entry.block_ids {
+            let point = self.points.get(old_id).cloned().unwrap_or_default();
+            let new_id = sub_nodes.insert(BlockNode::with_children(vec![]));
+            sub_points.insert(new_id, point);
+            id_map.insert(old_id, new_id);
+        }
 
-        snapshot
+        // Second pass: rewrite node contents with remapped ids.
+        for &old_id in &entry.block_ids {
+            let new_id = id_map[&old_id];
+            if let Some(old_node) = self.nodes.get(old_id) {
+                match old_node {
+                    | BlockNode::Children { children } => {
+                        let new_children: Vec<BlockId> = children
+                            .iter()
+                            .filter_map(|c| id_map.get(c).copied())
+                            .collect();
+                        if let Some(node) = sub_nodes.get_mut(new_id) {
+                            *node = BlockNode::with_children(new_children);
+                        }
+                    }
+                    | BlockNode::Mount { path } => {
+                        if let Some(node) = sub_nodes.get_mut(new_id) {
+                            *node = BlockNode::with_path(path.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        let sub_roots: Vec<BlockId> =
+            entry.root_ids.iter().filter_map(|r| id_map.get(r).copied()).collect();
+        BlockStore::new(sub_roots, sub_nodes, sub_points)
     }
 
     /// Look up a node by id.
@@ -300,6 +380,21 @@ impl BlockStore {
         &self.mount_table
     }
 
+    /// Convert a childless block into a mount-point node.
+    ///
+    /// The block must exist and have no children; otherwise returns `None`.
+    /// After this call, [`expand_mount`](Self::expand_mount) can load the file.
+    pub fn set_mount_path(&mut self, id: &BlockId, path: std::path::PathBuf) -> Option<()> {
+        let node = self.nodes.get(*id)?;
+        if !node.children().is_empty() {
+            return None;
+        }
+        if let Some(node) = self.nodes.get_mut(*id) {
+            *node = BlockNode::with_path(path);
+        }
+        Some(())
+    }
+
     /// Expand a `Mount` node: load the referenced file, re-key its blocks
     /// into this store, and swap the node to `Children`.
     ///
@@ -356,6 +451,117 @@ impl BlockStore {
             *node = BlockNode::with_path(entry.rel_path);
         }
         Some(())
+    }
+
+    /// Extract a block's children and their subtrees into a standalone
+    /// store and write it to `path`. The block is then replaced with
+    /// `BlockNode::Mount { rel_path }`.
+    ///
+    /// `base_dir` is used to compute the relative path stored in the mount
+    /// node. Expanded mounts within the subtree are collapsed back to
+    /// `Mount` nodes in the saved file, preserving recursive mount
+    /// structure.
+    pub fn save_subtree_to_file(
+        &mut self, block_id: &BlockId, path: &Path, base_dir: &Path,
+    ) -> Result<(), MountError> {
+        let node = self.nodes.get(*block_id).ok_or(MountError::UnknownBlock)?;
+        let children = node.children().to_vec();
+
+        // Collect descendant IDs, stopping at expanded mount boundaries.
+        let mut own_ids = Vec::new();
+        let mut nested_mounts = Vec::new();
+        for child in &children {
+            self.collect_own_subtree_ids(child, &mut own_ids, &mut nested_mounts);
+        }
+
+        // Build a standalone sub-store.
+        let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
+        let mut sub_points: SecondaryMap<BlockId, String> = SecondaryMap::new();
+        let mut id_map: std::collections::HashMap<BlockId, BlockId> =
+            std::collections::HashMap::new();
+
+        // First pass: allocate fresh ids.
+        for &old_id in &own_ids {
+            let new_id = sub_nodes.insert(BlockNode::with_children(vec![]));
+            let point = self.points.get(old_id).cloned().unwrap_or_default();
+            sub_points.insert(new_id, point);
+            id_map.insert(old_id, new_id);
+        }
+
+        // Second pass: rewrite node contents.
+        for &old_id in &own_ids {
+            let new_id = id_map[&old_id];
+            if nested_mounts.contains(&old_id) {
+                // Expanded mount point: restore as a Mount node.
+                if let Some(entry) = self.mount_table.entry(old_id) {
+                    if let Some(node) = sub_nodes.get_mut(new_id) {
+                        *node = BlockNode::with_path(entry.rel_path.clone());
+                    }
+                }
+            } else if let Some(old_node) = self.nodes.get(old_id) {
+                match old_node {
+                    | BlockNode::Children { children } => {
+                        let new_children: Vec<BlockId> = children
+                            .iter()
+                            .filter_map(|c| id_map.get(c).copied())
+                            .collect();
+                        if let Some(node) = sub_nodes.get_mut(new_id) {
+                            *node = BlockNode::with_children(new_children);
+                        }
+                    }
+                    | BlockNode::Mount { path } => {
+                        if let Some(node) = sub_nodes.get_mut(new_id) {
+                            *node = BlockNode::with_path(path.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        // Sub-store roots = re-mapped children of block_id.
+        let sub_roots: Vec<BlockId> =
+            children.iter().filter_map(|c| id_map.get(c).copied()).collect();
+        let sub_store = BlockStore::new(sub_roots, sub_nodes, sub_points);
+
+        // Write to file.
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|e| MountError::Read { path: path.to_path_buf(), source: e })?;
+        }
+        let json = serde_json::to_string_pretty(&sub_store)
+            .map_err(|e| MountError::Parse { path: path.to_path_buf(), source: e })?;
+        fs::write(path, &json)
+            .map_err(|e| MountError::Read { path: path.to_path_buf(), source: e })?;
+
+        // Clean up nested expanded mounts and their blocks.
+        for &mount_id in &nested_mounts {
+            if let Some(entry) = self.mount_table.remove_entry(mount_id) {
+                for &id in &entry.block_ids {
+                    self.nodes.remove(id);
+                    self.points.remove(id);
+                }
+            }
+        }
+
+        // Remove own subtree nodes from main store (not block_id itself).
+        for &id in &own_ids {
+            self.nodes.remove(id);
+            self.points.remove(id);
+            self.mount_table.remove_origin(id);
+        }
+
+        // Compute relative path.
+        let rel_path = path
+            .strip_prefix(base_dir)
+            .map(|p| p.to_path_buf())
+            .unwrap_or_else(|_| path.to_path_buf());
+
+        // Replace node with mount.
+        if let Some(node) = self.nodes.get_mut(*block_id) {
+            *node = BlockNode::with_path(rel_path);
+        }
+
+        Ok(())
     }
 
     /// Re-key all blocks from `sub_store` into this store with fresh ids.
@@ -446,6 +652,34 @@ impl BlockStore {
         out.push(*current);
         for child in node.children() {
             self.collect_subtree_ids(child, out);
+        }
+    }
+
+    /// Collect subtree IDs owned by this store, stopping at expanded mount
+    /// boundaries.
+    ///
+    /// `own_ids` receives every block id in the subtree that is not from a
+    /// nested mounted file. `mount_points` receives ids of expanded mount
+    /// points encountered during traversal (they are also included in
+    /// `own_ids` since the mount-point node itself belongs to this store).
+    fn collect_own_subtree_ids(
+        &self, current: &BlockId, own_ids: &mut Vec<BlockId>,
+        mount_points: &mut Vec<BlockId>,
+    ) {
+        let Some(node) = self.node(current) else {
+            return;
+        };
+        own_ids.push(*current);
+
+        // If this node is an expanded mount, its children belong to the
+        // mounted file. Record it and do not recurse.
+        if self.mount_table.entry(*current).is_some() {
+            mount_points.push(*current);
+            return;
+        }
+
+        for child in node.children() {
+            self.collect_own_subtree_ids(child, own_ids, mount_points);
         }
     }
 

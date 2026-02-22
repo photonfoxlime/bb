@@ -25,6 +25,8 @@ fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
         | ActionId::OpenAsFocus => icons::icon_arrow_right(),
         | ActionId::DuplicateBlock => icons::icon_copy(),
         | ActionId::ArchiveBlock => icons::icon_archive(),
+        | ActionId::SaveToFile => icons::icon_hard_drive_download(),
+        | ActionId::LoadFromFile => icons::icon_hard_drive_upload(),
         | ActionId::Overflow => text("?"),
     };
     icon.size(16).into()
@@ -60,12 +62,8 @@ impl<'a> TreeView<'a> {
     fn render_block(&self, block_id: &BlockId) -> Element<'a, Message> {
         let node = self.state.store.node(block_id).expect("node exists for rendered block");
 
-        // Mount node (unexpanded): show path label and Load button.
-        if let Some(mount_path) = node.mount_path() {
-            return self.render_mount_node(block_id, mount_path);
-        }
-
         let is_expanded_mount = self.state.store.mount_table().entry(*block_id).is_some();
+        let unexpanded_mount_path = node.mount_path();
 
         let editor_content =
             self.state.editors.get(block_id).expect("editor content is populated from store");
@@ -78,7 +76,7 @@ impl<'a> TreeView<'a> {
         let spine = container(rule::vertical(1).style(theme::spine_rule))
             .width(Length::Fixed(4.0))
             .align_x(iced::alignment::Horizontal::Center);
-        let marker = container(text("•").size(12).style(theme::spine_text))
+        let marker = container(text("\u{2022}").size(12).style(theme::spine_text))
             .width(Length::Fixed(12.0))
             .align_x(iced::alignment::Horizontal::Center)
             .padding(iced::Padding::ZERO.top(3.0));
@@ -128,6 +126,14 @@ impl<'a> TreeView<'a> {
             block = block.push(self.render_summary_panel(block_id, draft));
         }
 
+        // Unexpanded mount: show mount indicator with path and Load button.
+        if let Some(mount_path) = unexpanded_mount_path {
+            block = block.push(
+                container(self.render_mount_indicator(block_id, mount_path))
+                    .padding(iced::Padding::ZERO.left(16.0)),
+            );
+        }
+
         let children = self.state.store.children(block_id);
         if !children.is_empty() {
             block = block.push(
@@ -135,39 +141,6 @@ impl<'a> TreeView<'a> {
             );
         }
         block.into()
-    }
-
-    /// Render an unexpanded mount node: spine + path label + Load button.
-    fn render_mount_node(
-        &self, block_id: &BlockId, mount_path: &'a std::path::Path,
-    ) -> Element<'a, Message> {
-        let spine = container(rule::vertical(1).style(theme::spine_rule))
-            .width(Length::Fixed(4.0))
-            .align_x(iced::alignment::Horizontal::Center);
-        let marker = container(text("•").size(12).style(theme::spine_text))
-            .width(Length::Fixed(12.0))
-            .align_x(iced::alignment::Horizontal::Center)
-            .padding(iced::Padding::ZERO.top(3.0));
-
-        let path_label = text(mount_path.display().to_string())
-            .font(theme::INTER)
-            .size(13)
-            .style(theme::spine_text);
-
-        let load_btn = button(text("Load").font(theme::INTER).size(13))
-            .style(theme::action_button)
-            .padding(4)
-            .on_press(Message::ExpandMount(*block_id));
-
-        row![]
-            .spacing(6)
-            .width(Fill)
-            .align_y(iced::Alignment::Start)
-            .push(spine)
-            .push(marker)
-            .push(path_label)
-            .push(load_btn)
-            .into()
     }
 
     fn render_expansion_panel(
@@ -366,6 +339,7 @@ impl<'a> TreeView<'a> {
     fn action_row_context(&self, block_id: &BlockId, point_text: String) -> RowContext {
         let expansion_draft = self.state.expansion_drafts.get(*block_id);
         let summary_draft = self.state.summary_drafts.get(*block_id);
+        let node = self.state.store.node(block_id);
         RowContext {
             block_id: *block_id,
             point_text,
@@ -383,6 +357,9 @@ impl<'a> TreeView<'a> {
                 .is_some_and(|s| matches!(s, SummaryState::Error { .. })),
             is_expanding: self.state.is_expanding(block_id),
             is_reducing: self.state.is_summarizing(block_id),
+            is_mounted: self.state.store.mount_table().entry(*block_id).is_some(),
+            is_unexpanded_mount: node.is_some_and(|n| n.mount_path().is_some()),
+            has_children: !self.state.store.children(block_id).is_empty(),
         }
     }
 
@@ -468,6 +445,31 @@ impl<'a> TreeView<'a> {
             .style(theme::tooltip)
             .padding(6)
             .gap(4)
+            .into()
+    }
+
+    /// Render a mount indicator showing the file path and a Load button.
+    ///
+    /// Displayed below the node's own content for unexpanded mounts,
+    /// indicating that children live in an external file.
+    fn render_mount_indicator(
+        &self, block_id: &BlockId, mount_path: &'a std::path::Path,
+    ) -> Element<'a, Message> {
+        let path_label = text(mount_path.display().to_string())
+            .font(theme::INTER)
+            .size(13)
+            .style(theme::spine_text);
+
+        let load_btn = button(text("Load").font(theme::INTER).size(13))
+            .style(theme::action_button)
+            .padding(4)
+            .on_press(Message::ExpandMount(*block_id));
+
+        row![]
+            .spacing(6)
+            .align_y(iced::Alignment::Center)
+            .push(path_label)
+            .push(load_btn)
             .into()
     }
 }

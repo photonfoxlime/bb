@@ -170,6 +170,10 @@ pub enum Message {
     CloseOverflow,
     ExpandMount(BlockId),
     CollapseMount(BlockId),
+    SaveToFile(BlockId),
+    SaveToFilePicked(BlockId, Option<std::path::PathBuf>),
+    LoadFromFile(BlockId),
+    LoadFromFilePicked(BlockId, Option<std::path::PathBuf>),
 }
 
 /// Process one message and return a follow-up task (if any).
@@ -579,6 +583,98 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+        | Message::SaveToFile(block_id) => {
+            state.set_active_block(&block_id);
+            state.overflow_open_for = None;
+            Task::perform(
+                async move {
+                    let dialog = rfd::AsyncFileDialog::new()
+                        .set_title("Save block to file")
+                        .add_filter("JSON", &["json"])
+                        .save_file()
+                        .await;
+                    dialog.map(|handle| handle.path().to_path_buf())
+                },
+                move |path| Message::SaveToFilePicked(block_id, path),
+            )
+        }
+        | Message::SaveToFilePicked(block_id, path) => {
+            if let Some(path) = path {
+                state.snapshot_for_undo();
+                let base_dir = AppPaths::data_dir().unwrap_or_default();
+                match state.store.save_subtree_to_file(&block_id, &path, &base_dir) {
+                    | Ok(()) => {
+                        tracing::info!(block_id = ?block_id, path = %path.display(), "saved subtree to file");
+                        // Immediately expand the mount so the user sees no disruption.
+                        match state.store.expand_mount(&block_id, &base_dir) {
+                            | Ok(new_roots) => {
+                                for &id in &new_roots {
+                                    state.editors.ensure_subtree(&state.store, &id);
+                                }
+                            }
+                            | Err(err) => {
+                                tracing::error!(block_id = ?block_id, %err, "failed to re-expand after save-to-file");
+                                state.error =
+                                    Some(AppError::Mount(UiError::from_message(&err)));
+                            }
+                        }
+                        if let Err(err) = state.save_tree() {
+                            tracing::error!(%err, "failed to save tree after save-to-file");
+                        }
+                    }
+                    | Err(err) => {
+                        tracing::error!(block_id = ?block_id, %err, "failed to save subtree to file");
+                        state.error = Some(AppError::Mount(UiError::from_message(&err)));
+                    }
+                }
+            }
+            Task::none()
+        }
+        | Message::LoadFromFile(block_id) => {
+            state.set_active_block(&block_id);
+            state.overflow_open_for = None;
+            Task::perform(
+                async move {
+                    let dialog = rfd::AsyncFileDialog::new()
+                        .set_title("Load block from file")
+                        .add_filter("JSON", &["json"])
+                        .pick_file()
+                        .await;
+                    dialog.map(|handle| handle.path().to_path_buf())
+                },
+                move |path| Message::LoadFromFilePicked(block_id, path),
+            )
+        }
+        | Message::LoadFromFilePicked(block_id, path) => {
+            if let Some(path) = path {
+                state.snapshot_for_undo();
+                let base_dir = AppPaths::data_dir().unwrap_or_default();
+                let rel_path = path
+                    .strip_prefix(&base_dir)
+                    .map(|p| p.to_path_buf())
+                    .unwrap_or_else(|_| path.clone());
+                if state.store.set_mount_path(&block_id, rel_path).is_none() {
+                    tracing::error!(block_id = ?block_id, "block has children or does not exist; cannot load");
+                    return Task::none();
+                }
+                match state.store.expand_mount(&block_id, &base_dir) {
+                    | Ok(new_roots) => {
+                        tracing::info!(block_id = ?block_id, path = %path.display(), children = new_roots.len(), "loaded file into block");
+                        for &id in &new_roots {
+                            state.editors.ensure_subtree(&state.store, &id);
+                        }
+                    }
+                    | Err(err) => {
+                        tracing::error!(block_id = ?block_id, %err, "failed to expand after load-from-file");
+                        state.error = Some(AppError::Mount(UiError::from_message(&err)));
+                    }
+                }
+                if let Err(err) = state.save_tree() {
+                    tracing::error!(%err, "failed to save tree after load-from-file");
+                }
+            }
+            Task::none()
+        }
     }
 }
 
@@ -641,6 +737,9 @@ fn run_shortcut_for_block(
             .is_some_and(|s| matches!(s, SummaryState::Error { .. })),
         is_expanding: state.is_expanding(&block_id),
         is_reducing: state.is_summarizing(&block_id),
+        is_mounted: state.store.mount_table().entry(block_id).is_some(),
+        has_children: !state.store.children(&block_id).is_empty(),
+        is_unexpanded_mount: state.store.node(&block_id).is_some_and(|n| n.mount_path().is_some()),
     };
     let vm = project_for_viewport(build_action_bar_vm(&row_context), ViewportBucket::Wide);
 
