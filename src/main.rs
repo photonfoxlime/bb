@@ -1,5 +1,9 @@
-//! Binary entry point for bb: configures fonts, theme, and launches the iced
-//! application.
+//! Binary entry point for `bb`.
+//!
+//! Runtime wiring in this file:
+//! - load app state (`AppState::load`),
+//! - route `update` + `view` + `subscription`,
+//! - load fonts and theme from app state.
 
 mod app;
 mod mount;

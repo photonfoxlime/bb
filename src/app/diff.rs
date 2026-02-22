@@ -1,4 +1,8 @@
 //! Word-wise diff computation for expansion draft rendering.
+//!
+//! Scope:
+//! - used for rewrite/reduce text comparisons,
+//! - child suggestions are intentionally rendered as plain list entries.
 
 use similar::{DiffTag, TextDiff};
 

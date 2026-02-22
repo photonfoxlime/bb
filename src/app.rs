@@ -1,7 +1,7 @@
-//! Application state, messages, update, and view for the iced UI.
+//! Application orchestration layer for the Iced UI.
 //!
-//! The underlying document is a block store (each block with a slotmap id); the UI presents
-//! the same content as a tree (roots and ordered children per node).
+//! Top-level routing is `update -> AppState::dispatch_message`. Domain semantics
+//! are documented next to the owning handlers and state types.
 
 use crate::llm;
 use crate::paths::AppPaths;
@@ -48,6 +48,12 @@ const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 ///
 /// Owns the document store, editor buffers, undo history, LLM config,
 /// async operation states, and transient UI state (overflow, active/focused/editing block ids).
+///
+/// Ownership split:
+/// - `store`: authoritative graph, persisted drafts, mount runtime metadata.
+/// - `editors`: widget-local text buffers + focus ids.
+/// - selectors (`active_block_id`, `focused_block_id`, `editing_block_id`) and
+///   overlay/fold flags: view/controller state only.
 #[derive(Clone)]
 pub struct AppState {
     store: BlockStore,
@@ -78,6 +84,13 @@ pub struct AppState {
 }
 
 impl AppState {
+    /// Load startup state.
+    ///
+    /// Persistence safety policy:
+    /// - missing `blocks.json` is treated as empty/default state,
+    /// - load path/read/parse failures enter guarded mode (`persistence_blocked`),
+    /// - guarded mode keeps in-memory editing available but blocks save-through
+    ///   to avoid overwriting unknown/corrupt on-disk state.
     pub fn load() -> Self {
         let llm_config = llm::LlmConfig::load();
         let mut error = llm_config
@@ -119,6 +132,11 @@ impl AppState {
         }
     }
 
+    /// Persist all graph state.
+    ///
+    /// Write order is main-file first, then mounted files (`save` then
+    /// `save_mounts`). This prioritizes keeping the main graph shape current,
+    /// while accepting temporary cross-file skew if a later mount write fails.
     fn save_tree(&mut self) -> std::io::Result<()> {
         if self.persistence_blocked {
             let err = std::io::Error::other("persistence disabled after initial load failure");

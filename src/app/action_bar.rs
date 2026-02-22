@@ -1,11 +1,7 @@
 //! Action bar: types, view-model construction, responsive projection,
 //! keyboard shortcuts, and dispatch for the per-block toolbar.
-//!
-//! The action bar is a pure function pipeline:
-//!   `RowContext` -> `build_action_bar_vm` -> `project_for_viewport` -> `ActionBarVm`
-//!
-//! `ActionBarVm` is a view-model: it carries no mutable state and is rebuilt
-//! on every frame from the current `RowContext`.
+//! Keep module docs broad; pipeline and interaction semantics are documented on
+//! owning VM types and builder/projection functions below.
 
 use super::{
     AppState, ExpandMessage, ExpandState, Message, MountFileMessage, ReduceMessage, ReduceState,
@@ -190,8 +186,13 @@ impl RowContext {
 
 /// Build a full action bar view-model from a row's context.
 ///
-/// This is the first stage of the pipeline; call [`project_for_viewport`]
-/// afterward to adapt to the current viewport width.
+/// Pipeline stage 1:
+/// `RowContext` -> `build_action_bar_vm` -> [`project_for_viewport`] -> `ActionBarVm`.
+///
+/// Interaction policy encoded here:
+/// - busy states disable conflicting actions and expose cancel/retry,
+/// - contextual actions appear only when row state demands them,
+/// - overflow actions remain available but hidden behind menu toggle.
 pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     let row_state = ctx.ui_state();
     let mut vm = ActionBarVm::empty();

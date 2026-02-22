@@ -5,6 +5,9 @@
 /// The current (live) state is NOT stored in the stack. When the user
 /// undoes, the current state is pushed as a redo entry and the top undo
 /// entry becomes live. New mutations discard the redo future.
+///
+/// In `AppState`, this history is fed with pre-mutation snapshots of
+/// `BlockStore`; text-edit coalescing boundaries are handled in app logic.
 #[derive(Clone)]
 pub struct UndoHistory<T> {
     undo_stack: Vec<T>,

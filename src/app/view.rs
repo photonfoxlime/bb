@@ -1,3 +1,10 @@
+//! Immutable tree renderer from `AppState` to Iced elements.
+//!
+//! Rendering semantics:
+//! - mount and fold state are represented through disclosure marker behavior,
+//! - action bars are projected per-row via `action_bar` view-model pipeline,
+//! - rewrite/reduce drafts render inline word-level diff panels.
+
 use super::action_bar::{
     ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
     ViewportBucket, action_to_message, build_action_bar_vm, project_for_viewport,

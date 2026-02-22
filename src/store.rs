@@ -1,7 +1,8 @@
 //! Block store: the core document data model.
 //!
 //! A document is a forest of blocks. Each block has a slotmap identity, a text
-//! point, and ordered children. The store is serialized as JSON for persistence.
+//! point, and ordered children. Persistence and mount invariants are documented
+//! on the owning save/expand/collapse functions below.
 
 use crate::llm;
 use crate::mount::{BlockOrigin, MountEntry, MountError, MountTable};
@@ -176,8 +177,11 @@ impl BlockStore {
 
     /// Persist the main store as pretty-printed JSON to the app data file.
     ///
-    /// Expanded mount nodes are restored to `Mount { path }` before
-    /// serialization and their re-keyed blocks are excluded.
+    /// Snapshot semantics:
+    /// - expanded mount points are restored to `Mount { rel_path }`,
+    /// - mounted descendants are excluded from the main-file snapshot,
+    /// - draft keys are remapped to the compacted key-space,
+    /// - serialization is strict (`serde_json` failure aborts save).
     pub fn save(&self) -> io::Result<()> {
         let Some(path) = AppPaths::data_file() else {
             return Ok(());
@@ -193,8 +197,9 @@ impl BlockStore {
 
     /// Save all expanded mount files back to disk.
     ///
-    /// Each mount entry's blocks are extracted into a standalone `BlockStore`
-    /// and written to the entry's path.
+    /// For each mount entry, this extracts the live mounted subtree into a
+    /// standalone store, preserves nested mounts as `Mount { path }` links,
+    /// and writes strict JSON to the mount's canonical path.
     pub fn save_mounts(&self) -> io::Result<()> {
         for (mount_point, entry) in self.mount_table.entries() {
             let sub = self.extract_mount_store(&mount_point, entry);
@@ -444,6 +449,11 @@ impl BlockStore {
     ///
     /// `base_dir` is the directory against which relative mount paths are
     /// resolved (typically the directory containing the main blocks file).
+    /// For nested mounts, relative paths resolve against the parent mount file
+    /// directory instead of global app data dir.
+    ///
+    /// Cycle policy: expansion is lazy and user-driven; this function does not
+    /// proactively reject recursive mount chains.
     ///
     /// Returns the re-keyed root ids of the mounted sub-store.
     pub fn expand_mount(
@@ -483,6 +493,9 @@ impl BlockStore {
 
     /// Unmount a previously expanded mount point: remove all re-keyed blocks
     /// and restore the node to `Mount { path }`.
+    ///
+    /// This also clears nested mounted runtime blocks reachable under the
+    /// expanded subtree and restores the mount-point using `entry.rel_path`.
     ///
     /// Returns `None` if the mount point has no entry in the mount table.
     pub fn collapse_mount(&mut self, mount_point: &BlockId) -> Option<()> {

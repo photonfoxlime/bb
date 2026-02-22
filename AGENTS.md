@@ -1,7 +1,8 @@
 # LLM Instructions
 
-Above all: consolidate your key understandings and new findings and log them down in `docs/` folder if not already existed.
-Start with `docs/architecture.md` for the full architecture overview and index of all design documents.
+Above all: consolidate key understandings and new findings as inline Rust documentation
+(`//!` module docs and `///` item docs) close to the relevant code.
+Inline Rust documentation is the canonical documentation source for this repository.
 
 ## Documentation and Language
 
@@ -9,6 +10,12 @@ Actively write documentation for the program.
 All written documentation must be concise, clear, and accurate.
 No emojis unless strictly necessary.
 All documentation should be written in English unless explicitly stated.
+
+### Canonical Documentation Location
+
+- Prefer inline Rust documentation in `src/**/*.rs`.
+- Keep design rationale near the owning modules and types.
+- Do not rely on a standalone `docs/` tree as the canonical source.
 
 ## Rust Code Style Guideline
 
@@ -79,7 +86,7 @@ The description should say *what changed*, not *why* (the diff shows what; the d
 | `sisy`  | Mechanical changes: formatting, linting, renaming passes, internal restructuring with no behavior change. |
 | `vibe`  | Exploratory, prototype-quality work. Expect rough edges; may be revised or replaced. |
 | `repo`  | Repository housekeeping: migrations, dependency changes, formatter config, file reorganization, one-off maintenance. |
-| `docs`  | Documentation-only changes (AGENTS.md, docs/, README, code comments). |
+| `docs`  | Documentation-only changes (AGENTS.md, README, inline Rust docs/comments). |
 | `test`  | Adding or updating tests without changing production code. |
 
 #### Guidelines
