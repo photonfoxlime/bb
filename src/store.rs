@@ -152,6 +152,10 @@ impl BlockStore {
         let Some(path) = AppPaths::data_file() else {
             return Self::default();
         };
+        Self::load_from_path(&path)
+    }
+
+    fn load_from_path(path: &Path) -> Self {
         match fs::read_to_string(&path) {
             | Ok(contents) => serde_json::from_str(&contents).unwrap_or_default(),
             | Err(_) => Self::default(),
@@ -1255,6 +1259,45 @@ mod tests {
         let restored: BlockStore = serde_json::from_value(value).unwrap();
         assert_eq!(restored.expansion_drafts.len(), 0);
         assert_eq!(restored.reduction_drafts.len(), 0);
+    }
+
+    #[test]
+    fn load_from_path_falls_back_to_default_on_malformed_json() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("broken.json");
+        fs::write(&path, "{ not valid json").unwrap();
+
+        let loaded = BlockStore::load_from_path(&path);
+        let default_store = BlockStore::default();
+
+        assert_eq!(loaded.roots().len(), default_store.roots().len());
+        let loaded_root = loaded.roots()[0];
+        let default_root = default_store.roots()[0];
+        assert_eq!(loaded.point(&loaded_root), default_store.point(&default_root));
+    }
+
+    #[test]
+    fn load_from_path_with_dangling_child_is_operable_and_normalized_on_save_snapshot() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("invalid-graph.json");
+
+        let mut nodes = SlotMap::with_key();
+        let dangling_child = BlockId::default();
+        let root = nodes.insert(BlockNode::with_children(vec![dangling_child]));
+        let mut points = SecondaryMap::new();
+        points.insert(root, "root".to_string());
+        let invalid_store = BlockStore::new(vec![root], nodes, points);
+        fs::write(&path, serde_json::to_string_pretty(&invalid_store).unwrap()).unwrap();
+
+        let loaded = BlockStore::load_from_path(&path);
+        assert!(loaded.node(&root).is_some());
+        assert!(loaded.node(&dangling_child).is_none());
+        let lineage = loaded.lineage_points_for_id(&root);
+        assert_eq!(lineage.points().last(), Some("root"));
+
+        let normalized = loaded.snapshot_for_save();
+        let normalized_root = normalized.roots()[0];
+        assert_eq!(normalized.node(&normalized_root).unwrap().children().len(), 0);
     }
 
     // -- expand_mount / collapse_mount --
