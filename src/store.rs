@@ -631,6 +631,69 @@ impl BlockStore {
         None
     }
 
+    /// Return the next block in visible DFS order, skipping collapsed subtrees.
+    ///
+    /// `collapsed` is the set of block ids whose children are hidden.
+    /// Returns `None` when `current` is the last visible block.
+    pub fn next_visible_in_dfs(
+        &self, current: &BlockId, collapsed: &std::collections::HashSet<BlockId>,
+    ) -> Option<BlockId> {
+        // If current has visible children, descend into the first child.
+        if !collapsed.contains(current) {
+            let children = self.children(current);
+            if let Some(&first) = children.first() {
+                return Some(first);
+            }
+        }
+        // Otherwise walk up ancestors looking for a next sibling.
+        let mut target = *current;
+        loop {
+            let (parent, index) = self.parent_and_index_of(&target)?;
+            let siblings = match parent {
+                | Some(pid) => self.children(&pid),
+                | None => self.roots(),
+            };
+            if index + 1 < siblings.len() {
+                return Some(siblings[index + 1]);
+            }
+            // No next sibling: move up to parent and retry.
+            match parent {
+                | Some(pid) => target = pid,
+                | None => return None,
+            }
+        }
+    }
+
+    /// Return the previous block in visible DFS order, skipping collapsed subtrees.
+    ///
+    /// `collapsed` is the set of block ids whose children are hidden.
+    /// Returns `None` when `current` is the first visible block.
+    pub fn prev_visible_in_dfs(
+        &self, current: &BlockId, collapsed: &std::collections::HashSet<BlockId>,
+    ) -> Option<BlockId> {
+        let (parent, index) = self.parent_and_index_of(current)?;
+        if index == 0 {
+            // No previous sibling; go to parent (None for root-0 means we are first).
+            return parent;
+        }
+        let siblings = match parent {
+            | Some(pid) => self.children(&pid),
+            | None => self.roots(),
+        };
+        // Previous sibling's deepest visible descendant.
+        let mut target = siblings[index - 1];
+        loop {
+            if collapsed.contains(&target) {
+                return Some(target);
+            }
+            let children = self.children(&target);
+            if children.is_empty() {
+                return Some(target);
+            }
+            target = *children.last().unwrap();
+        }
+    }
+
     fn clone_subtree_with_new_ids(&mut self, source_id: &BlockId) -> Option<BlockId> {
         let source_node = self.node(source_id)?.clone();
         let source_point = self.point(source_id).unwrap_or_default();

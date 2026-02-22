@@ -25,7 +25,7 @@ use action_bar::{
     build_action_bar_vm, project_for_viewport, shortcut_to_action,
 };
 use iced::widget::{column, container, scrollable, text, text_editor};
-use iced::{Element, Event, Fill, Subscription, Task, event, keyboard, mouse};
+use iced::{Element, Event, Fill, Subscription, Task, event, keyboard, mouse, widget};
 use slotmap::SecondaryMap;
 
 /// Snapshot of undoable application state.
@@ -227,6 +227,39 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 state.editing_block_id = Some(block_id);
             }
             state.editors.ensure_block(&state.store, &block_id);
+
+            // Edge-detection: if the cursor is already at the boundary and the
+            // action would move further, navigate to the adjacent visible block
+            // instead of forwarding the motion to the editor.
+            if let Some(content) = state.editors.get(&block_id) {
+                let cursor_line = content.cursor().position.line;
+                let line_count = content.line_count();
+                let navigate_target = match &action {
+                    | text_editor::Action::Move(text_editor::Motion::Up)
+                        if cursor_line == 0 =>
+                    {
+                        state.store.prev_visible_in_dfs(&block_id, &state.collapsed)
+                    }
+                    | text_editor::Action::Move(text_editor::Motion::Down)
+                        if cursor_line + 1 >= line_count =>
+                    {
+                        state.store.next_visible_in_dfs(&block_id, &state.collapsed)
+                    }
+                    | _ => None,
+                };
+                if let Some(target_id) = navigate_target {
+                    if let Some(wid) = state.editors.widget_id(&target_id) {
+                        state.focused_block_id = Some(target_id);
+                        tracing::debug!(
+                            from = ?block_id,
+                            to = ?target_id,
+                            "keyboard traversal"
+                        );
+                        return widget::operation::focus(wid.clone());
+                    }
+                }
+            }
+
             if let Some(content) = state.editors.get_mut(&block_id) {
                 content.perform(action);
                 let next_text = content.text();

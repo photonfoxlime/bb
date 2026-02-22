@@ -115,14 +115,18 @@ impl<'a> TreeView<'a> {
             .align_y(iced::Alignment::Start)
             .push(spine)
             .push(marker)
-            .push(
-                text_editor(editor_content)
+            .push({
+                let mut editor = text_editor(editor_content)
                     .placeholder("point")
                     .style(theme::point_editor)
                     .on_action(move |action| Message::PointEdited(block_id_for_edit, action))
                     .key_binding(move |key_press| editor_key_binding(block_id_for_edit, key_press))
-                    .height(Length::Shrink),
-            )
+                    .height(Length::Shrink);
+                if let Some(wid) = self.state.editors.widget_id(block_id) {
+                    editor = editor.id(wid.clone());
+                }
+                editor
+            })
             .push(action_buttons);
 
         let mut block = column![].spacing(theme::BLOCK_INNER_GAP).push(row_content);

@@ -15,6 +15,7 @@ For project purpose, data model, and workflow, see [README.md](../README.md) (ca
 | [undo-system.md](undo-system.md) | Undo/redo architecture, snapshot protocol |
 | [expansion-diff.md](expansion-diff.md) | Expansion draft diff rendering |
 | [backlog.md](backlog.md) | Unimplemented ideas and exploration items |
+| [keyboard.md](keyboard.md) | Keyboard navigation: block traversal, focus transfer |
 
 ## Product Principle
 
@@ -36,7 +37,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 - `src/app.rs` -- Orchestration: AppState, Message enum, update loop, subscription, view dispatch.
 - `src/app/state.rs` -- UI error types and async lifecycle enums (UiError, AppError, SummaryState, ExpandState).
 - `src/app/draft.rs` -- ExpansionDraft: pending expand result (rewrite + child suggestions).
-- `src/app/editor_store.rs` -- EditorStore: SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers.
+- `src/app/editor_store.rs` -- EditorStore: SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers, plus SecondaryMap\<BlockId, widget::Id\> for programmatic focus.
 - `src/app/view.rs` -- TreeView: pure renderer from immutable AppState into widget tree.
 - `src/app/action_bar/` -- Typed action bar: types, selector (state-to-VM), responsive projection, keyboard shortcuts, dispatch.
 - `src/store.rs` -- Block store data model: BlockId (slotmap key), BlockNode enum, BlockStore (SlotMap + SecondaryMaps). JSON persistence.
@@ -64,7 +65,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 | `SummaryState` | `app/state.rs` | Per-row summarize lifecycle (Idle, Loading, Error). |
 | `ExpandState` | `app/state.rs` | Per-row expand lifecycle (Idle, Loading, Error). |
 | `ExpansionDraft` | `app/draft.rs` | Pending expand result: optional rewrite + child suggestions. |
-| `EditorStore` | `app/editor_store.rs` | SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers. |
+| `EditorStore` | `app/editor_store.rs` | SecondaryMap\<BlockId, text\_editor::Content\> for editor buffers; SecondaryMap\<BlockId, widget::Id\> for programmatic focus targeting. |
 | `AppState` | `app.rs` | Full UI state: store, editors, LLM config, lifecycle, drafts, focused/active block tracking, and `collapsed` set for fold state. Per-block maps use SecondaryMap. |
 | `TreeView` | `app/view.rs` | Pure renderer: borrows immutable AppState, produces Element tree. |
 | `LlmClient` | `llm.rs` | HTTP client for summarize and expand requests. |
@@ -100,3 +101,7 @@ Layout tokens are defined in `src/theme.rs` and used throughout the view layer. 
 - Child indent: `INDENT` (16px) left padding.
 - Draft panels: `PANEL_PAD_V` / `PANEL_PAD_H` (8/16px) internal padding, `PANEL_BUTTON_GAP` (8px) between buttons.
 - Active block: focused or active block wrapped in `active_block` container style (`FOCUS_WASH` -- 6% accent overlay).
+
+## Keyboard Navigation
+
+See [keyboard.md](keyboard.md).

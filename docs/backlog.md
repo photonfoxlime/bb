@@ -6,7 +6,7 @@ For current architecture, see [architecture.md](architecture.md).
 
 ## Interaction
 - ~~Collapse/expand subtree visibility.~~ Done (disclosure chevron on marker).
-- Keyboard-first traversal (up/down, indent-level moves).
+- ~~Keyboard-first traversal (up/down, indent-level moves).~~ Done (arrow-key edge detection + DFS focus transfer).
 - Conflict-safe editing during async operations.
 
 ## Expand/Summarize quality
