@@ -147,6 +147,15 @@ impl AppState {
     }
 }
 
+/// Direction tag for vertical cursor movement edge-detection.
+///
+/// Used to defer block traversal until *after* the editor processes
+/// the motion, so wrapped (visual) lines are handled correctly.
+enum VerticalDir {
+    Up,
+    Down,
+}
+
 /// Elm-architecture messages driving all state transitions.
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -228,45 +237,62 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             }
             state.editors.ensure_block(&state.store, &block_id);
 
-            // Edge-detection: if the cursor is already at the boundary and the
-            // action would move further, navigate to the adjacent visible block
-            // instead of forwarding the motion to the editor.
-            if let Some(content) = state.editors.get(&block_id) {
-                let cursor_line = content.cursor().position.line;
-                let line_count = content.line_count();
-                let navigate_target = match &action {
-                    | text_editor::Action::Move(text_editor::Motion::Up)
-                        if cursor_line == 0 =>
-                    {
-                        state.store.prev_visible_in_dfs(&block_id, &state.collapsed)
-                    }
-                    | text_editor::Action::Move(text_editor::Motion::Down)
-                        if cursor_line + 1 >= line_count =>
-                    {
-                        state.store.next_visible_in_dfs(&block_id, &state.collapsed)
-                    }
-                    | _ => None,
-                };
-                if let Some(target_id) = navigate_target {
-                    if let Some(wid) = state.editors.widget_id(&target_id) {
-                        state.focused_block_id = Some(target_id);
-                        tracing::debug!(
-                            from = ?block_id,
-                            to = ?target_id,
-                            "keyboard traversal"
-                        );
-                        return widget::operation::focus(wid.clone());
+            // Detect vertical direction of the action (if any) before
+            // performing it, so we can check visual edge after the move.
+            let vertical_direction = match &action {
+                | text_editor::Action::Move(text_editor::Motion::Up) => Some(VerticalDir::Up),
+                | text_editor::Action::Move(text_editor::Motion::Down) => {
+                    Some(VerticalDir::Down)
+                }
+                | _ => None,
+            };
+
+            // Phase 1: perform the action and detect if navigation is needed.
+            // We must drop the mutable borrow on `state.editors` before
+            // calling `widget_id` (immutable borrow) in phase 2.
+            let mut navigate_to: Option<BlockId> = None;
+            if let Some(content) = state.editors.get_mut(&block_id) {
+                let cursor_before = content.cursor().position;
+                content.perform(action);
+                let cursor_after = content.cursor().position;
+
+                // Edge-detection: if a vertical move did not change the cursor
+                // position, we are at the visual boundary (accounting for
+                // wrapped lines) and should navigate to the adjacent block.
+                if let Some(dir) = vertical_direction {
+                    if cursor_before == cursor_after {
+                        navigate_to = match dir {
+                            | VerticalDir::Up => {
+                                state.store.prev_visible_in_dfs(&block_id, &state.collapsed)
+                            }
+                            | VerticalDir::Down => {
+                                state.store.next_visible_in_dfs(&block_id, &state.collapsed)
+                            }
+                        };
                     }
                 }
-            }
 
-            if let Some(content) = state.editors.get_mut(&block_id) {
-                content.perform(action);
-                let next_text = content.text();
-                tracing::debug!(block_id = ?block_id, chars = next_text.len(), "point edited");
-                state.store.update_point(&block_id, next_text);
-                if let Err(err) = state.save_tree() {
-                    tracing::error!(%err, "failed to save tree after edit");
+                // If we are NOT navigating away, persist the text change.
+                if navigate_to.is_none() {
+                    let next_text = content.text();
+                    tracing::debug!(block_id = ?block_id, chars = next_text.len(), "point edited");
+                    state.store.update_point(&block_id, next_text);
+                    if let Err(err) = state.save_tree() {
+                        tracing::error!(%err, "failed to save tree after edit");
+                    }
+                }
+            } // mutable borrow on `state.editors` dropped here
+
+            // Phase 2: navigate to the adjacent block (immutable borrow).
+            if let Some(target_id) = navigate_to {
+                if let Some(wid) = state.editors.widget_id(&target_id) {
+                    state.focused_block_id = Some(target_id);
+                    tracing::debug!(
+                        from = ?block_id,
+                        to = ?target_id,
+                        "keyboard traversal"
+                    );
+                    return widget::operation::focus(wid.clone());
                 }
             }
             Task::none()
