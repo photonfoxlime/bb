@@ -762,20 +762,23 @@ fn run_shortcut_for_block(
 
 /// Top-level view: error banner + scrollable block tree.
 pub fn view(state: &AppState) -> Element<'_, Message> {
-    let mut layout = column![].spacing(12);
+    let mut layout = column![].spacing(theme::LAYOUT_GAP);
     if let Some(error) = &state.error {
         layout = layout.push(
             container(text(format!("Error: {}", error.message())))
                 .style(theme::error_banner)
-                .padding(8),
+                .padding(theme::BANNER_PAD),
         );
     }
 
     let tree = view::TreeView::new(state).render_roots();
-    let content = container(tree).padding(24).max_width(720);
+    let content = container(tree).padding(theme::CANVAS_PAD).max_width(theme::CANVAS_MAX_WIDTH);
     layout = layout.push(
         scrollable(
-            container(content).width(Fill).center_x(Fill).padding(iced::Padding::ZERO.top(12.0)),
+            container(content)
+                .width(Fill)
+                .center_x(Fill)
+                .padding(iced::Padding::ZERO.top(theme::CANVAS_TOP)),
         )
         .height(Fill),
     );

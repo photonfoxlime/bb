@@ -8,7 +8,7 @@ use super::{AppState, ExpandState, ExpansionDraft, Message, SummaryDraft, Summar
 use crate::store::BlockId;
 use crate::theme;
 use iced::widget::{button, column, container, row, rule, text, text_editor, tooltip};
-use iced::{Element, Fill, Length};
+use iced::{Element, Fill, Length, Padding};
 use lucide_icons::iced as icons;
 
 fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
@@ -49,7 +49,7 @@ impl<'a> TreeView<'a> {
     }
 
     fn render_line(&self, ids: &'a [BlockId]) -> Element<'a, Message> {
-        let mut col = column![].spacing(10);
+        let mut col = column![].spacing(theme::BLOCK_GAP);
         for id in ids {
             if self.state.store.node(id).is_none() {
                 continue;
@@ -74,22 +74,22 @@ impl<'a> TreeView<'a> {
             project_for_viewport(build_action_bar_vm(&row_context), self.viewport_bucket());
 
         let spine = container(rule::vertical(1).style(theme::spine_rule))
-            .width(Length::Fixed(4.0))
+            .width(Length::Fixed(theme::SPINE_WIDTH))
             .align_x(iced::alignment::Horizontal::Center);
         let marker = container(text("\u{2022}").size(12).style(theme::spine_text))
-            .width(Length::Fixed(12.0))
+            .width(Length::Fixed(theme::MARKER_WIDTH))
             .align_x(iced::alignment::Horizontal::Center)
-            .padding(iced::Padding::ZERO.top(3.0));
+            .padding(Padding::ZERO.top(theme::MARKER_TOP));
 
         let mut action_buttons: Element<'a, Message> =
             self.render_action_buttons(block_id, &action_bar);
         if is_expanded_mount {
             action_buttons = row![]
-                .spacing(6)
+                .spacing(theme::ROW_GAP)
                 .push(
                     button(text("Collapse").font(theme::INTER).size(13))
                         .style(theme::action_button)
-                        .padding(4)
+                        .padding(theme::BUTTON_PAD)
                         .on_press(Message::CollapseMount(*block_id)),
                 )
                 .push(action_buttons)
@@ -97,7 +97,7 @@ impl<'a> TreeView<'a> {
         }
 
         let row_content = row![]
-            .spacing(6)
+            .spacing(theme::ROW_GAP)
             .width(Fill)
             .align_y(iced::Alignment::Start)
             .push(spine)
@@ -112,11 +112,11 @@ impl<'a> TreeView<'a> {
             )
             .push(action_buttons);
 
-        let mut block = column![].spacing(4).push(row_content);
+        let mut block = column![].spacing(theme::BLOCK_INNER_GAP).push(row_content);
         if action_bar.status_chip.is_some() {
             block = block.push(
                 container(self.render_status_chip(&action_bar))
-                    .padding(iced::Padding::ZERO.left(16.0)),
+                    .padding(Padding::ZERO.left(theme::INDENT)),
             );
         }
         if let Some(draft) = self.state.expansion_drafts.get(*block_id) {
@@ -130,23 +130,27 @@ impl<'a> TreeView<'a> {
         if let Some(mount_path) = unexpanded_mount_path {
             block = block.push(
                 container(self.render_mount_indicator(block_id, mount_path))
-                    .padding(iced::Padding::ZERO.left(16.0)),
+                    .padding(Padding::ZERO.left(theme::INDENT)),
             );
         }
 
         let children = self.state.store.children(block_id);
         if !children.is_empty() {
             block = block.push(
-                container(self.render_line(children)).padding(iced::Padding::ZERO.left(16.0)),
+                container(self.render_line(children)).padding(Padding::ZERO.left(theme::INDENT)),
             );
         }
-        block.into()
+
+
+        let is_active = self.state.focused_block_id == Some(*block_id)
+            || self.state.active_block_id == Some(*block_id);
+        if is_active { container(block).style(theme::active_block).into() } else { block.into() }
     }
 
     fn render_expansion_panel(
         &self, block_id: &BlockId, draft: &'a ExpansionDraft,
     ) -> Element<'a, Message> {
-        let mut panel = column![].spacing(6);
+        let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
 
         if let Some(rewrite) = &draft.rewrite {
             // Get current block text for diff comparison
@@ -154,7 +158,7 @@ impl<'a> TreeView<'a> {
             let changes = word_diff(&old_text, rewrite);
 
             // Render diff view
-            let mut diff_content = column![].spacing(2);
+            let mut diff_content = column![].spacing(theme::DIFF_LINE_GAP);
 
             // Old text with deletions highlighted
             let mut old_line = row![].spacing(0);
@@ -167,7 +171,7 @@ impl<'a> TreeView<'a> {
                         old_line = old_line.push(
                             container(text(s.clone()))
                                 .style(theme::diff_deletion)
-                                .padding(iced::Padding::from([0.0, 2.0])),
+                                .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
                         );
                     }
                     | WordChange::Added(_) => {
@@ -191,7 +195,7 @@ impl<'a> TreeView<'a> {
                         new_line = new_line.push(
                             container(text(s.clone()))
                                 .style(theme::diff_addition)
-                                .padding(iced::Padding::from([0.0, 2.0])),
+                                .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
                         );
                     }
                 }
@@ -200,12 +204,12 @@ impl<'a> TreeView<'a> {
 
             panel = panel.push(
                 column![]
-                    .spacing(6)
+                    .spacing(theme::PANEL_INNER_GAP)
                     .push(container(text("Rewrite")).width(Length::Fill))
                     .push(container(diff_content).width(Length::Fill))
                     .push(
                         row![]
-                            .spacing(8)
+                            .spacing(theme::PANEL_BUTTON_GAP)
                             .push(
                                 button(text("Apply rewrite").font(theme::INTER).size(13))
                                     .style(theme::action_button)
@@ -223,7 +227,7 @@ impl<'a> TreeView<'a> {
         if !draft.children.is_empty() {
             panel = panel.push(
                 row![]
-                    .spacing(8)
+                    .spacing(theme::PANEL_BUTTON_GAP)
                     .push(container(text("Child suggestions")).width(Length::Fill))
                     .push(
                         button(text("Accept all").font(theme::INTER).size(13))
@@ -240,7 +244,7 @@ impl<'a> TreeView<'a> {
             for (index, child) in draft.children.iter().enumerate() {
                 panel = panel.push(
                     row![]
-                        .spacing(8)
+                        .spacing(theme::PANEL_BUTTON_GAP)
                         .push(container(text(child.as_str())).width(Length::Fill))
                         .push(
                             button(text("Keep").font(theme::INTER).size(13))
@@ -256,7 +260,10 @@ impl<'a> TreeView<'a> {
             }
         }
 
-        container(panel).padding(iced::Padding::from([8.0, 16.0])).style(theme::draft_panel).into()
+        container(panel)
+            .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
+            .style(theme::draft_panel)
+            .into()
     }
 
     fn render_summary_panel(
@@ -267,7 +274,7 @@ impl<'a> TreeView<'a> {
         let changes = word_diff(&old_text, &draft.summary);
 
         // Render diff view
-        let mut diff_content = column![].spacing(2);
+        let mut diff_content = column![].spacing(theme::DIFF_LINE_GAP);
 
         // Old text with deletions highlighted
         let mut old_line = row![].spacing(0);
@@ -280,7 +287,7 @@ impl<'a> TreeView<'a> {
                     old_line = old_line.push(
                         container(text(s.clone()))
                             .style(theme::diff_deletion)
-                            .padding(iced::Padding::from([0.0, 2.0])),
+                            .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
                     );
                 }
                 | WordChange::Added(_) => {
@@ -304,7 +311,7 @@ impl<'a> TreeView<'a> {
                     new_line = new_line.push(
                         container(text(s.clone()))
                             .style(theme::diff_addition)
-                            .padding(iced::Padding::from([0.0, 2.0])),
+                            .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
                     );
                 }
             }
@@ -313,12 +320,12 @@ impl<'a> TreeView<'a> {
 
         container(
             column![]
-                .spacing(6)
+                .spacing(theme::PANEL_INNER_GAP)
                 .push(container(text("Summary")).width(Length::Fill))
                 .push(container(diff_content).width(Length::Fill))
                 .push(
                     row![]
-                        .spacing(8)
+                        .spacing(theme::PANEL_BUTTON_GAP)
                         .push(
                             button(text("Apply summary").font(theme::INTER).size(13))
                                 .style(theme::action_button)
@@ -331,7 +338,7 @@ impl<'a> TreeView<'a> {
                         ),
                 ),
         )
-        .padding(iced::Padding::from([8.0, 16.0]))
+        .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
         .style(theme::draft_panel)
         .into()
     }
@@ -381,13 +388,13 @@ impl<'a> TreeView<'a> {
         };
 
         container(text(label).size(12).font(theme::INTER).style(theme::status_text))
-            .padding(iced::Padding::from([2.0, 8.0]))
+            .padding(Padding::from([theme::CHIP_PAD_V, theme::CHIP_PAD_H]))
             .width(Length::Shrink)
             .into()
     }
 
     fn render_action_buttons(&self, block_id: &BlockId, vm: &ActionBarVm) -> Element<'a, Message> {
-        let mut actions_row = row![].spacing(6);
+        let mut actions_row = row![].spacing(theme::ACTION_GAP);
 
         for descriptor in vm.visible_actions() {
             actions_row = actions_row.push(self.render_action_button(block_id, &descriptor));
@@ -399,24 +406,25 @@ impl<'a> TreeView<'a> {
                 if is_open { (icons::icon_x(), "Close") } else { (icons::icon_ellipsis(), "More") };
             let btn = button(icon.size(16))
                 .style(theme::action_button)
-                .padding(4)
+                .padding(theme::BUTTON_PAD)
                 .on_press(Message::ToggleOverflow(*block_id));
 
             actions_row = actions_row.push(
                 tooltip(btn, text(label).size(12).font(theme::INTER), tooltip::Position::Bottom)
                     .style(theme::tooltip)
-                    .padding(6)
-                    .gap(4),
+                    .padding(theme::TOOLTIP_PAD)
+                    .gap(theme::TOOLTIP_GAP),
             );
         }
 
-        let mut layout = column![].spacing(4).push(actions_row);
+        let mut layout = column![].spacing(theme::BLOCK_INNER_GAP).push(actions_row);
         if self.state.overflow_open_for.as_ref() == Some(block_id) {
-            let mut overflow = row![].spacing(6);
+            let mut overflow = row![].spacing(theme::ACTION_GAP);
             for descriptor in &vm.overflow {
                 overflow = overflow.push(self.render_action_button(block_id, descriptor));
             }
-            layout = layout.push(container(overflow).padding(iced::Padding::from([4.0, 0.0])));
+            layout = layout
+                .push(container(overflow).padding(Padding::from([theme::OVERFLOW_PAD_V, 0.0])));
         }
 
         layout.into()
@@ -431,7 +439,7 @@ impl<'a> TreeView<'a> {
             theme::action_button
         };
         let icon = action_icon(descriptor.id);
-        let base = button(icon).style(style).padding(4);
+        let base = button(icon).style(style).padding(theme::BUTTON_PAD);
         let btn = if descriptor.availability == ActionAvailability::Enabled {
             if let Some(message) = action_to_message(self.state, block_id, descriptor) {
                 base.on_press(message)
@@ -443,8 +451,8 @@ impl<'a> TreeView<'a> {
         };
         tooltip(btn, text(descriptor.label).size(12).font(theme::INTER), tooltip::Position::Bottom)
             .style(theme::tooltip)
-            .padding(6)
-            .gap(4)
+            .padding(theme::TOOLTIP_PAD)
+            .gap(theme::TOOLTIP_GAP)
             .into()
     }
 
@@ -462,11 +470,11 @@ impl<'a> TreeView<'a> {
 
         let load_btn = button(text("Load").font(theme::INTER).size(13))
             .style(theme::action_button)
-            .padding(4)
+            .padding(theme::BUTTON_PAD)
             .on_press(Message::ExpandMount(*block_id));
 
         row![]
-            .spacing(6)
+            .spacing(theme::ROW_GAP)
             .align_y(iced::Alignment::Center)
             .push(path_label)
             .push(load_btn)

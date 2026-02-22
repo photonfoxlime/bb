@@ -28,7 +28,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 - Structure visible through vertical spines and uniform dot markers, not decorative widgets.
 - Actions feel like marginalia annotations, not toolbar chrome.
 - Fonts: LXGW WenKai for point text (default), Inter for utility labels and buttons.
-- Palette defined in `src/theme.rs`: PAPER (warm off-white), INK (near-black), ACCENT (soft blue), ACCENT_MUTED, TINT (warm gray), SPINE (low-contrast gray), DANGER, SUCCESS.
+- Palette defined in `src/theme.rs`: PAPER (warm off-white), INK (near-black), ACCENT (soft blue), ACCENT_MUTED, TINT (warm gray), SPINE (low-contrast gray), SPINE_LIGHT (lighter structural line), DANGER, SUCCESS, FOCUS_WASH (faint accent for active-block highlight).
 
 ## Module Structure
 
@@ -44,7 +44,7 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 - `src/paths.rs` -- Shared application directory paths (AppPaths).
 - `src/undo.rs` -- Generic undo/redo history (UndoHistory\<T\>).
 - `src/llm.rs` -- LLM client, config loading (env vars + TOML file), prompt construction, expand/summarize API.
-- `src/theme.rs` -- Custom paper-and-ink theme: palette constants, per-widget style functions.
+- `src/theme.rs` -- Custom paper-and-ink theme: palette constants, layout tokens (spacing, sizing, padding), and per-widget style functions.
 
 ## Key Types
 
@@ -89,9 +89,14 @@ Preserve tree readability first. Avoid timeline metaphors. Keep structural-spine
 
 Iced's `center_x(width)` overrides the preceding `width(...)` call because it is implemented as `self.width(width).align_x(Center)`. Use `.align_x(Horizontal::Center)` instead to preserve explicit widths on containers.
 
-## Visual Implementation (Current Values)
+## Visual Implementation
 
-- Spine: `rule::vertical(1)` with `spine_rule` style, 4px container.
-- Marker: bullet character size 12, 12px container, top-padded 3px for baseline alignment.
-- Content column: `max_width(720)`, centered.
-- Child indent: `Padding::ZERO.left(16.0)`.
+Layout tokens are defined in `src/theme.rs` and used throughout the view layer. All spacing, sizing, and padding values are named constants rather than magic numbers.
+
+- Canvas: `CANVAS_PAD` (24px) outer padding, `CANVAS_MAX_WIDTH` (720px) content width, `CANVAS_TOP` (12px) top padding.
+- Block gaps: `BLOCK_GAP` (10px) between siblings, `BLOCK_INNER_GAP` (4px) within a block, `ROW_GAP` / `ACTION_GAP` (6px) horizontal.
+- Spine: `rule::vertical(1)` styled with `SPINE_LIGHT` via `spine_rule`, inside a `SPINE_WIDTH` (4px) container.
+- Marker: bullet character, `MARKER_WIDTH` (12px) column, `MARKER_TOP` (3px) top padding for baseline alignment.
+- Child indent: `INDENT` (16px) left padding.
+- Draft panels: `PANEL_PAD_V` / `PANEL_PAD_H` (8/16px) internal padding, `PANEL_BUTTON_GAP` (8px) between buttons.
+- Active block: focused or active block wrapped in `active_block` container style (`FOCUS_WASH` -- 6% accent overlay).

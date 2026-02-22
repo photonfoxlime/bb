@@ -21,9 +21,14 @@ For current architecture, see [architecture.md](architecture.md).
 - Import/export format.
 
 ## Polish
-- Style tokens in one theme module (spacing, type ramp, radii).
-- Subtle motion for expand/collapse and suggestion reveal.
-- Narrow-width/mobile tuning.
+ ~~Style tokens in one theme module (spacing, type ramp, radii).~~ Done.
+ Uniform bullet sizing: root bullet is disproportionately large relative to child bullets.
+ Breathing room between text editor and action icons (horizontal gap).
+ Minimum width on text editor so short text does not collapse the block.
+ Section headers with typographic hierarchy in draft panels (rewrite, child suggestions, summary).
+ Empty-state placeholder when the document has no blocks.
+ Subtle motion for expand/collapse and suggestion reveal.
+ Narrow-width/mobile tuning.
 
 ## Safety
 - Confirmation for destructive operations.
