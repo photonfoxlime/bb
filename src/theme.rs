@@ -118,6 +118,7 @@ pub const MARKER_TOP: f32 = 3.0;
 
 /// Padding inside buttons and tooltips.
 pub const BUTTON_PAD: f32 = 4.0;
+pub const ICON_BUTTON_SIZE: f32 = 24.0;
 /// Padding around tooltip text.
 pub const TOOLTIP_PAD: f32 = 6.0;
 /// Gap between tooltip and anchor.

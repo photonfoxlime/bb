@@ -31,7 +31,17 @@ fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
         | ActionId::LoadFromFile => icons::icon_hard_drive_upload(),
         | ActionId::Overflow => text("?"),
     };
-    icon.size(16).into()
+    icon.size(16).line_height(iced::widget::text::LineHeight::Relative(1.0)).into()
+}
+
+fn centered_icon<'a>(icon: Element<'a, Message>) -> Element<'a, Message> {
+    container(icon)
+        .padding(theme::BUTTON_PAD)
+        .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .align_x(iced::alignment::Horizontal::Center)
+        .align_y(iced::alignment::Vertical::Center)
+        .into()
 }
 
 /// Stateless view that borrows `AppState` to render the block tree.
@@ -83,10 +93,10 @@ impl<'a> TreeView<'a> {
         let is_foldable = has_children || is_expanded_mount || unexpanded_mount_path.is_some();
 
         let marker: Element<'a, Message> = if is_foldable {
-            let chevron = if is_collapsed || unexpanded_mount_path.is_some() {
-                icons::icon_chevron_right()
+            let icon = if is_collapsed || unexpanded_mount_path.is_some() {
+                ActionId::ExpandBranch
             } else {
-                icons::icon_chevron_down()
+                ActionId::CollapseBranch
             };
             let msg = if unexpanded_mount_path.is_some() {
                 Message::ExpandMount(*block_id)
@@ -95,7 +105,13 @@ impl<'a> TreeView<'a> {
             } else {
                 Message::ToggleFold(*block_id)
             };
-            button(chevron.size(12)).style(theme::action_button).padding(0).on_press(msg).into()
+            button(centered_icon(action_icon(icon)))
+                .style(theme::action_button)
+                .padding(0)
+                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(msg)
+                .into()
         } else {
             container(text("\u{2022}").size(12).style(theme::spine_text))
                 .width(Length::Fixed(theme::MARKER_WIDTH))
@@ -422,9 +438,11 @@ impl<'a> TreeView<'a> {
             let is_open = self.state.overflow_open_for.as_ref() == Some(block_id);
             let (icon, label) =
                 if is_open { (icons::icon_x(), "Close") } else { (icons::icon_ellipsis(), "More") };
-            let btn = button(icon.size(16))
+            let btn = button(centered_icon(icon.size(16).into()))
                 .style(theme::action_button)
-                .padding(theme::BUTTON_PAD)
+                .padding(0)
+                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .on_press(Message::ToggleOverflow(*block_id));
 
             actions_row = actions_row.push(
@@ -456,8 +474,12 @@ impl<'a> TreeView<'a> {
         } else {
             theme::action_button
         };
-        let icon = action_icon(descriptor.id);
-        let base = button(icon).style(style).padding(theme::BUTTON_PAD);
+        let icon = centered_icon(action_icon(descriptor.id));
+        let base = button(icon)
+            .style(style)
+            .padding(0)
+            .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .height(Length::Fixed(theme::ICON_BUTTON_SIZE));
         let btn = if descriptor.availability == ActionAvailability::Enabled {
             if let Some(message) = action_to_message(self.state, block_id, descriptor) {
                 base.on_press(message)
