@@ -1798,6 +1798,149 @@ mod tests {
     }
 
     #[test]
+    fn mount_save_persists_new_sibling_under_mounted_subtree() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_sub_store(tmp.path(), "sub.json");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+
+        let roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
+        let root = roots[0];
+        let first_child = store.children(&root)[0];
+        store.append_sibling(&first_child, "sibling created in mounted file".to_string()).unwrap();
+
+        store.save_mounts().unwrap();
+        store.collapse_mount(&mount_id).unwrap();
+        let reloaded_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
+        let reloaded_root = reloaded_roots[0];
+        let has_new_sibling = store
+            .children(&reloaded_root)
+            .iter()
+            .any(|id| store.point(id) == Some("sibling created in mounted file".to_string()));
+        assert!(has_new_sibling);
+    }
+
+    #[test]
+    fn mount_save_persists_duplicated_subtree_under_mounted_subtree() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_sub_store(tmp.path(), "sub.json");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+
+        let roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
+        let root = roots[0];
+        let first_child = store.children(&root)[0];
+        let duplicated = store.duplicate_subtree_after(&first_child).unwrap();
+        store.update_point(&duplicated, "duplicated mounted node".to_string());
+
+        store.save_mounts().unwrap();
+        store.collapse_mount(&mount_id).unwrap();
+        let reloaded_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
+        let reloaded_root = reloaded_roots[0];
+        let has_duplicate = store
+            .children(&reloaded_root)
+            .iter()
+            .any(|id| store.point(id) == Some("duplicated mounted node".to_string()));
+        assert!(has_duplicate);
+    }
+
+    #[test]
+    fn collapse_mount_discards_unsaved_new_descendants() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_sub_store(tmp.path(), "sub.json");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("sub.json")));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+
+        let roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
+        let root = roots[0];
+        let transient = store.append_child(&root, "transient unsaved child".to_string()).unwrap();
+
+        store.collapse_mount(&mount_id).unwrap();
+        assert!(store.node(&transient).is_none());
+        assert!(store.mount_table.origin(transient).is_none());
+
+        let reloaded_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
+        let reloaded_root = reloaded_roots[0];
+        let still_has_transient = store
+            .children(&reloaded_root)
+            .iter()
+            .any(|id| store.point(id) == Some("transient unsaved child".to_string()));
+        assert!(!still_has_transient);
+    }
+
+    #[test]
+    fn nested_mount_save_persists_new_descendants_in_inner_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let nested_dir = tmp.path().join("nested");
+        fs::create_dir_all(&nested_dir).unwrap();
+
+        let (inner_store, _, _, _) = simple_store();
+        write_store(&nested_dir, "inner.json", &inner_store);
+
+        let mut outer_nodes = SlotMap::with_key();
+        let mut outer_points = SecondaryMap::new();
+        let inner_mount =
+            outer_nodes.insert(BlockNode::with_path(std::path::PathBuf::from("inner.json")));
+        outer_points.insert(inner_mount, String::new());
+        let outer_root = outer_nodes.insert(BlockNode::with_children(vec![inner_mount]));
+        outer_points.insert(outer_root, "outer root".to_string());
+        let outer_store = BlockStore::new(vec![outer_root], outer_nodes, outer_points);
+        write_store(&nested_dir, "outer.json", &outer_store);
+
+        let mut main_nodes = SlotMap::with_key();
+        let mut main_points = SecondaryMap::new();
+        let outer_mount =
+            main_nodes.insert(BlockNode::with_path(std::path::PathBuf::from("nested/outer.json")));
+        main_points.insert(outer_mount, String::new());
+        let mut store = BlockStore::new(vec![outer_mount], main_nodes, main_points);
+
+        let outer_children = store.expand_mount(&outer_mount, tmp.path()).unwrap();
+        let rekeyed_outer_root = outer_children[0];
+        let nested_mount = *store
+            .children(&rekeyed_outer_root)
+            .iter()
+            .find(|id| store.node(id).unwrap().mount_path().is_some())
+            .unwrap();
+        let inner_children = store.expand_mount(&nested_mount, tmp.path()).unwrap();
+        let inner_root = inner_children[0];
+        let added = store.append_child(&inner_root, "new inner child".to_string()).unwrap();
+        store.append_child(&added, "new inner grandchild".to_string()).unwrap();
+
+        store.save_mounts().unwrap();
+        store.collapse_mount(&outer_mount).unwrap();
+
+        let reloaded_outer_children = store.expand_mount(&outer_mount, tmp.path()).unwrap();
+        let reloaded_outer_root = reloaded_outer_children[0];
+        let reloaded_nested_mount = *store
+            .children(&reloaded_outer_root)
+            .iter()
+            .find(|id| store.node(id).unwrap().mount_path().is_some())
+            .unwrap();
+        let reloaded_inner_children =
+            store.expand_mount(&reloaded_nested_mount, tmp.path()).unwrap();
+        let reloaded_inner_root = reloaded_inner_children[0];
+        let reloaded_added = *store
+            .children(&reloaded_inner_root)
+            .iter()
+            .find(|id| store.point(id) == Some("new inner child".to_string()))
+            .unwrap();
+        let reloaded_grandchild = store.children(&reloaded_added)[0];
+        assert_eq!(store.point(&reloaded_grandchild), Some("new inner grandchild".to_string()));
+    }
+
+    #[test]
     fn snapshot_excludes_new_nodes_under_expanded_mount() {
         let tmp = tempfile::tempdir().unwrap();
         write_sub_store(tmp.path(), "sub.json");

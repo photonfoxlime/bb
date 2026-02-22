@@ -39,3 +39,4 @@ For current architecture, see [architecture.md](architecture.md).
 - ~~Expand draft state transition tests.~~ Done (expand/reduce transition coverage in app update tests, including stale/cancel/apply/reject paths).
 - Serialization round-trip tests.
 - ~~Save/load integration tests with malformed data.~~ Done (malformed JSON now returns a strict parse error; dangling-child graph still loads and is normalized in save snapshot).
+- ~~Mounted persistence regressions (new descendants, siblings, duplicates, nested save-back).~~ Done (store tests now cover low-to-complex mounted persistence regressions, including previously buggy deep-node and nested save paths).
