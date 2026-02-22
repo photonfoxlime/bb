@@ -282,6 +282,10 @@ impl Lineage {
     fn iter(&self) -> impl Iterator<Item = &LineageItem> {
         self.items.iter()
     }
+
+    pub fn points(&self) -> impl Iterator<Item = &str> {
+        self.items.iter().map(LineageItem::point)
+    }
 }
 
 /// One element in a [`Lineage`] chain: wraps a block's point text.

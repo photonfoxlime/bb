@@ -1,5 +1,8 @@
 //! Async operation state types for the application layer.
 
+use crate::llm;
+use std::hash::{Hash, Hasher};
+
 /// Type-erased error wrapper for display in the UI.
 ///
 /// Wraps any error message as a string so the view layer does not depend
@@ -72,6 +75,37 @@ impl Default for ExpandState {
     }
 }
 
+/// Captured request-context fingerprint for async expand/reduce.
+///
+/// Built from full lineage (root-to-target points). Responses are applied only
+/// when the current lineage fingerprint matches this value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RequestSignature {
+    hash: u64,
+    item_count: usize,
+}
+
+impl RequestSignature {
+    pub(crate) fn from_lineage(lineage: &llm::Lineage) -> Option<Self> {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut item_count = 0usize;
+        for point in lineage.points() {
+            Self::text_signature(point).hash(&mut hasher);
+            item_count += 1;
+        }
+        if item_count == 0 {
+            return None;
+        }
+        Some(Self { hash: hasher.finish(), item_count })
+    }
+
+    fn text_signature(text: &str) -> u64 {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        text.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -124,5 +158,19 @@ mod tests {
     #[test]
     fn expand_state_default_is_idle() {
         assert_eq!(ExpandState::default(), ExpandState::Idle);
+    }
+
+    #[test]
+    fn request_signature_from_empty_lineage_is_none() {
+        let lineage = llm::Lineage::from_points(vec![]);
+        assert!(RequestSignature::from_lineage(&lineage).is_none());
+    }
+
+    #[test]
+    fn request_signature_changes_when_lineage_changes() {
+        let first = llm::Lineage::from_points(vec!["root".to_string(), "child".to_string()]);
+        let second =
+            llm::Lineage::from_points(vec!["root changed".to_string(), "child".to_string()]);
+        assert_ne!(RequestSignature::from_lineage(&first), RequestSignature::from_lineage(&second));
     }
 }

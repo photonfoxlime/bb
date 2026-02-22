@@ -18,7 +18,7 @@ mod view;
 
 use draft::{ExpansionDraft, ReductionDraft};
 use editor_store::EditorStore;
-use state::{AppError, ExpandState, ReduceState, UiError};
+use state::{AppError, ExpandState, ReduceState, RequestSignature, UiError};
 
 use action_bar::{
     ActionAvailability, ActionId, RowContext, ViewportBucket, action_to_message_by_id,
@@ -56,6 +56,8 @@ pub struct AppState {
     error: Option<AppError>,
     reduce_states: SecondaryMap<BlockId, ReduceState>,
     expand_states: SecondaryMap<BlockId, ExpandState>,
+    pending_reduce_signatures: SecondaryMap<BlockId, RequestSignature>,
+    pending_expand_signatures: SecondaryMap<BlockId, RequestSignature>,
     expansion_drafts: SecondaryMap<BlockId, ExpansionDraft>,
     reduction_drafts: SecondaryMap<BlockId, ReductionDraft>,
     editors: EditorStore,
@@ -100,6 +102,8 @@ impl AppState {
             error,
             reduce_states: SecondaryMap::new(),
             expand_states: SecondaryMap::new(),
+            pending_reduce_signatures: SecondaryMap::new(),
+            pending_expand_signatures: SecondaryMap::new(),
             expansion_drafts,
             reduction_drafts,
             editors,
@@ -167,12 +171,24 @@ impl AppState {
         self.reduction_drafts = snapshot.reduction_drafts;
         self.reduce_states.clear();
         self.expand_states.clear();
+        self.pending_reduce_signatures.clear();
+        self.pending_expand_signatures.clear();
         self.focused_block_id = None;
         self.editing_block_id = None;
         self.active_block_id = self.store.roots().first().copied();
         if let Err(err) = self.save_tree() {
             tracing::error!(%err, "failed to save tree after undo/redo");
         }
+    }
+
+    fn lineage_signature(&self, block_id: &BlockId) -> Option<RequestSignature> {
+        let lineage = self.store.lineage_points_for_id(block_id);
+        RequestSignature::from_lineage(&lineage)
+    }
+
+    fn is_stale_response(&self, block_id: &BlockId, request_signature: RequestSignature) -> bool {
+        self.lineage_signature(block_id)
+            .is_none_or(|current_signature| current_signature != request_signature)
     }
 }
 
@@ -194,11 +210,11 @@ pub enum Message {
     Shortcut(ActionId),
     ShortcutFor(BlockId, ActionId),
     Reduce(BlockId),
-    ReduceDone(BlockId, Result<String, UiError>),
+    ReduceDone(BlockId, RequestSignature, Result<String, UiError>),
     ApplyReduction(BlockId),
     RejectReduction(BlockId),
     Expand(BlockId),
-    ExpandDone(BlockId, Result<llm::ExpandResult, UiError>),
+    ExpandDone(BlockId, RequestSignature, Result<llm::ExpandResult, UiError>),
     ApplyExpandedRewrite(BlockId),
     RejectExpandedRewrite(BlockId),
     AcceptExpandedChild(BlockId, usize),
@@ -344,17 +360,35 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
                 }
             };
             tracing::info!(block_id = ?block_id, "reduce request started");
+            let Some(request_signature) = RequestSignature::from_lineage(&lineage) else {
+                return Task::none();
+            };
             state.reduce_states.insert(block_id, ReduceState::Loading);
+            state.pending_reduce_signatures.insert(block_id, request_signature);
             Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
                     client.reduce_lineage(&lineage).await.map_err(UiError::from_message)
                 },
-                move |result| Message::ReduceDone(block_id, result),
+                move |result| Message::ReduceDone(block_id, request_signature, result),
             )
         }
-        | Message::ReduceDone(block_id, result) => {
+        | Message::ReduceDone(block_id, request_signature, result) => {
             state.reduce_states.remove(block_id);
+            if state.store.node(&block_id).is_none() {
+                state.pending_reduce_signatures.remove(block_id);
+                return Task::none();
+            }
+            let pending_signature = state.pending_reduce_signatures.remove(block_id);
+            if pending_signature != Some(request_signature)
+                || state.is_stale_response(&block_id, request_signature)
+            {
+                tracing::info!(
+                    block_id = ?block_id,
+                    "discarded stale reduce response after point changed"
+                );
+                return Task::none();
+            }
             match result {
                 | Ok(reduction) => {
                     tracing::info!(block_id = ?block_id, chars = reduction.len(), "reduce request succeeded");
@@ -419,17 +453,35 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             };
 
             tracing::info!(block_id = ?block_id, "expand request started");
+            let Some(request_signature) = RequestSignature::from_lineage(&lineage) else {
+                return Task::none();
+            };
             state.expand_states.insert(block_id, ExpandState::Loading);
+            state.pending_expand_signatures.insert(block_id, request_signature);
             Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
                     client.expand_lineage(&lineage).await.map_err(UiError::from_message)
                 },
-                move |result| Message::ExpandDone(block_id, result),
+                move |result| Message::ExpandDone(block_id, request_signature, result),
             )
         }
-        | Message::ExpandDone(block_id, result) => {
+        | Message::ExpandDone(block_id, request_signature, result) => {
             state.expand_states.remove(block_id);
+            if state.store.node(&block_id).is_none() {
+                state.pending_expand_signatures.remove(block_id);
+                return Task::none();
+            }
+            let pending_signature = state.pending_expand_signatures.remove(block_id);
+            if pending_signature != Some(request_signature)
+                || state.is_stale_response(&block_id, request_signature)
+            {
+                tracing::info!(
+                    block_id = ?block_id,
+                    "discarded stale expand response after point changed"
+                );
+                return Task::none();
+            }
             match result {
                 | Ok(raw_result) => {
                     let draft = ExpansionDraft::from_expand_result(raw_result);
@@ -654,6 +706,12 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             if let Some(removed_ids) = state.store.remove_block_subtree(&block_id) {
                 tracing::info!(block_id = ?block_id, removed = removed_ids.len(), "archived block subtree");
                 state.editors.remove_blocks(&removed_ids);
+                for id in &removed_ids {
+                    state.pending_reduce_signatures.remove(*id);
+                    state.pending_expand_signatures.remove(*id);
+                    state.reduce_states.remove(*id);
+                    state.expand_states.remove(*id);
+                }
                 if removed_ids.iter().any(|id| Some(*id) == state.focused_block_id) {
                     state.focused_block_id = None;
                 }
@@ -810,6 +868,67 @@ pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
             }
             Task::none()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppState;
+    use crate::llm;
+    use crate::store::BlockStore;
+    use crate::undo::UndoHistory;
+    use slotmap::SecondaryMap;
+    use std::collections::HashSet;
+
+    fn test_state() -> (AppState, crate::store::BlockId) {
+        let store = BlockStore::default();
+        let root = *store.roots().first().expect("default store has a root");
+        let state = AppState {
+            editors: super::EditorStore::from_store(&store),
+            store,
+            undo_history: UndoHistory::with_capacity(64),
+            llm_config: Ok(llm::LlmConfig::default()),
+            error: None,
+            reduce_states: SecondaryMap::new(),
+            expand_states: SecondaryMap::new(),
+            pending_reduce_signatures: SecondaryMap::new(),
+            pending_expand_signatures: SecondaryMap::new(),
+            expansion_drafts: SecondaryMap::new(),
+            reduction_drafts: SecondaryMap::new(),
+            overflow_open_for: None,
+            active_block_id: None,
+            focused_block_id: None,
+            editing_block_id: None,
+            collapsed: HashSet::new(),
+            is_dark: false,
+        };
+        (state, root)
+    }
+
+    #[test]
+    fn response_is_stale_after_point_change() {
+        let (mut state, root) = test_state();
+        let request_signature = state.lineage_signature(&root).expect("root has lineage");
+        state.store.update_point(&root, "changed".to_string());
+        assert!(state.is_stale_response(&root, request_signature));
+    }
+
+    #[test]
+    fn response_is_not_stale_without_point_change() {
+        let (state, root) = test_state();
+        let request_signature = state.lineage_signature(&root).expect("root has lineage");
+        assert!(!state.is_stale_response(&root, request_signature));
+    }
+
+    #[test]
+    fn request_signature_changes_when_lineage_changes() {
+        let (mut state, root) = test_state();
+        let child =
+            state.store.append_child(&root, "child".to_string()).expect("append child succeeds");
+        let before = state.lineage_signature(&child).expect("child has lineage");
+        state.store.update_point(&root, "root changed".to_string());
+        let after = state.lineage_signature(&child).expect("child has lineage");
+        assert_ne!(before, after);
     }
 }
 
