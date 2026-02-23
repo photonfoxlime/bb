@@ -499,6 +499,32 @@ impl BlockStore {
         Some(child_id)
     }
 
+    /// Wrap a block with a new parent inserted at the block's current position.
+    ///
+    /// Preserves sibling/root ordering by replacing the original slot with the
+    /// new parent and attaching the target block as its first child.
+    pub fn insert_parent(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
+        let (parent_id, index) = self.parent_and_index_of(block_id)?;
+
+        let parent_block_id = self.nodes.insert(BlockNode::with_children(vec![*block_id]));
+        self.points.insert(parent_block_id, point);
+
+        if let Some(mount_point) = self.inherited_mount_point_for_anchor(block_id) {
+            self.mount_table.set_origin(parent_block_id, BlockOrigin::Mounted { mount_point });
+        }
+
+        if let Some(parent_id) = parent_id {
+            let parent = self.nodes.get_mut(parent_id)?;
+            if let Some(children) = parent.children_mut() {
+                children[index] = parent_block_id;
+            }
+        } else {
+            self.roots[index] = parent_block_id;
+        }
+
+        Some(parent_block_id)
+    }
+
     /// Insert a sibling block immediately after `block_id` in its parent's
     /// child list (or in roots if `block_id` is a root). Returns the new id.
     pub fn append_sibling(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
@@ -1639,6 +1665,37 @@ mod tests {
         let (mut store, _, _, _) = simple_store();
         let unknown = BlockId::default();
         assert_eq!(store.append_sibling(&unknown, "x".to_string()), None);
+    }
+
+    #[test]
+    fn insert_parent_wraps_non_root_block() {
+        let (mut store, root, child_a, child_b) = simple_store();
+
+        let inserted = store.insert_parent(&child_a, "new_parent".to_string()).unwrap();
+
+        assert_eq!(store.point(&inserted), Some("new_parent".to_string()));
+        let root_node = store.node(&root).unwrap();
+        assert_eq!(root_node.children(), &[inserted, child_b]);
+        let inserted_node = store.node(&inserted).unwrap();
+        assert_eq!(inserted_node.children(), &[child_a]);
+    }
+
+    #[test]
+    fn insert_parent_wraps_root_block() {
+        let (mut store, root, _child_a, _child_b) = simple_store();
+
+        let inserted = store.insert_parent(&root, "new_root_parent".to_string()).unwrap();
+
+        assert_eq!(store.roots(), &[inserted]);
+        let inserted_node = store.node(&inserted).unwrap();
+        assert_eq!(inserted_node.children(), &[root]);
+    }
+
+    #[test]
+    fn insert_parent_returns_none_for_unknown_block() {
+        let (mut store, _, _, _) = simple_store();
+        let unknown = BlockId::default();
+        assert_eq!(store.insert_parent(&unknown, "x".to_string()), None);
     }
 
     // -- duplicate_subtree_after --

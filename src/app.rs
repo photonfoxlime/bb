@@ -434,6 +434,7 @@ pub enum ExpandMessage {
 #[derive(Debug, Clone)]
 pub enum StructureMessage {
     AddChild(BlockId),
+    AddParent(BlockId),
     AddSibling(BlockId),
     DuplicateBlock(BlockId),
     ArchiveBlock(BlockId),
@@ -1077,6 +1078,22 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
                 if let Some(child_id) = state.store.append_child(&block_id, String::new()) {
                     tracing::info!(parent_block_id = ?block_id, child_block_id = ?child_id, "added child block");
                     state.editor_buffers.set_text(&child_id, "");
+                    return true;
+                }
+                false
+            });
+            Task::none()
+        }
+        | StructureMessage::AddParent(block_id) => {
+            state.mutate_with_undo_and_persist("after adding parent", |state| {
+                if let Some(parent_id) = state.store.insert_parent(&block_id, String::new()) {
+                    tracing::info!(
+                        block_id = ?block_id,
+                        parent_block_id = ?parent_id,
+                        "added parent block"
+                    );
+                    state.editor_buffers.set_text(&parent_id, "");
+                    state.overflow_open_for = None;
                     return true;
                 }
                 false

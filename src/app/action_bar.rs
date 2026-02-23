@@ -15,6 +15,7 @@ pub enum ActionId {
     Reduce,
     Cancel,
     AddChild,
+    AddParent,
     AcceptAll,
     Retry,
     DismissDraft,
@@ -277,6 +278,12 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
         ActionPriority::OverflowOnly,
     ));
     vm.overflow.push(ActionDescriptor::new(
+        ActionId::AddParent,
+        "Add parent",
+        ActionAvailability::Enabled,
+        ActionPriority::OverflowOnly,
+    ));
+    vm.overflow.push(ActionDescriptor::new(
         ActionId::DuplicateBlock,
         "Duplicate",
         ActionAvailability::Enabled,
@@ -417,6 +424,7 @@ pub fn action_to_message_by_id(
         | ActionId::Expand => Some(Message::Expand(ExpandMessage::Start(*block_id))),
         | ActionId::Reduce => Some(Message::Reduce(ReduceMessage::Start(*block_id))),
         | ActionId::AddChild => Some(Message::Structure(StructureMessage::AddChild(*block_id))),
+        | ActionId::AddParent => Some(Message::Structure(StructureMessage::AddParent(*block_id))),
         | ActionId::AcceptAll => Some(Message::Expand(ExpandMessage::AcceptAllChildren(*block_id))),
         | ActionId::Cancel => cancel_message_for_block(state, block_id),
         | ActionId::Retry => retry_message_for_block(state, block_id),
@@ -658,6 +666,13 @@ mod tests {
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::Expand));
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::Reduce));
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::AddChild));
+        assert!(projected.overflow.iter().any(|action| action.id == ActionId::AddParent));
+    }
+
+    #[test]
+    fn overflow_includes_add_parent_action() {
+        let vm = build_action_bar_vm(&row_context());
+        assert!(vm.overflow.iter().any(|action| action.id == ActionId::AddParent));
     }
 
     #[test]

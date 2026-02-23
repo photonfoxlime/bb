@@ -35,6 +35,7 @@ fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
         | ActionId::Reduce => icons::icon_minimize_2(),
         | ActionId::Cancel => icons::icon_circle_x(),
         | ActionId::AddChild => icons::icon_corner_down_right(),
+        | ActionId::AddParent => icons::icon_arrow_up(),
         | ActionId::AcceptAll => icons::icon_check_check(),
         | ActionId::Retry => icons::icon_refresh_cw(),
         | ActionId::DismissDraft => icons::icon_x(),
