@@ -1182,26 +1182,22 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
                 state.mutate_with_undo_and_persist("after save-to-file", |state| {
                     match state.store.save_subtree_to_file(&block_id, &path, &base_dir) {
                         | Ok(()) => {
-                            tracing::info!(block_id = ?block_id, path = %path.display(), "saved subtree to file");
                             let mount_format = state
                                 .store
                                 .node(&block_id)
                                 .and_then(|node| node.mount_format())
                                 .unwrap_or(MountFormat::Json);
-                            if mount_format == MountFormat::Json {
-                                match state.store.expand_mount(&block_id, &base_dir) {
-                                    | Ok(new_roots) => {
-                                        for &id in &new_roots {
-                                            state.editor_buffers.ensure_subtree(&state.store, &id);
-                                        }
-                                    }
-                                    | Err(err) => {
-                                        tracing::error!(block_id = ?block_id, %err, "failed to re-expand after save-to-file");
-                                        state.record_error(AppError::Mount(UiError::from_message(&err)));
+                            tracing::info!(block_id = ?block_id, path = %path.display(), ?mount_format, "saved subtree to file");
+                            match state.store.expand_mount(&block_id, &base_dir) {
+                                | Ok(new_roots) => {
+                                    for &id in &new_roots {
+                                        state.editor_buffers.ensure_subtree(&state.store, &id);
                                     }
                                 }
-                            } else {
-                                state.editor_buffers = EditorBuffers::from_store(&state.store);
+                                | Err(err) => {
+                                    tracing::error!(block_id = ?block_id, %err, "failed to re-expand after save-to-file");
+                                    state.record_error(AppError::Mount(UiError::from_message(&err)));
+                                }
                             }
                             true
                         }
@@ -1223,6 +1219,7 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
                     let dialog = rfd::AsyncFileDialog::new()
                         .set_title("Load block from file")
                         .add_filter("JSON", &["json"])
+                        .add_filter("Markdown", &["md", "markdown"])
                         .pick_file()
                         .await;
                     dialog.map(|handle| handle.path().to_path_buf())
@@ -1240,7 +1237,22 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
                         .strip_prefix(&base_dir)
                         .map(|p| p.to_path_buf())
                         .unwrap_or_else(|_| path.clone());
-                    if state.store.set_mount_path(&block_id, rel_path).is_none() {
+                    let mount_format = match path
+                        .extension()
+                        .and_then(std::ffi::OsStr::to_str)
+                        .map(str::to_ascii_lowercase)
+                        .as_deref()
+                    {
+                        | Some("md") | Some("markdown") => MountFormat::Markdown,
+                        | _ => MountFormat::Json,
+                    };
+                    let mounted = match mount_format {
+                        | MountFormat::Json => state.store.set_mount_path(&block_id, rel_path),
+                        | MountFormat::Markdown => {
+                            state.store.set_mount_path_with_format(&block_id, rel_path, mount_format)
+                        }
+                    };
+                    if mounted.is_none() {
                         tracing::error!(block_id = ?block_id, "block has children or does not exist; cannot load");
                         return false;
                     }

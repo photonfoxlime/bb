@@ -21,8 +21,8 @@ pub enum MountError {
     Read { path: PathBuf, source: std::io::Error },
     #[error("failed to parse mount file {path}: {source}")]
     Parse { path: PathBuf, source: serde_json::Error },
-    #[error("mount file format {format:?} is not readable yet for {path}")]
-    UnsupportedFormat { path: PathBuf, format: MountFormat },
+    #[error("failed to parse markdown mount file {path}: {reason}")]
+    MarkdownParse { path: PathBuf, reason: String },
 }
 
 /// Identifies which file owns a block.

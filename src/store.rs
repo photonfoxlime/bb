@@ -100,9 +100,6 @@ pub enum MountFormat {
     /// Canonical store JSON encoding used for full-fidelity mount round-trips.
     Json,
     /// Markdown Mount v1 encoding produced by [`BlockStore::render_markdown_mount_store`].
-    ///
-    /// This format is currently write-only in the runtime: mount expansion for
-    /// markdown returns `MountError::UnsupportedFormat` until the parser lands.
     Markdown,
 }
 
@@ -638,9 +635,8 @@ impl BlockStore {
         let sub_store: BlockStore = match format {
             | MountFormat::Json => serde_json::from_str(&contents)
                 .map_err(|e| MountError::Parse { path: resolved.clone(), source: e })?,
-            | MountFormat::Markdown => {
-                return Err(MountError::UnsupportedFormat { path: resolved.clone(), format });
-            }
+            | MountFormat::Markdown => Self::parse_markdown_mount_store(&contents)
+                .map_err(|reason| MountError::MarkdownParse { path: resolved.clone(), reason })?,
         };
 
         let (new_roots, all_new_ids) = self.rekey_sub_store(&sub_store, mount_point);
@@ -980,6 +976,100 @@ impl BlockStore {
         output
     }
 
+    /// Parse Markdown Mount v1 into a projected mount store.
+    ///
+    /// The parser accepts exactly the markdown structure emitted by
+    /// [`Self::render_markdown_mount_store`]: preamble line + two-space nested
+    /// bullet list with quoted and escaped point text.
+    fn parse_markdown_mount_store(markdown: &str) -> Result<BlockStore, String> {
+        let mut nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
+        let mut points: SecondaryMap<BlockId, String> = SecondaryMap::new();
+        let mut roots: Vec<BlockId> = Vec::new();
+        let mut path_by_depth: Vec<BlockId> = Vec::new();
+
+        let mut saw_preamble = false;
+        let mut saw_item = false;
+
+        for (line_index, raw_line) in markdown.lines().enumerate() {
+            let line_no = line_index + 1;
+            let line = raw_line.trim_end();
+            if line.trim().is_empty() {
+                continue;
+            }
+            if !saw_preamble {
+                if line == "<!-- bb-mount format=markdown v1 -->" {
+                    saw_preamble = true;
+                    continue;
+                }
+                return Err(format!(
+                    "line {}: missing markdown mount preamble '<!-- bb-mount format=markdown v1 -->'",
+                    line_no
+                ));
+            }
+
+            let depth_spaces = raw_line.chars().take_while(|ch| *ch == ' ').count();
+            if depth_spaces % 2 != 0 {
+                return Err(format!(
+                    "line {}: indentation must be multiples of two spaces",
+                    line_no
+                ));
+            }
+            let depth = depth_spaces / 2;
+            let trimmed = &raw_line[depth_spaces..];
+
+            if !trimmed.starts_with("- \"") || !trimmed.ends_with('"') {
+                return Err(format!("line {}: expected '- \"...\"' markdown list item", line_no));
+            }
+
+            let quoted_content = &trimmed[3..trimmed.len() - 1];
+            let point = Self::unescape_markdown_point(quoted_content)
+                .map_err(|reason| format!("line {}: {}", line_no, reason))?;
+
+            if depth > path_by_depth.len() {
+                return Err(format!(
+                    "line {}: indentation depth jumps more than one level",
+                    line_no
+                ));
+            }
+            path_by_depth.truncate(depth);
+
+            let id = nodes.insert(BlockNode::with_children(vec![]));
+            points.insert(id, point);
+            saw_item = true;
+
+            if depth == 0 {
+                roots.push(id);
+            } else {
+                let Some(parent_id) = path_by_depth.get(depth - 1).copied() else {
+                    return Err(format!(
+                        "line {}: missing parent block at depth {}",
+                        line_no,
+                        depth - 1
+                    ));
+                };
+                let Some(parent) = nodes.get_mut(parent_id) else {
+                    return Err(format!("line {}: parent block does not exist", line_no));
+                };
+                let Some(children) = parent.children_mut() else {
+                    return Err(format!("line {}: parent block is not a children node", line_no));
+                };
+                children.push(id);
+            }
+
+            path_by_depth.push(id);
+        }
+
+        if !saw_preamble {
+            return Err("missing markdown mount preamble '<!-- bb-mount format=markdown v1 -->'"
+                .to_string());
+        }
+        if !saw_item {
+            return Err("markdown mount file contains no block items".to_string());
+        }
+
+        Ok(BlockStore::new(roots, nodes, points))
+    }
+
     /// Emit one block as a markdown list item, then recurse into children.
     fn render_markdown_node(store: &BlockStore, id: BlockId, depth: usize, out: &mut String) {
         let indent = "  ".repeat(depth);
@@ -1010,6 +1100,36 @@ impl BlockStore {
             }
         }
         escaped
+    }
+
+    /// Unescape point text parsed from markdown quoted scalars.
+    ///
+    /// Supports the exact escapes emitted by [`Self::escape_markdown_point`].
+    fn unescape_markdown_point(point: &str) -> Result<String, String> {
+        let mut chars = point.chars();
+        let mut out = String::with_capacity(point.len());
+
+        while let Some(ch) = chars.next() {
+            if ch != '\\' {
+                out.push(ch);
+                continue;
+            }
+            let Some(next) = chars.next() else {
+                return Err("trailing backslash in escaped point".to_string());
+            };
+            match next {
+                | '\\' => out.push('\\'),
+                | '"' => out.push('"'),
+                | 'n' => out.push('\n'),
+                | 'r' => out.push('\r'),
+                | 't' => out.push('\t'),
+                | other => {
+                    return Err(format!("unsupported escape sequence \\{}", other));
+                }
+            }
+        }
+
+        Ok(out)
     }
 
     fn mount_origin_path(&self, block_id: &BlockId) -> Option<&Path> {
@@ -1640,6 +1760,16 @@ mod tests {
         (path, sub)
     }
 
+    fn write_markdown_sub_store(
+        dir: &std::path::Path, filename: &str,
+    ) -> (std::path::PathBuf, BlockStore) {
+        let sub = simple_store().0;
+        let path = dir.join(filename);
+        let markdown = BlockStore::render_markdown_mount_store(&sub);
+        fs::write(&path, markdown).unwrap();
+        (path, sub)
+    }
+
     #[test]
     fn expand_mount_loads_and_rekeys() {
         let tmp = tempfile::tempdir().unwrap();
@@ -1679,6 +1809,43 @@ mod tests {
         let new_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
         let root_point = store.point(&new_roots[0]);
         assert_eq!(root_point, Some("root".to_string()));
+    }
+
+    #[test]
+    fn expand_markdown_mount_loads_and_rekeys() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (_, sub) = write_markdown_sub_store(tmp.path(), "sub.md");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path_and_format(
+            std::path::PathBuf::from("sub.md"),
+            MountFormat::Markdown,
+        ));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+
+        let new_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
+        assert_eq!(new_roots.len(), sub.roots().len());
+        assert_eq!(store.point(&new_roots[0]), Some("root".to_string()));
+    }
+
+    #[test]
+    fn expand_markdown_mount_errors_on_invalid_text() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("sub.md"), "- \"missing preamble\"\n").unwrap();
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path_and_format(
+            std::path::PathBuf::from("sub.md"),
+            MountFormat::Markdown,
+        ));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+
+        let result = store.expand_mount(&mount_id, tmp.path());
+        assert!(matches!(result, Err(MountError::MarkdownParse { .. })));
     }
 
     #[test]
