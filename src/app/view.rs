@@ -12,8 +12,8 @@ use super::action_bar::{
 };
 use super::diff::{WordChange, word_diff};
 use super::{
-    AppState, EditMessage, ExpandMessage, ExpandState, Message, MountFileMessage, OverlayMessage,
-    ReduceMessage, ReduceState, ShortcutMessage, StructureMessage,
+    AppState, EditMessage, ExpandMessage, Message, MountFileMessage, OverlayMessage, ReduceMessage,
+    ShortcutMessage, StructureMessage,
 };
 use crate::store::BlockId;
 use crate::store::{ExpansionDraftRecord, ReductionDraftRecord};
@@ -349,18 +349,10 @@ impl<'a> TreeView<'a> {
             point_text,
             has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
             draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0),
-            has_expand_error: self
-                .state
-                .expand_states
-                .get(*block_id)
-                .is_some_and(|s| matches!(s, ExpandState::Error { .. })),
-            has_reduce_error: self
-                .state
-                .reduce_states
-                .get(*block_id)
-                .is_some_and(|s| matches!(s, ReduceState::Error { .. })),
-            is_expanding: self.state.is_expanding(block_id),
-            is_reducing: self.state.is_reducing(block_id),
+            has_expand_error: self.state.llms.has_expand_error(*block_id),
+            has_reduce_error: self.state.llms.has_reduce_error(*block_id),
+            is_expanding: self.state.llms.is_expanding(*block_id),
+            is_reducing: self.state.llms.is_reducing(*block_id),
             is_mounted: self.state.store.mount_table().entry(*block_id).is_some(),
             is_unexpanded_mount: node.is_some_and(|n| n.mount_path().is_some()),
             has_children: !self.state.store.children(block_id).is_empty(),

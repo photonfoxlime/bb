@@ -3,10 +3,7 @@
 //! Keep module docs broad; pipeline and interaction semantics are documented on
 //! owning VM types and builder/projection functions below.
 
-use super::{
-    AppState, ExpandMessage, ExpandState, Message, MountFileMessage, ReduceMessage, ReduceState,
-    StructureMessage,
-};
+use super::{AppState, ExpandMessage, Message, MountFileMessage, ReduceMessage, StructureMessage};
 use crate::store::BlockId;
 use iced::keyboard::{Key, Modifiers, key::Named};
 
@@ -454,20 +451,20 @@ pub fn action_to_message_by_id(
 }
 
 fn cancel_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
-    if state.expand_states.get(*block_id).is_some_and(|s| matches!(s, ExpandState::Loading)) {
+    if state.llms.is_expanding(*block_id) {
         return Some(Message::Expand(ExpandMessage::Cancel(*block_id)));
     }
-    if state.reduce_states.get(*block_id).is_some_and(|s| matches!(s, ReduceState::Loading)) {
+    if state.llms.is_reducing(*block_id) {
         return Some(Message::Reduce(ReduceMessage::Cancel(*block_id)));
     }
     None
 }
 
 fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
-    if state.expand_states.get(*block_id).is_some_and(|s| matches!(s, ExpandState::Error { .. })) {
+    if state.llms.has_expand_error(*block_id) {
         return Some(Message::Expand(ExpandMessage::Start(*block_id)));
     }
-    if state.reduce_states.get(*block_id).is_some_and(|s| matches!(s, ReduceState::Error { .. })) {
+    if state.llms.has_reduce_error(*block_id) {
         return Some(Message::Reduce(ReduceMessage::Start(*block_id)));
     }
     None
