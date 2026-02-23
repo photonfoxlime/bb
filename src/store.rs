@@ -3,6 +3,36 @@
 //! A document is a forest of blocks. Each block has a slotmap identity, a text
 //! point, and ordered children. Persistence and mount invariants are documented
 //! on the owning save/expand/collapse functions below.
+//!
+//! # Adding per-block persistent data
+//!
+//! The store uses [`SparseSecondaryMap<BlockId, T>`] for optional per-block
+//! metadata that must survive save/load cycles. Existing examples:
+//! `expansion_drafts`, `reduction_drafts`, and `view_collapsed`.
+//!
+//! Checklist for a new field:
+//!
+//! 1. **Declare** the field on [`BlockStore`] with `#[serde(default)]`.
+//!    Use `bool` rather than `()` as the value type for set-like maps;
+//!    `SparseSecondaryMap<_, ()>` fails to round-trip through serde.
+//! 2. **Thread** through [`BlockStore::new_with_drafts`] (the internal
+//!    constructor used by `new` and all projection paths).
+//! 3. **Accessor methods** -- at minimum a read accessor and a mutating
+//!    method. See `is_collapsed` / `toggle_collapsed` for the set-like
+//!    pattern.
+//! 4. **Remap in [`BlockStore::build_projected_store`]** -- iterate the old
+//!    map, translate keys through `id_map`, insert into the new sub-map,
+//!    and pass it to `new_with_drafts`.
+//! 5. **Import in [`BlockStore::rekey_sub_store`]** -- same key translation
+//!    but inserting into `self` rather than a fresh store.
+//! 6. **Clean up on removal** -- add `.remove(id)` calls in:
+//!    - [`BlockStore::remove_block_subtree`]
+//!    - [`BlockStore::collapse_mount`] (two sites: own ids and nested mount ids)
+//!    - [`BlockStore::save_subtree_to_file`] (two sites: nested mount cleanup
+//!      and own-ids cleanup)
+//! 7. **Update [`PartialEq`]** -- add a length + element comparison clause.
+//! 8. **Tests** -- at minimum: serde round-trip, backward-compat (missing key
+//!    defaults to empty), and cleanup-on-removal.
 
 use crate::llm;
 use crate::mount::{BlockOrigin, MountEntry, MountError, MountTable};
@@ -137,6 +167,13 @@ pub struct BlockStore {
     /// Sparse by design: only blocks with pending reduction drafts are stored.
     #[serde(default)]
     reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord>,
+    /// Persisted per-block fold (collapse) state.
+    ///
+    /// Presence of a key means the block's children are hidden in the UI.
+    /// Stored in the authoritative graph so fold state survives reloads,
+    /// participates in undo/redo snapshots, and follows save/load id remapping.
+    #[serde(default)]
+    view_collapsed: SparseSecondaryMap<BlockId, bool>,
 }
 
 impl BlockStore {
@@ -154,6 +191,7 @@ impl BlockStore {
             points,
             SparseSecondaryMap::new(),
             SparseSecondaryMap::new(),
+            SparseSecondaryMap::new(),
         )
     }
 
@@ -162,6 +200,7 @@ impl BlockStore {
         points: SecondaryMap<BlockId, String>,
         expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord>,
         reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord>,
+        view_collapsed: SparseSecondaryMap<BlockId, bool>,
     ) -> Self {
         Self {
             roots,
@@ -170,9 +209,9 @@ impl BlockStore {
             mount_table: MountTable::new(),
             expansion_drafts,
             reduction_drafts,
+            view_collapsed,
         }
     }
-
     /// The ordered root block ids.
     pub fn roots(&self) -> &[BlockId] {
         &self.roots
@@ -260,6 +299,20 @@ impl BlockStore {
         self.reduction_drafts.remove(*id)
     }
 
+    /// Whether the given block's children are folded (hidden) in the UI.
+    pub fn is_collapsed(&self, id: &BlockId) -> bool {
+        self.view_collapsed.contains_key(*id)
+    }
+
+    /// Toggle the fold state of a block. Returns the new state (`true` = collapsed).
+    pub fn toggle_collapsed(&mut self, id: &BlockId) -> bool {
+        if self.view_collapsed.remove(*id).is_some() {
+            false
+        } else {
+            self.view_collapsed.insert(*id, true);
+            true
+        }
+    }
     /// Build a serialization-ready snapshot that restores mount nodes and
     /// excludes re-keyed blocks.
     ///
@@ -420,6 +473,7 @@ impl BlockStore {
             self.points.remove(*id);
             self.expansion_drafts.remove(*id);
             self.reduction_drafts.remove(*id);
+            self.view_collapsed.remove(*id);
             self.mount_table.remove_origin(*id);
         }
 
@@ -556,6 +610,7 @@ impl BlockStore {
             self.points.remove(id);
             self.expansion_drafts.remove(id);
             self.reduction_drafts.remove(id);
+            self.view_collapsed.remove(id);
             self.mount_table.remove_origin(id);
         }
         if let Some(node) = self.nodes.get_mut(*mount_point) {
@@ -612,6 +667,7 @@ impl BlockStore {
                     self.points.remove(id);
                     self.expansion_drafts.remove(id);
                     self.reduction_drafts.remove(id);
+                    self.view_collapsed.remove(id);
                 }
             }
         }
@@ -622,6 +678,7 @@ impl BlockStore {
             self.points.remove(id);
             self.expansion_drafts.remove(id);
             self.reduction_drafts.remove(id);
+            self.view_collapsed.remove(id);
             self.mount_table.remove_origin(id);
         }
 
@@ -700,13 +757,19 @@ impl BlockStore {
                 sub_reduction_drafts.insert(new_id, draft.clone());
             }
         }
-
+        let mut sub_view_collapsed: SparseSecondaryMap<BlockId, bool> = SparseSecondaryMap::new();
+        for (old_id, _) in &self.view_collapsed {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                sub_view_collapsed.insert(new_id, true);
+            }
+        }
         BlockStore::new_with_drafts(
             sub_roots,
             sub_nodes,
             sub_points,
             sub_expansion_drafts,
             sub_reduction_drafts,
+            sub_view_collapsed,
         )
     }
 
@@ -766,6 +829,11 @@ impl BlockStore {
             }
         }
 
+        for (old_id, _) in &sub_store.view_collapsed {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                self.view_collapsed.insert(new_id, true);
+            }
+        }
         (new_roots, all_new_ids)
     }
 
@@ -800,13 +868,11 @@ impl BlockStore {
 
     /// Return the next block in visible DFS order, skipping collapsed subtrees.
     ///
-    /// `collapsed` is the set of block ids whose children are hidden.
+    /// Uses [`Self::view_collapsed`] to determine which blocks are folded.
     /// Returns `None` when `current` is the last visible block.
-    pub fn next_visible_in_dfs(
-        &self, current: &BlockId, collapsed: &std::collections::HashSet<BlockId>,
-    ) -> Option<BlockId> {
+    pub fn next_visible_in_dfs(&self, current: &BlockId) -> Option<BlockId> {
         // If current has visible children, descend into the first child.
-        if !collapsed.contains(current) {
+        if !self.view_collapsed.contains_key(*current) {
             let children = self.children(current);
             if let Some(&first) = children.first() {
                 return Some(first);
@@ -833,11 +899,9 @@ impl BlockStore {
 
     /// Return the previous block in visible DFS order, skipping collapsed subtrees.
     ///
-    /// `collapsed` is the set of block ids whose children are hidden.
+    /// Uses [`Self::view_collapsed`] to determine which blocks are folded.
     /// Returns `None` when `current` is the first visible block.
-    pub fn prev_visible_in_dfs(
-        &self, current: &BlockId, collapsed: &std::collections::HashSet<BlockId>,
-    ) -> Option<BlockId> {
+    pub fn prev_visible_in_dfs(&self, current: &BlockId) -> Option<BlockId> {
         let (parent, index) = self.parent_and_index_of(current)?;
         if index == 0 {
             // No previous sibling; go to parent (None for root-0 means we are first).
@@ -850,7 +914,7 @@ impl BlockStore {
         // Previous sibling's deepest visible descendant.
         let mut target = siblings[index - 1];
         loop {
-            if collapsed.contains(&target) {
+            if self.view_collapsed.contains_key(target) {
                 return Some(target);
             }
             let children = self.children(&target);
@@ -1010,6 +1074,8 @@ impl PartialEq for BlockStore {
                 .reduction_drafts
                 .iter()
                 .all(|(id, draft)| other.reduction_drafts.get(id) == Some(draft))
+            && self.view_collapsed.len() == other.view_collapsed.len()
+            && self.view_collapsed.iter().all(|(id, _)| other.view_collapsed.contains_key(id))
     }
 }
 
@@ -1987,5 +2053,38 @@ mod tests {
         let inner_roots = store.expand_mount(&nested[0], tmp.path()).unwrap();
         assert_eq!(inner_roots.len(), 1);
         assert_eq!(store.point(&inner_roots[0]), Some("self-ref root".to_string()));
+    }
+
+    // -- view_collapsed persistence --
+
+    #[test]
+    fn serde_round_trip_preserves_view_collapsed() {
+        let (mut store, _root, child_a, _child_b) = simple_store();
+        store.view_collapsed.insert(child_a, true);
+
+        let json = serde_json::to_string(&store).unwrap();
+        let restored: BlockStore = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(store, restored);
+        assert!(restored.view_collapsed.contains_key(child_a));
+    }
+
+    #[test]
+    fn backward_compat_missing_view_collapsed_defaults_empty() {
+        let (store, _, _, _) = simple_store();
+        let mut value = serde_json::to_value(&store).unwrap();
+        value.as_object_mut().unwrap().remove("view_collapsed");
+
+        let restored: BlockStore = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.view_collapsed.len(), 0);
+    }
+
+    #[test]
+    fn remove_subtree_cleans_view_collapsed() {
+        let (mut store, _root, child_a, _child_b) = simple_store();
+        store.view_collapsed.insert(child_a, true);
+
+        store.remove_block_subtree(&child_a).unwrap();
+        assert!(!store.view_collapsed.contains_key(child_a));
     }
 }

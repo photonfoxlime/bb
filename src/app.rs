@@ -27,7 +27,7 @@ use iced::theme::Mode;
 use iced::widget::{button, column, container, row, scrollable, text, text_editor};
 use iced::{Element, Event, Fill, Subscription, Task, event, keyboard, mouse, system, widget};
 use llm_requests::{LlmRequests, RequestSignature};
-use std::collections::HashSet;
+
 use std::time::Duration;
 
 /// Snapshot of undoable application state.
@@ -56,7 +56,7 @@ const ERROR_STACK_PREVIEW_LIMIT: usize = 2;
 /// - persistence flags: recovery guard for unsafe-on-disk state plus a runtime
 ///   write gate for side-effect-free runs.
 /// - selectors (`active_block_id`, `focused_block_id`, `editing_block_id`) and
-///   overlay/fold flags: view/controller state only.
+///   overlay flags: view/controller state only.
 #[derive(Clone)]
 pub struct AppState {
     store: BlockStore,
@@ -87,9 +87,6 @@ pub struct AppState {
     focused_block_id: Option<BlockId>,
     /// Block currently coalescing point edits into a single undo entry.
     editing_block_id: Option<BlockId>,
-    /// Blocks whose children are folded (hidden) in the UI.
-    /// View-only state: not persisted, not part of undo.
-    collapsed: HashSet<BlockId>,
     /// Whether the current theme is dark. Detected from the system at startup
     /// and updated live via `iced::system::theme_changes()`.
     pub is_dark: bool,
@@ -114,6 +111,7 @@ impl AppState {
             Self::startup_store_from_load_result(BlockStore::load());
         errors.extend(persistence_errors);
         let editor_buffers = EditorBuffers::from_store(&store);
+
         let is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
         tracing::info!(is_dark, "detected system appearance");
         Self {
@@ -129,7 +127,7 @@ impl AppState {
             active_block_id: None,
             focused_block_id: None,
             editing_block_id: None,
-            collapsed: HashSet::new(),
+
             is_dark,
         }
     }
@@ -261,6 +259,7 @@ impl AppState {
         self.focused_block_id = None;
         self.editing_block_id = None;
         self.active_block_id = self.store.roots().first().copied();
+
         self.persist_with_context("after undo/redo");
     }
 
@@ -1098,9 +1097,8 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
             Task::none()
         }
         | StructureMessage::ToggleFold(block_id) => {
-            if !state.collapsed.remove(&block_id) {
-                state.collapsed.insert(block_id);
-            }
+            state.store.toggle_collapsed(&block_id);
+            state.persist_with_context("after toggling fold");
             Task::none()
         }
     }
@@ -1291,8 +1289,8 @@ fn handle_point_edited(
             && cursor_before == cursor_after
         {
             navigate_to = match dir {
-                | VerticalDir::Up => state.store.prev_visible_in_dfs(&block_id, &state.collapsed),
-                | VerticalDir::Down => state.store.next_visible_in_dfs(&block_id, &state.collapsed),
+                | VerticalDir::Up => state.store.prev_visible_in_dfs(&block_id),
+                | VerticalDir::Down => state.store.next_visible_in_dfs(&block_id),
             };
         }
 
@@ -1423,8 +1421,6 @@ mod tests {
     use crate::llm;
     use crate::store::{BlockStore, ExpansionDraftRecord, ReductionDraftRecord, StoreLoadError};
     use crate::undo::UndoHistory;
-    use std::collections::HashSet;
-
     fn test_state() -> (AppState, crate::store::BlockId) {
         let store = BlockStore::default();
         let root = *store.roots().first().expect("default store has a root");
@@ -1441,7 +1437,7 @@ mod tests {
             editing_block_id: None,
             persistence_blocked: false,
             persistence_write_disabled: true,
-            collapsed: HashSet::new(),
+
             is_dark: false,
         };
         (state, root)

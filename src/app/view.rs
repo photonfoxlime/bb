@@ -102,7 +102,7 @@ impl<'a> TreeView<'a> {
             .width(Length::Fixed(theme::SPINE_WIDTH))
             .align_x(iced::alignment::Horizontal::Center);
         let has_children = !self.state.store.children(block_id).is_empty();
-        let is_collapsed = self.state.collapsed.contains(block_id);
+        let is_collapsed = self.state.store.is_collapsed(block_id);
         let is_foldable = has_children || is_expanded_mount || unexpanded_mount_path.is_some();
 
         let marker: Element<'a, Message> = if is_foldable {
