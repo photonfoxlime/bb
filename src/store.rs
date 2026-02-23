@@ -83,6 +83,13 @@ pub struct ReductionDraftRecord {
 
 /// Persisted friend relation from a source block to a target block.
 ///
+/// Friend blocks are user-selected related context for a block: they are not
+/// children but extra blocks whose text (and optional perspective) is included
+/// when building LLM context for reduce/expand. The block that "has" the
+/// friends is the *source* (key in `BlockStore::friend_blocks`); each
+/// [`FriendBlock`] points to another block in the graph and an optional
+/// framing string (perspective) for how the source should interpret that friend.
+///
 /// `block_id` points to the friend block in the main store graph.
 /// `perspective` is optional source-authored framing text that describes how
 /// the source block should interpret that friend block.

@@ -13,7 +13,8 @@ mod view;
 use crate::llm;
 use crate::paths::AppPaths;
 use crate::store::{
-    BlockId, BlockStore, ExpansionDraftRecord, MountFormat, ReductionDraftRecord, StoreLoadError,
+    BlockId, BlockStore, ExpansionDraftRecord, FriendBlock, MountFormat, ReductionDraftRecord,
+    StoreLoadError,
 };
 use crate::theme;
 use crate::undo::UndoHistory;
@@ -427,6 +428,10 @@ pub enum StructureMessage {
     DuplicateBlock(BlockId),
     ArchiveBlock(BlockId),
     ToggleFold(BlockId),
+    /// Add the given block as a friend of the target (for LLM context).
+    AddFriendBlock { target: BlockId, friend_id: BlockId },
+    /// Remove a friend from the target's friend list.
+    RemoveFriendBlock { target: BlockId, friend_id: BlockId },
 }
 
 #[derive(Debug, Clone)]
@@ -502,6 +507,12 @@ fn run_shortcut_for_block(
         state.editor_buffers.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
     let expansion_draft = state.store.expansion_draft(&block_id);
     let reduction_draft = state.store.reduction_draft(&block_id);
+    let friend_block_ids = state
+        .store
+        .friend_blocks_for(&block_id)
+        .iter()
+        .map(|f| f.block_id)
+        .collect();
     let row_context = RowContext {
         block_id,
         point_text,
@@ -515,6 +526,8 @@ fn run_shortcut_for_block(
         is_mounted: state.store.mount_table().entry(block_id).is_some(),
         has_children: !state.store.children(&block_id).is_empty(),
         is_unexpanded_mount: state.store.node(&block_id).is_some_and(|n| n.mount_path().is_some()),
+        active_block_id: state.active_block_id,
+        friend_block_ids,
     };
     let vm = project_for_viewport(build_action_bar_vm(&row_context), ViewportBucket::Wide);
 
@@ -1099,6 +1112,45 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
         | StructureMessage::ToggleFold(block_id) => {
             state.store.toggle_collapsed(&block_id);
             state.persist_with_context("after toggling fold");
+            Task::none()
+        }
+        | StructureMessage::AddFriendBlock { target, friend_id } => {
+            state.set_active_block(&target);
+            state.overflow_open_for = None;
+            state.mutate_with_undo_and_persist("after adding friend block", |state| {
+                if friend_id == target {
+                    return false;
+                }
+                if state.store.node(&target).is_none() || state.store.node(&friend_id).is_none() {
+                    return false;
+                }
+                let mut friends = state.store.friend_blocks_for(&target).to_vec();
+                if friends.iter().any(|f| f.block_id == friend_id) {
+                    return false;
+                }
+                friends.push(FriendBlock { block_id: friend_id, perspective: None });
+                state.store.set_friend_blocks_for(&target, friends);
+                tracing::info!(target = ?target, friend_id = ?friend_id, "added friend block");
+                true
+            });
+            Task::none()
+        }
+        | StructureMessage::RemoveFriendBlock { target, friend_id } => {
+            state.mutate_with_undo_and_persist("after removing friend block", |state| {
+                let mut friends = state.store.friend_blocks_for(&target).to_vec();
+                let prev = friends.len();
+                friends.retain(|f| f.block_id != friend_id);
+                if friends.len() == prev {
+                    return false;
+                }
+                if friends.is_empty() {
+                    state.store.set_friend_blocks_for(&target, vec![]);
+                } else {
+                    state.store.set_friend_blocks_for(&target, friends);
+                }
+                tracing::info!(target = ?target, friend_id = ?friend_id, "removed friend block");
+                true
+            });
             Task::none()
         }
     }
