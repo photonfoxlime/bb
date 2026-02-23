@@ -633,72 +633,60 @@ impl<'a> TreeView<'a> {
             .into()
     }
 
-    /// Renders the overlay panel bar containing toggle buttons for overlay panels (friends, etc.).
+    /// Renders the overlay panel bar containing toggle buttons for overlay panels.
     ///
     /// This component lives below each block's editor and provides toggles for panels
     /// that can be shown inline (as opposed to draft panels which appear below).
+    ///
+    /// The toggle buttons reflect panel-open state independently:
+    /// - `Friends` is highlighted only when `PanelBarState::Friends` is open.
+    /// - `Instruction` is highlighted only when `PanelBarState::Instruction` is open.
     fn render_overlay_panel_bar(
         &self, block_id: &BlockId, is_focused: bool, friends_panel_open: bool,
     ) -> Element<'a, Message> {
-        let mut col = column![];
+        if !is_focused {
+            return column![].into();
+        }
 
-        let friends_open = friends_panel_open;
-        let instruction_open = is_focused
-            && self
-                .state
-                .panel_bar_state
-                .as_ref()
-                .is_some_and(|state| *state == super::PanelBarState::Instruction);
+        use crate::app::PanelBarState;
+        let instruction_panel_open =
+            matches!(self.state.panel_bar_state, Some(PanelBarState::Instruction));
 
-        // Render toggle buttons in a row if any panel is relevant
-        let show_friends = is_focused || friends_open;
-        let show_instruction = is_focused || instruction_open;
-
-        if show_friends || show_instruction {
-            let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
-
-            // Friends panel toggle button
-            if show_friends {
-                let is_active = friends_open;
-                let btn = button(text("Friends").font(theme::INTER).size(13))
-                    .style(move |theme, status| {
-                        theme::panel_toggle_button(theme, status, is_active)
-                    })
-                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                    .on_press(Message::Overlay(OverlayMessage::ToggleFriendsPanel(*block_id)));
-                button_row = button_row.push(btn);
-            }
-
-            // Instruction panel toggle button
-            if show_instruction {
-                let is_active = instruction_open;
-                let btn = button(text("Instruction").font(theme::INTER).size(13))
-                    .style(move |theme, status| {
-                        theme::panel_toggle_button(theme, status, is_active)
-                    })
-                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                    .on_press(
-                        Message::InstructionPanel(
-                            instruction_panel::InstructionPanelMessage::Toggle,
-                        )
+        let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
+        button_row = button_row.push(
+            button(text("Friends").font(theme::INTER).size(13))
+                .style(move |theme, status| {
+                    theme::panel_toggle_button(theme, status, friends_panel_open)
+                })
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::Overlay(OverlayMessage::ToggleFriendsPanel(*block_id))),
+        );
+        button_row = button_row.push(
+            button(text("Instruction").font(theme::INTER).size(13))
+                .style(move |theme, status| {
+                    theme::panel_toggle_button(theme, status, instruction_panel_open)
+                })
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(
+                    Message::InstructionPanel(instruction_panel::InstructionPanelMessage::Toggle)
                         .into(),
-                    );
-                button_row = button_row.push(btn);
+                ),
+        );
+
+        let mut col =
+            column![].push(container(button_row).padding(Padding::ZERO.right(theme::INDENT)));
+
+        match self.state.panel_bar_state {
+            | Some(PanelBarState::Friends) => {
+                let friends = self.state.store.friend_blocks_for(block_id);
+                col = col.push(
+                    container(self.render_friends_panel(block_id, friends)).width(Length::Fill),
+                );
             }
-
-            col = col.push(container(button_row).padding(Padding::ZERO.right(theme::INDENT)));
-        }
-
-        // Friends panel content (only when open)
-        if friends_open {
-            let friends = self.state.store.friend_blocks_for(block_id);
-            col = col
-                .push(container(self.render_friends_panel(block_id, friends)).width(Length::Fill));
-        }
-
-        // Instruction panel content (only when open)
-        if instruction_open {
-            col = col.push(container(instruction_panel::view(&self.state)).width(Length::Fill));
+            | Some(PanelBarState::Instruction) => {
+                col = col.push(container(instruction_panel::view(&self.state)).width(Length::Fill));
+            }
+            | None => {}
         }
 
         col.into()

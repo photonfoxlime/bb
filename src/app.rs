@@ -1529,6 +1529,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 
 #[cfg(test)]
 mod tests {
+    use super::instruction_panel::InstructionPanelMessage;
     use super::{AppError, AppState, Message, UiError, update};
     use super::{ErrorMessage, ExpandMessage, ReduceMessage};
     use crate::llm;
@@ -2023,6 +2024,37 @@ mod tests {
         assert!(state.store.reduction_draft(&root).is_none());
         assert!(!state.llm_requests.is_reducing(root));
         assert!(!state.llm_requests.has_reduce_error(root));
+    }
+
+    #[test]
+    fn instruction_toggle_opens_panel_without_clearing_input() {
+        let (mut state, root) = test_state();
+        state.focused_block_id = Some(root);
+        state.editor_buffers.set_instruction_text("keep this instruction");
+
+        let _ = update(&mut state, Message::InstructionPanel(InstructionPanelMessage::Toggle));
+
+        assert_eq!(state.panel_bar_state, Some(super::PanelBarState::Instruction));
+        assert_eq!(state.editor_buffers.instruction_content().text(), "keep this instruction");
+    }
+
+    #[test]
+    fn instruction_toggle_closes_panel_and_resets_state() {
+        let (mut state, root) = test_state();
+        state.focused_block_id = Some(root);
+        state.panel_bar_state = Some(super::PanelBarState::Instruction);
+        state.instruction_panel.inquiry_result = Some("result".to_string());
+        state.instruction_panel.is_inquiring = true;
+        state.instruction_panel.prompt = Some("prompt".to_string());
+        state.editor_buffers.set_instruction_text("clear me");
+
+        let _ = update(&mut state, Message::InstructionPanel(InstructionPanelMessage::Toggle));
+
+        assert_eq!(state.panel_bar_state, None);
+        assert!(state.instruction_panel.inquiry_result.is_none());
+        assert!(!state.instruction_panel.is_inquiring);
+        assert!(state.instruction_panel.prompt.is_none());
+        assert!(state.editor_buffers.instruction_content().text().is_empty());
     }
 
     #[test]

@@ -39,15 +39,6 @@ impl InstructionPanel {
         self.is_inquiring = false;
         self.prompt = None;
     }
-
-    /// Check if the panel has any content.
-    /// Takes the current editor text content to include in the check.
-    pub fn is_empty(&self, editor_text: &str) -> bool {
-        editor_text.is_empty()
-            && self.inquiry_result.is_none()
-            && !self.is_inquiring
-            && self.prompt.is_none()
-    }
 }
 
 /// Message types for instruction panel interactions.
@@ -83,30 +74,13 @@ pub fn handle(
 
     match msg {
         | InstructionPanelMessage::Toggle => {
-            // Check if there's unsaved work when closing the panel
-            let editor_text = state.editor_buffers.instruction_content().text();
-            if matches!(&state.panel_bar_state, Some(PanelBarState::Instruction))
-                && !state.instruction_panel.is_empty(&editor_text)
-            {
-                // Could show confirmation dialog here in the future
-                // For now, just reset without saving
-            }
-            
-            // Only toggle if this is the focused block
-            if state.focused_block_id == Some(block_id) {
-                match &state.panel_bar_state {
-                    Some(PanelBarState::Instruction) => {
-                        state.panel_bar_state = None;
-                    }
-                    _ => {
-                        state.panel_bar_state = Some(PanelBarState::Instruction);
-                    }
-                }
+            if matches!(&state.panel_bar_state, Some(PanelBarState::Instruction)) {
+                state.panel_bar_state = None;
+                state.instruction_panel.reset();
+                state.editor_buffers.set_instruction_text("");
             } else {
                 state.panel_bar_state = Some(PanelBarState::Instruction);
             }
-            state.instruction_panel.reset();
-            state.editor_buffers.set_instruction_text("");
             iced::Task::none()
         }
         | InstructionPanelMessage::TextEdited(action) => {
@@ -215,8 +189,8 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
     // Get the focused block from panel_bar_state
     let _block_id = match (state.focused_block_id, &state.panel_bar_state) {
-        (Some(id), Some(PanelBarState::Instruction)) => id,
-        _ => return container(iced::widget::Text::new("")).into(),
+        | (Some(id), Some(PanelBarState::Instruction)) => id,
+        | _ => return container(iced::widget::Text::new("")).into(),
     };
 
     let instruction_content = state.editor_buffers.instruction_content();
@@ -231,7 +205,9 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             text_editor(instruction_content)
                 .placeholder("Enter instruction...")
                 .style(theme::point_editor)
-                .on_action(move |action| Message::InstructionPanel(InstructionPanelMessage::TextEdited(action)).into()),
+                .on_action(move |action| {
+                    Message::InstructionPanel(InstructionPanelMessage::TextEdited(action)).into()
+                }),
         )
         .height(iced::Length::Fixed(80.0)),
     );
@@ -254,7 +230,9 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         button(text("Expand").font(theme::INTER).size(13))
             .style(theme::action_button)
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(InstructionPanelMessage::ExpandWithInstruction).into()),
+            .on_press(
+                Message::InstructionPanel(InstructionPanelMessage::ExpandWithInstruction).into(),
+            ),
     );
 
     // Reduce button
@@ -262,7 +240,9 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         button(text("Reduce").font(theme::INTER).size(13))
             .style(theme::action_button)
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(InstructionPanelMessage::ReduceWithInstruction).into()),
+            .on_press(
+                Message::InstructionPanel(InstructionPanelMessage::ReduceWithInstruction).into(),
+            ),
     );
 
     panel = panel.push(button_row);
@@ -279,7 +259,10 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             button(text("Apply as Rewrite").font(theme::INTER).size(13))
                 .style(theme::action_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(InstructionPanelMessage::ApplyInstructionRewrite).into()),
+                .on_press(
+                    Message::InstructionPanel(InstructionPanelMessage::ApplyInstructionRewrite)
+                        .into(),
+                ),
         );
         result_buttons = result_buttons.push(
             button(text("Dismiss").font(theme::INTER).size(13))
@@ -303,9 +286,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn instruction_panel_default_is_empty() {
+    fn instruction_panel_default_is_blank() {
         let panel = InstructionPanel::new();
-        assert!(panel.is_empty(""));
+        assert!(panel.inquiry_result.is_none());
+        assert!(!panel.is_inquiring);
+        assert!(panel.prompt.is_none());
     }
 
     #[test]
@@ -317,31 +302,30 @@ mod tests {
 
         panel.reset();
 
-        assert!(panel.is_empty(""));
         assert!(panel.inquiry_result.is_none());
         assert!(!panel.is_inquiring);
         assert!(panel.prompt.is_none());
     }
 
     #[test]
-    fn instruction_panel_not_empty_with_inquiry_result() {
+    fn instruction_panel_can_store_inquiry_result() {
         let mut panel = InstructionPanel::new();
         panel.inquiry_result = Some("result".to_string());
-        assert!(!panel.is_empty(""));
+        assert_eq!(panel.inquiry_result.as_deref(), Some("result"));
     }
 
     #[test]
-    fn instruction_panel_not_empty_while_inquiring() {
+    fn instruction_panel_tracks_inquiry_loading_state() {
         let mut panel = InstructionPanel::new();
         panel.is_inquiring = true;
-        assert!(!panel.is_empty(""));
+        assert!(panel.is_inquiring);
     }
 
     #[test]
-    fn instruction_panel_not_empty_with_prompt() {
+    fn instruction_panel_can_store_prompt() {
         let mut panel = InstructionPanel::new();
         panel.prompt = Some("prompt".to_string());
-        assert!(!panel.is_empty(""));
+        assert_eq!(panel.prompt.as_deref(), Some("prompt"));
     }
 
     #[test]
