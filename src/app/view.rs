@@ -192,7 +192,7 @@ impl<'a> TreeView<'a> {
             });
 
         // Build the bottom row: inline panel bar on left, action bar on right
-        let left_col = self.render_inline_panel_bar(block_id, is_focused, friends_panel_open);
+        let left_col = self.render_overlay_panel_bar(block_id, is_focused, friends_panel_open);
 
         // Right side: action bar
         let right_col = action_buttons;
@@ -624,11 +624,11 @@ impl<'a> TreeView<'a> {
             .into()
     }
 
-    /// Renders the inline panel bar containing toggle buttons for inline panels (friends, etc.).
+    /// Renders the overlay panel bar containing toggle buttons for overlay panels (friends, etc.).
     ///
     /// This component lives below each block's editor and provides toggles for panels
     /// that can be shown inline (as opposed to draft panels which appear below).
-    fn render_inline_panel_bar(
+    fn render_overlay_panel_bar(
         &self, block_id: &BlockId, is_focused: bool, friends_panel_open: bool,
     ) -> Element<'a, Message> {
         let mut col = column![];
