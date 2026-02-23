@@ -1,6 +1,11 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "mcp": {
+    "rust-docs": {
+      "type": "local",
+      "command": ["npx", "-y", "iflow-mcp-rust-docs"],
+      "enabled": true
+    },
     "jujutsu": {
       "type": "local",
       "command": ["npx", "-y", "jj-mcp-server"],
