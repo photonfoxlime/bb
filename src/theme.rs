@@ -114,7 +114,13 @@ pub const SPINE_WIDTH: f32 = 4.0;
 
 /// Padding inside buttons and tooltips.
 pub const BUTTON_PAD: f32 = 4.0;
+/// Shared square footprint for icon-like controls in block rows.
+///
+/// Used by fold toggles, non-foldable ring markers, and overflow/action glyph buttons.
 pub const ICON_BUTTON_SIZE: f32 = 24.0;
+/// Vertical nudge applied to row controls so their visual center matches
+/// the first line of point text in the editor column.
+pub const ROW_CONTROL_VERTICAL_PAD: f32 = 3.0;
 /// Padding around tooltip text.
 pub const TOOLTIP_PAD: f32 = 6.0;
 /// Gap between tooltip and anchor.

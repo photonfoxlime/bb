@@ -146,7 +146,13 @@ impl<'a> TreeView<'a> {
             .width(Fill)
             .align_y(iced::Alignment::Start)
             .push(spine)
-            .push(marker)
+            .push(
+                container(marker).padding(
+                    Padding::ZERO
+                        .top(theme::ROW_CONTROL_VERTICAL_PAD)
+                        .bottom(theme::ROW_CONTROL_VERTICAL_PAD),
+                ),
+            )
             .push({
                 let mut editor = text_editor(editor_content)
                     .placeholder("point")
@@ -164,7 +170,13 @@ impl<'a> TreeView<'a> {
                 }
                 editor
             })
-            .push(action_buttons);
+            .push(
+                container(action_buttons).padding(
+                    Padding::ZERO
+                        .top(theme::ROW_CONTROL_VERTICAL_PAD)
+                        .bottom(theme::ROW_CONTROL_VERTICAL_PAD),
+                ),
+            );
 
         let mut block = column![].spacing(theme::BLOCK_INNER_GAP).push(row_content);
         if action_bar.status_chip.is_some() {
@@ -224,6 +236,7 @@ impl<'a> TreeView<'a> {
                             .push(
                                 button(text("Apply rewrite").font(theme::INTER).size(13))
                                     .style(theme::action_button)
+                                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                     .on_press(Message::Expand(ExpandMessage::ApplyRewrite(
                                         *block_id,
                                     ))),
@@ -231,6 +244,7 @@ impl<'a> TreeView<'a> {
                             .push(
                                 button(text("Dismiss rewrite").font(theme::INTER).size(13))
                                     .style(theme::destructive_button)
+                                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                     .on_press(Message::Expand(ExpandMessage::RejectRewrite(
                                         *block_id,
                                     ))),
@@ -247,11 +261,13 @@ impl<'a> TreeView<'a> {
                     .push(
                         button(text("Accept all").font(theme::INTER).size(13))
                             .style(theme::action_button)
+                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                             .on_press(Message::Expand(ExpandMessage::AcceptAllChildren(*block_id))),
                     )
                     .push(
                         button(text("Discard all").font(theme::INTER).size(13))
                             .style(theme::destructive_button)
+                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                             .on_press(Message::Expand(ExpandMessage::Discard(*block_id))),
                     ),
             );
@@ -264,6 +280,7 @@ impl<'a> TreeView<'a> {
                         .push(
                             button(text("Keep").font(theme::INTER).size(13))
                                 .style(theme::action_button)
+                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                 .on_press(Message::Expand(ExpandMessage::AcceptChild {
                                     block_id: *block_id,
                                     child_index: index,
@@ -272,6 +289,7 @@ impl<'a> TreeView<'a> {
                         .push(
                             button(text("Drop").font(theme::INTER).size(13))
                                 .style(theme::destructive_button)
+                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                 .on_press(Message::Expand(ExpandMessage::RejectChild {
                                     block_id: *block_id,
                                     child_index: index,
@@ -304,11 +322,13 @@ impl<'a> TreeView<'a> {
                         .push(
                             button(text("Apply reduction").font(theme::INTER).size(13))
                                 .style(theme::action_button)
+                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                 .on_press(Message::Reduce(ReduceMessage::Apply(*block_id))),
                         )
                         .push(
                             button(text("Dismiss reduction").font(theme::INTER).size(13))
                                 .style(theme::destructive_button)
+                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                 .on_press(Message::Reduce(ReduceMessage::Reject(*block_id))),
                         ),
                 ),
