@@ -1,7 +1,7 @@
 //! Application-local runtime state for LLM reduce/expand requests.
 
 use super::error::UiError;
-use crate::llm as llm_api;
+use crate::llm;
 use crate::store::BlockId;
 use iced::task;
 use slotmap::SparseSecondaryMap;
@@ -207,7 +207,7 @@ pub(crate) struct RequestSignature {
 
 impl RequestSignature {
     #[cfg(test)]
-    pub(crate) fn from_lineage(lineage: &llm_api::Lineage) -> Option<Self> {
+    pub(crate) fn from_lineage(lineage: &llm::Lineage) -> Option<Self> {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         let mut item_count = 0usize;
         for point in lineage.points() {
@@ -222,9 +222,10 @@ impl RequestSignature {
 
     /// Build a request signature from full block context.
     ///
-    /// This includes both lineage points and existing children points so async
+    /// This includes lineage points, existing children points, and friend block
+    /// points so async
     /// expand/reduce responses are invalidated when either input changes.
-    pub(crate) fn from_block_context(context: &llm_api::BlockContext) -> Option<Self> {
+    pub(crate) fn from_block_context(context: &llm::BlockContext) -> Option<Self> {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         let mut item_count = 0usize;
         for point in context.lineage().points() {
@@ -234,6 +235,22 @@ impl RequestSignature {
         for child_point in context.existing_children() {
             Self::text_signature(child_point).hash(&mut hasher);
             item_count += 1;
+        }
+        for friend_block in context.friend_blocks() {
+            Self::text_signature(friend_block.point()).hash(&mut hasher);
+            item_count += 1;
+            match friend_block.perspective() {
+                | Some(perspective) => {
+                    1u8.hash(&mut hasher);
+                    item_count += 1;
+                    Self::text_signature(perspective).hash(&mut hasher);
+                    item_count += 1;
+                }
+                | None => {
+                    0u8.hash(&mut hasher);
+                    item_count += 1;
+                }
+            }
         }
         if item_count == 0 {
             return None;
@@ -264,23 +281,23 @@ mod tests {
 
     #[test]
     fn request_signature_from_empty_lineage_is_none() {
-        let lineage = llm_api::Lineage::from_points(vec![]);
+        let lineage = llm::Lineage::from_points(vec![]);
         assert!(RequestSignature::from_lineage(&lineage).is_none());
     }
 
     #[test]
     fn request_signature_changes_when_lineage_changes() {
-        let first = llm_api::Lineage::from_points(vec!["root".to_string(), "child".to_string()]);
+        let first = llm::Lineage::from_points(vec!["root".to_string(), "child".to_string()]);
         let second =
-            llm_api::Lineage::from_points(vec!["root changed".to_string(), "child".to_string()]);
+            llm::Lineage::from_points(vec!["root changed".to_string(), "child".to_string()]);
         assert_ne!(RequestSignature::from_lineage(&first), RequestSignature::from_lineage(&second));
     }
 
     #[test]
     fn request_signature_from_block_context_changes_when_children_change() {
-        let lineage = llm_api::Lineage::from_points(vec!["root".to_string()]);
-        let ctx1 = llm_api::BlockContext::new(lineage.clone(), vec!["child_a".to_string()]);
-        let ctx2 = llm_api::BlockContext::new(lineage.clone(), vec!["child_b".to_string()]);
+        let lineage = llm::Lineage::from_points(vec!["root".to_string()]);
+        let ctx1 = llm::BlockContext::new(lineage.clone(), vec!["child_a".to_string()], vec![]);
+        let ctx2 = llm::BlockContext::new(lineage.clone(), vec!["child_b".to_string()], vec![]);
         assert_ne!(
             RequestSignature::from_block_context(&ctx1),
             RequestSignature::from_block_context(&ctx2)
@@ -289,11 +306,49 @@ mod tests {
 
     #[test]
     fn request_signature_from_block_context_matches_lineage_when_no_children() {
-        let lineage = llm_api::Lineage::from_points(vec!["root".to_string(), "child".to_string()]);
-        let ctx = llm_api::BlockContext::new(lineage.clone(), vec![]);
+        let lineage = llm::Lineage::from_points(vec!["root".to_string(), "child".to_string()]);
+        let ctx = llm::BlockContext::new(lineage.clone(), vec![], vec![]);
         assert_eq!(
             RequestSignature::from_lineage(&lineage),
             RequestSignature::from_block_context(&ctx)
+        );
+    }
+
+    #[test]
+    fn request_signature_from_block_context_changes_when_friend_blocks_change() {
+        let lineage = llm::Lineage::from_points(vec!["root".to_string()]);
+        let ctx1 = llm::BlockContext::new(
+            lineage.clone(),
+            vec![],
+            vec![llm::FriendContext::new("friend a".to_string(), None)],
+        );
+        let ctx2 = llm::BlockContext::new(
+            lineage,
+            vec![],
+            vec![llm::FriendContext::new("friend b".to_string(), None)],
+        );
+        assert_ne!(
+            RequestSignature::from_block_context(&ctx1),
+            RequestSignature::from_block_context(&ctx2)
+        );
+    }
+
+    #[test]
+    fn request_signature_from_block_context_changes_when_friend_perspective_changes() {
+        let lineage = llm::Lineage::from_points(vec!["root".to_string()]);
+        let ctx1 = llm::BlockContext::new(
+            lineage.clone(),
+            vec![],
+            vec![llm::FriendContext::new("friend".to_string(), Some("supportive".to_string()))],
+        );
+        let ctx2 = llm::BlockContext::new(
+            lineage,
+            vec![],
+            vec![llm::FriendContext::new("friend".to_string(), Some("critical".to_string()))],
+        );
+        assert_ne!(
+            RequestSignature::from_block_context(&ctx1),
+            RequestSignature::from_block_context(&ctx2)
         );
     }
 }

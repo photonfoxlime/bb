@@ -8,7 +8,8 @@
 //!
 //! The store uses [`SparseSecondaryMap<BlockId, T>`] for optional per-block
 //! metadata that must survive save/load cycles. Existing examples:
-//! `expansion_drafts`, `reduction_drafts`, and `view_collapsed`.
+//! `expansion_drafts`, `reduction_drafts`, `view_collapsed`, and
+//! `friend_blocks`.
 //!
 //! Checklist for a new field:
 //!
@@ -78,6 +79,20 @@ pub struct ReductionDraftRecord {
     /// arrival and apply time; consumers must filter at render and apply.
     #[serde(default)]
     pub redundant_children: Vec<BlockId>,
+}
+
+/// Persisted friend relation from a source block to a target block.
+///
+/// `block_id` points to the friend block in the main store graph.
+/// `perspective` is optional source-authored framing text that describes how
+/// the source block should interpret that friend block.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FriendBlock {
+    /// Target friend block id.
+    pub block_id: BlockId,
+    /// Optional source-authored framing for this friend relation.
+    #[serde(default)]
+    pub perspective: Option<String>,
 }
 
 #[derive(Debug, Error)]
@@ -216,6 +231,8 @@ pub struct BlockStore {
     /// participates in undo/redo snapshots, and follows save/load id remapping.
     #[serde(default)]
     view_collapsed: SparseSecondaryMap<BlockId, bool>,
+    #[serde(default)]
+    friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>>,
 }
 
 impl BlockStore {
@@ -234,6 +251,7 @@ impl BlockStore {
             SparseSecondaryMap::new(),
             SparseSecondaryMap::new(),
             SparseSecondaryMap::new(),
+            SparseSecondaryMap::new(),
         )
     }
 
@@ -243,6 +261,7 @@ impl BlockStore {
         expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord>,
         reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord>,
         view_collapsed: SparseSecondaryMap<BlockId, bool>,
+        friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>>,
     ) -> Self {
         Self {
             roots,
@@ -252,6 +271,7 @@ impl BlockStore {
             expansion_drafts,
             reduction_drafts,
             view_collapsed,
+            friend_blocks,
         }
     }
     /// The ordered root block ids.
@@ -533,8 +553,10 @@ impl BlockStore {
             self.expansion_drafts.remove(*id);
             self.reduction_drafts.remove(*id);
             self.view_collapsed.remove(*id);
+            self.friend_blocks.remove(*id);
             self.mount_table.remove_origin(*id);
         }
+        self.remove_friend_block_references(&removed_ids);
 
         if self.roots.is_empty() {
             let root_id = self.nodes.insert(BlockNode::with_children(vec![]));
@@ -562,13 +584,43 @@ impl BlockStore {
     /// Used by reduce/expand handlers to give the LLM full context about
     /// the block's position in the tree and its existing children.
     pub fn block_context_for_id(&self, target: &BlockId) -> llm::BlockContext {
+        let friend_ids = self.friend_blocks.get(*target).cloned().unwrap_or_default();
+        self.block_context_for_id_with_friend_blocks(target, &friend_ids)
+    }
+
+    /// Build a [`llm::BlockContext`] with user-selected friend blocks.
+    ///
+    /// Friend blocks are extra readable blocks outside the target's direct
+    /// children and may include an optional per-friend perspective.
+    pub fn block_context_for_id_with_friend_blocks(
+        &self, target: &BlockId, friend_block_ids: &[FriendBlock],
+    ) -> llm::BlockContext {
         let lineage = self.lineage_points_for_id(target);
         let existing_children = self
             .children(target)
             .iter()
             .filter_map(|child_id| self.point(child_id))
             .collect::<Vec<_>>();
-        llm::BlockContext::new(lineage, existing_children)
+        let friend_blocks = friend_block_ids
+            .iter()
+            .filter_map(|friend| {
+                self.point(&friend.block_id)
+                    .map(|point| llm::FriendContext::new(point, friend.perspective.clone()))
+            })
+            .collect::<Vec<_>>();
+        llm::BlockContext::new(lineage, existing_children, friend_blocks)
+    }
+
+    pub fn friend_blocks_for(&self, target: &BlockId) -> &[FriendBlock] {
+        self.friend_blocks.get(*target).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    pub fn set_friend_blocks_for(&mut self, target: &BlockId, friend_block_ids: Vec<FriendBlock>) {
+        if friend_block_ids.is_empty() {
+            self.friend_blocks.remove(*target);
+        } else {
+            self.friend_blocks.insert(*target, friend_block_ids);
+        }
     }
 
     /// Borrow the mount table for querying block origins.
@@ -650,6 +702,7 @@ impl BlockStore {
             *node = BlockNode::with_children(new_roots.clone());
         }
         self.view_collapsed.remove(*mount_point);
+        self.friend_blocks.remove(*mount_point);
 
         Ok(new_roots)
     }
@@ -680,14 +733,16 @@ impl BlockStore {
             self.mount_table.remove_entry(nested_mount_point);
         }
 
-        for id in removed_ids {
-            self.nodes.remove(id);
-            self.points.remove(id);
-            self.expansion_drafts.remove(id);
-            self.reduction_drafts.remove(id);
-            self.view_collapsed.remove(id);
-            self.mount_table.remove_origin(id);
+        for id in &removed_ids {
+            self.nodes.remove(*id);
+            self.points.remove(*id);
+            self.expansion_drafts.remove(*id);
+            self.reduction_drafts.remove(*id);
+            self.view_collapsed.remove(*id);
+            self.friend_blocks.remove(*id);
+            self.mount_table.remove_origin(*id);
         }
+        self.remove_friend_block_references(&removed_ids);
         if let Some(node) = self.nodes.get_mut(*mount_point) {
             *node = BlockNode::with_path_and_format(entry.rel_path, entry.format);
         }
@@ -749,14 +804,17 @@ impl BlockStore {
         }
 
         // Clean up nested expanded mounts and their blocks.
+        let mut removed_friend_references = Vec::new();
         for &mount_id in &nested_mounts {
             if let Some(entry) = self.mount_table.remove_entry(mount_id) {
+                removed_friend_references.extend(entry.block_ids.iter().copied());
                 for &id in &entry.block_ids {
                     self.nodes.remove(id);
                     self.points.remove(id);
                     self.expansion_drafts.remove(id);
                     self.reduction_drafts.remove(id);
                     self.view_collapsed.remove(id);
+                    self.friend_blocks.remove(id);
                 }
             }
         }
@@ -768,8 +826,11 @@ impl BlockStore {
             self.expansion_drafts.remove(id);
             self.reduction_drafts.remove(id);
             self.view_collapsed.remove(id);
+            self.friend_blocks.remove(id);
             self.mount_table.remove_origin(id);
         }
+        removed_friend_references.extend(own_ids.iter().copied());
+        self.remove_friend_block_references(&removed_friend_references);
 
         // Compute relative path.
         let rel_path = path
@@ -794,6 +855,8 @@ impl BlockStore {
         let mut sub_expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord> =
             SparseSecondaryMap::new();
         let mut sub_reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord> =
+            SparseSecondaryMap::new();
+        let mut sub_friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>> =
             SparseSecondaryMap::new();
         let mut id_map: std::collections::HashMap<BlockId, BlockId> =
             std::collections::HashMap::new();
@@ -855,6 +918,23 @@ impl BlockStore {
                 sub_view_collapsed.insert(new_id, true);
             }
         }
+        for (old_target_id, old_friend_ids) in &self.friend_blocks {
+            let Some(&new_target_id) = id_map.get(&old_target_id) else {
+                continue;
+            };
+            let remapped = old_friend_ids
+                .iter()
+                .filter_map(|friend| {
+                    id_map.get(&friend.block_id).copied().map(|block_id| FriendBlock {
+                        block_id,
+                        perspective: friend.perspective.clone(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            if !remapped.is_empty() {
+                sub_friend_blocks.insert(new_target_id, remapped);
+            }
+        }
         BlockStore::new_with_drafts(
             sub_roots,
             sub_nodes,
@@ -862,6 +942,7 @@ impl BlockStore {
             sub_expansion_drafts,
             sub_reduction_drafts,
             sub_view_collapsed,
+            sub_friend_blocks,
         )
     }
 
@@ -926,7 +1007,44 @@ impl BlockStore {
                 self.view_collapsed.insert(new_id, true);
             }
         }
+        for (old_target_id, old_friend_ids) in &sub_store.friend_blocks {
+            let Some(&new_target_id) = id_map.get(&old_target_id) else {
+                continue;
+            };
+            let remapped = old_friend_ids
+                .iter()
+                .filter_map(|friend| {
+                    id_map.get(&friend.block_id).copied().map(|block_id| FriendBlock {
+                        block_id,
+                        perspective: friend.perspective.clone(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            if !remapped.is_empty() {
+                self.friend_blocks.insert(new_target_id, remapped);
+            }
+        }
         (new_roots, all_new_ids)
+    }
+
+    fn remove_friend_block_references(&mut self, removed_ids: &[BlockId]) {
+        if removed_ids.is_empty() || self.friend_blocks.is_empty() {
+            return;
+        }
+        let removed = removed_ids.iter().copied().collect::<std::collections::HashSet<_>>();
+        let target_ids = self.friend_blocks.iter().map(|(id, _)| id).collect::<Vec<_>>();
+        let mut empty_targets = Vec::new();
+        for target_id in target_ids {
+            if let Some(friend_ids) = self.friend_blocks.get_mut(target_id) {
+                friend_ids.retain(|friend| !removed.contains(&friend.block_id));
+                if friend_ids.is_empty() {
+                    empty_targets.push(target_id);
+                }
+            }
+        }
+        for target_id in empty_targets {
+            self.friend_blocks.remove(target_id);
+        }
     }
 
     /// Resolve a mount path against a base directory.
@@ -1365,6 +1483,11 @@ impl PartialEq for BlockStore {
                 .all(|(id, draft)| other.reduction_drafts.get(id) == Some(draft))
             && self.view_collapsed.len() == other.view_collapsed.len()
             && self.view_collapsed.iter().all(|(id, _)| other.view_collapsed.contains_key(id))
+            && self.friend_blocks.len() == other.friend_blocks.len()
+            && self
+                .friend_blocks
+                .iter()
+                .all(|(id, blocks)| other.friend_blocks.get(id) == Some(blocks))
     }
 }
 
@@ -1619,6 +1742,23 @@ mod tests {
         let lineage = store.lineage_points_for_id(&unknown);
         let expected = llm::Lineage::from_points(vec![]);
         assert_eq!(lineage, expected);
+    }
+
+    #[test]
+    fn block_context_with_friend_blocks_skips_unknown_ids() {
+        let (store, root, child_a, _) = simple_store();
+        let unknown = BlockId::default();
+        let context = store.block_context_for_id_with_friend_blocks(
+            &root,
+            &[
+                FriendBlock { block_id: unknown, perspective: None },
+                FriendBlock { block_id: child_a, perspective: Some("supporting lens".to_string()) },
+            ],
+        );
+        let friend_blocks = context.friend_blocks();
+        assert_eq!(friend_blocks.len(), 1);
+        assert_eq!(friend_blocks[0].point(), "child_a");
+        assert_eq!(friend_blocks[0].perspective(), Some("supporting lens"));
     }
 
     // -- Serialization round-trip --
@@ -2511,5 +2651,102 @@ mod tests {
 
         store.remove_block_subtree(&child_a).unwrap();
         assert!(!store.view_collapsed.contains_key(child_a));
+    }
+
+    #[test]
+    fn block_context_with_friend_blocks_preserves_order_and_perspective() {
+        let (store, root, child_a, child_b) = simple_store();
+        let context = store.block_context_for_id_with_friend_blocks(
+            &root,
+            &[
+                FriendBlock { block_id: child_b, perspective: Some("contrast".to_string()) },
+                FriendBlock { block_id: child_a, perspective: None },
+            ],
+        );
+        let friend_blocks = context.friend_blocks();
+        assert_eq!(friend_blocks.len(), 2);
+        assert_eq!(friend_blocks[0].point(), "child_b");
+        assert_eq!(friend_blocks[0].perspective(), Some("contrast"));
+        assert_eq!(friend_blocks[1].point(), "child_a");
+        assert_eq!(friend_blocks[1].perspective(), None);
+    }
+
+    #[test]
+    fn block_context_uses_persisted_friend_blocks_for_target() {
+        let (mut store, root, child_a, child_b) = simple_store();
+        store.set_friend_blocks_for(
+            &root,
+            vec![
+                FriendBlock {
+                    block_id: child_a,
+                    perspective: Some("historical precedent".to_string()),
+                },
+                FriendBlock { block_id: child_b, perspective: None },
+            ],
+        );
+        let context = store.block_context_for_id(&root);
+        let friend_blocks = context.friend_blocks();
+        assert_eq!(friend_blocks.len(), 2);
+        assert_eq!(friend_blocks[0].point(), "child_a");
+        assert_eq!(friend_blocks[0].perspective(), Some("historical precedent"));
+        assert_eq!(friend_blocks[1].point(), "child_b");
+        assert_eq!(friend_blocks[1].perspective(), None);
+    }
+
+    #[test]
+    fn serde_round_trip_preserves_friend_blocks() {
+        let (mut store, root, child_a, child_b) = simple_store();
+        store.set_friend_blocks_for(
+            &root,
+            vec![
+                FriendBlock { block_id: child_a, perspective: None },
+                FriendBlock { block_id: child_b, perspective: Some("counter-example".to_string()) },
+            ],
+        );
+
+        let json = serde_json::to_string(&store).unwrap();
+        let restored: BlockStore = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(
+            restored.friend_blocks_for(&root),
+            &[
+                FriendBlock { block_id: child_a, perspective: None },
+                FriendBlock { block_id: child_b, perspective: Some("counter-example".to_string()) },
+            ]
+        );
+    }
+
+    #[test]
+    fn backward_compat_missing_friend_blocks_defaults_empty() {
+        let (store, _, _, _) = simple_store();
+        let mut value = serde_json::to_value(&store).unwrap();
+        value.as_object_mut().unwrap().remove("friend_blocks");
+
+        let restored: BlockStore = serde_json::from_value(value).unwrap();
+        assert_eq!(restored.friend_blocks.len(), 0);
+    }
+
+    #[test]
+    fn remove_subtree_cleans_friend_blocks_keys_and_values() {
+        let (mut store, root, child_a, child_b) = simple_store();
+        store.set_friend_blocks_for(
+            &root,
+            vec![
+                FriendBlock { block_id: child_a, perspective: None },
+                FriendBlock { block_id: child_b, perspective: None },
+            ],
+        );
+        store.set_friend_blocks_for(
+            &child_a,
+            vec![FriendBlock { block_id: root, perspective: Some("parent framing".to_string()) }],
+        );
+
+        store.remove_block_subtree(&child_a).unwrap();
+
+        assert_eq!(
+            store.friend_blocks_for(&root),
+            &[FriendBlock { block_id: child_b, perspective: None }]
+        );
+        assert!(store.friend_blocks_for(&child_a).is_empty());
     }
 }

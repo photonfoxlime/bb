@@ -229,8 +229,8 @@ impl ReduceResult {
     }
 }
 
-/// Immutable snapshot of a block's LLM-relevant context: ancestor lineage
-/// plus existing child point texts.
+/// Immutable snapshot of a block's LLM-relevant context: ancestor lineage,
+/// existing child point texts, and user-selected friend blocks.
 ///
 /// Constructed by the store layer; consumed by [`LlmClient`] methods.
 /// The `existing_children` field carries only point texts (no `BlockId`s)
@@ -239,11 +239,27 @@ impl ReduceResult {
 pub struct BlockContext {
     lineage: Lineage,
     existing_children: Vec<String>,
+    friend_blocks: Vec<FriendContext>,
+}
+
+/// One friend context item supplied alongside lineage and existing children.
+///
+/// `point` is the friend block text itself.
+/// `perspective` is optional target-authored framing describing how the
+/// current block views that friend block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FriendContext {
+    /// Friend block text included in prompt context.
+    point: String,
+    /// Optional framing lens for interpreting this friend block.
+    perspective: Option<String>,
 }
 
 impl BlockContext {
-    pub fn new(lineage: Lineage, existing_children: Vec<String>) -> Self {
-        Self { lineage, existing_children }
+    pub fn new(
+        lineage: Lineage, existing_children: Vec<String>, friend_blocks: Vec<FriendContext>,
+    ) -> Self {
+        Self { lineage, existing_children, friend_blocks }
     }
 
     pub fn lineage(&self) -> &Lineage {
@@ -254,8 +270,26 @@ impl BlockContext {
         &self.existing_children
     }
 
+    pub fn friend_blocks(&self) -> &[FriendContext] {
+        &self.friend_blocks
+    }
+
     fn is_empty(&self) -> bool {
         self.lineage.is_empty()
+    }
+}
+
+impl FriendContext {
+    pub fn new(point: String, perspective: Option<String>) -> Self {
+        Self { point, perspective }
+    }
+
+    pub fn point(&self) -> &str {
+        &self.point
+    }
+
+    pub fn perspective(&self) -> Option<&str> {
+        self.perspective.as_deref()
     }
 }
 
@@ -383,7 +417,8 @@ impl LlmClient {
             return Err(LlmError::InvalidRequest);
         }
 
-        let has_children = !context.existing_children.is_empty();
+        let has_children =
+            !context.existing_children.is_empty() || !context.friend_blocks.is_empty();
         let prompt = Prompt::reduce_from_context(context);
         let max_tokens = if has_children { 400 } else { 200 };
         let content = self.request_completion("reduce", prompt, 0.2, max_tokens).await?;
@@ -566,37 +601,86 @@ impl Prompt {
         lines
     }
 
+    fn format_friend_blocks_lines(friend_blocks: &[FriendContext]) -> String {
+        let mut lines = String::new();
+        for (index, friend_block) in friend_blocks.iter().enumerate() {
+            if let Some(perspective) = friend_block.perspective() {
+                lines.push_str(&format!(
+                    "[{index}] {} (perspective: {perspective})\n",
+                    friend_block.point()
+                ));
+            } else {
+                lines.push_str(&format!("[{index}] {}\n", friend_block.point()));
+            }
+        }
+        lines
+    }
+
     fn reduce_from_context(context: &BlockContext) -> Self {
         let lineage_lines = Self::format_lineage_lines(&context.lineage);
+        let friend_lines = Self::format_friend_blocks_lines(&context.friend_blocks);
 
-        if context.existing_children.is_empty() {
+        if context.existing_children.is_empty() && context.friend_blocks.is_empty() {
             return Self {
                 system: "You reduce a bullet point using its ancestors as context. Return strict JSON only: {\"reduction\": string}. The reduction must be a single concise sentence. No markdown, no extra keys.".to_string(),
                 user: format!("Reduce the target point with context:\n{lineage_lines}"),
             };
         }
 
+        if context.existing_children.is_empty() {
+            return Self {
+                system: "You reduce a bullet point using its ancestors plus friend blocks as context. Return strict JSON only: {\"reduction\": string}. The reduction must be a single concise sentence. Friend blocks are user-selected related context and are not children of the target. Each friend block may include an optional perspective describing how the target views that friend block; use it when helpful. No markdown, no extra keys.".to_string(),
+                user: format!(
+                    "Reduce the target point with context:\n{lineage_lines}\nFriend blocks:\n{friend_lines}"
+                ),
+            };
+        }
+
         let children_lines = Self::format_children_lines(&context.existing_children);
+        let friend_context = if context.friend_blocks.is_empty() {
+            String::new()
+        } else {
+            format!("\nFriend blocks:\n{friend_lines}")
+        };
         Self {
-            system: "You reduce a bullet point using its ancestors and existing children as context. Return strict JSON only: {\"reduction\": string, \"redundant_children\": number[]}. The reduction must be a single concise sentence that captures the essential meaning. redundant_children: 0-based indices of existing children whose information is fully captured by the reduction and can be safely removed. Only mark a child redundant when its content is genuinely subsumed. No markdown, no extra keys.".to_string(),
-            user: format!("Reduce the target point with context:\n{lineage_lines}\nExisting children:\n{children_lines}"),
+            system: "You reduce a bullet point using its ancestors, existing children, and optional friend blocks as context. Return strict JSON only: {\"reduction\": string, \"redundant_children\": number[]}. The reduction must be a single concise sentence that captures the essential meaning. redundant_children: 0-based indices of existing children whose information is fully captured by the reduction and can be safely removed. Friend blocks are additional context only and must never appear in redundant_children. Friend blocks may include optional perspective text that can refine interpretation. Only mark a child redundant when its content is genuinely subsumed. No markdown, no extra keys.".to_string(),
+            user: format!(
+                "Reduce the target point with context:\n{lineage_lines}\nExisting children:\n{children_lines}{friend_context}"
+            ),
         }
     }
 
     fn expand_from_context(context: &BlockContext) -> Self {
         let lineage_lines = Self::format_lineage_lines(&context.lineage);
+        let friend_lines = Self::format_friend_blocks_lines(&context.friend_blocks);
 
-        if context.existing_children.is_empty() {
+        if context.existing_children.is_empty() && context.friend_blocks.is_empty() {
             return Self {
                 system: "You expand one target bullet point using its ancestors as context. Return strict JSON only with this shape: {\"rewrite\": string|null, \"children\": string[]}. Keep rewrite to one concise sentence. Generate 3-6 concise child points. Children must be mutually non-overlapping, each focused on a distinct subtopic, and should not restate the rewrite. No markdown, no extra keys.".to_string(),
                 user: format!("Expand the target point with context:\n{lineage_lines}"),
             };
         }
 
+        if context.existing_children.is_empty() {
+            return Self {
+                system: "You expand one target bullet point using its ancestors plus friend blocks as context. Return strict JSON only with this shape: {\"rewrite\": string|null, \"children\": string[]}. Keep rewrite to one concise sentence. Generate 3-6 concise child points. Children must be mutually non-overlapping, each focused on a distinct subtopic, and should not restate the rewrite. Friend blocks are user-selected related context and are not children of the target. Friend blocks may include an optional perspective describing how the target views that friend block; use it when relevant. No markdown, no extra keys.".to_string(),
+                user: format!(
+                    "Expand the target point with context:\n{lineage_lines}\nFriend blocks:\n{friend_lines}"
+                ),
+            };
+        }
+
         let children_lines = Self::format_children_lines(&context.existing_children);
+        let friend_context = if context.friend_blocks.is_empty() {
+            String::new()
+        } else {
+            format!("\nFriend blocks:\n{friend_lines}")
+        };
         Self {
-            system: "You expand one target bullet point using its ancestors as context. Return strict JSON only with this shape: {\"rewrite\": string|null, \"children\": string[]}. Keep rewrite to one concise sentence. Generate 3-6 concise NEW child points. Children must be mutually non-overlapping, each focused on a distinct subtopic, should not restate the rewrite, and MUST NOT overlap with the existing children listed below. No markdown, no extra keys.".to_string(),
-            user: format!("Expand the target point with context:\n{lineage_lines}\nExisting children:\n{children_lines}"),
+            system: "You expand one target bullet point using its ancestors, existing children, and optional friend blocks as context. Return strict JSON only with this shape: {\"rewrite\": string|null, \"children\": string[]}. Keep rewrite to one concise sentence. Generate 3-6 concise NEW child points. Children must be mutually non-overlapping, each focused on a distinct subtopic, should not restate the rewrite, and MUST NOT overlap with the existing children listed below. Friend blocks are additional context only and are not children. Friend blocks may include optional perspective text that can refine interpretation. No markdown, no extra keys.".to_string(),
+            user: format!(
+                "Expand the target point with context:\n{lineage_lines}\nExisting children:\n{children_lines}{friend_context}"
+            ),
         }
     }
 }
@@ -697,13 +781,13 @@ mod tests {
     // BlockContext tests
     #[test]
     fn block_context_empty_lineage_is_empty() {
-        let ctx = BlockContext::new(Lineage::from_points(vec![]), vec![]);
+        let ctx = BlockContext::new(Lineage::from_points(vec![]), vec![], vec![]);
         assert!(ctx.is_empty());
     }
 
     #[test]
     fn block_context_with_lineage_is_not_empty() {
-        let ctx = BlockContext::new(Lineage::from_points(vec!["root".into()]), vec![]);
+        let ctx = BlockContext::new(Lineage::from_points(vec!["root".into()]), vec![], vec![]);
         assert!(!ctx.is_empty());
     }
 
@@ -711,9 +795,11 @@ mod tests {
     fn block_context_accessors() {
         let lineage = Lineage::from_points(vec!["root".into()]);
         let children = vec!["child_a".to_string(), "child_b".to_string()];
-        let ctx = BlockContext::new(lineage.clone(), children.clone());
+        let friends = vec![FriendContext::new("friend".to_string(), Some("ally".to_string()))];
+        let ctx = BlockContext::new(lineage.clone(), children.clone(), friends.clone());
         assert_eq!(ctx.lineage(), &lineage);
         assert_eq!(ctx.existing_children(), &children[..]);
+        assert_eq!(ctx.friend_blocks(), &friends[..]);
     }
 
     // LlmConfigError Display tests
@@ -735,7 +821,7 @@ mod tests {
     #[test]
     fn reduce_prompt_labels_target_last() {
         let lineage = Lineage::from_points(vec!["first".into(), "second".into(), "third".into()]);
-        let context = BlockContext::new(lineage, vec![]);
+        let context = BlockContext::new(lineage, vec![], vec![]);
         let prompt = Prompt::reduce_from_context(&context);
         assert!(prompt.user.contains("Parent: first"));
         assert!(prompt.user.contains("Parent: second"));
@@ -745,7 +831,7 @@ mod tests {
     #[test]
     fn expand_prompt_labels_target_last() {
         let lineage = Lineage::from_points(vec!["first".into(), "second".into(), "third".into()]);
-        let context = BlockContext::new(lineage, vec![]);
+        let context = BlockContext::new(lineage, vec![], vec![]);
         let prompt = Prompt::expand_from_context(&context);
         assert!(prompt.user.contains("Parent: first"));
         assert!(prompt.user.contains("Parent: second"));
@@ -755,7 +841,7 @@ mod tests {
     #[test]
     fn expand_prompt_mentions_concise_and_non_overlapping_constraints() {
         let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
-        let context = BlockContext::new(lineage, vec![]);
+        let context = BlockContext::new(lineage, vec![], vec![]);
         let prompt = Prompt::expand_from_context(&context);
         assert!(prompt.system.contains("one concise sentence"));
         assert!(prompt.system.contains("mutually non-overlapping"));
@@ -768,7 +854,7 @@ mod tests {
     fn expand_prompt_includes_existing_children() {
         let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
         let children = vec!["existing child A".to_string(), "existing child B".to_string()];
-        let ctx = BlockContext::new(lineage, children);
+        let ctx = BlockContext::new(lineage, children, vec![]);
         let prompt = Prompt::expand_from_context(&ctx);
         assert!(prompt.user.contains("Existing children:"));
         assert!(prompt.user.contains("[0] existing child A"));
@@ -779,7 +865,7 @@ mod tests {
     #[test]
     fn expand_prompt_without_children_omits_section() {
         let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
-        let ctx = BlockContext::new(lineage, vec![]);
+        let ctx = BlockContext::new(lineage, vec![], vec![]);
         let prompt = Prompt::expand_from_context(&ctx);
         assert!(!prompt.user.contains("Existing children:"));
     }
@@ -788,7 +874,7 @@ mod tests {
     fn reduce_prompt_includes_existing_children() {
         let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
         let children = vec!["child A".to_string()];
-        let ctx = BlockContext::new(lineage, children);
+        let ctx = BlockContext::new(lineage, children, vec![]);
         let prompt = Prompt::reduce_from_context(&ctx);
         assert!(prompt.user.contains("Existing children:"));
         assert!(prompt.user.contains("[0] child A"));
@@ -798,9 +884,40 @@ mod tests {
     #[test]
     fn reduce_prompt_without_children_is_plain() {
         let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
-        let ctx = BlockContext::new(lineage, vec![]);
+        let ctx = BlockContext::new(lineage, vec![], vec![]);
         let prompt = Prompt::reduce_from_context(&ctx);
         assert!(!prompt.user.contains("Existing children:"));
+    }
+
+    #[test]
+    fn expand_prompt_includes_friend_blocks() {
+        let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
+        let friends = vec![
+            FriendContext::new("peer concept A".to_string(), Some("historical lens".to_string())),
+            FriendContext::new("peer concept B".to_string(), None),
+        ];
+        let ctx = BlockContext::new(lineage, vec![], friends);
+        let prompt = Prompt::expand_from_context(&ctx);
+        assert!(prompt.user.contains("Friend blocks:"));
+        assert!(prompt.user.contains("[0] peer concept A (perspective: historical lens)"));
+        assert!(prompt.user.contains("[1] peer concept B"));
+    }
+
+    #[test]
+    fn reduce_prompt_includes_friend_blocks() {
+        let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
+        let friends = vec![FriendContext::new(
+            "supporting external detail".to_string(),
+            Some("skeptical counterpoint".to_string()),
+        )];
+        let ctx = BlockContext::new(lineage, vec![], friends);
+        let prompt = Prompt::reduce_from_context(&ctx);
+        assert!(prompt.user.contains("Friend blocks:"));
+        assert!(
+            prompt
+                .user
+                .contains("[0] supporting external detail (perspective: skeptical counterpoint)")
+        );
     }
 
     // ExpandResponsePayload deserialization tests
