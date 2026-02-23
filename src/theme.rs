@@ -137,8 +137,6 @@ pub const PANEL_PAD_H: f32 = 16.0;
 pub const DIFF_HIGHLIGHT_PAD_H: f32 = 2.0;
 /// Padding inside the error banner.
 pub const BANNER_PAD: f32 = 8.0;
-/// Vertical padding for overflow section.
-pub const OVERFLOW_PAD_V: f32 = 4.0;
 
 // ── Theme constructor ────────────────────────────────────────────────
 

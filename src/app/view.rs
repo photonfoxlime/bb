@@ -145,8 +145,21 @@ impl<'a> TreeView<'a> {
                 .into()
         };
 
-        let action_buttons: Element<'a, Message> =
-            self.render_action_buttons(block_id, &action_bar);
+        let is_focused = self.state.focused_block_id == Some(*block_id);
+        let friends_panel_open = self.state.friends_panel_open_for == Some(*block_id);
+
+        // Only render action bar when block is focused
+        let action_buttons: Element<'a, Message> = if is_focused {
+            self.render_action_buttons(block_id, &action_bar)
+        } else {
+            container(iced::widget::Space::new())
+                .padding(
+                    Padding::ZERO
+                        .top(theme::ROW_CONTROL_VERTICAL_PAD)
+                        .bottom(theme::ROW_CONTROL_VERTICAL_PAD),
+                )
+                .into()
+        };
 
         let row_content = row![]
             .spacing(theme::ROW_GAP)
@@ -176,16 +189,22 @@ impl<'a> TreeView<'a> {
                     editor = editor.id(wid.clone());
                 }
                 editor
-            })
-            .push(
-                container(action_buttons).padding(
-                    Padding::ZERO
-                        .top(theme::ROW_CONTROL_VERTICAL_PAD)
-                        .bottom(theme::ROW_CONTROL_VERTICAL_PAD),
-                ),
-            );
+            });
+
+        // Build the bottom row: inline panel bar on left, action bar on right
+        let left_col = self.render_inline_panel_bar(block_id, is_focused, friends_panel_open);
+
+        // Right side: action bar
+        let right_col = action_buttons;
+
+        let bottom_row = row![]
+            .spacing(theme::ROW_GAP)
+            .width(Fill)
+            .push(container(left_col).width(Length::Fill))
+            .push(right_col);
 
         let mut block = column![].spacing(theme::BLOCK_INNER_GAP).push(row_content);
+        block = block.push(bottom_row);
         if action_bar.status_chip.is_some() {
             block = block.push(
                 container(self.render_status_chip(&action_bar))
@@ -197,15 +216,6 @@ impl<'a> TreeView<'a> {
         }
         if let Some(draft) = self.state.store.reduction_draft(block_id) {
             block = block.push(self.render_reduction_panel(block_id, draft));
-        }
-        let friends = self.state.store.friend_blocks_for(block_id);
-        let is_focused = self.state.focused_block_id == Some(*block_id);
-        // Show friends panel when there are friends OR when this block is focused
-        if !friends.is_empty() || is_focused {
-            block = block.push(
-                container(self.render_friends_panel(block_id, friends))
-                    .padding(Padding::ZERO.left(theme::INDENT)),
-            );
         }
 
         // Unexpanded mount: show path label below the block.
@@ -614,43 +624,90 @@ impl<'a> TreeView<'a> {
             .into()
     }
 
+    /// Renders the inline panel bar containing toggle buttons for inline panels (friends, etc.).
+    ///
+    /// This component lives below each block's editor and provides toggles for panels
+    /// that can be shown inline (as opposed to draft panels which appear below).
+    fn render_inline_panel_bar(
+        &self, block_id: &BlockId, is_focused: bool, friends_panel_open: bool,
+    ) -> Element<'a, Message> {
+        let mut col = column![];
+
+        // Friends panel toggle and content
+        if is_focused || friends_panel_open {
+            let is_open = friends_panel_open;
+            let label = if is_open { "Close Friends" } else { "Friends" };
+            let btn = button(text(label).font(theme::INTER).size(13))
+                .style(theme::action_button)
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::Overlay(OverlayMessage::ToggleFriendsPanel(*block_id)));
+
+            col = col.push(
+                container(btn)
+                    .padding(Padding::ZERO.right(theme::INDENT)),
+            );
+
+            // Friends panel content (only when open)
+            if friends_panel_open {
+                let friends = self.state.store.friend_blocks_for(block_id);
+                col = col.push(
+                    container(self.render_friends_panel(block_id, friends))
+                        .width(Length::Fill),
+                );
+            }
+        }
+
+        col.into()
+    }
+
     fn render_action_buttons(&self, block_id: &BlockId, vm: &ActionBarVm) -> Element<'a, Message> {
+        let is_overflow_open = self.state.overflow_open_for.as_ref() == Some(block_id);
         let mut actions_row = row![].spacing(theme::ACTION_GAP);
 
+        // Always show primary actions
         for descriptor in vm.visible_actions() {
             actions_row = actions_row.push(self.render_action_button(block_id, &descriptor));
         }
 
+        // Show "More" button when closed, or "Close" button at end when open
         if !vm.overflow.is_empty() {
-            let is_open = self.state.overflow_open_for.as_ref() == Some(block_id);
-            let (icon, label) =
-                if is_open { (icons::icon_x(), "Close") } else { (icons::icon_ellipsis(), "More") };
-            let btn = button(centered_icon(icon.size(16).into()))
-                .style(theme::action_button)
-                .padding(0)
-                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::Overlay(OverlayMessage::ToggleOverflow(*block_id)));
+            if is_overflow_open {
+                // When open, show overflow actions first, then close button at the end
+                for descriptor in &vm.overflow {
+                    actions_row = actions_row.push(self.render_action_button(block_id, descriptor));
+                }
+                let btn = button(centered_icon(icons::icon_x().size(16).into()))
+                    .style(theme::action_button)
+                    .padding(0)
+                    .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .on_press(Message::Overlay(OverlayMessage::ToggleOverflow(*block_id)));
 
-            actions_row = actions_row.push(
-                tooltip(btn, text(label).size(12).font(theme::INTER), tooltip::Position::Bottom)
-                    .style(theme::tooltip)
-                    .padding(theme::TOOLTIP_PAD)
-                    .gap(theme::TOOLTIP_GAP),
-            );
-        }
+                actions_row = actions_row.push(
+                    tooltip(btn, text("Close").size(12).font(theme::INTER), tooltip::Position::Bottom)
+                        .style(theme::tooltip)
+                        .padding(theme::TOOLTIP_PAD)
+                        .gap(theme::TOOLTIP_GAP),
+                );
+            } else {
+                // When closed, show "More" button
+                let btn = button(centered_icon(icons::icon_ellipsis().size(16).into()))
+                    .style(theme::action_button)
+                    .padding(0)
+                    .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .on_press(Message::Overlay(OverlayMessage::ToggleOverflow(*block_id)));
 
-        let mut layout = column![].spacing(theme::BLOCK_INNER_GAP).push(actions_row);
-        if self.state.overflow_open_for.as_ref() == Some(block_id) {
-            let mut overflow = row![].spacing(theme::ACTION_GAP);
-            for descriptor in &vm.overflow {
-                overflow = overflow.push(self.render_action_button(block_id, descriptor));
+                actions_row = actions_row.push(
+                    tooltip(btn, text("More").size(12).font(theme::INTER), tooltip::Position::Bottom)
+                        .style(theme::tooltip)
+                        .padding(theme::TOOLTIP_PAD)
+                        .gap(theme::TOOLTIP_GAP),
+                );
             }
-            layout = layout
-                .push(container(overflow).padding(Padding::from([theme::OVERFLOW_PAD_V, 0.0])));
         }
 
-        layout.into()
+        actions_row.into()
     }
 
     fn render_action_button(

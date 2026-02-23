@@ -83,6 +83,8 @@ pub struct AppState {
     persistence_write_disabled: bool,
     /// Block currently holding open the overflow menu.
     overflow_open_for: Option<BlockId>,
+    /// Block whose friends panel is currently expanded.
+    friends_panel_open_for: Option<BlockId>,
     /// Block for which we're currently picking a friend. When Some, we're in friend picker mode.
     friend_picker_for: Option<BlockId>,
     /// Block whose point editor currently has keyboard focus.
@@ -126,6 +128,7 @@ impl AppState {
             persistence_blocked,
             persistence_write_disabled: false,
             overflow_open_for: None,
+            friends_panel_open_for: None,
             friend_picker_for: None,
             focused_block_id: None,
             editing_block_id: None,
@@ -433,6 +436,8 @@ pub enum StructureMessage {
 pub enum OverlayMessage {
     ToggleOverflow(BlockId),
     CloseOverflow,
+    /// Toggle friends panel visibility for the given block.
+    ToggleFriendsPanel(BlockId),
     /// Start picking a friend for the given target block.
     StartFriendPicker(BlockId),
     /// Cancel friend picker mode.
@@ -566,6 +571,7 @@ fn handle_shortcut_message(state: &mut AppState, message: ShortcutMessage) -> Ta
         }
         | ShortcutMessage::ForBlock { block_id, action_id } => {
             state.focused_block_id = Some(block_id);
+            state.friends_panel_open_for = None;
             run_shortcut_for_block(state, block_id, action_id)
         }
     }
@@ -1066,6 +1072,7 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
                 }
                 if removed_ids.iter().any(|id| Some(*id) == state.focused_block_id) {
                     state.focused_block_id = None;
+                    state.friends_panel_open_for = None;
                 }
                 for root_id in state.store.roots() {
                     state.editor_buffers.ensure_block(&state.store, root_id);
@@ -1133,7 +1140,16 @@ fn handle_overlay_message(state: &mut AppState, message: OverlayMessage) -> Task
         }
         | OverlayMessage::CloseOverflow => {
             state.overflow_open_for = None;
+            state.friends_panel_open_for = None;
             state.focused_block_id = None;
+            Task::none()
+        }
+        | OverlayMessage::ToggleFriendsPanel(block_id) => {
+            if state.friends_panel_open_for == Some(block_id) {
+                state.friends_panel_open_for = None;
+            } else {
+                state.friends_panel_open_for = Some(block_id);
+            }
             Task::none()
         }
         | OverlayMessage::StartFriendPicker(block_id) => {
@@ -1309,6 +1325,7 @@ fn handle_point_edited(
     state: &mut AppState, block_id: BlockId, action: text_editor::Action,
 ) -> Task<Message> {
     state.focused_block_id = Some(block_id);
+    state.friends_panel_open_for = None;
     if state.editing_block_id.as_ref() != Some(&block_id) {
         state.snapshot_for_undo();
         state.editing_block_id = Some(block_id);
@@ -1348,6 +1365,7 @@ fn handle_point_edited(
         && let Some(wid) = state.editor_buffers.widget_id(&target_id)
     {
         state.focused_block_id = Some(target_id);
+        state.friends_panel_open_for = None;
         tracing::debug!(
             from = ?block_id,
             to = ?target_id,
@@ -1474,6 +1492,7 @@ mod tests {
             errors: vec![],
             llm_requests: super::LlmRequests::new(),
             overflow_open_for: None,
+            friends_panel_open_for: None,
             friend_picker_for: None,
             focused_block_id: None,
             editing_block_id: None,
