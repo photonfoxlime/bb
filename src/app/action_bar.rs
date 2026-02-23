@@ -424,12 +424,16 @@ pub fn action_to_message_by_id(
         | ActionId::Cancel => cancel_message_for_block(state, block_id),
         | ActionId::Retry => retry_message_for_block(state, block_id),
         | ActionId::DismissDraft => {
-            // Dismiss whichever draft exists (or both if both exist)
-            // The message handler will check and dismiss appropriately
             if state.store.reduction_draft(block_id).is_some() {
                 Some(Message::Reduce(ReduceMessage::Reject(*block_id)))
-            } else if state.store.expansion_draft(block_id).is_some() {
-                Some(Message::Expand(ExpandMessage::Discard(*block_id)))
+            } else if let Some(expansion_draft) = state.store.expansion_draft(block_id) {
+                if !expansion_draft.children.is_empty() {
+                    Some(Message::Expand(ExpandMessage::DiscardAllChildren(*block_id)))
+                } else if expansion_draft.rewrite.is_some() {
+                    Some(Message::Expand(ExpandMessage::RejectRewrite(*block_id)))
+                } else {
+                    None
+                }
             } else {
                 None
             }

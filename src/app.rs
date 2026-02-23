@@ -384,7 +384,7 @@ pub enum ExpandMessage {
         child_index: usize,
     },
     AcceptAllChildren(BlockId),
-    Discard(BlockId),
+    DiscardAllChildren(BlockId),
 }
 
 #[derive(Debug, Clone)]
@@ -884,11 +884,23 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
             });
             Task::none()
         }
-        | ExpandMessage::Discard(block_id) => {
+        | ExpandMessage::DiscardAllChildren(block_id) => {
             state.set_active_block(&block_id);
-            tracing::info!(block_id = ?block_id, "discarded expansion draft");
-            if state.store.remove_expansion_draft(&block_id).is_some() {
-                state.persist_with_context("after discarding expansion draft");
+            let mut changed = false;
+            let mut should_remove_draft = false;
+            if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
+                if !draft.children.is_empty() {
+                    draft.children.clear();
+                    tracing::info!(block_id = ?block_id, "discarded all expanded children");
+                    changed = true;
+                }
+                should_remove_draft = draft.rewrite.is_none() && draft.children.is_empty();
+            }
+            if should_remove_draft {
+                state.store.remove_expansion_draft(&block_id);
+            }
+            if changed {
+                state.persist_with_context("after discarding expanded children");
             }
             Task::none()
         }
@@ -1408,14 +1420,54 @@ mod tests {
     }
 
     #[test]
-    fn discard_expansion_removes_draft() {
+    fn discard_all_expanded_children_removes_empty_draft() {
         let (mut state, root) = test_state();
         state.store.insert_expansion_draft(
             root,
             ExpansionDraftRecord { rewrite: None, children: vec!["child a".to_string()] },
         );
-        let _ = update(&mut state, Message::Expand(ExpandMessage::Discard(root)));
+        let _ = update(&mut state, Message::Expand(ExpandMessage::DiscardAllChildren(root)));
         assert!(state.store.expansion_draft(&root).is_none());
+    }
+
+    #[test]
+    fn discard_all_expanded_children_after_reexpand_preserves_rewrite() {
+        let (mut state, root) = test_state();
+
+        let first_signature = state.lineage_signature(&root).expect("root has lineage");
+        state.pending_expand_signatures.insert(root, first_signature);
+        let _ = update(
+            &mut state,
+            Message::Expand(ExpandMessage::Done {
+                block_id: root,
+                request_signature: first_signature,
+                result: Ok(llm::ExpandResult::new(
+                    Some("first rewrite".to_string()),
+                    vec![llm::ExpandSuggestion::new("first child".to_string())],
+                )),
+            }),
+        );
+        let _ = update(&mut state, Message::Expand(ExpandMessage::AcceptAllChildren(root)));
+
+        let second_signature = state.lineage_signature(&root).expect("root has lineage");
+        state.pending_expand_signatures.insert(root, second_signature);
+        let _ = update(
+            &mut state,
+            Message::Expand(ExpandMessage::Done {
+                block_id: root,
+                request_signature: second_signature,
+                result: Ok(llm::ExpandResult::new(
+                    Some("second rewrite".to_string()),
+                    vec![llm::ExpandSuggestion::new("second child".to_string())],
+                )),
+            }),
+        );
+
+        let _ = update(&mut state, Message::Expand(ExpandMessage::DiscardAllChildren(root)));
+
+        let draft = state.store.expansion_draft(&root).expect("rewrite draft remains");
+        assert_eq!(draft.rewrite.as_deref(), Some("second rewrite"));
+        assert!(draft.children.is_empty());
     }
 
     #[test]

@@ -268,7 +268,9 @@ impl<'a> TreeView<'a> {
                         button(text("Discard all").font(theme::INTER).size(13))
                             .style(theme::destructive_button)
                             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                            .on_press(Message::Expand(ExpandMessage::Discard(*block_id))),
+                            .on_press(Message::Expand(ExpandMessage::DiscardAllChildren(
+                                *block_id,
+                            ))),
                     ),
             );
 
