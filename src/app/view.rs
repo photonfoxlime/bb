@@ -127,7 +127,7 @@ impl<'a> TreeView<'a> {
                 .into()
         } else {
             let ring_icon: Element<'a, Message> = icons::icon_circle()
-                .size(16)
+                .size(theme::LEAF_RING_ICON_SIZE)
                 .line_height(iced::widget::text::LineHeight::Relative(1.0))
                 .into();
             button(centered_icon(ring_icon))

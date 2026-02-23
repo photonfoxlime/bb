@@ -118,6 +118,8 @@ pub const BUTTON_PAD: f32 = 4.0;
 ///
 /// Used by fold toggles, non-foldable ring markers, and overflow/action glyph buttons.
 pub const ICON_BUTTON_SIZE: f32 = 24.0;
+/// Glyph size for non-foldable leaf ring markers.
+pub const LEAF_RING_ICON_SIZE: f32 = 10.0;
 /// Vertical nudge applied to row controls so their visual center matches
 /// the first line of point text in the editor column.
 pub const ROW_CONTROL_VERTICAL_PAD: f32 = 3.0;
