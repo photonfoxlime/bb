@@ -686,7 +686,7 @@ impl<'a> TreeView<'a> {
         // Instruction panel content (only when open)
         if instruction_open {
             col = col.push(
-                container(instruction_panel::view(&self.state, block_id))
+                container(instruction_panel::view(&self.state))
                     .width(Length::Fill),
             );
         }

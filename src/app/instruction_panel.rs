@@ -49,34 +49,38 @@ impl InstructionPanel {
 /// Message types for instruction panel interactions.
 #[derive(Debug, Clone)]
 pub enum InstructionPanelMessage {
-    /// Toggle instruction panel visibility for the given block.
-    Toggle(BlockId),
+    /// Toggle instruction panel visibility for the focused block.
+    Toggle,
     /// Text edited in the instruction panel.
     TextEdited(iced::widget::text_editor::Action),
     /// Send inquiry to LLM with the instruction.
-    Inquire(BlockId),
+    Inquire,
     /// Inquiry request completed.
     InquireDone { block_id: BlockId, result: Result<String, crate::app::UiError> },
     /// Expand with instruction as system prompt.
-    ExpandWithInstruction(BlockId),
+    ExpandWithInstruction,
     /// Reduce with instruction as system prompt.
-    ReduceWithInstruction(BlockId),
+    ReduceWithInstruction,
     /// Apply rewrite from inquiry result.
-    ApplyInstructionRewrite(BlockId),
+    ApplyInstructionRewrite,
     /// Dismiss inquiry result.
-    Dismiss(BlockId),
+    Dismiss,
 }
 
 /// Handle instruction panel messages.
+/// The block_id parameter is only needed for Toggle to check focus match.
 pub fn handle(
-    state: &mut AppState, _block_id: BlockId, msg: InstructionPanelMessage,
+    state: &mut AppState, block_id: BlockId, msg: InstructionPanelMessage,
 ) -> iced::Task<Message> {
     use crate::app::{ExpandMessage, ReduceMessage};
 
+    // Get the actual target block from focused_block_id
+    let target_block_id = state.focused_block_id.unwrap_or(block_id);
+
     match msg {
-        | InstructionPanelMessage::Toggle(target_block_id) => {
+        | InstructionPanelMessage::Toggle => {
             // Only toggle if this is the focused block
-            if state.focused_block_id == Some(target_block_id) {
+            if state.focused_block_id == Some(block_id) {
                 match &state.panel_bar_state {
                     Some(PanelBarState::Instruction) => {
                         state.panel_bar_state = None;
@@ -96,7 +100,7 @@ pub fn handle(
             state.editor_buffers.instruction_content_mut().perform(action);
             iced::Task::none()
         }
-        | InstructionPanelMessage::Inquire(target_block_id) => {
+        | InstructionPanelMessage::Inquire => {
             let instruction = state.editor_buffers.instruction_content().text().to_string();
             if instruction.is_empty() {
                 return iced::Task::none();
@@ -120,7 +124,7 @@ pub fn handle(
                     )
                 },
                 move |result| {
-                    Message::Overlay(crate::app::OverlayMessage::InquireDone {
+                    Message::InstructionPanel(InstructionPanelMessage::InquireDone {
                         block_id: target_block_id,
                         result,
                     })
@@ -150,7 +154,7 @@ pub fn handle(
             }
             iced::Task::none()
         }
-        | InstructionPanelMessage::ExpandWithInstruction(target_block_id) => {
+        | InstructionPanelMessage::ExpandWithInstruction => {
             let instruction = state.editor_buffers.instruction_content().text().trim().to_string();
             if instruction.is_empty() {
                 return iced::Task::none();
@@ -161,7 +165,7 @@ pub fn handle(
             state.panel_bar_state = None;
             crate::app::update(state, Message::Expand(ExpandMessage::Start(target_block_id)))
         }
-        | InstructionPanelMessage::ReduceWithInstruction(target_block_id) => {
+        | InstructionPanelMessage::ReduceWithInstruction => {
             let instruction = state.editor_buffers.instruction_content().text().trim().to_string();
             if instruction.is_empty() {
                 return iced::Task::none();
@@ -172,7 +176,7 @@ pub fn handle(
             state.panel_bar_state = None;
             crate::app::update(state, Message::Reduce(ReduceMessage::Start(target_block_id)))
         }
-        | InstructionPanelMessage::ApplyInstructionRewrite(target_block_id) => {
+        | InstructionPanelMessage::ApplyInstructionRewrite => {
             if let Some(rewrite) = state.instruction_panel.inquiry_result.take() {
                 state.mutate_with_undo_and_persist("after applying instruction rewrite", |state| {
                     state.store.update_point(&target_block_id, rewrite.clone());
@@ -183,18 +187,24 @@ pub fn handle(
             state.instruction_panel.inquiry_result = None;
             iced::Task::none()
         }
-        | InstructionPanelMessage::Dismiss(_block_id) => {
+        | InstructionPanelMessage::Dismiss => {
             state.instruction_panel.inquiry_result = None;
             iced::Task::none()
         }
     }
 }
 
-/// Render the instruction panel for a given block.
-pub fn view<'a>(state: &'a AppState, block_id: &BlockId) -> Element<'a, Message> {
-    use crate::app::OverlayMessage;
+/// Render the instruction panel for the focused block.
+pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
+    use crate::app::PanelBarState;
     use iced::Padding;
     use iced::widget::{column, row};
+
+    // Get the focused block from panel_bar_state
+    let _block_id = match (state.focused_block_id, &state.panel_bar_state) {
+        (Some(id), Some(PanelBarState::Instruction)) => id,
+        _ => return container(iced::widget::Text::new("")).into(),
+    };
 
     let instruction_content = state.editor_buffers.instruction_content();
     let inquiry_result = &state.instruction_panel.inquiry_result;
@@ -208,7 +218,7 @@ pub fn view<'a>(state: &'a AppState, block_id: &BlockId) -> Element<'a, Message>
             text_editor(instruction_content)
                 .placeholder("Enter instruction...")
                 .style(theme::point_editor)
-                .on_action(move |action| Message::Overlay(OverlayMessage::InstructionEdited(action)).into()),
+                .on_action(move |action| Message::InstructionPanel(InstructionPanelMessage::TextEdited(action)).into()),
         )
         .height(iced::Length::Fixed(80.0)),
     );
@@ -222,7 +232,7 @@ pub fn view<'a>(state: &'a AppState, block_id: &BlockId) -> Element<'a, Message>
     )
     .style(theme::action_button)
     .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-    .on_press(Message::Overlay(OverlayMessage::Inquire(*block_id)).into());
+    .on_press(Message::InstructionPanel(InstructionPanelMessage::Inquire).into());
 
     button_row = button_row.push(inquire_btn);
 
@@ -231,7 +241,7 @@ pub fn view<'a>(state: &'a AppState, block_id: &BlockId) -> Element<'a, Message>
         button(text("Expand").font(theme::INTER).size(13))
             .style(theme::action_button)
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::Overlay(OverlayMessage::ExpandWithInstruction(*block_id)).into()),
+            .on_press(Message::InstructionPanel(InstructionPanelMessage::ExpandWithInstruction).into()),
     );
 
     // Reduce button
@@ -239,7 +249,7 @@ pub fn view<'a>(state: &'a AppState, block_id: &BlockId) -> Element<'a, Message>
         button(text("Reduce").font(theme::INTER).size(13))
             .style(theme::action_button)
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::Overlay(OverlayMessage::ReduceWithInstruction(*block_id)).into()),
+            .on_press(Message::InstructionPanel(InstructionPanelMessage::ReduceWithInstruction).into()),
     );
 
     panel = panel.push(button_row);
@@ -256,13 +266,13 @@ pub fn view<'a>(state: &'a AppState, block_id: &BlockId) -> Element<'a, Message>
             button(text("Apply as Rewrite").font(theme::INTER).size(13))
                 .style(theme::action_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::Overlay(OverlayMessage::ApplyInstructionRewrite(*block_id)).into()),
+                .on_press(Message::InstructionPanel(InstructionPanelMessage::ApplyInstructionRewrite).into()),
         );
         result_buttons = result_buttons.push(
             button(text("Dismiss").font(theme::INTER).size(13))
                 .style(theme::destructive_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::Overlay(OverlayMessage::DismissInstruction(*block_id)).into()),
+                .on_press(Message::InstructionPanel(InstructionPanelMessage::Dismiss).into()),
         );
         result_col = result_col.push(result_buttons);
 

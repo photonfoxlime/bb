@@ -11,6 +11,8 @@ mod instruction_panel;
 mod llm_requests;
 mod view;
 
+pub use instruction_panel::InstructionPanelMessage;
+
 use crate::llm;
 use crate::paths::AppPaths;
 use crate::store::{
@@ -293,6 +295,9 @@ impl AppState {
             | Message::Overlay(message) => self.handle_overlay_message(message),
             | Message::Structure(message) => self.handle_structure_message(message),
             | Message::MountFile(message) => self.handle_mount_and_file_message(message),
+            | Message::InstructionPanel(message) => {
+                instruction_panel::handle(self, BlockId::default(), message)
+            }
         }
     }
 
@@ -356,6 +361,7 @@ pub enum Message {
     Structure(StructureMessage),
     Overlay(OverlayMessage),
     MountFile(MountFileMessage),
+    InstructionPanel(InstructionPanelMessage),
 }
 
 #[derive(Debug, Clone)]
@@ -472,21 +478,6 @@ pub enum OverlayMessage {
     ToggleInstructionPanel(BlockId),
     /// Text edited in the instruction panel.
     InstructionEdited(iced::widget::text_editor::Action),
-    /// Send inquiry to LLM with the instruction.
-    Inquire(BlockId),
-    /// Inquiry request completed.
-    InquireDone {
-        block_id: BlockId,
-        result: Result<String, UiError>,
-    },
-    /// Expand with instruction as system prompt.
-    ExpandWithInstruction(BlockId),
-    /// Reduce with instruction as system prompt.
-    ReduceWithInstruction(BlockId),
-    /// Apply rewrite from inquiry result.
-    ApplyInstructionRewrite(BlockId),
-    /// Dismiss inquiry result.
-    DismissInstruction(BlockId),
 }
 
 #[derive(Debug, Clone)]
@@ -1232,42 +1223,12 @@ fn handle_overlay_message(state: &mut AppState, message: OverlayMessage) -> Task
         | OverlayMessage::ToggleInstructionPanel(block_id) => instruction_panel::handle(
             state,
             block_id,
-            instruction_panel::InstructionPanelMessage::Toggle(block_id),
+            instruction_panel::InstructionPanelMessage::Toggle,
         ),
         | OverlayMessage::InstructionEdited(action) => instruction_panel::handle(
             state,
             BlockId::default(),
             instruction_panel::InstructionPanelMessage::TextEdited(action),
-        ),
-        | OverlayMessage::Inquire(block_id) => instruction_panel::handle(
-            state,
-            block_id,
-            instruction_panel::InstructionPanelMessage::Inquire(block_id),
-        ),
-        | OverlayMessage::InquireDone { block_id, result } => instruction_panel::handle(
-            state,
-            block_id,
-            instruction_panel::InstructionPanelMessage::InquireDone { block_id, result },
-        ),
-        | OverlayMessage::ExpandWithInstruction(block_id) => instruction_panel::handle(
-            state,
-            block_id,
-            instruction_panel::InstructionPanelMessage::ExpandWithInstruction(block_id),
-        ),
-        | OverlayMessage::ReduceWithInstruction(block_id) => instruction_panel::handle(
-            state,
-            block_id,
-            instruction_panel::InstructionPanelMessage::ReduceWithInstruction(block_id),
-        ),
-        | OverlayMessage::ApplyInstructionRewrite(block_id) => instruction_panel::handle(
-            state,
-            block_id,
-            instruction_panel::InstructionPanelMessage::ApplyInstructionRewrite(block_id),
-        ),
-        | OverlayMessage::DismissInstruction(block_id) => instruction_panel::handle(
-            state,
-            block_id,
-            instruction_panel::InstructionPanelMessage::Dismiss(block_id),
         ),
     }
 }
