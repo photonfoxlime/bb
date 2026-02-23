@@ -75,18 +75,21 @@ pub fn handle(
 
     match msg {
         | InstructionPanelMessage::Toggle(target_block_id) => {
-            match &state.panel_bar_open_for {
-                | Some((id, PanelBarState::Instruction)) if *id == target_block_id => {
-                    // Close if same block, otherwise switch
-                    state.panel_bar_open_for = None;
-                    state.instruction_panel.reset();
+            // Only toggle if this is the focused block
+            if state.focused_block_id == Some(target_block_id) {
+                match &state.panel_bar_state {
+                    Some(PanelBarState::Instruction) => {
+                        state.panel_bar_state = None;
+                    }
+                    _ => {
+                        state.panel_bar_state = Some(PanelBarState::Instruction);
+                    }
                 }
-                | _ => {
-                    state.panel_bar_open_for = Some((target_block_id, PanelBarState::Instruction));
-                    state.instruction_panel.reset();
-                    state.editor_buffers.set_instruction_text("");
-                }
+            } else {
+                state.panel_bar_state = Some(PanelBarState::Instruction);
             }
+            state.instruction_panel.reset();
+            state.editor_buffers.set_instruction_text("");
             iced::Task::none()
         }
         | InstructionPanelMessage::TextEdited(action) => {
@@ -155,7 +158,7 @@ pub fn handle(
             state.instruction_panel.prompt =
                 Some(format!("Additional instruction: {}", instruction));
             // Close the instruction panel and trigger expand
-            state.panel_bar_open_for = None;
+            state.panel_bar_state = None;
             crate::app::update(state, Message::Expand(ExpandMessage::Start(target_block_id)))
         }
         | InstructionPanelMessage::ReduceWithInstruction(target_block_id) => {
@@ -166,7 +169,7 @@ pub fn handle(
             state.instruction_panel.prompt =
                 Some(format!("Additional instruction: {}", instruction));
             // Close the instruction panel and trigger reduce
-            state.panel_bar_open_for = None;
+            state.panel_bar_state = None;
             crate::app::update(state, Message::Reduce(ReduceMessage::Start(target_block_id)))
         }
         | InstructionPanelMessage::ApplyInstructionRewrite(target_block_id) => {

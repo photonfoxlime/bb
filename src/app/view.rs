@@ -147,9 +147,9 @@ impl<'a> TreeView<'a> {
         };
 
         let is_focused = self.state.focused_block_id == Some(*block_id);
-        let friends_panel_open = self.state.panel_bar_open_for
+        let friends_panel_open = is_focused && self.state.panel_bar_state
             .as_ref()
-            .is_some_and(|(id, state)| *id == *block_id && state == &super::PanelBarState::Friends);
+            .is_some_and(|state| *state == super::PanelBarState::Friends);
 
         // Only render action bar when block is focused
         let action_buttons: Element<'a, Message> = if is_focused {
@@ -637,9 +637,9 @@ impl<'a> TreeView<'a> {
         let mut col = column![];
 
         let friends_open = friends_panel_open;
-        let instruction_open = self.state.panel_bar_open_for
+        let instruction_open = is_focused && self.state.panel_bar_state
             .as_ref()
-            .is_some_and(|(id, state)| *id == *block_id && state == &super::PanelBarState::Instruction);
+            .is_some_and(|state| *state == super::PanelBarState::Instruction);
 
         // Render toggle buttons in a row if any panel is relevant
         let show_friends = is_focused || friends_open;
