@@ -23,8 +23,7 @@ use super::{
     AppState, EditMessage, ExpandMessage, Message, MountFileMessage, OverlayMessage, ReduceMessage,
     ShortcutMessage, StructureMessage,
 };
-use crate::store::BlockId;
-use crate::store::{ExpansionDraftRecord, FriendBlock, ReductionDraftRecord};
+use crate::store::{BlockId, ExpansionDraftRecord, FriendBlock, ReductionDraftRecord};
 use crate::theme;
 use iced::widget::{button, column, container, row, rule, space, text, text_editor, tooltip};
 use iced::{Element, Fill, Length, Padding};
@@ -147,9 +146,12 @@ impl<'a> TreeView<'a> {
         };
 
         let is_focused = self.state.focused_block_id == Some(*block_id);
-        let friends_panel_open = is_focused && self.state.panel_bar_state
-            .as_ref()
-            .is_some_and(|state| *state == super::PanelBarState::Friends);
+        let friends_panel_open = is_focused
+            && self
+                .state
+                .panel_bar_state
+                .as_ref()
+                .is_some_and(|state| *state == super::PanelBarState::Friends);
 
         // Only render action bar when block is focused
         let action_buttons: Element<'a, Message> = if is_focused {
@@ -247,7 +249,10 @@ impl<'a> TreeView<'a> {
         if self.state.friend_picker_for.is_some() && !is_picker_target {
             let target = self.state.friend_picker_for.unwrap();
             button(container(block).style(theme::friend_picker_hover))
-                .on_press(Message::Structure(StructureMessage::AddFriendBlock { target, friend_id: *block_id }))
+                .on_press(Message::Structure(StructureMessage::AddFriendBlock {
+                    target,
+                    friend_id: *block_id,
+                }))
                 .padding(0)
                 .style(theme::action_button)
                 .into()
@@ -462,9 +467,8 @@ impl<'a> TreeView<'a> {
                     .on_press(Message::Overlay(OverlayMessage::StartFriendPicker(*block_id))),
             );
 
-        let mut panel = column![]
-            .spacing(theme::PANEL_INNER_GAP)
-            .push(container(header).width(Length::Fill));
+        let mut panel =
+            column![].spacing(theme::PANEL_INNER_GAP).push(container(header).width(Length::Fill));
 
         // Show message based on state
         if is_picker_mode {
@@ -473,18 +477,20 @@ impl<'a> TreeView<'a> {
                 container(
                     text("Click on a block to add it as a friend. Press Escape to cancel.")
                         .font(theme::INTER)
-                        .size(12)
+                        .size(12),
                 )
                 .width(Length::Fill),
             );
         } else if friends.is_empty() {
             // Empty state - show instruction to start picker
             panel = panel.push(
-                container(text("Click + to add a friend from another block.")
-                    .font(theme::INTER)
-                    .size(12)
-                    .style(theme::spine_text))
-                    .width(Length::Fill),
+                container(
+                    text("Click + to add a friend from another block.")
+                        .font(theme::INTER)
+                        .size(12)
+                        .style(theme::spine_text),
+                )
+                .width(Length::Fill),
             );
         }
 
@@ -637,9 +643,12 @@ impl<'a> TreeView<'a> {
         let mut col = column![];
 
         let friends_open = friends_panel_open;
-        let instruction_open = is_focused && self.state.panel_bar_state
-            .as_ref()
-            .is_some_and(|state| *state == super::PanelBarState::Instruction);
+        let instruction_open = is_focused
+            && self
+                .state
+                .panel_bar_state
+                .as_ref()
+                .is_some_and(|state| *state == super::PanelBarState::Instruction);
 
         // Render toggle buttons in a row if any panel is relevant
         let show_friends = is_focused || friends_open;
@@ -652,7 +661,9 @@ impl<'a> TreeView<'a> {
             if show_friends {
                 let is_active = friends_open;
                 let btn = button(text("Friends").font(theme::INTER).size(13))
-                    .style(move |theme, status| theme::panel_toggle_button(theme, status, is_active))
+                    .style(move |theme, status| {
+                        theme::panel_toggle_button(theme, status, is_active)
+                    })
                     .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                     .on_press(Message::Overlay(OverlayMessage::ToggleFriendsPanel(*block_id)));
                 button_row = button_row.push(btn);
@@ -662,33 +673,32 @@ impl<'a> TreeView<'a> {
             if show_instruction {
                 let is_active = instruction_open;
                 let btn = button(text("Instruction").font(theme::INTER).size(13))
-                    .style(move |theme, status| theme::panel_toggle_button(theme, status, is_active))
+                    .style(move |theme, status| {
+                        theme::panel_toggle_button(theme, status, is_active)
+                    })
                     .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                    .on_press(Message::Overlay(OverlayMessage::ToggleInstructionPanel(*block_id)));
+                    .on_press(
+                        Message::InstructionPanel(
+                            instruction_panel::InstructionPanelMessage::Toggle,
+                        )
+                        .into(),
+                    );
                 button_row = button_row.push(btn);
             }
 
-            col = col.push(
-                container(button_row)
-                    .padding(Padding::ZERO.right(theme::INDENT)),
-            );
+            col = col.push(container(button_row).padding(Padding::ZERO.right(theme::INDENT)));
         }
 
         // Friends panel content (only when open)
         if friends_open {
             let friends = self.state.store.friend_blocks_for(block_id);
-            col = col.push(
-                container(self.render_friends_panel(block_id, friends))
-                    .width(Length::Fill),
-            );
+            col = col
+                .push(container(self.render_friends_panel(block_id, friends)).width(Length::Fill));
         }
 
         // Instruction panel content (only when open)
         if instruction_open {
-            col = col.push(
-                container(instruction_panel::view(&self.state))
-                    .width(Length::Fill),
-            );
+            col = col.push(container(instruction_panel::view(&self.state)).width(Length::Fill));
         }
 
         col.into()
@@ -718,10 +728,14 @@ impl<'a> TreeView<'a> {
                     .on_press(Message::Overlay(OverlayMessage::ToggleOverflow(*block_id)));
 
                 actions_row = actions_row.push(
-                    tooltip(btn, text("Close").size(12).font(theme::INTER), tooltip::Position::Bottom)
-                        .style(theme::tooltip)
-                        .padding(theme::TOOLTIP_PAD)
-                        .gap(theme::TOOLTIP_GAP),
+                    tooltip(
+                        btn,
+                        text("Close").size(12).font(theme::INTER),
+                        tooltip::Position::Bottom,
+                    )
+                    .style(theme::tooltip)
+                    .padding(theme::TOOLTIP_PAD)
+                    .gap(theme::TOOLTIP_GAP),
                 );
             } else {
                 // When closed, show "More" button
@@ -733,10 +747,14 @@ impl<'a> TreeView<'a> {
                     .on_press(Message::Overlay(OverlayMessage::ToggleOverflow(*block_id)));
 
                 actions_row = actions_row.push(
-                    tooltip(btn, text("More").size(12).font(theme::INTER), tooltip::Position::Bottom)
-                        .style(theme::tooltip)
-                        .padding(theme::TOOLTIP_PAD)
-                        .gap(theme::TOOLTIP_GAP),
+                    tooltip(
+                        btn,
+                        text("More").size(12).font(theme::INTER),
+                        tooltip::Position::Bottom,
+                    )
+                    .style(theme::tooltip)
+                    .padding(theme::TOOLTIP_PAD)
+                    .gap(theme::TOOLTIP_GAP),
                 );
             }
         }

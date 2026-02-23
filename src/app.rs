@@ -11,8 +11,6 @@ mod instruction_panel;
 mod llm_requests;
 mod view;
 
-pub use instruction_panel::InstructionPanelMessage;
-
 use crate::llm;
 use crate::paths::AppPaths;
 use crate::store::{
@@ -31,8 +29,8 @@ use iced::theme::Mode;
 use iced::widget::{button, column, container, row, scrollable, text, text_editor};
 use iced::{Element, Event, Fill, Subscription, Task, event, keyboard, mouse, system, widget};
 use instruction_panel::InstructionPanel;
+use instruction_panel::InstructionPanelMessage;
 use llm_requests::{LlmRequests, RequestSignature};
-
 use std::time::Duration;
 
 /// Snapshot of undoable application state.
@@ -474,10 +472,6 @@ pub enum OverlayMessage {
     StartFriendPicker(BlockId),
     /// Cancel friend picker mode.
     CancelFriendPicker,
-    /// Toggle instruction panel visibility for the given block.
-    ToggleInstructionPanel(BlockId),
-    /// Text edited in the instruction panel.
-    InstructionEdited(iced::widget::text_editor::Action),
 }
 
 #[derive(Debug, Clone)]
@@ -1220,16 +1214,6 @@ fn handle_overlay_message(state: &mut AppState, message: OverlayMessage) -> Task
             state.friend_picker_for = None;
             Task::none()
         }
-        | OverlayMessage::ToggleInstructionPanel(block_id) => instruction_panel::handle(
-            state,
-            block_id,
-            instruction_panel::InstructionPanelMessage::Toggle,
-        ),
-        | OverlayMessage::InstructionEdited(action) => instruction_panel::handle(
-            state,
-            BlockId::default(),
-            instruction_panel::InstructionPanelMessage::TextEdited(action),
-        ),
     }
 }
 

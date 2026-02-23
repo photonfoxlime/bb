@@ -41,8 +41,12 @@ impl InstructionPanel {
     }
 
     /// Check if the panel has any content.
-    pub fn is_empty(&self) -> bool {
-        self.inquiry_result.is_none() && !self.is_inquiring && self.prompt.is_none()
+    /// Takes the current editor text content to include in the check.
+    pub fn is_empty(&self, editor_text: &str) -> bool {
+        editor_text.is_empty()
+            && self.inquiry_result.is_none()
+            && !self.is_inquiring
+            && self.prompt.is_none()
     }
 }
 
@@ -79,6 +83,15 @@ pub fn handle(
 
     match msg {
         | InstructionPanelMessage::Toggle => {
+            // Check if there's unsaved work when closing the panel
+            let editor_text = state.editor_buffers.instruction_content().text();
+            if matches!(&state.panel_bar_state, Some(PanelBarState::Instruction))
+                && !state.instruction_panel.is_empty(&editor_text)
+            {
+                // Could show confirmation dialog here in the future
+                // For now, just reset without saving
+            }
+            
             // Only toggle if this is the focused block
             if state.focused_block_id == Some(block_id) {
                 match &state.panel_bar_state {
@@ -292,7 +305,7 @@ mod tests {
     #[test]
     fn instruction_panel_default_is_empty() {
         let panel = InstructionPanel::new();
-        assert!(panel.is_empty());
+        assert!(panel.is_empty(""));
     }
 
     #[test]
@@ -304,7 +317,7 @@ mod tests {
 
         panel.reset();
 
-        assert!(panel.is_empty());
+        assert!(panel.is_empty(""));
         assert!(panel.inquiry_result.is_none());
         assert!(!panel.is_inquiring);
         assert!(panel.prompt.is_none());
@@ -314,21 +327,21 @@ mod tests {
     fn instruction_panel_not_empty_with_inquiry_result() {
         let mut panel = InstructionPanel::new();
         panel.inquiry_result = Some("result".to_string());
-        assert!(!panel.is_empty());
+        assert!(!panel.is_empty(""));
     }
 
     #[test]
     fn instruction_panel_not_empty_while_inquiring() {
         let mut panel = InstructionPanel::new();
         panel.is_inquiring = true;
-        assert!(!panel.is_empty());
+        assert!(!panel.is_empty(""));
     }
 
     #[test]
     fn instruction_panel_not_empty_with_prompt() {
         let mut panel = InstructionPanel::new();
         panel.prompt = Some("prompt".to_string());
-        assert!(!panel.is_empty());
+        assert!(!panel.is_empty(""));
     }
 
     #[test]
