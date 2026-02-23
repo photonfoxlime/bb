@@ -263,6 +263,16 @@ pub fn focused_block(theme: &Theme) -> container::Style {
     }
 }
 
+/// Friend picker hover — indicates block is clickable to select as friend.
+pub fn friend_picker_hover(theme: &Theme) -> container::Style {
+    let p = focused_palette(theme);
+    container::Style {
+        background: Some(p.tint.into()),
+        border: border::rounded(4).width(1).color(p.accent),
+        ..Default::default()
+    }
+}
+
 // ── Text editor style ────────────────────────────────────────────────
 
 /// Borderless editor that blends with the paper surface.

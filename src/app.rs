@@ -83,6 +83,8 @@ pub struct AppState {
     persistence_write_disabled: bool,
     /// Block currently holding open the overflow menu.
     overflow_open_for: Option<BlockId>,
+    /// Block for which we're currently picking a friend. When Some, we're in friend picker mode.
+    friend_picker_for: Option<BlockId>,
     /// Block whose point editor currently has keyboard focus.
     focused_block_id: Option<BlockId>,
     /// Block currently coalescing point edits into a single undo entry.
@@ -124,6 +126,7 @@ impl AppState {
             persistence_blocked,
             persistence_write_disabled: false,
             overflow_open_for: None,
+            friend_picker_for: None,
             focused_block_id: None,
             editing_block_id: None,
 
@@ -430,6 +433,10 @@ pub enum StructureMessage {
 pub enum OverlayMessage {
     ToggleOverflow(BlockId),
     CloseOverflow,
+    /// Start picking a friend for the given target block.
+    StartFriendPicker(BlockId),
+    /// Cancel friend picker mode.
+    CancelFriendPicker,
 }
 
 #[derive(Debug, Clone)]
@@ -467,7 +474,7 @@ fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) 
         | Event::Keyboard(keyboard::Event::KeyPressed {
             key: keyboard::Key::Named(keyboard::key::Named::Escape),
             ..
-        }) => Some(Message::Overlay(OverlayMessage::CloseOverflow)),
+        }) => Some(Message::Overlay(OverlayMessage::CancelFriendPicker)),
         | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
             if modifiers.command() {
                 match &key {
@@ -1129,6 +1136,15 @@ fn handle_overlay_message(state: &mut AppState, message: OverlayMessage) -> Task
             state.focused_block_id = None;
             Task::none()
         }
+        | OverlayMessage::StartFriendPicker(block_id) => {
+            state.friend_picker_for = Some(block_id);
+            state.overflow_open_for = None;
+            Task::none()
+        }
+        | OverlayMessage::CancelFriendPicker => {
+            state.friend_picker_for = None;
+            Task::none()
+        }
     }
 }
 
@@ -1458,6 +1474,7 @@ mod tests {
             errors: vec![],
             llm_requests: super::LlmRequests::new(),
             overflow_open_for: None,
+            friend_picker_for: None,
             focused_block_id: None,
             editing_block_id: None,
             persistence_blocked: false,

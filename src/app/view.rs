@@ -199,7 +199,9 @@ impl<'a> TreeView<'a> {
             block = block.push(self.render_reduction_panel(block_id, draft));
         }
         let friends = self.state.store.friend_blocks_for(block_id);
-        if !friends.is_empty() {
+        let is_focused = self.state.focused_block_id == Some(*block_id);
+        // Show friends panel when there are friends OR when this block is focused
+        if !friends.is_empty() || is_focused {
             block = block.push(
                 container(self.render_friends_panel(block_id, friends))
                     .padding(Padding::ZERO.left(theme::INDENT)),
@@ -226,7 +228,21 @@ impl<'a> TreeView<'a> {
         }
 
         let is_focused = self.state.focused_block_id == Some(*block_id);
-        if is_focused { container(block).style(theme::focused_block).into() } else { block.into() }
+        let is_picker_target = self.state.friend_picker_for == Some(*block_id);
+
+        // When in friend picker mode, make blocks clickable to select as friend
+        if self.state.friend_picker_for.is_some() && !is_picker_target {
+            let target = self.state.friend_picker_for.unwrap();
+            button(container(block).style(theme::friend_picker_hover))
+                .on_press(Message::Structure(StructureMessage::AddFriendBlock { target, friend_id: *block_id }))
+                .padding(0)
+                .style(theme::action_button)
+                .into()
+        } else if is_focused {
+            container(block).style(theme::focused_block).into()
+        } else {
+            block.into()
+        }
     }
 
     fn render_expansion_panel(
@@ -420,9 +436,45 @@ impl<'a> TreeView<'a> {
     fn render_friends_panel(
         &self, block_id: &BlockId, friends: &'a [FriendBlock],
     ) -> Element<'a, Message> {
+        let is_picker_mode = self.state.friend_picker_for == Some(*block_id);
+
+        // Header with "+" button to start friend picker
+        let header = row![]
+            .spacing(theme::PANEL_BUTTON_GAP)
+            .push(container(text("Friends").font(theme::INTER).size(13)).width(Length::Fill))
+            .push(
+                button(text("+").font(theme::INTER).size(13))
+                    .style(theme::action_button)
+                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .on_press(Message::Overlay(OverlayMessage::StartFriendPicker(*block_id))),
+            );
+
         let mut panel = column![]
             .spacing(theme::PANEL_INNER_GAP)
-            .push(container(text("Friends").font(theme::INTER).size(13)).width(Length::Fill));
+            .push(container(header).width(Length::Fill));
+
+        // Show message based on state
+        if is_picker_mode {
+            // In picker mode - show instruction
+            panel = panel.push(
+                container(
+                    text("Click on a block to add it as a friend. Press Escape to cancel.")
+                        .font(theme::INTER)
+                        .size(12)
+                )
+                .width(Length::Fill),
+            );
+        } else if friends.is_empty() {
+            // Empty state - show instruction to start picker
+            panel = panel.push(
+                container(text("Click + to add a friend from another block.")
+                    .font(theme::INTER)
+                    .size(12)
+                    .style(theme::spine_text))
+                    .width(Length::Fill),
+            );
+        }
+
         for friend in friends {
             let point_text = self.state.store.point(&friend.block_id).unwrap_or_default();
             let perspective_label = friend.perspective.as_deref().unwrap_or("").trim();
