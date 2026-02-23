@@ -18,7 +18,7 @@ use super::{
 use crate::store::BlockId;
 use crate::store::{ExpansionDraftRecord, ReductionDraftRecord};
 use crate::theme;
-use iced::widget::{button, column, container, row, rule, text, text_editor, tooltip};
+use iced::widget::{button, column, container, row, rule, space, text, text_editor, tooltip};
 use iced::{Element, Fill, Length, Padding};
 use lucide_icons::iced as icons;
 
@@ -232,7 +232,9 @@ impl<'a> TreeView<'a> {
                     .push(container(diff_content).width(Length::Fill))
                     .push(
                         row![]
+                            .width(Length::Fill)
                             .spacing(theme::PANEL_BUTTON_GAP)
+                            .push(space::horizontal())
                             .push(
                                 button(text("Apply rewrite").font(theme::INTER).size(13))
                                     .style(theme::action_button)
@@ -320,7 +322,9 @@ impl<'a> TreeView<'a> {
                 .push(container(diff_content).width(Length::Fill))
                 .push(
                     row![]
+                        .width(Length::Fill)
                         .spacing(theme::PANEL_BUTTON_GAP)
+                        .push(space::horizontal())
                         .push(
                             button(text("Apply reduction").font(theme::INTER).size(13))
                                 .style(theme::action_button)
