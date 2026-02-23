@@ -146,7 +146,9 @@ impl<'a> TreeView<'a> {
         };
 
         let is_focused = self.state.focused_block_id == Some(*block_id);
-        let friends_panel_open = self.state.friends_panel_open_for == Some(*block_id);
+        let friends_panel_open = self.state.panel_bar_open_for
+            .as_ref()
+            .is_some_and(|(id, state)| *id == *block_id && state == &super::PanelBarState::Friends);
 
         // Only render action bar when block is focused
         let action_buttons: Element<'a, Message> = if is_focused {
@@ -633,31 +635,153 @@ impl<'a> TreeView<'a> {
     ) -> Element<'a, Message> {
         let mut col = column![];
 
-        // Friends panel toggle and content
-        if is_focused || friends_panel_open {
-            let is_open = friends_panel_open;
-            let label = if is_open { "Close Friends" } else { "Friends" };
-            let btn = button(text(label).font(theme::INTER).size(13))
-                .style(theme::action_button)
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::Overlay(OverlayMessage::ToggleFriendsPanel(*block_id)));
+        let friends_open = friends_panel_open;
+        let instruction_open = self.state.panel_bar_open_for
+            .as_ref()
+            .is_some_and(|(id, state)| *id == *block_id && state == &super::PanelBarState::Instruction);
+
+        // Render toggle buttons in a row if any panel is relevant
+        let show_friends = is_focused || friends_open;
+        let show_instruction = is_focused || instruction_open;
+
+        if show_friends || show_instruction {
+            let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
+
+            // Friends panel toggle button
+            if show_friends {
+                let is_active = friends_open;
+                let btn = button(text("Friends").font(theme::INTER).size(13))
+                    .style(move |theme, status| theme::panel_toggle_button(theme, status, is_active))
+                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .on_press(Message::Overlay(OverlayMessage::ToggleFriendsPanel(*block_id)));
+                button_row = button_row.push(btn);
+            }
+
+            // Instruction panel toggle button
+            if show_instruction {
+                let is_active = instruction_open;
+                let btn = button(text("Instruction").font(theme::INTER).size(13))
+                    .style(move |theme, status| theme::panel_toggle_button(theme, status, is_active))
+                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .on_press(Message::Overlay(OverlayMessage::ToggleInstructionPanel(*block_id)));
+                button_row = button_row.push(btn);
+            }
 
             col = col.push(
-                container(btn)
+                container(button_row)
                     .padding(Padding::ZERO.right(theme::INDENT)),
             );
+        }
 
-            // Friends panel content (only when open)
-            if friends_panel_open {
-                let friends = self.state.store.friend_blocks_for(block_id);
-                col = col.push(
-                    container(self.render_friends_panel(block_id, friends))
-                        .width(Length::Fill),
-                );
-            }
+        // Friends panel content (only when open)
+        if friends_open {
+            let friends = self.state.store.friend_blocks_for(block_id);
+            col = col.push(
+                container(self.render_friends_panel(block_id, friends))
+                    .width(Length::Fill),
+            );
+        }
+
+        // Instruction panel content (only when open)
+        if instruction_open {
+            col = col.push(
+                container(self.render_instruction_panel(block_id))
+                    .width(Length::Fill),
+            );
         }
 
         col.into()
+    }
+
+    /// Renders the instruction panel with text editor and action buttons.
+    fn render_instruction_panel(&self, block_id: &BlockId) -> Element<'a, Message> {
+        let instruction_content = self.state.editor_buffers.instruction_content();
+        let inquiry_result = &self.state.instruction_inquiry_result;
+        let is_inquiring = self.state.instruction_inquiring;
+
+        let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
+
+        // Instruction text editor
+        panel = panel.push(
+            container(
+                text_editor(instruction_content)
+                    .placeholder("Enter instruction...")
+                    .style(theme::point_editor)
+                    .on_action(move |action| {
+                        Message::Overlay(OverlayMessage::InstructionEdited(action))
+                    })
+            )
+            .height(Length::Fixed(80.0))
+        );
+
+        // Action buttons row
+        let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
+
+        // Inquire button
+        let inquire_btn = button(
+            text(if is_inquiring { "Inquiring..." } else { "Inquire" })
+                .font(theme::INTER)
+                .size(13)
+        )
+        .style(theme::action_button)
+        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .on_press(Message::Overlay(OverlayMessage::Inquire(*block_id)));
+
+        button_row = button_row.push(inquire_btn);
+
+        // Expand button
+        button_row = button_row.push(
+            button(text("Expand").font(theme::INTER).size(13))
+                .style(theme::action_button)
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::Overlay(OverlayMessage::ExpandWithInstruction(*block_id)))
+        );
+
+        // Reduce button
+        button_row = button_row.push(
+            button(text("Reduce").font(theme::INTER).size(13))
+                .style(theme::action_button)
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::Overlay(OverlayMessage::ReduceWithInstruction(*block_id)))
+        );
+
+        panel = panel.push(button_row);
+
+        // Show inquiry result if available
+        if let Some(result) = inquiry_result {
+            let mut result_col = column![].spacing(theme::PANEL_INNER_GAP);
+            result_col = result_col.push(
+                container(text("Response"))
+                    .width(Length::Fill)
+            );
+            result_col = result_col.push(
+                container(text(result.as_str()))
+                    .width(Length::Fill)
+            );
+
+            // Action buttons for the result
+            let mut result_buttons = row![].spacing(theme::PANEL_BUTTON_GAP);
+            result_buttons = result_buttons.push(
+                button(text("Apply as Rewrite").font(theme::INTER).size(13))
+                    .style(theme::action_button)
+                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .on_press(Message::Overlay(OverlayMessage::ApplyInstructionRewrite(*block_id)))
+            );
+            result_buttons = result_buttons.push(
+                button(text("Dismiss").font(theme::INTER).size(13))
+                    .style(theme::destructive_button)
+                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .on_press(Message::Overlay(OverlayMessage::DismissInstruction(*block_id)))
+            );
+            result_col = result_col.push(result_buttons);
+
+            panel = panel.push(result_col);
+        }
+
+        container(panel)
+            .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
+            .style(theme::draft_panel)
+            .into()
     }
 
     fn render_action_buttons(&self, block_id: &BlockId, vm: &ActionBarVm) -> Element<'a, Message> {

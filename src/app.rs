@@ -83,8 +83,14 @@ pub struct AppState {
     persistence_write_disabled: bool,
     /// Block currently holding open the overflow menu.
     overflow_open_for: Option<BlockId>,
-    /// Block whose friends panel is currently expanded.
-    friends_panel_open_for: Option<BlockId>,
+    /// Which panel is open in the panel bar and for which block.
+    panel_bar_open_for: Option<(BlockId, PanelBarState)>,
+    /// Result from the last inquiry request (rewrite suggestion).
+    instruction_inquiry_result: Option<String>,
+    /// Whether an inquiry request is currently in progress.
+    instruction_inquiring: bool,
+    /// System prompt instruction to prepend to expand/reduce requests.
+    instruction_prompt: Option<String>,
     /// Block for which we're currently picking a friend. When Some, we're in friend picker mode.
     friend_picker_for: Option<BlockId>,
     /// Block whose point editor currently has keyboard focus.
@@ -128,7 +134,10 @@ impl AppState {
             persistence_blocked,
             persistence_write_disabled: false,
             overflow_open_for: None,
-            friends_panel_open_for: None,
+            panel_bar_open_for: None,
+            instruction_inquiry_result: None,
+            instruction_inquiring: false,
+            instruction_prompt: None,
             friend_picker_for: None,
             focused_block_id: None,
             editing_block_id: None,
@@ -258,6 +267,10 @@ impl AppState {
         self.llm_requests.clear();
         self.focused_block_id = None;
         self.editing_block_id = None;
+        self.panel_bar_open_for = None;
+        self.instruction_inquiry_result = None;
+        self.instruction_inquiring = false;
+        self.instruction_prompt = None;
 
         self.persist_with_context("after undo/redo");
     }
@@ -432,6 +445,13 @@ pub enum StructureMessage {
     RemoveFriendBlock { target: BlockId, friend_id: BlockId },
 }
 
+/// Panel bar state - tracks which panel is open in the panel bar.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PanelBarState {
+    Friends,
+    Instruction,
+}
+
 #[derive(Debug, Clone)]
 pub enum OverlayMessage {
     ToggleOverflow(BlockId),
@@ -442,6 +462,22 @@ pub enum OverlayMessage {
     StartFriendPicker(BlockId),
     /// Cancel friend picker mode.
     CancelFriendPicker,
+    /// Toggle instruction panel visibility for the given block.
+    ToggleInstructionPanel(BlockId),
+    /// Text edited in the instruction panel.
+    InstructionEdited(iced::widget::text_editor::Action),
+    /// Send inquiry to LLM with the instruction.
+    Inquire(BlockId),
+    /// Inquiry request completed.
+    InquireDone { block_id: BlockId, result: Result<String, UiError> },
+    /// Expand with instruction as system prompt.
+    ExpandWithInstruction(BlockId),
+    /// Reduce with instruction as system prompt.
+    ReduceWithInstruction(BlockId),
+    /// Apply rewrite from inquiry result.
+    ApplyInstructionRewrite(BlockId),
+    /// Dismiss inquiry result.
+    DismissInstruction(BlockId),
 }
 
 #[derive(Debug, Clone)]
@@ -571,7 +607,7 @@ fn handle_shortcut_message(state: &mut AppState, message: ShortcutMessage) -> Ta
         }
         | ShortcutMessage::ForBlock { block_id, action_id } => {
             state.focused_block_id = Some(block_id);
-            state.friends_panel_open_for = None;
+            state.panel_bar_open_for = None;
             run_shortcut_for_block(state, block_id, action_id)
         }
     }
@@ -610,11 +646,12 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             };
             let children_snapshot: Vec<BlockId> = state.store.children(&block_id).to_vec();
             state.llm_requests.mark_reduce_loading(block_id, request_signature);
+            let instruction = state.instruction_prompt.clone();
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
                     AppState::resolve_llm_request(
-                        tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.reduce_block(&context))
+                        tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.reduce_block(&context, instruction.as_deref()))
                             .await,
                         "reduce request timed out after 30 seconds",
                     )
@@ -680,6 +717,8 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
                     state.record_error(AppError::Reduce(reason));
                 }
             }
+            // Clear instruction prompt after reduce completes
+            state.instruction_prompt = None;
             Task::none()
         }
         | ReduceMessage::Apply(block_id) => {
@@ -812,11 +851,12 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
                 return Task::none();
             };
             state.llm_requests.mark_expand_loading(block_id, request_signature);
+            let instruction = state.instruction_prompt.clone();
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
                     AppState::resolve_llm_request(
-                        tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.expand_block(&context))
+                        tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.expand_block(&context, instruction.as_deref()))
                             .await,
                         "expand request timed out after 30 seconds",
                     )
@@ -887,6 +927,8 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
                     state.record_error(AppError::Expand(reason));
                 }
             }
+            // Clear instruction prompt after expand completes
+            state.instruction_prompt = None;
             Task::none()
         }
         | ExpandMessage::ApplyRewrite(block_id) => {
@@ -1072,7 +1114,7 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
                 }
                 if removed_ids.iter().any(|id| Some(*id) == state.focused_block_id) {
                     state.focused_block_id = None;
-                    state.friends_panel_open_for = None;
+                    state.panel_bar_open_for = None;
                 }
                 for root_id in state.store.roots() {
                     state.editor_buffers.ensure_block(&state.store, root_id);
@@ -1140,15 +1182,19 @@ fn handle_overlay_message(state: &mut AppState, message: OverlayMessage) -> Task
         }
         | OverlayMessage::CloseOverflow => {
             state.overflow_open_for = None;
-            state.friends_panel_open_for = None;
+            state.panel_bar_open_for = None;
             state.focused_block_id = None;
             Task::none()
         }
         | OverlayMessage::ToggleFriendsPanel(block_id) => {
-            if state.friends_panel_open_for == Some(block_id) {
-                state.friends_panel_open_for = None;
-            } else {
-                state.friends_panel_open_for = Some(block_id);
+            match &state.panel_bar_open_for {
+                Some((id, PanelBarState::Friends)) if *id == block_id => {
+                    // Close if same block, otherwise switch
+                    state.panel_bar_open_for = None;
+                }
+                _ => {
+                    state.panel_bar_open_for = Some((block_id, PanelBarState::Friends));
+                }
             }
             Task::none()
         }
@@ -1159,6 +1205,111 @@ fn handle_overlay_message(state: &mut AppState, message: OverlayMessage) -> Task
         }
         | OverlayMessage::CancelFriendPicker => {
             state.friend_picker_for = None;
+            Task::none()
+        }
+        | OverlayMessage::ToggleInstructionPanel(block_id) => {
+            match &state.panel_bar_open_for {
+                Some((id, PanelBarState::Instruction)) if *id == block_id => {
+                    // Close if same block, otherwise switch
+                    state.panel_bar_open_for = None;
+                    state.instruction_inquiry_result = None;
+                }
+                _ => {
+                    state.panel_bar_open_for = Some((block_id, PanelBarState::Instruction));
+                    state.instruction_inquiry_result = None;
+                    state.editor_buffers.set_instruction_text("");
+                }
+            }
+            Task::none()
+        }
+        | OverlayMessage::InstructionEdited(action) => {
+            state.editor_buffers.instruction_content_mut().perform(action);
+            Task::none()
+        }
+        | OverlayMessage::Inquire(block_id) => {
+            let instruction = state.editor_buffers.instruction_content().text().to_string();
+            if instruction.is_empty() {
+                return Task::none();
+            }
+            state.instruction_inquiring = true;
+            let context = state.store.block_context_for_id(&block_id);
+            let Some(config) = state.llm_config.clone().ok() else {
+                return Task::none();
+            };
+            tracing::info!(block_id = ?block_id, "instruction inquiry started");
+            let request_task = Task::perform(
+                async move {
+                    let client = llm::LlmClient::new(config);
+                    AppState::resolve_llm_request(
+                        tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.inquire(&context, &instruction))
+                            .await,
+                        "inquire request timed out after 30 seconds",
+                    )
+                },
+                move |result| {
+                    Message::Overlay(OverlayMessage::InquireDone {
+                        block_id,
+                        result,
+                    })
+                },
+            );
+            request_task
+        }
+        | OverlayMessage::InquireDone { block_id, result } => {
+            state.instruction_inquiring = false;
+            match result {
+                | Ok(response) => {
+                    tracing::info!(block_id = ?block_id, chars = response.len(), "instruction inquiry succeeded");
+                    state.instruction_inquiry_result = Some(response);
+                }
+                | Err(reason) => {
+                    tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "instruction inquiry failed");
+                    state.record_error(AppError::Inquire(reason));
+                }
+            }
+            Task::none()
+        }
+        | OverlayMessage::ExpandWithInstruction(block_id) => {
+            let instruction = state.editor_buffers.instruction_content().text().trim().to_string();
+            if instruction.is_empty() {
+                return Task::none();
+            }
+            state.instruction_prompt = Some(format!(
+                "Additional instruction: {}",
+                instruction
+            ));
+            // Close the instruction panel and trigger expand
+            state.panel_bar_open_for = None;
+            // Start expand - we need to handle this through the existing expand mechanism
+            // For now, we'll set the instruction and let the expand handler pick it up
+            update(state, Message::Expand(ExpandMessage::Start(block_id)))
+        }
+        | OverlayMessage::ReduceWithInstruction(block_id) => {
+            let instruction = state.editor_buffers.instruction_content().text().trim().to_string();
+            if instruction.is_empty() {
+                return Task::none();
+            }
+            state.instruction_prompt = Some(format!(
+                "Additional instruction: {}",
+                instruction
+            ));
+            // Close the instruction panel and trigger reduce
+            state.panel_bar_open_for = None;
+            update(state, Message::Reduce(ReduceMessage::Start(block_id)))
+        }
+        | OverlayMessage::ApplyInstructionRewrite(block_id) => {
+            if let Some(rewrite) = state.instruction_inquiry_result.take() {
+                state.mutate_with_undo_and_persist("after applying instruction rewrite", |state| {
+                    state.store.update_point(&block_id, rewrite.clone());
+                    state.editor_buffers.set_text(&block_id, &rewrite);
+                    true
+                });
+            }
+            state.instruction_inquiry_result = None;
+            Task::none()
+        }
+        | OverlayMessage::DismissInstruction(_block_id) => {
+            state.instruction_inquiry_result = None;
             Task::none()
         }
     }
@@ -1325,7 +1476,7 @@ fn handle_point_edited(
     state: &mut AppState, block_id: BlockId, action: text_editor::Action,
 ) -> Task<Message> {
     state.focused_block_id = Some(block_id);
-    state.friends_panel_open_for = None;
+    state.panel_bar_open_for = None;
     if state.editing_block_id.as_ref() != Some(&block_id) {
         state.snapshot_for_undo();
         state.editing_block_id = Some(block_id);
@@ -1365,7 +1516,7 @@ fn handle_point_edited(
         && let Some(wid) = state.editor_buffers.widget_id(&target_id)
     {
         state.focused_block_id = Some(target_id);
-        state.friends_panel_open_for = None;
+        state.panel_bar_open_for = None;
         tracing::debug!(
             from = ?block_id,
             to = ?target_id,
@@ -1492,7 +1643,10 @@ mod tests {
             errors: vec![],
             llm_requests: super::LlmRequests::new(),
             overflow_open_for: None,
-            friends_panel_open_for: None,
+            panel_bar_open_for: None,
+            instruction_inquiry_result: None,
+            instruction_inquiring: false,
+            instruction_prompt: None,
             friend_picker_for: None,
             focused_block_id: None,
             editing_block_id: None,

@@ -1,4 +1,6 @@
 //! Parallel text editor buffer storage keyed by block id.
+//!
+//! Also manages the instruction panel's text buffer.
 
 use crate::store::{BlockId, BlockStore};
 use iced::widget::{self, text_editor};
@@ -14,11 +16,17 @@ pub(crate) struct EditorBuffers {
     buffers: SecondaryMap<BlockId, text_editor::Content>,
     /// Stable `widget::Id` per block, used for programmatic focus.
     widget_ids: SecondaryMap<BlockId, widget::Id>,
+    /// Text editor content for the instruction panel.
+    instruction_content: text_editor::Content,
 }
 
 impl Default for EditorBuffers {
     fn default() -> Self {
-        Self { buffers: SecondaryMap::new(), widget_ids: SecondaryMap::new() }
+        Self {
+            buffers: SecondaryMap::new(),
+            widget_ids: SecondaryMap::new(),
+            instruction_content: text_editor::Content::new(),
+        }
     }
 }
 
@@ -89,5 +97,20 @@ impl EditorBuffers {
     /// Get the `widget::Id` for a block's text editor (for programmatic focus).
     pub(crate) fn widget_id(&self, block_id: &BlockId) -> Option<&widget::Id> {
         self.widget_ids.get(*block_id)
+    }
+
+    /// Get the instruction panel text editor content.
+    pub(crate) fn instruction_content(&self) -> &text_editor::Content {
+        &self.instruction_content
+    }
+
+    /// Get mutable reference to instruction panel text editor content.
+    pub(crate) fn instruction_content_mut(&mut self) -> &mut text_editor::Content {
+        &mut self.instruction_content
+    }
+
+    /// Set instruction panel text.
+    pub(crate) fn set_instruction_text(&mut self, text: &str) {
+        self.instruction_content = text_editor::Content::with_text(text);
     }
 }

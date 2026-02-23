@@ -29,6 +29,7 @@ pub(crate) enum AppError {
     Reduce(UiError),
     Expand(UiError),
     Mount(UiError),
+    Inquire(UiError),
 }
 
 impl AppError {
@@ -38,7 +39,8 @@ impl AppError {
             | Self::Persistence(err)
             | Self::Reduce(err)
             | Self::Expand(err)
-            | Self::Mount(err) => err.as_str(),
+            | Self::Mount(err)
+            | Self::Inquire(err) => err.as_str(),
         }
     }
 }

@@ -195,6 +195,34 @@ pub fn action_button(theme: &Theme, status: button::Status) -> button::Style {
     }
 }
 
+/// Panel toggle button style - highlighted when the panel is open.
+pub fn panel_toggle_button(theme: &Theme, status: button::Status, is_active: bool) -> button::Style {
+    let p = focused_palette(theme);
+    let base = button::Style {
+        background: if is_active { Some(p.tint.into()) } else { None },
+        text_color: if is_active { p.accent } else { p.accent_muted },
+        border: border::rounded(3).width(if is_active { 1 } else { 0 }).color(if is_active { p.accent } else { Color::TRANSPARENT }),
+        shadow: Default::default(),
+        snap: false,
+    };
+    match status {
+        | button::Status::Active => base,
+        | button::Status::Hovered => button::Style {
+            text_color: p.ink,
+            background: Some(p.tint.into()),
+            border: border::rounded(3).width(1).color(p.spine),
+            ..base
+        },
+        | button::Status::Pressed => button::Style {
+            text_color: p.ink,
+            background: Some(Color { a: 0.15, ..p.accent }.into()),
+            border: border::rounded(3).width(1).color(p.accent_muted),
+            ..base
+        },
+        | button::Status::Disabled => button::Style { text_color: p.spine, ..base },
+    }
+}
+
 /// Destructive action variant — uses danger color on hover/press.
 pub fn destructive_button(theme: &Theme, status: button::Status) -> button::Style {
     let p = focused_palette(theme);
