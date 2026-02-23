@@ -1,6 +1,7 @@
 //! Parallel text editor buffer storage keyed by block id.
 //!
-//! Also manages the instruction panel's text buffer.
+//! Manages text editor buffers for each block in the tree, plus a shared
+//! buffer for the instruction panel in the overlay panel bar.
 
 use crate::store::{BlockId, BlockStore};
 use iced::widget::{self, text_editor};

@@ -694,6 +694,14 @@ impl<'a> TreeView<'a> {
     }
 
     /// Renders the instruction panel with text editor and action buttons.
+    ///
+    /// The instruction panel provides three actions:
+    /// - **Inquire**: Sends the instruction as a one-time query to the LLM. The response
+    ///   is displayed with options to apply as a rewrite or dismiss.
+    /// - **Expand**: Uses the instruction as an additional system prompt when expanding
+    ///   the block, influencing the generated children.
+    /// - **Reduce**: Uses the instruction as an additional system prompt when reducing
+    ///   the block, influencing the reduction result.
     fn render_instruction_panel(&self, block_id: &BlockId) -> Element<'a, Message> {
         let instruction_content = self.state.editor_buffers.instruction_content();
         let inquiry_result = &self.state.instruction_inquiry_result;

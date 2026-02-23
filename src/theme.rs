@@ -196,6 +196,10 @@ pub fn action_button(theme: &Theme, status: button::Status) -> button::Style {
 }
 
 /// Panel toggle button style - highlighted when the panel is open.
+///
+/// When `is_active` is true, the button shows with accent color text and border,
+/// indicating the panel is currently open. This provides visual feedback without
+/// needing to change the button text.
 pub fn panel_toggle_button(theme: &Theme, status: button::Status, is_active: bool) -> button::Style {
     let p = focused_palette(theme);
     let base = button::Style {

@@ -446,9 +446,14 @@ pub enum StructureMessage {
 }
 
 /// Panel bar state - tracks which panel is open in the panel bar.
+///
+/// The panel bar sits below each block's editor and contains toggle buttons
+/// for inline panels. Only one panel can be open at a time per block.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PanelBarState {
+    /// Friends panel - shows user-selected friend blocks for LLM context.
     Friends,
+    /// Instruction panel - text editor for LLM instructions.
     Instruction,
 }
 

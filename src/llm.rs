@@ -712,6 +712,10 @@ impl Prompt {
     }
 
     /// Build a prompt for a one-time instruction inquiry.
+    ///
+    /// The inquiry prompt includes the block's lineage and friend blocks as context,
+    /// followed by the user's instruction. The response is a free-form text answer
+    /// that can be applied as a rewrite to the block's point.
     fn inquire_from_context(context: &BlockContext, instruction: &str) -> Self {
         let lineage_lines = Self::format_lineage_lines(&context.lineage);
         let friend_lines = Self::format_friend_blocks_lines(&context.friend_blocks);
