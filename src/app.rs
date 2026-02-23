@@ -264,13 +264,13 @@ impl AppState {
         self.persist_with_context("after undo/redo");
     }
 
-    fn lineage_signature(&self, block_id: &BlockId) -> Option<RequestSignature> {
-        let lineage = self.store.lineage_points_for_id(block_id);
-        RequestSignature::from_lineage(&lineage)
+    fn block_context_signature(&self, block_id: &BlockId) -> Option<RequestSignature> {
+        let context = self.store.block_context_for_id(block_id);
+        RequestSignature::from_block_context(&context)
     }
 
     fn is_stale_response(&self, block_id: &BlockId, request_signature: RequestSignature) -> bool {
-        self.lineage_signature(block_id)
+        self.block_context_signature(block_id)
             .is_none_or(|current_signature| current_signature != request_signature)
     }
 
@@ -378,9 +378,24 @@ pub enum ErrorMessage {
 pub enum ReduceMessage {
     Start(BlockId),
     Cancel(BlockId),
-    Done { block_id: BlockId, request_signature: RequestSignature, result: Result<String, UiError> },
+    Done {
+        block_id: BlockId,
+        request_signature: RequestSignature,
+        result: Result<llm::ReduceResult, UiError>,
+        children_snapshot: Vec<BlockId>,
+    },
     Apply(BlockId),
     Reject(BlockId),
+    AcceptChildDeletion {
+        block_id: BlockId,
+        child_index: usize,
+    },
+    RejectChildDeletion {
+        block_id: BlockId,
+        child_index: usize,
+    },
+    AcceptAllDeletions(BlockId),
+    RejectAllDeletions(BlockId),
 }
 
 #[derive(Debug, Clone)]
@@ -492,7 +507,8 @@ fn run_shortcut_for_block(
         block_id,
         point_text,
         has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
-        draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0),
+        draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0)
+            + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
         has_expand_error: state.llm_requests.has_expand_error(block_id),
         has_reduce_error: state.llm_requests.has_reduce_error(block_id),
         is_expanding: state.llm_requests.is_expanding(block_id),
@@ -578,26 +594,32 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             if state.llm_requests.is_reducing(block_id) {
                 return Task::none();
             }
-            let lineage = state.store.lineage_points_for_id(&block_id);
+            let context = state.store.block_context_for_id(&block_id);
             let Some(config) = state.llm_config_for_reduce(block_id) else {
                 return Task::none();
             };
             tracing::info!(block_id = ?block_id, "reduce request started");
-            let Some(request_signature) = RequestSignature::from_lineage(&lineage) else {
+            let Some(request_signature) = RequestSignature::from_block_context(&context) else {
                 return Task::none();
             };
+            let children_snapshot: Vec<BlockId> = state.store.children(&block_id).to_vec();
             state.llm_requests.mark_reduce_loading(block_id, request_signature);
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
                     AppState::resolve_llm_request(
-                        tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.reduce_lineage(&lineage))
+                        tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.reduce_block(&context))
                             .await,
                         "reduce request timed out after 30 seconds",
                     )
                 },
                 move |result| {
-                    Message::Reduce(ReduceMessage::Done { block_id, request_signature, result })
+                    Message::Reduce(ReduceMessage::Done {
+                        block_id,
+                        request_signature,
+                        result,
+                        children_snapshot,
+                    })
                 },
             );
             let (request_task, handle) = Task::abortable(request_task);
@@ -611,7 +633,7 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             }
             Task::none()
         }
-        | ReduceMessage::Done { block_id, request_signature, result } => {
+        | ReduceMessage::Done { block_id, request_signature, result, children_snapshot } => {
             let pending_signature = state.llm_requests.finish_reduce_request(block_id);
             if state.store.node(&block_id).is_none() {
                 return Task::none();
@@ -621,17 +643,28 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             {
                 tracing::info!(
                     block_id = ?block_id,
-                    "discarded stale reduce response after point changed"
+                    "discarded stale reduce response after context changed"
                 );
                 return Task::none();
             }
             match result {
-                | Ok(reduction) => {
-                    tracing::info!(block_id = ?block_id, chars = reduction.len(), "reduce request succeeded");
+                | Ok(reduce_result) => {
+                    let (reduction, redundant_indices) = reduce_result.into_parts();
+                    let redundant_children: Vec<BlockId> = redundant_indices
+                        .iter()
+                        .filter_map(|&idx| children_snapshot.get(idx).copied())
+                        .collect();
+                    tracing::info!(
+                        block_id = ?block_id,
+                        chars = reduction.len(),
+                        redundant_children = redundant_children.len(),
+                        "reduce request succeeded"
+                    );
                     state.mutate_with_undo_and_persist("after creating reduction draft", |state| {
-                        state
-                            .store
-                            .insert_reduction_draft(block_id, ReductionDraftRecord { reduction });
+                        state.store.insert_reduction_draft(
+                            block_id,
+                            ReductionDraftRecord { reduction, redundant_children },
+                        );
                         state.errors.retain(|err| !matches!(err, AppError::Reduce(_)));
                         true
                     });
@@ -648,9 +681,24 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after applying reduction", |state| {
                 if let Some(draft) = state.store.remove_reduction_draft(&block_id) {
-                    tracing::info!(block_id = ?block_id, chars = draft.reduction.len(), "applied reduction");
+                    tracing::info!(
+                        block_id = ?block_id,
+                        chars = draft.reduction.len(),
+                        deletions = draft.redundant_children.len(),
+                        "applied reduction with child deletions"
+                    );
                     state.store.update_point(&block_id, draft.reduction.clone());
                     state.editor_buffers.set_text(&block_id, &draft.reduction);
+                    for child_id in &draft.redundant_children {
+                        if state.store.node(child_id).is_some()
+                            && let Some(removed_ids) = state.store.remove_block_subtree(child_id)
+                        {
+                            state.editor_buffers.remove_blocks(&removed_ids);
+                            for id in &removed_ids {
+                                state.llm_requests.remove_block(*id);
+                            }
+                        }
+                    }
                     return true;
                 }
                 false
@@ -664,6 +712,87 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             state.persist_with_context("after rejecting reduction");
             Task::none()
         }
+        | ReduceMessage::AcceptChildDeletion { block_id, child_index } => {
+            state.set_active_block(&block_id);
+            state.mutate_with_undo_and_persist("after accepting child deletion", |state| {
+                let child_id = state
+                    .store
+                    .reduction_draft(&block_id)
+                    .and_then(|d| d.redundant_children.get(child_index).copied())
+                    .filter(|id| state.store.node(id).is_some());
+                if let Some(child_id) = child_id
+                    && let Some(removed_ids) = state.store.remove_block_subtree(&child_id)
+                {
+                    state.editor_buffers.remove_blocks(&removed_ids);
+                    for id in &removed_ids {
+                        state.llm_requests.remove_block(*id);
+                    }
+                }
+                if let Some(draft) = state.store.reduction_draft(&block_id) {
+                    let mut updated = draft.clone();
+                    if child_index < updated.redundant_children.len() {
+                        updated.redundant_children.remove(child_index);
+                        state.store.insert_reduction_draft(block_id, updated);
+                    }
+                }
+                true
+            });
+            Task::none()
+        }
+        | ReduceMessage::RejectChildDeletion { block_id, child_index } => {
+            state.set_active_block(&block_id);
+            if let Some(draft) = state.store.reduction_draft(&block_id) {
+                let mut updated = draft.clone();
+                if child_index < updated.redundant_children.len() {
+                    updated.redundant_children.remove(child_index);
+                    state.store.insert_reduction_draft(block_id, updated);
+                }
+            }
+            state.persist_with_context("after rejecting child deletion");
+            Task::none()
+        }
+        | ReduceMessage::AcceptAllDeletions(block_id) => {
+            state.set_active_block(&block_id);
+            state.mutate_with_undo_and_persist("after accepting all child deletions", |state| {
+                let draft = state.store.reduction_draft(&block_id).cloned();
+                if let Some(draft) = draft {
+                    for child_id in &draft.redundant_children {
+                        if state.store.node(child_id).is_some()
+                            && let Some(removed_ids) = state.store.remove_block_subtree(child_id)
+                        {
+                            state.editor_buffers.remove_blocks(&removed_ids);
+                            for id in &removed_ids {
+                                state.llm_requests.remove_block(*id);
+                            }
+                        }
+                    }
+                    state.store.insert_reduction_draft(
+                        block_id,
+                        ReductionDraftRecord {
+                            reduction: draft.reduction,
+                            redundant_children: vec![],
+                        },
+                    );
+                    return true;
+                }
+                false
+            });
+            Task::none()
+        }
+        | ReduceMessage::RejectAllDeletions(block_id) => {
+            state.set_active_block(&block_id);
+            if let Some(draft) = state.store.reduction_draft(&block_id) {
+                state.store.insert_reduction_draft(
+                    block_id,
+                    ReductionDraftRecord {
+                        reduction: draft.reduction.clone(),
+                        redundant_children: vec![],
+                    },
+                );
+            }
+            state.persist_with_context("after rejecting all child deletions");
+            Task::none()
+        }
     }
 }
 
@@ -675,13 +804,13 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
             if state.llm_requests.is_expanding(block_id) {
                 return Task::none();
             }
-            let lineage = state.store.lineage_points_for_id(&block_id);
+            let context = state.store.block_context_for_id(&block_id);
             let Some(config) = state.llm_config_for_expand(block_id) else {
                 return Task::none();
             };
 
             tracing::info!(block_id = ?block_id, "expand request started");
-            let Some(request_signature) = RequestSignature::from_lineage(&lineage) else {
+            let Some(request_signature) = RequestSignature::from_block_context(&context) else {
                 return Task::none();
             };
             state.llm_requests.mark_expand_loading(block_id, request_signature);
@@ -689,7 +818,7 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
                 async move {
                     let client = llm::LlmClient::new(config);
                     AppState::resolve_llm_request(
-                        tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.expand_lineage(&lineage))
+                        tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.expand_block(&context))
                             .await,
                         "expand request timed out after 30 seconds",
                     )
@@ -1321,7 +1450,7 @@ mod tests {
     #[test]
     fn response_is_stale_after_point_change() {
         let (mut state, root) = test_state();
-        let request_signature = state.lineage_signature(&root).expect("root has lineage");
+        let request_signature = state.block_context_signature(&root).expect("root has lineage");
         state.store.update_point(&root, "changed".to_string());
         assert!(state.is_stale_response(&root, request_signature));
     }
@@ -1329,7 +1458,7 @@ mod tests {
     #[test]
     fn response_is_not_stale_without_point_change() {
         let (state, root) = test_state();
-        let request_signature = state.lineage_signature(&root).expect("root has lineage");
+        let request_signature = state.block_context_signature(&root).expect("root has lineage");
         assert!(!state.is_stale_response(&root, request_signature));
     }
 
@@ -1338,9 +1467,9 @@ mod tests {
         let (mut state, root) = test_state();
         let child =
             state.store.append_child(&root, "child".to_string()).expect("append child succeeds");
-        let before = state.lineage_signature(&child).expect("child has lineage");
+        let before = state.block_context_signature(&child).expect("child has lineage");
         state.store.update_point(&root, "root changed".to_string());
-        let after = state.lineage_signature(&child).expect("child has lineage");
+        let after = state.block_context_signature(&child).expect("child has lineage");
         assert_ne!(before, after);
     }
 
@@ -1446,7 +1575,7 @@ mod tests {
     #[test]
     fn expand_done_success_persists_draft_in_store() {
         let (mut state, root) = test_state();
-        let signature = state.lineage_signature(&root).expect("root has lineage");
+        let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_expand_loading(root, signature);
         let _ = update(
             &mut state,
@@ -1467,7 +1596,7 @@ mod tests {
     #[test]
     fn expand_done_stale_response_is_ignored() {
         let (mut state, root) = test_state();
-        let signature = state.lineage_signature(&root).expect("root has lineage");
+        let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_expand_loading(root, signature);
         state.store.update_point(&root, "edited while pending".to_string());
         let _ = update(
@@ -1584,7 +1713,7 @@ mod tests {
     fn discard_all_expanded_children_after_reexpand_preserves_rewrite() {
         let (mut state, root) = test_state();
 
-        let first_signature = state.lineage_signature(&root).expect("root has lineage");
+        let first_signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_expand_loading(root, first_signature);
         let _ = update(
             &mut state,
@@ -1599,7 +1728,7 @@ mod tests {
         );
         let _ = update(&mut state, Message::Expand(ExpandMessage::AcceptAllChildren(root)));
 
-        let second_signature = state.lineage_signature(&root).expect("root has lineage");
+        let second_signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_expand_loading(root, second_signature);
         let _ = update(
             &mut state,
@@ -1623,14 +1752,15 @@ mod tests {
     #[test]
     fn reduce_done_success_persists_draft_in_store() {
         let (mut state, root) = test_state();
-        let signature = state.lineage_signature(&root).expect("root has lineage");
+        let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_reduce_loading(root, signature);
         let _ = update(
             &mut state,
             Message::Reduce(ReduceMessage::Done {
                 block_id: root,
                 request_signature: signature,
-                result: Ok("reduced".to_string()),
+                result: Ok(llm::ReduceResult::new("reduced".to_string(), vec![])),
+                children_snapshot: vec![],
             }),
         );
         let draft = state.store.reduction_draft(&root).expect("reduction draft is created");
@@ -1640,7 +1770,7 @@ mod tests {
     #[test]
     fn reduce_done_stale_response_is_ignored() {
         let (mut state, root) = test_state();
-        let signature = state.lineage_signature(&root).expect("root has lineage");
+        let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_reduce_loading(root, signature);
         state.store.update_point(&root, "edited while pending".to_string());
         let _ = update(
@@ -1648,7 +1778,8 @@ mod tests {
             Message::Reduce(ReduceMessage::Done {
                 block_id: root,
                 request_signature: signature,
-                result: Ok("stale reduction".to_string()),
+                result: Ok(llm::ReduceResult::new("stale reduction".to_string(), vec![])),
+                children_snapshot: vec![],
             }),
         );
         assert!(state.store.reduction_draft(&root).is_none());
@@ -1670,7 +1801,10 @@ mod tests {
         let (mut state, root) = test_state();
         state.store.insert_reduction_draft(
             root,
-            ReductionDraftRecord { reduction: "reduced point".to_string() },
+            ReductionDraftRecord {
+                reduction: "reduced point".to_string(),
+                redundant_children: vec![],
+            },
         );
         let _ = update(&mut state, Message::Reduce(ReduceMessage::Apply(root)));
         assert_eq!(state.store.point(&root).as_deref(), Some("reduced point"));
@@ -1682,7 +1816,10 @@ mod tests {
         let (mut state, root) = test_state();
         state.store.insert_reduction_draft(
             root,
-            ReductionDraftRecord { reduction: "reduced point".to_string() },
+            ReductionDraftRecord {
+                reduction: "reduced point".to_string(),
+                redundant_children: vec![],
+            },
         );
         let _ = update(&mut state, Message::Reduce(ReduceMessage::Reject(root)));
         assert!(state.store.reduction_draft(&root).is_none());
@@ -1705,7 +1842,7 @@ mod tests {
     #[test]
     fn expand_done_error_sets_expand_error_state() {
         let (mut state, root) = test_state();
-        let signature = state.lineage_signature(&root).expect("root has lineage");
+        let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_expand_loading(root, signature);
         let _ = update(
             &mut state,
@@ -1721,7 +1858,7 @@ mod tests {
     #[test]
     fn reduce_done_error_sets_reduce_error_state() {
         let (mut state, root) = test_state();
-        let signature = state.lineage_signature(&root).expect("root has lineage");
+        let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_reduce_loading(root, signature);
         let _ = update(
             &mut state,
@@ -1729,6 +1866,7 @@ mod tests {
                 block_id: root,
                 request_signature: signature,
                 result: Err(super::UiError::from_message("failed")),
+                children_snapshot: vec![],
             }),
         );
         assert!(state.llm_requests.has_reduce_error(root));
@@ -1737,7 +1875,7 @@ mod tests {
     #[test]
     fn cancel_expand_then_late_response_is_ignored() {
         let (mut state, root) = test_state();
-        let signature = state.lineage_signature(&root).expect("root has lineage");
+        let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_expand_loading(root, signature);
         let _ = update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
         let _ = update(
@@ -1759,7 +1897,7 @@ mod tests {
     #[test]
     fn cancel_reduce_then_late_response_is_ignored() {
         let (mut state, root) = test_state();
-        let signature = state.lineage_signature(&root).expect("root has lineage");
+        let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_reduce_loading(root, signature);
         let _ = update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
         let _ = update(
@@ -1767,7 +1905,8 @@ mod tests {
             Message::Reduce(ReduceMessage::Done {
                 block_id: root,
                 request_signature: signature,
-                result: Ok("late reduction".to_string()),
+                result: Ok(llm::ReduceResult::new("late reduction".to_string(), vec![])),
+                children_snapshot: vec![],
             }),
         );
         assert!(state.store.reduction_draft(&root).is_none());

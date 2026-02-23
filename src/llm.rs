@@ -164,6 +164,8 @@ pub enum LlmError {
     InvalidResponse,
     #[error("invalid expand response")]
     InvalidExpandResponse,
+    #[error("invalid reduce response")]
+    InvalidReduceResponse,
 }
 
 /// One candidate child point returned from an expand request.
@@ -200,6 +202,60 @@ impl ExpandResult {
     /// Consume the result and return owned parts.
     pub fn into_parts(self) -> (Option<String>, Vec<ExpandSuggestion>) {
         (self.rewrite, self.children)
+    }
+}
+
+/// Structured result returned by one reduce request.
+///
+/// Contains the condensed text plus 0-based indices of existing children
+/// the LLM considers redundant (their content is captured by the reduction).
+/// The caller maps these indices to `BlockId`s using the children snapshot
+/// that was active at request time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReduceResult {
+    reduction: String,
+    /// 0-based indices into the `existing_children` that were sent in the prompt.
+    redundant_children: Vec<usize>,
+}
+
+impl ReduceResult {
+    pub fn new(reduction: String, redundant_children: Vec<usize>) -> Self {
+        Self { reduction, redundant_children }
+    }
+
+    /// Consume and return owned parts.
+    pub fn into_parts(self) -> (String, Vec<usize>) {
+        (self.reduction, self.redundant_children)
+    }
+}
+
+/// Immutable snapshot of a block's LLM-relevant context: ancestor lineage
+/// plus existing child point texts.
+///
+/// Constructed by the store layer; consumed by [`LlmClient`] methods.
+/// The `existing_children` field carries only point texts (no `BlockId`s)
+/// so this module stays decoupled from store identity types.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockContext {
+    lineage: Lineage,
+    existing_children: Vec<String>,
+}
+
+impl BlockContext {
+    pub fn new(lineage: Lineage, existing_children: Vec<String>) -> Self {
+        Self { lineage, existing_children }
+    }
+
+    pub fn lineage(&self) -> &Lineage {
+        &self.lineage
+    }
+
+    pub fn existing_children(&self) -> &[String] {
+        &self.existing_children
+    }
+
+    fn is_empty(&self) -> bool {
+        self.lineage.is_empty()
     }
 }
 
@@ -316,23 +372,65 @@ impl LlmClient {
         Self { config, http: reqwest::Client::new() }
     }
 
-    /// Reduce a block's point using its ancestor lineage as context.
-    pub async fn reduce_lineage(&self, lineage: &Lineage) -> Result<String, LlmError> {
-        if lineage.is_empty() {
+    /// Reduce a block's point using ancestor lineage and existing children as context.
+    ///
+    /// When existing children are present, the LLM may identify some as
+    /// redundant (their content is subsumed by the reduction). Defensive
+    /// parsing: if the response is not valid JSON, it is treated as a
+    /// plain-text reduction with no redundant children.
+    pub async fn reduce_block(&self, context: &BlockContext) -> Result<ReduceResult, LlmError> {
+        if context.is_empty() {
             return Err(LlmError::InvalidRequest);
         }
 
-        let prompt = Prompt::reduce_from_lineage(lineage);
-        self.request_completion("reduce", prompt, 0.2, 200).await
+        let has_children = !context.existing_children.is_empty();
+        let prompt = Prompt::reduce_from_context(context);
+        let max_tokens = if has_children { 400 } else { 200 };
+        let content = self.request_completion("reduce", prompt, 0.2, max_tokens).await?;
+
+        if has_children {
+            // Try structured JSON first; fall back to plain-text reduction.
+            if let Ok(payload) = serde_json::from_str::<ReduceResponsePayload>(&content) {
+                let reduction = payload.reduction.trim().to_string();
+                if reduction.is_empty() {
+                    return Err(LlmError::InvalidReduceResponse);
+                }
+                let child_count = context.existing_children.len();
+                let redundant_children: Vec<usize> = payload
+                    .redundant_children
+                    .into_iter()
+                    .filter(|&i| i < child_count)
+                    .collect::<std::collections::BTreeSet<_>>()
+                    .into_iter()
+                    .collect();
+                tracing::info!(
+                    chars = reduction.len(),
+                    redundant = redundant_children.len(),
+                    "llm reduce response (structured)"
+                );
+                return Ok(ReduceResult::new(reduction, redundant_children));
+            }
+        }
+
+        // Plain-text fallback (no children or JSON parse failed).
+        let reduction = content.trim().to_string();
+        if reduction.is_empty() {
+            return Err(LlmError::InvalidReduceResponse);
+        }
+        tracing::info!(chars = reduction.len(), "llm reduce response (plain)");
+        Ok(ReduceResult::new(reduction, vec![]))
     }
 
     /// Expand one target point into rewrite and concise child point candidates.
-    pub async fn expand_lineage(&self, lineage: &Lineage) -> Result<ExpandResult, LlmError> {
-        if lineage.is_empty() {
+    ///
+    /// When existing children are present, the prompt instructs the LLM to
+    /// avoid suggesting children that overlap with them.
+    pub async fn expand_block(&self, context: &BlockContext) -> Result<ExpandResult, LlmError> {
+        if context.is_empty() {
             return Err(LlmError::InvalidRequest);
         }
 
-        let prompt = Prompt::expand_from_lineage(lineage);
+        let prompt = Prompt::expand_from_context(context);
         let content = self.request_completion("expand", prompt, 0.7, 500).await?;
         let payload: ExpandResponsePayload =
             serde_json::from_str(&content).map_err(|_| LlmError::InvalidExpandResponse)?;
@@ -448,33 +546,57 @@ struct Prompt {
 }
 
 impl Prompt {
-    fn reduce_from_lineage(lineage: &Lineage) -> Self {
-        let mut context_lines = String::new();
+    /// Format lineage items as labeled lines.
+    fn format_lineage_lines(lineage: &Lineage) -> String {
+        let mut lines = String::new();
         let total = lineage.items.len();
         for (index, item) in lineage.iter().enumerate() {
             let label = if index + 1 == total { "Target" } else { "Parent" };
-            context_lines.push_str(&format!("{label}: {}\n", item.point()));
+            lines.push_str(&format!("{label}: {}\n", item.point()));
+        }
+        lines
+    }
+
+    /// Format existing children as indexed lines.
+    fn format_children_lines(children: &[String]) -> String {
+        let mut lines = String::new();
+        for (index, child) in children.iter().enumerate() {
+            lines.push_str(&format!("[{index}] {child}\n"));
+        }
+        lines
+    }
+
+    fn reduce_from_context(context: &BlockContext) -> Self {
+        let lineage_lines = Self::format_lineage_lines(&context.lineage);
+
+        if context.existing_children.is_empty() {
+            return Self {
+                system: "You reduce a bullet point using its ancestors as context. Return strict JSON only: {\"reduction\": string}. The reduction must be a single concise sentence. No markdown, no extra keys.".to_string(),
+                user: format!("Reduce the target point with context:\n{lineage_lines}"),
+            };
         }
 
+        let children_lines = Self::format_children_lines(&context.existing_children);
         Self {
-            system: "You reduce a bullet point using its ancestors as context. Output a single concise sentence. No quotes, no extra bullet points."
-                .to_string(),
-            user: format!("Reduce the target point with context:\n{context_lines}"),
+            system: "You reduce a bullet point using its ancestors and existing children as context. Return strict JSON only: {\"reduction\": string, \"redundant_children\": number[]}. The reduction must be a single concise sentence that captures the essential meaning. redundant_children: 0-based indices of existing children whose information is fully captured by the reduction and can be safely removed. Only mark a child redundant when its content is genuinely subsumed. No markdown, no extra keys.".to_string(),
+            user: format!("Reduce the target point with context:\n{lineage_lines}\nExisting children:\n{children_lines}"),
         }
     }
 
-    fn expand_from_lineage(lineage: &Lineage) -> Self {
-        let mut context_lines = String::new();
-        let total = lineage.items.len();
-        for (index, item) in lineage.iter().enumerate() {
-            let label = if index + 1 == total { "Target" } else { "Parent" };
-            context_lines.push_str(&format!("{label}: {}\n", item.point()));
+    fn expand_from_context(context: &BlockContext) -> Self {
+        let lineage_lines = Self::format_lineage_lines(&context.lineage);
+
+        if context.existing_children.is_empty() {
+            return Self {
+                system: "You expand one target bullet point using its ancestors as context. Return strict JSON only with this shape: {\"rewrite\": string|null, \"children\": string[]}. Keep rewrite to one concise sentence. Generate 3-6 concise child points. Children must be mutually non-overlapping, each focused on a distinct subtopic, and should not restate the rewrite. No markdown, no extra keys.".to_string(),
+                user: format!("Expand the target point with context:\n{lineage_lines}"),
+            };
         }
 
+        let children_lines = Self::format_children_lines(&context.existing_children);
         Self {
-            system: "You expand one target bullet point using its ancestors as context. Return strict JSON only with this shape: {\"rewrite\": string|null, \"children\": string[]}. Keep rewrite to one concise sentence. Generate 3-6 concise child points. Children must be mutually non-overlapping, each focused on a distinct subtopic, and should not restate the rewrite. No markdown, no extra keys."
-                .to_string(),
-            user: format!("Expand the target point with context:\n{context_lines}"),
+            system: "You expand one target bullet point using its ancestors as context. Return strict JSON only with this shape: {\"rewrite\": string|null, \"children\": string[]}. Keep rewrite to one concise sentence. Generate 3-6 concise NEW child points. Children must be mutually non-overlapping, each focused on a distinct subtopic, should not restate the rewrite, and MUST NOT overlap with the existing children listed below. No markdown, no extra keys.".to_string(),
+            user: format!("Expand the target point with context:\n{lineage_lines}\nExisting children:\n{children_lines}"),
         }
     }
 }
@@ -484,6 +606,13 @@ struct ExpandResponsePayload {
     rewrite: Option<String>,
     #[serde(default)]
     children: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ReduceResponsePayload {
+    reduction: String,
+    #[serde(default)]
+    redundant_children: Vec<usize>,
 }
 
 #[cfg(test)]
@@ -526,6 +655,22 @@ mod tests {
         assert_eq!(children.len(), 2);
     }
 
+    // ReduceResult tests
+    #[test]
+    fn reduce_result_into_parts() {
+        let result = ReduceResult::new("condensed".into(), vec![0, 2]);
+        let (reduction, redundant) = result.into_parts();
+        assert_eq!(reduction, "condensed");
+        assert_eq!(redundant, vec![0, 2]);
+    }
+
+    #[test]
+    fn reduce_result_empty_redundant() {
+        let result = ReduceResult::new("text".into(), vec![]);
+        let (_, redundant) = result.into_parts();
+        assert!(redundant.is_empty());
+    }
+
     // Lineage tests
     #[test]
     fn lineage_from_points_creates_items() {
@@ -549,6 +694,28 @@ mod tests {
         assert_eq!(lineage, expected);
     }
 
+    // BlockContext tests
+    #[test]
+    fn block_context_empty_lineage_is_empty() {
+        let ctx = BlockContext::new(Lineage::from_points(vec![]), vec![]);
+        assert!(ctx.is_empty());
+    }
+
+    #[test]
+    fn block_context_with_lineage_is_not_empty() {
+        let ctx = BlockContext::new(Lineage::from_points(vec!["root".into()]), vec![]);
+        assert!(!ctx.is_empty());
+    }
+
+    #[test]
+    fn block_context_accessors() {
+        let lineage = Lineage::from_points(vec!["root".into()]);
+        let children = vec!["child_a".to_string(), "child_b".to_string()];
+        let ctx = BlockContext::new(lineage.clone(), children.clone());
+        assert_eq!(ctx.lineage(), &lineage);
+        assert_eq!(ctx.existing_children(), &children[..]);
+    }
+
     // LlmConfigError Display tests
     #[test]
     fn config_error_missing_display() {
@@ -568,7 +735,8 @@ mod tests {
     #[test]
     fn reduce_prompt_labels_target_last() {
         let lineage = Lineage::from_points(vec!["first".into(), "second".into(), "third".into()]);
-        let prompt = Prompt::reduce_from_lineage(&lineage);
+        let context = BlockContext::new(lineage, vec![]);
+        let prompt = Prompt::reduce_from_context(&context);
         assert!(prompt.user.contains("Parent: first"));
         assert!(prompt.user.contains("Parent: second"));
         assert!(prompt.user.contains("Target: third"));
@@ -577,7 +745,8 @@ mod tests {
     #[test]
     fn expand_prompt_labels_target_last() {
         let lineage = Lineage::from_points(vec!["first".into(), "second".into(), "third".into()]);
-        let prompt = Prompt::expand_from_lineage(&lineage);
+        let context = BlockContext::new(lineage, vec![]);
+        let prompt = Prompt::expand_from_context(&context);
         assert!(prompt.user.contains("Parent: first"));
         assert!(prompt.user.contains("Parent: second"));
         assert!(prompt.user.contains("Target: third"));
@@ -586,11 +755,52 @@ mod tests {
     #[test]
     fn expand_prompt_mentions_concise_and_non_overlapping_constraints() {
         let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
-        let prompt = Prompt::expand_from_lineage(&lineage);
+        let context = BlockContext::new(lineage, vec![]);
+        let prompt = Prompt::expand_from_context(&context);
         assert!(prompt.system.contains("one concise sentence"));
         assert!(prompt.system.contains("mutually non-overlapping"));
         assert!(prompt.system.contains("distinct subtopic"));
         assert!(prompt.system.contains("should not restate the rewrite"));
+    }
+
+    // Prompt tests for children context
+    #[test]
+    fn expand_prompt_includes_existing_children() {
+        let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
+        let children = vec!["existing child A".to_string(), "existing child B".to_string()];
+        let ctx = BlockContext::new(lineage, children);
+        let prompt = Prompt::expand_from_context(&ctx);
+        assert!(prompt.user.contains("Existing children:"));
+        assert!(prompt.user.contains("[0] existing child A"));
+        assert!(prompt.user.contains("[1] existing child B"));
+        assert!(prompt.system.contains("MUST NOT overlap with the existing children"));
+    }
+
+    #[test]
+    fn expand_prompt_without_children_omits_section() {
+        let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
+        let ctx = BlockContext::new(lineage, vec![]);
+        let prompt = Prompt::expand_from_context(&ctx);
+        assert!(!prompt.user.contains("Existing children:"));
+    }
+
+    #[test]
+    fn reduce_prompt_includes_existing_children() {
+        let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
+        let children = vec!["child A".to_string()];
+        let ctx = BlockContext::new(lineage, children);
+        let prompt = Prompt::reduce_from_context(&ctx);
+        assert!(prompt.user.contains("Existing children:"));
+        assert!(prompt.user.contains("[0] child A"));
+        assert!(prompt.system.contains("redundant_children"));
+    }
+
+    #[test]
+    fn reduce_prompt_without_children_is_plain() {
+        let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
+        let ctx = BlockContext::new(lineage, vec![]);
+        let prompt = Prompt::reduce_from_context(&ctx);
+        assert!(!prompt.user.contains("Existing children:"));
     }
 
     // ExpandResponsePayload deserialization tests
@@ -624,5 +834,22 @@ mod tests {
         let payload: ExpandResponsePayload = serde_json::from_str(json).unwrap();
         assert_eq!(payload.rewrite, None);
         assert!(payload.children.is_empty());
+    }
+
+    // ReduceResponsePayload deserialization tests
+    #[test]
+    fn reduce_payload_full() {
+        let json = r#"{"reduction": "condensed text", "redundant_children": [0, 2]}"#;
+        let payload: ReduceResponsePayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.reduction, "condensed text");
+        assert_eq!(payload.redundant_children, vec![0, 2]);
+    }
+
+    #[test]
+    fn reduce_payload_no_redundant() {
+        let json = r#"{"reduction": "text"}"#;
+        let payload: ReduceResponsePayload = serde_json::from_str(json).unwrap();
+        assert_eq!(payload.reduction, "text");
+        assert!(payload.redundant_children.is_empty());
     }
 }

@@ -28,9 +28,20 @@ pub struct ExpansionDraftRecord {
 }
 
 /// Persisted reduction draft payload keyed by [`BlockId`].
+///
+/// When `redundant_children` is non-empty, the reduction draft suggests that
+/// those children are captured by the condensed text and can be deleted.
+/// The [`BlockId`]s are resolved at response time from the LLM's returned
+/// indices into the children snapshot that was sent with the request.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReductionDraftRecord {
     pub reduction: String,
+    /// Children whose information is captured by the reduction.
+    ///
+    /// May contain stale ids if children were modified between response
+    /// arrival and apply time; consumers must filter at render and apply.
+    #[serde(default)]
+    pub redundant_children: Vec<BlockId>,
 }
 
 #[derive(Debug, Error)]
@@ -430,6 +441,21 @@ impl BlockStore {
             }
         }
         llm::Lineage::from_points(vec![])
+    }
+
+    /// Build a [`BlockContext`] for the given block, combining its lineage
+    /// (root-to-target points) with its direct children's point text.
+    ///
+    /// Used by reduce/expand handlers to give the LLM full context about
+    /// the block's position in the tree and its existing children.
+    pub fn block_context_for_id(&self, target: &BlockId) -> llm::BlockContext {
+        let lineage = self.lineage_points_for_id(target);
+        let existing_children = self
+            .children(target)
+            .iter()
+            .filter_map(|child_id| self.point(child_id))
+            .collect::<Vec<_>>();
+        llm::BlockContext::new(lineage, existing_children)
     }
 
     /// Borrow the mount table for querying block origins.
@@ -1260,9 +1286,10 @@ mod tests {
                 children: vec!["child suggestion".to_string()],
             },
         );
-        store
-            .reduction_drafts
-            .insert(child_a, ReductionDraftRecord { reduction: "reduction".to_string() });
+        store.reduction_drafts.insert(
+            child_a,
+            ReductionDraftRecord { reduction: "reduction".to_string(), redundant_children: vec![] },
+        );
 
         let json = serde_json::to_string(&store).unwrap();
         let restored: BlockStore = serde_json::from_str(&json).unwrap();
@@ -1279,9 +1306,10 @@ mod tests {
             child_a,
             ExpansionDraftRecord { rewrite: None, children: vec!["draft".to_string()] },
         );
-        store
-            .reduction_drafts
-            .insert(child_b, ReductionDraftRecord { reduction: "draft".to_string() });
+        store.reduction_drafts.insert(
+            child_b,
+            ReductionDraftRecord { reduction: "draft".to_string(), redundant_children: vec![] },
+        );
 
         store.remove_block_subtree(&child_a).unwrap();
         store.remove_block_subtree(&child_b).unwrap();

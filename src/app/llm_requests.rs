@@ -206,11 +206,33 @@ pub(crate) struct RequestSignature {
 }
 
 impl RequestSignature {
+    #[cfg(test)]
     pub(crate) fn from_lineage(lineage: &llm_api::Lineage) -> Option<Self> {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         let mut item_count = 0usize;
         for point in lineage.points() {
             Self::text_signature(point).hash(&mut hasher);
+            item_count += 1;
+        }
+        if item_count == 0 {
+            return None;
+        }
+        Some(Self { hash: hasher.finish(), item_count })
+    }
+
+    /// Build a request signature from full block context.
+    ///
+    /// This includes both lineage points and existing children points so async
+    /// expand/reduce responses are invalidated when either input changes.
+    pub(crate) fn from_block_context(context: &llm_api::BlockContext) -> Option<Self> {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        let mut item_count = 0usize;
+        for point in context.lineage().points() {
+            Self::text_signature(point).hash(&mut hasher);
+            item_count += 1;
+        }
+        for child_point in context.existing_children() {
+            Self::text_signature(child_point).hash(&mut hasher);
             item_count += 1;
         }
         if item_count == 0 {
@@ -252,5 +274,26 @@ mod tests {
         let second =
             llm_api::Lineage::from_points(vec!["root changed".to_string(), "child".to_string()]);
         assert_ne!(RequestSignature::from_lineage(&first), RequestSignature::from_lineage(&second));
+    }
+
+    #[test]
+    fn request_signature_from_block_context_changes_when_children_change() {
+        let lineage = llm_api::Lineage::from_points(vec!["root".to_string()]);
+        let ctx1 = llm_api::BlockContext::new(lineage.clone(), vec!["child_a".to_string()]);
+        let ctx2 = llm_api::BlockContext::new(lineage.clone(), vec!["child_b".to_string()]);
+        assert_ne!(
+            RequestSignature::from_block_context(&ctx1),
+            RequestSignature::from_block_context(&ctx2)
+        );
+    }
+
+    #[test]
+    fn request_signature_from_block_context_matches_lineage_when_no_children() {
+        let lineage = llm_api::Lineage::from_points(vec!["root".to_string(), "child".to_string()]);
+        let ctx = llm_api::BlockContext::new(lineage.clone(), vec![]);
+        assert_eq!(
+            RequestSignature::from_lineage(&lineage),
+            RequestSignature::from_block_context(&ctx)
+        );
     }
 }

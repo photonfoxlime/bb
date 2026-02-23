@@ -315,33 +315,92 @@ impl<'a> TreeView<'a> {
         let old_text = self.state.store.point(block_id).unwrap_or_default();
         let diff_content = self.render_diff_content(&old_text, &draft.reduction);
 
-        container(
-            column![]
-                .spacing(theme::PANEL_INNER_GAP)
-                .push(container(text("Reduce")).width(Length::Fill))
-                .push(container(diff_content).width(Length::Fill))
-                .push(
+        let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
+
+        panel = panel
+            .push(container(text("Reduce")).width(Length::Fill))
+            .push(container(diff_content).width(Length::Fill))
+            .push(
+                row![]
+                    .width(Length::Fill)
+                    .spacing(theme::PANEL_BUTTON_GAP)
+                    .push(space::horizontal())
+                    .push(
+                        button(text("Apply reduction").font(theme::INTER).size(13))
+                            .style(theme::action_button)
+                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                            .on_press(Message::Reduce(ReduceMessage::Apply(*block_id))),
+                    )
+                    .push(
+                        button(text("Dismiss reduction").font(theme::INTER).size(13))
+                            .style(theme::destructive_button)
+                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                            .on_press(Message::Reduce(ReduceMessage::Reject(*block_id))),
+                    ),
+            );
+
+        let valid_children: Vec<(usize, &BlockId)> = draft
+            .redundant_children
+            .iter()
+            .enumerate()
+            .filter(|(_, id)| self.state.store.node(id).is_some())
+            .collect();
+
+        if !valid_children.is_empty() {
+            panel = panel.push(
+                row![]
+                    .spacing(theme::PANEL_BUTTON_GAP)
+                    .push(container(text("Redundant children")).width(Length::Fill))
+                    .push(
+                        button(text("Delete all").font(theme::INTER).size(13))
+                            .style(theme::destructive_button)
+                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                            .on_press(Message::Reduce(ReduceMessage::AcceptAllDeletions(
+                                *block_id,
+                            ))),
+                    )
+                    .push(
+                        button(text("Keep all").font(theme::INTER).size(13))
+                            .style(theme::action_button)
+                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                            .on_press(Message::Reduce(ReduceMessage::RejectAllDeletions(
+                                *block_id,
+                            ))),
+                    ),
+            );
+
+            for (index, child_id) in &valid_children {
+                let child_text = self.state.store.point(child_id).unwrap_or_default();
+                panel = panel.push(
                     row![]
-                        .width(Length::Fill)
                         .spacing(theme::PANEL_BUTTON_GAP)
-                        .push(space::horizontal())
+                        .push(container(text(child_text)).width(Length::Fill))
                         .push(
-                            button(text("Apply reduction").font(theme::INTER).size(13))
-                                .style(theme::action_button)
-                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                .on_press(Message::Reduce(ReduceMessage::Apply(*block_id))),
-                        )
-                        .push(
-                            button(text("Dismiss reduction").font(theme::INTER).size(13))
+                            button(text("Delete").font(theme::INTER).size(13))
                                 .style(theme::destructive_button)
                                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                .on_press(Message::Reduce(ReduceMessage::Reject(*block_id))),
+                                .on_press(Message::Reduce(ReduceMessage::AcceptChildDeletion {
+                                    block_id: *block_id,
+                                    child_index: *index,
+                                })),
+                        )
+                        .push(
+                            button(text("Keep").font(theme::INTER).size(13))
+                                .style(theme::action_button)
+                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                                .on_press(Message::Reduce(ReduceMessage::RejectChildDeletion {
+                                    block_id: *block_id,
+                                    child_index: *index,
+                                })),
                         ),
-                ),
-        )
-        .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
-        .style(theme::draft_panel)
-        .into()
+                );
+            }
+        }
+
+        container(panel)
+            .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
+            .style(theme::draft_panel)
+            .into()
     }
 
     fn action_row_context(&self, block_id: &BlockId, point_text: String) -> RowContext {
@@ -352,7 +411,8 @@ impl<'a> TreeView<'a> {
             block_id: *block_id,
             point_text,
             has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
-            draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0),
+            draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0)
+                + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
             has_expand_error: self.state.llm_requests.has_expand_error(*block_id),
             has_reduce_error: self.state.llm_requests.has_reduce_error(*block_id),
             is_expanding: self.state.llm_requests.is_expanding(*block_id),
