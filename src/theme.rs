@@ -111,10 +111,6 @@ pub const DIFF_LINE_GAP: f32 = 2.0;
 pub const INDENT: f32 = 16.0;
 /// Width of the spine rule column.
 pub const SPINE_WIDTH: f32 = 4.0;
-/// Width of the bullet marker column.
-pub const MARKER_WIDTH: f32 = 12.0;
-/// Top offset to vertically align the bullet marker with text.
-pub const MARKER_TOP: f32 = 3.0;
 
 /// Padding inside buttons and tooltips.
 pub const BUTTON_PAD: f32 = 4.0;

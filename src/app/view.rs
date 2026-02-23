@@ -126,10 +126,15 @@ impl<'a> TreeView<'a> {
                 .on_press(msg)
                 .into()
         } else {
-            container(text("\u{2022}").size(12).style(theme::spine_text))
-                .width(Length::Fixed(theme::MARKER_WIDTH))
-                .align_x(iced::alignment::Horizontal::Center)
-                .padding(Padding::ZERO.top(theme::MARKER_TOP))
+            let ring_icon: Element<'a, Message> = icons::icon_circle()
+                .size(16)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into();
+            button(centered_icon(ring_icon))
+                .style(theme::action_button)
+                .padding(0)
+                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .into()
         };
 
