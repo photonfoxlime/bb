@@ -10,19 +10,19 @@ use slotmap::SecondaryMap;
 /// buffer and widget id. Rebuilt from scratch on undo/redo; incrementally
 /// updated on add/remove/edit operations.
 #[derive(Clone)]
-pub(crate) struct EditorStore {
+pub(crate) struct EditorBuffers {
     buffers: SecondaryMap<BlockId, text_editor::Content>,
     /// Stable `widget::Id` per block, used for programmatic focus.
     widget_ids: SecondaryMap<BlockId, widget::Id>,
 }
 
-impl Default for EditorStore {
+impl Default for EditorBuffers {
     fn default() -> Self {
         Self { buffers: SecondaryMap::new(), widget_ids: SecondaryMap::new() }
     }
 }
 
-impl EditorStore {
+impl EditorBuffers {
     pub(crate) fn from_store(block_store: &BlockStore) -> Self {
         let mut store = Self::default();
         store.populate(block_store, block_store.roots());

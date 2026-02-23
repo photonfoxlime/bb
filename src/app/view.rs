@@ -87,7 +87,7 @@ impl<'a> TreeView<'a> {
         let is_expanded_mount = self.state.store.mount_table().entry(*block_id).is_some();
         let unexpanded_mount_path = node.mount_path();
 
-        let Some(editor_content) = self.state.editors.get(block_id) else {
+        let Some(editor_content) = self.state.editor_buffers.get(block_id) else {
             let fallback_text = self.state.store.point(block_id).unwrap_or_default();
             tracing::error!(block_id = ?block_id, "missing editor content for rendered block");
             return container(text(fallback_text).style(theme::spine_text)).into();
@@ -165,7 +165,7 @@ impl<'a> TreeView<'a> {
                     })
                     .key_binding(move |key_press| editor_key_binding(block_id_for_edit, key_press))
                     .height(Length::Shrink);
-                if let Some(wid) = self.state.editors.widget_id(block_id) {
+                if let Some(wid) = self.state.editor_buffers.widget_id(block_id) {
                     editor = editor.id(wid.clone());
                 }
                 editor
@@ -349,10 +349,10 @@ impl<'a> TreeView<'a> {
             point_text,
             has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
             draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0),
-            has_expand_error: self.state.llms.has_expand_error(*block_id),
-            has_reduce_error: self.state.llms.has_reduce_error(*block_id),
-            is_expanding: self.state.llms.is_expanding(*block_id),
-            is_reducing: self.state.llms.is_reducing(*block_id),
+            has_expand_error: self.state.llm_requests.has_expand_error(*block_id),
+            has_reduce_error: self.state.llm_requests.has_reduce_error(*block_id),
+            is_expanding: self.state.llm_requests.is_expanding(*block_id),
+            is_reducing: self.state.llm_requests.is_reducing(*block_id),
             is_mounted: self.state.store.mount_table().entry(*block_id).is_some(),
             is_unexpanded_mount: node.is_some_and(|n| n.mount_path().is_some()),
             has_children: !self.state.store.children(block_id).is_empty(),

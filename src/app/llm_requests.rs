@@ -12,7 +12,7 @@ use std::hash::{Hash, Hasher};
 ///
 /// This struct owns transient request state only; persisted drafts remain in
 /// `BlockStore` so request orchestration and persisted content stay decoupled.
-pub(crate) struct LlmStore {
+pub(crate) struct LlmRequests {
     reduce_states: SparseSecondaryMap<BlockId, ReduceState>,
     expand_states: SparseSecondaryMap<BlockId, ExpandState>,
     reduce_handles: SparseSecondaryMap<BlockId, task::Handle>,
@@ -21,7 +21,7 @@ pub(crate) struct LlmStore {
     pending_expand_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
 }
 
-impl LlmStore {
+impl LlmRequests {
     pub(crate) fn new() -> Self {
         Self::default()
     }

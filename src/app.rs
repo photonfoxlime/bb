@@ -6,11 +6,11 @@
 mod action_bar;
 mod diff;
 mod error;
-mod editor_store;
-mod llm;
+mod editor_buffers;
+mod llm_requests;
 mod view;
 
-use crate::llm as llm_api;
+use crate::llm;
 use crate::paths::AppPaths;
 use crate::store::{
     BlockId, BlockStore, ExpansionDraftRecord, ReductionDraftRecord, StoreLoadError,
@@ -21,12 +21,12 @@ use action_bar::{
     ActionAvailability, ActionId, RowContext, ViewportBucket, action_to_message_by_id,
     build_action_bar_vm, project_for_viewport, shortcut_to_action,
 };
-use editor_store::EditorStore;
+use editor_buffers::EditorBuffers;
 use error::{AppError, UiError};
 use iced::theme::Mode;
 use iced::widget::{button, column, container, row, scrollable, text, text_editor};
 use iced::{Element, Event, Fill, Subscription, Task, event, keyboard, mouse, system, widget};
-use llm::{LlmStore, RequestSignature};
+use llm_requests::{LlmRequests, RequestSignature};
 use std::collections::HashSet;
 use std::time::Duration;
 
@@ -52,7 +52,7 @@ const ERROR_STACK_PREVIEW_LIMIT: usize = 2;
 ///
 /// Ownership split:
 /// - `store`: authoritative graph, persisted drafts, mount runtime metadata.
-/// - `editors`: widget-local text buffers + focus ids.
+/// - `editor_buffers`: widget-local text buffers + focus ids.
 /// - persistence flags: recovery guard for unsafe-on-disk state plus a runtime
 ///   write gate for side-effect-free runs.
 /// - selectors (`active_block_id`, `focused_block_id`, `editing_block_id`) and
@@ -61,10 +61,10 @@ const ERROR_STACK_PREVIEW_LIMIT: usize = 2;
 pub struct AppState {
     store: BlockStore,
     undo_history: UndoHistory<UndoSnapshot>,
-    llm_config: Result<llm_api::LlmConfig, llm_api::LlmConfigError>,
+    llm_config: Result<llm::LlmConfig, llm::LlmConfigError>,
     errors: Vec<AppError>,
-    llms: LlmStore,
-    editors: EditorStore,
+    llm_requests: LlmRequests,
+    editor_buffers: EditorBuffers,
     /// Hard guard set when startup cannot trust persisted `blocks.json`.
     ///
     /// IMPORTANT: this protects potentially recoverable user data.
@@ -105,7 +105,7 @@ impl AppState {
     /// - recovery mode uses a blank one-root workspace and blocks save-through
     ///   to avoid overwriting unknown/corrupt on-disk state.
     pub fn load() -> Self {
-        let llm_config = llm_api::LlmConfig::load();
+        let llm_config = llm::LlmConfig::load();
         let mut errors = vec![];
         if let Some(err) = llm_config.as_ref().err() {
             errors.push(AppError::Configuration(UiError::from_message(err)));
@@ -113,7 +113,7 @@ impl AppState {
         let (store, persistence_blocked, persistence_errors) =
             Self::startup_store_from_load_result(BlockStore::load());
         errors.extend(persistence_errors);
-        let editors = EditorStore::from_store(&store);
+        let editor_buffers = EditorBuffers::from_store(&store);
         let is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
         tracing::info!(is_dark, "detected system appearance");
         Self {
@@ -121,8 +121,8 @@ impl AppState {
             undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
             llm_config,
             errors,
-            llms: LlmStore::new(),
-            editors,
+            llm_requests: LlmRequests::new(),
+            editor_buffers,
             persistence_blocked,
             persistence_write_disabled: false,
             overflow_open_for: None,
@@ -184,25 +184,25 @@ impl AppState {
         }
     }
 
-    fn llm_config_for_reduce(&mut self, block_id: BlockId) -> Option<llm_api::LlmConfig> {
+    fn llm_config_for_reduce(&mut self, block_id: BlockId) -> Option<llm::LlmConfig> {
         match &self.llm_config {
             | Ok(config) => Some(config.clone()),
             | Err(err) => {
                 let ui_err = UiError::from_message(err);
                 self.record_error(AppError::Configuration(ui_err.clone()));
-                self.llms.set_reduce_error(block_id, ui_err);
+                self.llm_requests.set_reduce_error(block_id, ui_err);
                 None
             }
         }
     }
 
-    fn llm_config_for_expand(&mut self, block_id: BlockId) -> Option<llm_api::LlmConfig> {
+    fn llm_config_for_expand(&mut self, block_id: BlockId) -> Option<llm::LlmConfig> {
         match &self.llm_config {
             | Ok(config) => Some(config.clone()),
             | Err(err) => {
                 let ui_err = UiError::from_message(err);
                 self.record_error(AppError::Configuration(ui_err.clone()));
-                self.llms.set_expand_error(block_id, ui_err);
+                self.llm_requests.set_expand_error(block_id, ui_err);
                 None
             }
         }
@@ -255,9 +255,9 @@ impl AppState {
     }
 
     fn restore_snapshot(&mut self, snapshot: UndoSnapshot) {
-        self.editors = EditorStore::from_store(&snapshot.store);
+        self.editor_buffers = EditorBuffers::from_store(&snapshot.store);
         self.store = snapshot.store;
-        self.llms.clear();
+        self.llm_requests.clear();
         self.focused_block_id = None;
         self.editing_block_id = None;
         self.active_block_id = self.store.roots().first().copied();
@@ -390,7 +390,7 @@ pub enum ExpandMessage {
     Done {
         block_id: BlockId,
         request_signature: RequestSignature,
-        result: Result<llm_api::ExpandResult, UiError>,
+        result: Result<llm::ExpandResult, UiError>,
     },
     ApplyRewrite(BlockId),
     RejectRewrite(BlockId),
@@ -485,7 +485,7 @@ fn run_shortcut_for_block(
     state.set_active_block(&block_id);
 
     let point_text =
-        state.editors.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
+        state.editor_buffers.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
     let expansion_draft = state.store.expansion_draft(&block_id);
     let reduction_draft = state.store.reduction_draft(&block_id);
     let row_context = RowContext {
@@ -493,10 +493,10 @@ fn run_shortcut_for_block(
         point_text,
         has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
         draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0),
-        has_expand_error: state.llms.has_expand_error(block_id),
-        has_reduce_error: state.llms.has_reduce_error(block_id),
-        is_expanding: state.llms.is_expanding(block_id),
-        is_reducing: state.llms.is_reducing(block_id),
+        has_expand_error: state.llm_requests.has_expand_error(block_id),
+        has_reduce_error: state.llm_requests.has_reduce_error(block_id),
+        is_expanding: state.llm_requests.is_expanding(block_id),
+        is_reducing: state.llm_requests.is_reducing(block_id),
         is_mounted: state.store.mount_table().entry(block_id).is_some(),
         has_children: !state.store.children(&block_id).is_empty(),
         is_unexpanded_mount: state.store.node(&block_id).is_some_and(|n| n.mount_path().is_some()),
@@ -575,7 +575,7 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
         | ReduceMessage::Start(block_id) => {
             state.set_active_block(&block_id);
             state.overflow_open_for = None;
-            if state.llms.is_reducing(block_id) {
+            if state.llm_requests.is_reducing(block_id) {
                 return Task::none();
             }
             let lineage = state.store.lineage_points_for_id(&block_id);
@@ -586,10 +586,10 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             let Some(request_signature) = RequestSignature::from_lineage(&lineage) else {
                 return Task::none();
             };
-            state.llms.mark_reduce_loading(block_id, request_signature);
+            state.llm_requests.mark_reduce_loading(block_id, request_signature);
             let request_task = Task::perform(
                 async move {
-                    let client = llm_api::LlmClient::new(config);
+                    let client = llm::LlmClient::new(config);
                     AppState::resolve_llm_request(
                         tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.reduce_lineage(&lineage))
                             .await,
@@ -601,18 +601,18 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
                 },
             );
             let (request_task, handle) = Task::abortable(request_task);
-            state.llms.replace_reduce_handle(block_id, handle);
+            state.llm_requests.replace_reduce_handle(block_id, handle);
             request_task
         }
         | ReduceMessage::Cancel(block_id) => {
             state.set_active_block(&block_id);
-            if state.llms.cancel_reduce(block_id) {
+            if state.llm_requests.cancel_reduce(block_id) {
                 tracing::info!(block_id = ?block_id, "reduce request cancelled");
             }
             Task::none()
         }
         | ReduceMessage::Done { block_id, request_signature, result } => {
-            let pending_signature = state.llms.finish_reduce_request(block_id);
+            let pending_signature = state.llm_requests.finish_reduce_request(block_id);
             if state.store.node(&block_id).is_none() {
                 return Task::none();
             }
@@ -638,7 +638,7 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
                 }
                 | Err(reason) => {
                     tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "reduce request failed");
-                    state.llms.set_reduce_error(block_id, reason.clone());
+                    state.llm_requests.set_reduce_error(block_id, reason.clone());
                     state.record_error(AppError::Reduce(reason));
                 }
             }
@@ -650,7 +650,7 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
                 if let Some(draft) = state.store.remove_reduction_draft(&block_id) {
                     tracing::info!(block_id = ?block_id, chars = draft.reduction.len(), "applied reduction");
                     state.store.update_point(&block_id, draft.reduction.clone());
-                    state.editors.set_text(&block_id, &draft.reduction);
+                    state.editor_buffers.set_text(&block_id, &draft.reduction);
                     return true;
                 }
                 false
@@ -672,7 +672,7 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
         | ExpandMessage::Start(block_id) => {
             state.set_active_block(&block_id);
             state.overflow_open_for = None;
-            if state.llms.is_expanding(block_id) {
+            if state.llm_requests.is_expanding(block_id) {
                 return Task::none();
             }
             let lineage = state.store.lineage_points_for_id(&block_id);
@@ -684,10 +684,10 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
             let Some(request_signature) = RequestSignature::from_lineage(&lineage) else {
                 return Task::none();
             };
-            state.llms.mark_expand_loading(block_id, request_signature);
+            state.llm_requests.mark_expand_loading(block_id, request_signature);
             let request_task = Task::perform(
                 async move {
-                    let client = llm_api::LlmClient::new(config);
+                    let client = llm::LlmClient::new(config);
                     AppState::resolve_llm_request(
                         tokio::time::timeout(LLM_REQUEST_TIMEOUT, client.expand_lineage(&lineage))
                             .await,
@@ -699,18 +699,18 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
                 },
             );
             let (request_task, handle) = Task::abortable(request_task);
-            state.llms.replace_expand_handle(block_id, handle);
+            state.llm_requests.replace_expand_handle(block_id, handle);
             request_task
         }
         | ExpandMessage::Cancel(block_id) => {
             state.set_active_block(&block_id);
-            if state.llms.cancel_expand(block_id) {
+            if state.llm_requests.cancel_expand(block_id) {
                 tracing::info!(block_id = ?block_id, "expand request cancelled");
             }
             Task::none()
         }
         | ExpandMessage::Done { block_id, request_signature, result } => {
-            let pending_signature = state.llms.finish_expand_request(block_id);
+            let pending_signature = state.llm_requests.finish_expand_request(block_id);
             if state.store.node(&block_id).is_none() {
                 return Task::none();
             }
@@ -730,7 +730,7 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
                         rewrite.map(|value| value.trim().to_string()).filter(|v| !v.is_empty());
                     let children = children
                         .into_iter()
-                        .map(llm_api::ExpandSuggestion::into_point)
+                        .map(llm::ExpandSuggestion::into_point)
                         .map(|value| value.trim().to_string())
                         .filter(|v| !v.is_empty())
                         .collect::<Vec<_>>();
@@ -742,7 +742,7 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
                     );
                     if rewrite.is_none() && children.is_empty() {
                         let reason = UiError::from_message("expand returned no usable suggestions");
-                        state.llms.set_expand_error(block_id, reason.clone());
+                        state.llm_requests.set_expand_error(block_id, reason.clone());
                         state.record_error(AppError::Expand(reason));
                         return Task::none();
                     }
@@ -757,7 +757,7 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
                 }
                 | Err(reason) => {
                     tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "expand request failed");
-                    state.llms.set_expand_error(block_id, reason.clone());
+                    state.llm_requests.set_expand_error(block_id, reason.clone());
                     state.record_error(AppError::Expand(reason));
                 }
             }
@@ -776,7 +776,7 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
                 if let Some(rewrite) = applied_rewrite {
                     tracing::info!(block_id = ?block_id, chars = rewrite.len(), "applied expanded rewrite");
                     state.store.update_point(&block_id, rewrite.clone());
-                    state.editors.set_text(&block_id, &rewrite);
+                    state.editor_buffers.set_text(&block_id, &rewrite);
                     should_save = true;
                 }
                 if should_remove_draft {
@@ -827,7 +827,7 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
                         chars = point.len(),
                         "accepted expanded child"
                     );
-                    state.editors.set_text(&child_id, &point);
+                    state.editor_buffers.set_text(&child_id, &point);
                     should_save = true;
                 }
                 if should_remove_draft {
@@ -869,7 +869,7 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
                                 chars = point.len(),
                                 "accepted expanded child (bulk)"
                             );
-                            state.editors.set_text(&child_id, &point);
+                            state.editor_buffers.set_text(&child_id, &point);
                         }
                     }
                     if draft.rewrite.is_some() {
@@ -912,7 +912,7 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
             state.mutate_with_undo_and_persist("after adding child", |state| {
                 if let Some(child_id) = state.store.append_child(&block_id, String::new()) {
                     tracing::info!(parent_block_id = ?block_id, child_block_id = ?child_id, "added child block");
-                    state.editors.set_text(&child_id, "");
+                    state.editor_buffers.set_text(&child_id, "");
                     return true;
                 }
                 false
@@ -924,7 +924,7 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
             state.mutate_with_undo_and_persist("after adding sibling", |state| {
                 if let Some(sibling_id) = state.store.append_sibling(&block_id, String::new()) {
                     tracing::info!(block_id = ?block_id, sibling_block_id = ?sibling_id, "added sibling block");
-                    state.editors.set_text(&sibling_id, "");
+                    state.editor_buffers.set_text(&sibling_id, "");
                     state.overflow_open_for = None;
                     return true;
                 }
@@ -937,7 +937,7 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
             state.mutate_with_undo_and_persist("after duplicating subtree", |state| {
                 if let Some(duplicate_id) = state.store.duplicate_subtree_after(&block_id) {
                     tracing::info!(block_id = ?block_id, duplicate_block_id = ?duplicate_id, "duplicated block subtree");
-                    state.editors.ensure_subtree(&state.store, &duplicate_id);
+                    state.editor_buffers.ensure_subtree(&state.store, &duplicate_id);
                     state.overflow_open_for = None;
                     return true;
                 }
@@ -950,15 +950,15 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
             state.snapshot_for_undo();
             if let Some(removed_ids) = state.store.remove_block_subtree(&block_id) {
                 tracing::info!(block_id = ?block_id, removed = removed_ids.len(), "archived block subtree");
-                state.editors.remove_blocks(&removed_ids);
+                state.editor_buffers.remove_blocks(&removed_ids);
                 for id in &removed_ids {
-                    state.llms.remove_block(*id);
+                    state.llm_requests.remove_block(*id);
                 }
                 if removed_ids.iter().any(|id| Some(*id) == state.focused_block_id) {
                     state.focused_block_id = None;
                 }
                 for root_id in state.store.roots() {
-                    state.editors.ensure_block(&state.store, root_id);
+                    state.editor_buffers.ensure_block(&state.store, root_id);
                 }
                 state.overflow_open_for = None;
                 if state.active_block_id == Some(block_id) {
@@ -1006,7 +1006,7 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
                     | Ok(new_roots) => {
                         tracing::info!(block_id = ?block_id, children = new_roots.len(), "expanded mount");
                         for &id in &new_roots {
-                            state.editors.ensure_subtree(&state.store, &id);
+                            state.editor_buffers.ensure_subtree(&state.store, &id);
                         }
                         true
                     }
@@ -1024,7 +1024,7 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
             state.mutate_with_undo_and_persist("after collapsing mount", |state| {
                 if let Some(()) = state.store.collapse_mount(&block_id) {
                     tracing::info!(block_id = ?block_id, "collapsed mount");
-                    state.editors = EditorStore::from_store(&state.store);
+                    state.editor_buffers = EditorBuffers::from_store(&state.store);
                     return true;
                 }
                 false
@@ -1058,7 +1058,7 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
                             match state.store.expand_mount(&block_id, &base_dir) {
                                 | Ok(new_roots) => {
                                     for &id in &new_roots {
-                                        state.editors.ensure_subtree(&state.store, &id);
+                                        state.editor_buffers.ensure_subtree(&state.store, &id);
                                     }
                                 }
                                 | Err(err) => {
@@ -1111,7 +1111,7 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
                         | Ok(new_roots) => {
                             tracing::info!(block_id = ?block_id, path = %path.display(), children = new_roots.len(), "loaded file into block");
                             for &id in &new_roots {
-                                state.editors.ensure_subtree(&state.store, &id);
+                                state.editor_buffers.ensure_subtree(&state.store, &id);
                             }
                         }
                         | Err(err) => {
@@ -1144,7 +1144,7 @@ fn handle_point_edited(
         state.snapshot_for_undo();
         state.editing_block_id = Some(block_id);
     }
-    state.editors.ensure_block(&state.store, &block_id);
+    state.editor_buffers.ensure_block(&state.store, &block_id);
 
     let vertical_direction = match &action {
         | text_editor::Action::Move(text_editor::Motion::Up) => Some(VerticalDir::Up),
@@ -1153,7 +1153,7 @@ fn handle_point_edited(
     };
 
     let mut navigate_to: Option<BlockId> = None;
-    if let Some(content) = state.editors.get_mut(&block_id) {
+    if let Some(content) = state.editor_buffers.get_mut(&block_id) {
         let cursor_before = content.cursor().position;
         content.perform(action);
         let cursor_after = content.cursor().position;
@@ -1176,7 +1176,7 @@ fn handle_point_edited(
     }
 
     if let Some(target_id) = navigate_to
-        && let Some(wid) = state.editors.widget_id(&target_id)
+        && let Some(wid) = state.editor_buffers.widget_id(&target_id)
     {
         state.focused_block_id = Some(target_id);
         tracing::debug!(
@@ -1300,12 +1300,12 @@ mod tests {
         let store = BlockStore::default();
         let root = *store.roots().first().expect("default store has a root");
         let state = AppState {
-            editors: super::EditorStore::from_store(&store),
+            editor_buffers: super::EditorBuffers::from_store(&store),
             store,
             undo_history: UndoHistory::with_capacity(64),
             llm_config: Ok(llm::LlmConfig::default()),
             errors: vec![],
-            llms: super::LlmStore::new(),
+            llm_requests: super::LlmRequests::new(),
             overflow_open_for: None,
             active_block_id: None,
             focused_block_id: None,
@@ -1447,7 +1447,7 @@ mod tests {
     fn expand_done_success_persists_draft_in_store() {
         let (mut state, root) = test_state();
         let signature = state.lineage_signature(&root).expect("root has lineage");
-        state.llms.mark_expand_loading(root, signature);
+        state.llm_requests.mark_expand_loading(root, signature);
         let _ = update(
             &mut state,
             Message::Expand(ExpandMessage::Done {
@@ -1468,7 +1468,7 @@ mod tests {
     fn expand_done_stale_response_is_ignored() {
         let (mut state, root) = test_state();
         let signature = state.lineage_signature(&root).expect("root has lineage");
-        state.llms.mark_expand_loading(root, signature);
+        state.llm_requests.mark_expand_loading(root, signature);
         state.store.update_point(&root, "edited while pending".to_string());
         let _ = update(
             &mut state,
@@ -1488,11 +1488,11 @@ mod tests {
     fn cancel_expand_clears_loading_state_and_pending_signature() {
         let (mut state, root) = test_state();
         let _ = update(&mut state, Message::Expand(ExpandMessage::Start(root)));
-        assert!(state.llms.is_expanding(root));
-        assert!(state.llms.has_pending_expand_signature(root));
+        assert!(state.llm_requests.is_expanding(root));
+        assert!(state.llm_requests.has_pending_expand_signature(root));
         let _ = update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
-        assert!(!state.llms.is_expanding(root));
-        assert!(!state.llms.has_pending_expand_signature(root));
+        assert!(!state.llm_requests.is_expanding(root));
+        assert!(!state.llm_requests.has_pending_expand_signature(root));
     }
 
     #[test]
@@ -1585,7 +1585,7 @@ mod tests {
         let (mut state, root) = test_state();
 
         let first_signature = state.lineage_signature(&root).expect("root has lineage");
-        state.llms.mark_expand_loading(root, first_signature);
+        state.llm_requests.mark_expand_loading(root, first_signature);
         let _ = update(
             &mut state,
             Message::Expand(ExpandMessage::Done {
@@ -1600,7 +1600,7 @@ mod tests {
         let _ = update(&mut state, Message::Expand(ExpandMessage::AcceptAllChildren(root)));
 
         let second_signature = state.lineage_signature(&root).expect("root has lineage");
-        state.llms.mark_expand_loading(root, second_signature);
+        state.llm_requests.mark_expand_loading(root, second_signature);
         let _ = update(
             &mut state,
             Message::Expand(ExpandMessage::Done {
@@ -1624,7 +1624,7 @@ mod tests {
     fn reduce_done_success_persists_draft_in_store() {
         let (mut state, root) = test_state();
         let signature = state.lineage_signature(&root).expect("root has lineage");
-        state.llms.mark_reduce_loading(root, signature);
+        state.llm_requests.mark_reduce_loading(root, signature);
         let _ = update(
             &mut state,
             Message::Reduce(ReduceMessage::Done {
@@ -1641,7 +1641,7 @@ mod tests {
     fn reduce_done_stale_response_is_ignored() {
         let (mut state, root) = test_state();
         let signature = state.lineage_signature(&root).expect("root has lineage");
-        state.llms.mark_reduce_loading(root, signature);
+        state.llm_requests.mark_reduce_loading(root, signature);
         state.store.update_point(&root, "edited while pending".to_string());
         let _ = update(
             &mut state,
@@ -1658,11 +1658,11 @@ mod tests {
     fn cancel_reduce_clears_loading_state_and_pending_signature() {
         let (mut state, root) = test_state();
         let _ = update(&mut state, Message::Reduce(ReduceMessage::Start(root)));
-        assert!(state.llms.is_reducing(root));
-        assert!(state.llms.has_pending_reduce_signature(root));
+        assert!(state.llm_requests.is_reducing(root));
+        assert!(state.llm_requests.has_pending_reduce_signature(root));
         let _ = update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
-        assert!(!state.llms.is_reducing(root));
-        assert!(!state.llms.has_pending_reduce_signature(root));
+        assert!(!state.llm_requests.is_reducing(root));
+        assert!(!state.llm_requests.has_pending_reduce_signature(root));
     }
 
     #[test]
@@ -1706,7 +1706,7 @@ mod tests {
     fn expand_done_error_sets_expand_error_state() {
         let (mut state, root) = test_state();
         let signature = state.lineage_signature(&root).expect("root has lineage");
-        state.llms.mark_expand_loading(root, signature);
+        state.llm_requests.mark_expand_loading(root, signature);
         let _ = update(
             &mut state,
             Message::Expand(ExpandMessage::Done {
@@ -1715,14 +1715,14 @@ mod tests {
                 result: Err(super::UiError::from_message("failed")),
             }),
         );
-        assert!(state.llms.has_expand_error(root));
+        assert!(state.llm_requests.has_expand_error(root));
     }
 
     #[test]
     fn reduce_done_error_sets_reduce_error_state() {
         let (mut state, root) = test_state();
         let signature = state.lineage_signature(&root).expect("root has lineage");
-        state.llms.mark_reduce_loading(root, signature);
+        state.llm_requests.mark_reduce_loading(root, signature);
         let _ = update(
             &mut state,
             Message::Reduce(ReduceMessage::Done {
@@ -1731,14 +1731,14 @@ mod tests {
                 result: Err(super::UiError::from_message("failed")),
             }),
         );
-        assert!(state.llms.has_reduce_error(root));
+        assert!(state.llm_requests.has_reduce_error(root));
     }
 
     #[test]
     fn cancel_expand_then_late_response_is_ignored() {
         let (mut state, root) = test_state();
         let signature = state.lineage_signature(&root).expect("root has lineage");
-        state.llms.mark_expand_loading(root, signature);
+        state.llm_requests.mark_expand_loading(root, signature);
         let _ = update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
         let _ = update(
             &mut state,
@@ -1752,15 +1752,15 @@ mod tests {
             }),
         );
         assert!(state.store.expansion_draft(&root).is_none());
-        assert!(!state.llms.is_expanding(root));
-        assert!(!state.llms.has_expand_error(root));
+        assert!(!state.llm_requests.is_expanding(root));
+        assert!(!state.llm_requests.has_expand_error(root));
     }
 
     #[test]
     fn cancel_reduce_then_late_response_is_ignored() {
         let (mut state, root) = test_state();
         let signature = state.lineage_signature(&root).expect("root has lineage");
-        state.llms.mark_reduce_loading(root, signature);
+        state.llm_requests.mark_reduce_loading(root, signature);
         let _ = update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
         let _ = update(
             &mut state,
@@ -1771,8 +1771,8 @@ mod tests {
             }),
         );
         assert!(state.store.reduction_draft(&root).is_none());
-        assert!(!state.llms.is_reducing(root));
-        assert!(!state.llms.has_reduce_error(root));
+        assert!(!state.llm_requests.is_reducing(root));
+        assert!(!state.llm_requests.has_reduce_error(root));
     }
 
     #[test]
@@ -1786,13 +1786,13 @@ mod tests {
         let _ = update(&mut state, Message::Reduce(ReduceMessage::Start(root)));
         let _ = update(&mut state, Message::Reduce(ReduceMessage::Start(sibling)));
 
-        assert!(state.llms.has_reduce_handle(root));
-        assert!(state.llms.has_reduce_handle(sibling));
+        assert!(state.llm_requests.has_reduce_handle(root));
+        assert!(state.llm_requests.has_reduce_handle(sibling));
 
         let _ = update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
 
-        assert!(!state.llms.has_reduce_handle(root));
-        assert!(state.llms.has_reduce_handle(sibling));
+        assert!(!state.llm_requests.has_reduce_handle(root));
+        assert!(state.llm_requests.has_reduce_handle(sibling));
     }
 
     #[test]
@@ -1806,12 +1806,12 @@ mod tests {
         let _ = update(&mut state, Message::Expand(ExpandMessage::Start(root)));
         let _ = update(&mut state, Message::Expand(ExpandMessage::Start(sibling)));
 
-        assert!(state.llms.has_expand_handle(root));
-        assert!(state.llms.has_expand_handle(sibling));
+        assert!(state.llm_requests.has_expand_handle(root));
+        assert!(state.llm_requests.has_expand_handle(sibling));
 
         let _ = update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
 
-        assert!(!state.llms.has_expand_handle(root));
-        assert!(state.llms.has_expand_handle(sibling));
+        assert!(!state.llm_requests.has_expand_handle(root));
+        assert!(state.llm_requests.has_expand_handle(sibling));
     }
 }

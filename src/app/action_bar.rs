@@ -451,20 +451,20 @@ pub fn action_to_message_by_id(
 }
 
 fn cancel_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
-    if state.llms.is_expanding(*block_id) {
+    if state.llm_requests.is_expanding(*block_id) {
         return Some(Message::Expand(ExpandMessage::Cancel(*block_id)));
     }
-    if state.llms.is_reducing(*block_id) {
+    if state.llm_requests.is_reducing(*block_id) {
         return Some(Message::Reduce(ReduceMessage::Cancel(*block_id)));
     }
     None
 }
 
 fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
-    if state.llms.has_expand_error(*block_id) {
+    if state.llm_requests.has_expand_error(*block_id) {
         return Some(Message::Expand(ExpandMessage::Start(*block_id)));
     }
-    if state.llms.has_reduce_error(*block_id) {
+    if state.llm_requests.has_reduce_error(*block_id) {
         return Some(Message::Reduce(ReduceMessage::Start(*block_id)));
     }
     None
