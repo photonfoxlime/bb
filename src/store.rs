@@ -649,6 +649,7 @@ impl BlockStore {
         if let Some(node) = self.nodes.get_mut(*mount_point) {
             *node = BlockNode::with_children(new_roots.clone());
         }
+        self.view_collapsed.remove(*mount_point);
 
         Ok(new_roots)
     }
@@ -1828,6 +1829,27 @@ mod tests {
         let new_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
         assert_eq!(new_roots.len(), sub.roots().len());
         assert_eq!(store.point(&new_roots[0]), Some("root".to_string()));
+    }
+
+    #[test]
+    fn expand_markdown_mount_clears_collapsed_state_for_mount_point() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_markdown_sub_store(tmp.path(), "sub.md");
+
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path_and_format(
+            std::path::PathBuf::from("sub.md"),
+            MountFormat::Markdown,
+        ));
+        points.insert(mount_id, String::new());
+        let mut store = BlockStore::new(vec![mount_id], nodes, points);
+        store.view_collapsed.insert(mount_id, true);
+
+        let new_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
+        assert!(!new_roots.is_empty());
+        assert!(!store.is_collapsed(&mount_id));
+        assert_eq!(store.children(&mount_id), new_roots.as_slice());
     }
 
     #[test]
