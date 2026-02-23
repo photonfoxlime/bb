@@ -920,6 +920,21 @@ impl BlockStore {
         false
     }
 
+    /// Construct a minimal one-root workspace for startup recovery mode.
+    ///
+    /// Used when persisted data cannot be loaded safely. This intentionally
+    /// avoids the sample default document so the UI clearly indicates recovery
+    /// state instead of looking like a normal first-run dataset.
+    pub(crate) fn recovery_store() -> Self {
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+
+        let root_id = nodes.insert(BlockNode::with_children(vec![]));
+        points.insert(root_id, String::new());
+
+        BlockStore::new(vec![root_id], nodes, points)
+    }
+
     fn default_store() -> Self {
         let mut nodes = SlotMap::with_key();
         let mut points = SecondaryMap::new();

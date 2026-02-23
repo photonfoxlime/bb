@@ -5,7 +5,9 @@
 
 use crate::llm;
 use crate::paths::AppPaths;
-use crate::store::{BlockId, BlockStore, ExpansionDraftRecord, ReductionDraftRecord};
+use crate::store::{
+    BlockId, BlockStore, ExpansionDraftRecord, ReductionDraftRecord, StoreLoadError,
+};
 use crate::theme;
 use crate::undo::UndoHistory;
 use std::collections::HashSet;
@@ -52,6 +54,8 @@ const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// Ownership split:
 /// - `store`: authoritative graph, persisted drafts, mount runtime metadata.
 /// - `editors`: widget-local text buffers + focus ids.
+/// - persistence flags: recovery guard for unsafe-on-disk state plus a runtime
+///   write gate for side-effect-free runs.
 /// - selectors (`active_block_id`, `focused_block_id`, `editing_block_id`) and
 ///   overlay/fold flags: view/controller state only.
 #[derive(Clone)]
@@ -67,7 +71,21 @@ pub struct AppState {
     pending_reduce_signatures: SecondaryMap<BlockId, RequestSignature>,
     pending_expand_signatures: SecondaryMap<BlockId, RequestSignature>,
     editors: EditorStore,
+    /// Hard guard set when startup cannot trust persisted `blocks.json`.
+    ///
+    /// IMPORTANT: this protects potentially recoverable user data.
+    /// When true, save-through is blocked so the app does not overwrite
+    /// potentially recoverable user data with recovery-session edits.
     persistence_blocked: bool,
+    /// Explicit write kill-switch for side-effect-free execution contexts.
+    ///
+    /// IMPORTANT: this is a test-only runtime flag so tests can opt in
+    /// per `AppState` instance while keeping the normal persistence path
+    /// compiled and typechecked in test builds.
+    ///
+    /// `AppState::load()` initializes this to `false`; tests explicitly set it
+    /// to `true` in `test_state` to avoid touching on-disk `blocks.json`.
+    persistence_write_disabled: bool,
     overflow_open_for: Option<BlockId>,
     /// Last block interacted with by actions or edits.
     active_block_id: Option<BlockId>,
@@ -87,9 +105,10 @@ impl AppState {
     /// Load startup state.
     ///
     /// Persistence safety policy:
-    /// - missing `blocks.json` is treated as empty/default state,
-    /// - load path/read/parse failures enter guarded mode (`persistence_blocked`),
-    /// - guarded mode keeps in-memory editing available but blocks save-through
+    /// - missing `blocks.json` is treated as first-run default state,
+    /// - load path/read/parse failures enter guarded recovery mode
+    ///   (`persistence_blocked`),
+    /// - recovery mode uses a blank one-root workspace and blocks save-through
     ///   to avoid overwriting unknown/corrupt on-disk state.
     pub fn load() -> Self {
         let llm_config = llm::LlmConfig::load();
@@ -97,16 +116,11 @@ impl AppState {
             .as_ref()
             .err()
             .map(|err| AppError::Configuration(UiError::from_message(err)));
-        let (store, persistence_blocked) = match BlockStore::load() {
-            | Ok(store) => (store, false),
-            | Err(err) => {
-                tracing::error!(%err, "failed to load block store; persistence disabled");
-                error = Some(AppError::Persistence(UiError::from_message(format!(
-                    "failed to load blocks.json: {err}; persistence is disabled for this session"
-                ))));
-                (BlockStore::default(), true)
-            }
-        };
+        let (store, persistence_blocked, persistence_error) =
+            Self::startup_store_from_load_result(BlockStore::load());
+        if let Some(persistence_error) = persistence_error {
+            error = Some(persistence_error);
+        }
         let editors = EditorStore::from_store(&store);
         let is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
         tracing::info!(is_dark, "detected system appearance");
@@ -123,12 +137,28 @@ impl AppState {
             pending_expand_signatures: SecondaryMap::new(),
             editors,
             persistence_blocked,
+            persistence_write_disabled: false,
             overflow_open_for: None,
             active_block_id: None,
             focused_block_id: None,
             editing_block_id: None,
             collapsed: HashSet::new(),
             is_dark,
+        }
+    }
+
+    fn startup_store_from_load_result(
+        load_result: Result<BlockStore, StoreLoadError>,
+    ) -> (BlockStore, bool, Option<AppError>) {
+        match load_result {
+            | Ok(store) => (store, false, None),
+            | Err(err) => {
+                tracing::error!(%err, "failed to load block store; entering recovery mode");
+                let error = AppError::Persistence(UiError::from_message(format!(
+                    "failed to load blocks.json: {err}; opened a temporary recovery workspace and disabled autosave for this session"
+                )));
+                (BlockStore::recovery_store(), true, Some(error))
+            }
         }
     }
 
@@ -161,6 +191,9 @@ impl AppState {
     }
 
     fn persist_with_context(&mut self, context: &'static str) {
+        if self.persistence_write_disabled {
+            return;
+        }
         if let Err(err) = self.save_tree() {
             tracing::error!(%err, context, "failed to save tree");
         }
@@ -1209,8 +1242,13 @@ fn handle_point_edited(
 pub fn view(state: &AppState) -> Element<'_, Message> {
     let mut layout = column![].spacing(theme::LAYOUT_GAP);
     if let Some(error) = &state.error {
+        let prefix = if state.persistence_blocked && matches!(error, AppError::Persistence(_)) {
+            "Recovery mode"
+        } else {
+            "Error"
+        };
         layout = layout.push(
-            container(text(format!("Error: {}", error.message())))
+            container(text(format!("{prefix}: {}", error.message())))
                 .style(theme::error_banner)
                 .padding(theme::BANNER_PAD),
         );
@@ -1233,10 +1271,10 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppState, Message, update};
+    use super::{AppError, AppState, Message, update};
     use super::{ExpandMessage, ReduceMessage};
     use crate::llm;
-    use crate::store::{BlockStore, ExpansionDraftRecord, ReductionDraftRecord};
+    use crate::store::{BlockStore, ExpansionDraftRecord, ReductionDraftRecord, StoreLoadError};
     use crate::undo::UndoHistory;
     use slotmap::SecondaryMap;
     use std::collections::HashSet;
@@ -1261,6 +1299,7 @@ mod tests {
             focused_block_id: None,
             editing_block_id: None,
             persistence_blocked: false,
+            persistence_write_disabled: true,
             collapsed: HashSet::new(),
             is_dark: false,
         };
@@ -1291,6 +1330,28 @@ mod tests {
         state.store.update_point(&root, "root changed".to_string());
         let after = state.lineage_signature(&child).expect("child has lineage");
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn load_failure_enters_recovery_mode_with_blank_workspace() {
+        let (store, persistence_blocked, error) =
+            AppState::startup_store_from_load_result(Err(StoreLoadError::PathUnavailable));
+
+        assert!(persistence_blocked);
+        assert!(matches!(error, Some(AppError::Persistence(_))));
+        let root = *store.roots().first().expect("recovery store has one root");
+        assert_eq!(store.point(&root).as_deref(), Some(""));
+        assert_ne!(store.point(&root).as_deref(), Some("Notes on liberating productivity"));
+    }
+
+    #[test]
+    fn test_build_persistence_is_side_effect_free() {
+        let (mut state, root) = test_state();
+        state.store.update_point(&root, "edited".to_string());
+
+        state.persist_with_context("test-only persistence noop");
+
+        assert!(state.error.is_none());
     }
 
     #[test]
