@@ -497,7 +497,7 @@ impl BlockStore {
         llm::Lineage::from_points(vec![])
     }
 
-    /// Build a [`BlockContext`] for the given block, combining its lineage
+    /// Build a [`llm::BlockContext`] for the given block, combining its lineage
     /// (root-to-target points) with its direct children's point text.
     ///
     /// Used by reduce/expand handlers to give the LLM full context about
