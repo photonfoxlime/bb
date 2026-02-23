@@ -15,6 +15,7 @@ use iced::widget::{button, container, text, text_editor};
 use std::time::Duration;
 
 const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const INSTRUCTION_EDITOR_HEIGHT: f32 = 80.0;
 
 /// Instruction panel state.
 #[derive(Debug, Clone, Default)]
@@ -205,11 +206,13 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             text_editor(instruction_content)
                 .placeholder("Enter instruction...")
                 .style(theme::point_editor)
+                .height(INSTRUCTION_EDITOR_HEIGHT)
                 .on_action(move |action| {
                     Message::InstructionPanel(InstructionPanelMessage::TextEdited(action)).into()
                 }),
         )
-        .height(iced::Length::Fixed(80.0)),
+        .width(iced::Length::Fill)
+        .height(iced::Length::Fixed(INSTRUCTION_EDITOR_HEIGHT)),
     );
 
     // Action buttons row
