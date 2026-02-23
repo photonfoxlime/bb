@@ -24,7 +24,7 @@ use action_bar::{
 use editor_store::EditorStore;
 use error::{AppError, UiError};
 use iced::theme::Mode;
-use iced::widget::{column, container, scrollable, text, text_editor};
+use iced::widget::{button, column, container, row, scrollable, text, text_editor};
 use iced::{Element, Event, Fill, Subscription, Task, event, keyboard, mouse, system, widget};
 use llm::{LlmStore, RequestSignature};
 use std::collections::HashSet;
@@ -43,6 +43,7 @@ struct UndoSnapshot {
 /// Default capacity: 64 undo steps.
 const UNDO_CAPACITY: usize = 64;
 const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const ERROR_STACK_PREVIEW_LIMIT: usize = 2;
 
 /// All mutable application state for the iced Elm architecture.
 ///
@@ -61,7 +62,7 @@ pub struct AppState {
     store: BlockStore,
     undo_history: UndoHistory<UndoSnapshot>,
     llm_config: Result<llm_api::LlmConfig, llm_api::LlmConfigError>,
-    error: Option<AppError>,
+    errors: Vec<AppError>,
     llms: LlmStore,
     editors: EditorStore,
     /// Hard guard set when startup cannot trust persisted `blocks.json`.
@@ -105,15 +106,13 @@ impl AppState {
     ///   to avoid overwriting unknown/corrupt on-disk state.
     pub fn load() -> Self {
         let llm_config = llm_api::LlmConfig::load();
-        let mut error = llm_config
-            .as_ref()
-            .err()
-            .map(|err| AppError::Configuration(UiError::from_message(err)));
-        let (store, persistence_blocked, persistence_error) =
-            Self::startup_store_from_load_result(BlockStore::load());
-        if let Some(persistence_error) = persistence_error {
-            error = Some(persistence_error);
+        let mut errors = vec![];
+        if let Some(err) = llm_config.as_ref().err() {
+            errors.push(AppError::Configuration(UiError::from_message(err)));
         }
+        let (store, persistence_blocked, persistence_errors) =
+            Self::startup_store_from_load_result(BlockStore::load());
+        errors.extend(persistence_errors);
         let editors = EditorStore::from_store(&store);
         let is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
         tracing::info!(is_dark, "detected system appearance");
@@ -121,7 +120,7 @@ impl AppState {
             store,
             undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
             llm_config,
-            error,
+            errors,
             llms: LlmStore::new(),
             editors,
             persistence_blocked,
@@ -137,15 +136,15 @@ impl AppState {
 
     fn startup_store_from_load_result(
         load_result: Result<BlockStore, StoreLoadError>,
-    ) -> (BlockStore, bool, Option<AppError>) {
+    ) -> (BlockStore, bool, Vec<AppError>) {
         match load_result {
-            | Ok(store) => (store, false, None),
+            | Ok(store) => (store, false, vec![]),
             | Err(err) => {
                 tracing::error!(%err, "failed to load block store; entering recovery mode");
                 let error = AppError::Persistence(UiError::from_message(format!(
                     "failed to load blocks.json: {err}; opened a temporary recovery workspace and disabled autosave for this session"
                 )));
-                (BlockStore::recovery_store(), true, Some(error))
+                (BlockStore::recovery_store(), true, vec![error])
             }
         }
     }
@@ -158,19 +157,17 @@ impl AppState {
     fn save_tree(&mut self) -> std::io::Result<()> {
         if self.persistence_blocked {
             let err = std::io::Error::other("persistence disabled after initial load failure");
-            self.error = Some(AppError::Persistence(UiError::from_message(err.to_string())));
+            self.record_error(AppError::Persistence(UiError::from_message(err.to_string())));
             return Err(err);
         }
 
         match self.store.save().and_then(|_| self.store.save_mounts()) {
             | Ok(()) => {
-                if self.error.as_ref().is_some_and(|err| matches!(err, AppError::Persistence(_))) {
-                    self.error = None;
-                }
+                self.errors.retain(|err| !matches!(err, AppError::Persistence(_)));
                 Ok(())
             }
             | Err(err) => {
-                self.error = Some(AppError::Persistence(UiError::from_message(format!(
+                self.record_error(AppError::Persistence(UiError::from_message(format!(
                     "failed to persist data: {err}"
                 ))));
                 Err(err)
@@ -192,7 +189,7 @@ impl AppState {
             | Ok(config) => Some(config.clone()),
             | Err(err) => {
                 let ui_err = UiError::from_message(err);
-                self.error = Some(AppError::Configuration(ui_err.clone()));
+                self.record_error(AppError::Configuration(ui_err.clone()));
                 self.llms.set_reduce_error(block_id, ui_err);
                 None
             }
@@ -204,11 +201,18 @@ impl AppState {
             | Ok(config) => Some(config.clone()),
             | Err(err) => {
                 let ui_err = UiError::from_message(err);
-                self.error = Some(AppError::Configuration(ui_err.clone()));
+                self.record_error(AppError::Configuration(ui_err.clone()));
                 self.llms.set_expand_error(block_id, ui_err);
                 None
             }
         }
+    }
+
+    fn record_error(&mut self, error: AppError) {
+        if self.errors.last() == Some(&error) {
+            return;
+        }
+        self.errors.push(error);
     }
 
     fn resolve_llm_request<T, E>(
@@ -274,6 +278,7 @@ impl AppState {
         match message {
             | Message::UndoRedo(message) => self.handle_undo_redo(message),
             | Message::Shortcut(message) => self.handle_shortcut_message(message),
+            | Message::Error(message) => self.handle_error_message(message),
             | Message::Edit(EditMessage::PointEdited { block_id, action }) => {
                 self.handle_point_edited(block_id, action)
             }
@@ -291,6 +296,10 @@ impl AppState {
 
     fn handle_shortcut_message(&mut self, message: ShortcutMessage) -> Task<Message> {
         handle_shortcut_message(self, message)
+    }
+
+    fn handle_error_message(&mut self, message: ErrorMessage) -> Task<Message> {
+        handle_error_message(self, message)
     }
 
     fn handle_point_edited(
@@ -335,6 +344,7 @@ pub enum Message {
     UndoRedo(UndoRedoMessage),
     Edit(EditMessage),
     Shortcut(ShortcutMessage),
+    Error(ErrorMessage),
     Reduce(ReduceMessage),
     Expand(ExpandMessage),
     Structure(StructureMessage),
@@ -357,6 +367,11 @@ pub enum EditMessage {
 pub enum ShortcutMessage {
     Trigger(ActionId),
     ForBlock { block_id: BlockId, action_id: ActionId },
+}
+
+#[derive(Debug, Clone)]
+pub enum ErrorMessage {
+    DismissAt(usize),
 }
 
 #[derive(Debug, Clone)]
@@ -539,6 +554,22 @@ fn handle_shortcut_message(state: &mut AppState, message: ShortcutMessage) -> Ta
     }
 }
 
+fn handle_error_message(state: &mut AppState, message: ErrorMessage) -> Task<Message> {
+    match message {
+        | ErrorMessage::DismissAt(index) => {
+            if index < state.errors.len() {
+                state.errors.remove(index);
+                tracing::info!(
+                    dismissed_index = index,
+                    remaining = state.errors.len(),
+                    "dismissed app error"
+                );
+            }
+            Task::none()
+        }
+    }
+}
+
 fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<Message> {
     match message {
         | ReduceMessage::Start(block_id) => {
@@ -601,14 +632,14 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
                         state
                             .store
                             .insert_reduction_draft(block_id, ReductionDraftRecord { reduction });
-                        state.error = None;
+                        state.errors.retain(|err| !matches!(err, AppError::Reduce(_)));
                         true
                     });
                 }
                 | Err(reason) => {
                     tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "reduce request failed");
                     state.llms.set_reduce_error(block_id, reason.clone());
-                    state.error = Some(AppError::Reduce(reason));
+                    state.record_error(AppError::Reduce(reason));
                 }
             }
             Task::none()
@@ -712,7 +743,7 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
                     if rewrite.is_none() && children.is_empty() {
                         let reason = UiError::from_message("expand returned no usable suggestions");
                         state.llms.set_expand_error(block_id, reason.clone());
-                        state.error = Some(AppError::Expand(reason));
+                        state.record_error(AppError::Expand(reason));
                         return Task::none();
                     }
                     state.mutate_with_undo_and_persist("after creating expansion draft", |state| {
@@ -720,14 +751,14 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
                             block_id,
                             ExpansionDraftRecord { rewrite, children },
                         );
-                        state.error = None;
+                        state.errors.retain(|err| !matches!(err, AppError::Expand(_)));
                         true
                     });
                 }
                 | Err(reason) => {
                     tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "expand request failed");
                     state.llms.set_expand_error(block_id, reason.clone());
-                    state.error = Some(AppError::Expand(reason));
+                    state.record_error(AppError::Expand(reason));
                 }
             }
             Task::none()
@@ -981,7 +1012,7 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
                     }
                     | Err(err) => {
                         tracing::error!(block_id = ?block_id, %err, "failed to expand mount");
-                        state.error = Some(AppError::Mount(UiError::from_message(&err)));
+            state.record_error(AppError::Mount(UiError::from_message(&err)));
                         false
                     }
                 }
@@ -1032,14 +1063,14 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
                                 }
                                 | Err(err) => {
                                     tracing::error!(block_id = ?block_id, %err, "failed to re-expand after save-to-file");
-                                    state.error = Some(AppError::Mount(UiError::from_message(&err)));
+                    state.record_error(AppError::Mount(UiError::from_message(&err)));
                                 }
                             }
                             true
                         }
                         | Err(err) => {
                             tracing::error!(block_id = ?block_id, %err, "failed to save subtree to file");
-                            state.error = Some(AppError::Mount(UiError::from_message(&err)));
+                    state.record_error(AppError::Mount(UiError::from_message(&err)));
                             false
                         }
                     }
@@ -1085,7 +1116,7 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
                         }
                         | Err(err) => {
                             tracing::error!(block_id = ?block_id, %err, "failed to expand after load-from-file");
-                            state.error = Some(AppError::Mount(UiError::from_message(&err)));
+            state.record_error(AppError::Mount(UiError::from_message(&err)));
                         }
                     }
                     true
@@ -1158,20 +1189,87 @@ fn handle_point_edited(
     Task::none()
 }
 
-/// Top-level view: error banner + scrollable block tree.
-pub fn view(state: &AppState) -> Element<'_, Message> {
-    let mut layout = column![].spacing(theme::LAYOUT_GAP);
-    if let Some(error) = &state.error {
-        let prefix = if state.persistence_blocked && matches!(error, AppError::Persistence(_)) {
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ErrorBannerEntry {
+    index: usize,
+    message: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ErrorBanner {
+    prefix: &'static str,
+    latest: ErrorBannerEntry,
+    previous_entries: Vec<ErrorBannerEntry>,
+    hidden_previous_count: usize,
+    total_count: usize,
+}
+
+impl ErrorBanner {
+    fn from_state(state: &AppState) -> Option<Self> {
+        let (latest_index, latest) = state.errors.iter().enumerate().last()?;
+        let prefix = if state.persistence_blocked && matches!(latest, AppError::Persistence(_)) {
             "Recovery mode"
         } else {
             "Error"
         };
-        layout = layout.push(
-            container(text(format!("{prefix}: {}", error.message())))
-                .style(theme::error_banner)
-                .padding(theme::BANNER_PAD),
-        );
+        let previous_entries = state
+            .errors
+            .iter()
+            .enumerate()
+            .rev()
+            .skip(1)
+            .take(ERROR_STACK_PREVIEW_LIMIT)
+            .map(|(index, error)| ErrorBannerEntry { index, message: error.message().to_string() })
+            .collect::<Vec<_>>();
+        let hidden_previous_count = state.errors.len().saturating_sub(1 + previous_entries.len());
+        Some(Self {
+            prefix,
+            latest: ErrorBannerEntry { index: latest_index, message: latest.message().to_string() },
+            previous_entries,
+            hidden_previous_count,
+            total_count: state.errors.len(),
+        })
+    }
+
+    fn title(&self) -> String {
+        if self.total_count == 1 {
+            format!("{}: {}", self.prefix, self.latest.message)
+        } else {
+            format!("{} ({} total): {}", self.prefix, self.total_count, self.latest.message)
+        }
+    }
+}
+
+pub fn view(state: &AppState) -> Element<'_, Message> {
+    let mut layout = column![].spacing(theme::LAYOUT_GAP);
+    if let Some(error_banner) = ErrorBanner::from_state(state) {
+        let mut banner_content = column![
+            row![
+                text(error_banner.title()),
+                button("Dismiss")
+                    .on_press(Message::Error(ErrorMessage::DismissAt(error_banner.latest.index))),
+            ]
+            .spacing(8)
+        ]
+        .spacing(4);
+        for entry in &error_banner.previous_entries {
+            banner_content = banner_content.push(
+                row![
+                    text(format!("Earlier: {}", entry.message)),
+                    button("Dismiss")
+                        .on_press(Message::Error(ErrorMessage::DismissAt(entry.index))),
+                ]
+                .spacing(8),
+            );
+        }
+        if error_banner.hidden_previous_count > 0 {
+            banner_content = banner_content.push(text(format!(
+                "...and {} older error(s)",
+                error_banner.hidden_previous_count
+            )));
+        }
+        layout = layout
+            .push(container(banner_content).style(theme::error_banner).padding(theme::BANNER_PAD));
     }
 
     let tree = view::TreeView::new(state).render_roots();
@@ -1191,8 +1289,8 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppError, AppState, Message, update};
-    use super::{ExpandMessage, ReduceMessage};
+    use super::{AppError, AppState, Message, UiError, update};
+    use super::{ErrorMessage, ExpandMessage, ReduceMessage};
     use crate::llm;
     use crate::store::{BlockStore, ExpansionDraftRecord, ReductionDraftRecord, StoreLoadError};
     use crate::undo::UndoHistory;
@@ -1206,7 +1304,7 @@ mod tests {
             store,
             undo_history: UndoHistory::with_capacity(64),
             llm_config: Ok(llm::LlmConfig::default()),
-            error: None,
+            errors: vec![],
             llms: super::LlmStore::new(),
             overflow_open_for: None,
             active_block_id: None,
@@ -1248,11 +1346,11 @@ mod tests {
 
     #[test]
     fn load_failure_enters_recovery_mode_with_blank_workspace() {
-        let (store, persistence_blocked, error) =
+        let (store, persistence_blocked, errors) =
             AppState::startup_store_from_load_result(Err(StoreLoadError::PathUnavailable));
 
         assert!(persistence_blocked);
-        assert!(matches!(error, Some(AppError::Persistence(_))));
+        assert!(errors.iter().any(|err| matches!(err, AppError::Persistence(_))));
         let root = *store.roots().first().expect("recovery store has one root");
         assert_eq!(store.point(&root).as_deref(), Some(""));
         assert_ne!(store.point(&root).as_deref(), Some("Notes on liberating productivity"));
@@ -1265,7 +1363,84 @@ mod tests {
 
         state.persist_with_context("test-only persistence noop");
 
-        assert!(state.error.is_none());
+        assert!(state.errors.is_empty());
+    }
+
+    #[test]
+    fn error_banner_is_none_when_there_are_no_errors() {
+        let (state, _) = test_state();
+        assert!(super::ErrorBanner::from_state(&state).is_none());
+    }
+
+    #[test]
+    fn error_banner_uses_latest_error_and_total_count() {
+        let (mut state, _) = test_state();
+        state.errors.push(AppError::Reduce(UiError::from_message("reduce failed")));
+        state.errors.push(AppError::Expand(UiError::from_message("expand failed")));
+
+        let banner = super::ErrorBanner::from_state(&state).expect("banner should exist");
+        assert_eq!(banner.title(), "Error (2 total): expand failed");
+        assert_eq!(
+            banner.previous_entries,
+            vec![super::ErrorBannerEntry { index: 0, message: "reduce failed".to_string() }]
+        );
+        assert_eq!(banner.hidden_previous_count, 0);
+    }
+
+    #[test]
+    fn error_banner_uses_recovery_prefix_for_latest_persistence_error() {
+        let (mut state, _) = test_state();
+        state.persistence_blocked = true;
+        state.errors.push(AppError::Persistence(UiError::from_message("persistence disabled")));
+
+        let banner = super::ErrorBanner::from_state(&state).expect("banner should exist");
+        assert_eq!(banner.title(), "Recovery mode: persistence disabled");
+    }
+
+    #[test]
+    fn error_banner_limits_previous_preview_and_reports_hidden_count() {
+        let (mut state, _) = test_state();
+        state.errors.push(AppError::Mount(UiError::from_message("m1")));
+        state.errors.push(AppError::Mount(UiError::from_message("m2")));
+        state.errors.push(AppError::Mount(UiError::from_message("m3")));
+        state.errors.push(AppError::Mount(UiError::from_message("m4")));
+        state.errors.push(AppError::Mount(UiError::from_message("m5")));
+
+        let banner = super::ErrorBanner::from_state(&state).expect("banner should exist");
+        assert_eq!(banner.title(), "Error (5 total): m5");
+        assert_eq!(
+            banner.previous_entries,
+            vec![
+                super::ErrorBannerEntry { index: 3, message: "m4".to_string() },
+                super::ErrorBannerEntry { index: 2, message: "m3".to_string() },
+            ]
+        );
+        assert_eq!(banner.hidden_previous_count, 2);
+    }
+
+    #[test]
+    fn dismiss_error_message_removes_selected_entry() {
+        let (mut state, _) = test_state();
+        state.errors.push(AppError::Mount(UiError::from_message("m1")));
+        state.errors.push(AppError::Expand(UiError::from_message("e2")));
+        state.errors.push(AppError::Reduce(UiError::from_message("r3")));
+
+        let _ = update(&mut state, Message::Error(ErrorMessage::DismissAt(1)));
+
+        assert_eq!(state.errors.len(), 2);
+        assert_eq!(state.errors[0].message(), "m1");
+        assert_eq!(state.errors[1].message(), "r3");
+    }
+
+    #[test]
+    fn dismiss_error_message_out_of_bounds_is_noop() {
+        let (mut state, _) = test_state();
+        state.errors.push(AppError::Mount(UiError::from_message("m1")));
+
+        let _ = update(&mut state, Message::Error(ErrorMessage::DismissAt(99)));
+
+        assert_eq!(state.errors.len(), 1);
+        assert_eq!(state.errors[0].message(), "m1");
     }
 
     #[test]
