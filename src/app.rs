@@ -30,7 +30,7 @@ use iced::widget::{column, container, scrollable, text, text_editor};
 use iced::{
     Element, Event, Fill, Subscription, Task, event, keyboard, mouse, system, task, widget,
 };
-use slotmap::SecondaryMap;
+use slotmap::SparseSecondaryMap;
 
 /// Snapshot of undoable application state.
 ///
@@ -64,12 +64,36 @@ pub struct AppState {
     undo_history: UndoHistory<UndoSnapshot>,
     llm_config: Result<llm::LlmConfig, llm::LlmConfigError>,
     error: Option<AppError>,
-    reduce_states: SecondaryMap<BlockId, ReduceState>,
-    expand_states: SecondaryMap<BlockId, ExpandState>,
-    reduce_handle: Option<(BlockId, task::Handle)>,
-    expand_handle: Option<(BlockId, task::Handle)>,
-    pending_reduce_signatures: SecondaryMap<BlockId, RequestSignature>,
-    pending_expand_signatures: SecondaryMap<BlockId, RequestSignature>,
+    /// Per-block reduce request status.
+    ///
+    /// Sparse by design: only blocks with active/error reduce operations are
+    /// tracked.
+    reduce_states: SparseSecondaryMap<BlockId, ReduceState>,
+    /// Per-block expand request status.
+    ///
+    /// Sparse by design: only blocks with active/error expand operations are
+    /// tracked.
+    expand_states: SparseSecondaryMap<BlockId, ExpandState>,
+    /// Abort handles for in-flight reduce requests, keyed by target block.
+    ///
+    /// IMPORTANT: keyed storage prevents cross-block cancellation side effects.
+    /// Replacing one block's request handle must not abort another block's
+    /// in-flight request.
+    reduce_handles: SparseSecondaryMap<BlockId, task::Handle>,
+    /// Abort handles for in-flight expand requests, keyed by target block.
+    ///
+    /// IMPORTANT: this mirrors `expand_states` and `pending_expand_signatures`
+    /// cardinality (per-block), so task lifecycle and UI loading state stay in
+    /// sync under concurrent requests.
+    expand_handles: SparseSecondaryMap<BlockId, task::Handle>,
+    /// Pending reduce request signatures keyed by block.
+    ///
+    /// Sparse by design: only in-flight reduce requests need entries.
+    pending_reduce_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
+    /// Pending expand request signatures keyed by block.
+    ///
+    /// Sparse by design: only in-flight expand requests need entries.
+    pending_expand_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
     editors: EditorStore,
     /// Hard guard set when startup cannot trust persisted `blocks.json`.
     ///
@@ -129,12 +153,12 @@ impl AppState {
             undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
             llm_config,
             error,
-            reduce_states: SecondaryMap::new(),
-            expand_states: SecondaryMap::new(),
-            reduce_handle: None,
-            expand_handle: None,
-            pending_reduce_signatures: SecondaryMap::new(),
-            pending_expand_signatures: SecondaryMap::new(),
+            reduce_states: SparseSecondaryMap::new(),
+            expand_states: SparseSecondaryMap::new(),
+            reduce_handles: SparseSecondaryMap::new(),
+            expand_handles: SparseSecondaryMap::new(),
+            pending_reduce_signatures: SparseSecondaryMap::new(),
+            pending_expand_signatures: SparseSecondaryMap::new(),
             editors,
             persistence_blocked,
             persistence_write_disabled: false,
@@ -275,12 +299,8 @@ impl AppState {
         self.store = snapshot.store;
         self.reduce_states.clear();
         self.expand_states.clear();
-        if let Some((_, handle)) = self.reduce_handle.take() {
-            handle.abort();
-        }
-        if let Some((_, handle)) = self.expand_handle.take() {
-            handle.abort();
-        }
+        self.reduce_handles.clear();
+        self.expand_handles.clear();
         self.pending_reduce_signatures.clear();
         self.pending_expand_signatures.clear();
         self.focused_block_id = None;
@@ -606,16 +626,17 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
                 },
             );
             let (request_task, handle) = Task::abortable(request_task);
-            state.reduce_handle = Some((block_id, handle.abort_on_drop()));
+            if let Some(previous) = state.reduce_handles.remove(block_id) {
+                previous.abort();
+            }
+            state.reduce_handles.insert(block_id, handle.abort_on_drop());
             request_task
         }
         | ReduceMessage::Cancel(block_id) => {
             state.set_active_block(&block_id);
             if state.is_reducing(&block_id) {
                 tracing::info!(block_id = ?block_id, "reduce request cancelled");
-                if let Some((active_block_id, handle)) = state.reduce_handle.take()
-                    && active_block_id == block_id
-                {
+                if let Some(handle) = state.reduce_handles.remove(block_id) {
                     handle.abort();
                 }
                 state.reduce_states.remove(block_id);
@@ -624,9 +645,7 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             Task::none()
         }
         | ReduceMessage::Done { block_id, request_signature, result } => {
-            if state.reduce_handle.as_ref().is_some_and(|(active, _)| *active == block_id) {
-                state.reduce_handle = None;
-            }
+            state.reduce_handles.remove(block_id);
             state.reduce_states.remove(block_id);
             if state.store.node(&block_id).is_none() {
                 state.pending_reduce_signatures.remove(block_id);
@@ -719,16 +738,17 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
                 },
             );
             let (request_task, handle) = Task::abortable(request_task);
-            state.expand_handle = Some((block_id, handle.abort_on_drop()));
+            if let Some(previous) = state.expand_handles.remove(block_id) {
+                previous.abort();
+            }
+            state.expand_handles.insert(block_id, handle.abort_on_drop());
             request_task
         }
         | ExpandMessage::Cancel(block_id) => {
             state.set_active_block(&block_id);
             if state.is_expanding(&block_id) {
                 tracing::info!(block_id = ?block_id, "expand request cancelled");
-                if let Some((active_block_id, handle)) = state.expand_handle.take()
-                    && active_block_id == block_id
-                {
+                if let Some(handle) = state.expand_handles.remove(block_id) {
                     handle.abort();
                 }
                 state.expand_states.remove(block_id);
@@ -737,9 +757,7 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
             Task::none()
         }
         | ExpandMessage::Done { block_id, request_signature, result } => {
-            if state.expand_handle.as_ref().is_some_and(|(active, _)| *active == block_id) {
-                state.expand_handle = None;
-            }
+            state.expand_handles.remove(block_id);
             state.expand_states.remove(block_id);
             if state.store.node(&block_id).is_none() {
                 state.pending_expand_signatures.remove(block_id);
@@ -988,14 +1006,10 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
                 tracing::info!(block_id = ?block_id, removed = removed_ids.len(), "archived block subtree");
                 state.editors.remove_blocks(&removed_ids);
                 for id in &removed_ids {
-                    if state.reduce_handle.as_ref().is_some_and(|(active, _)| *active == *id)
-                        && let Some((_, handle)) = state.reduce_handle.take()
-                    {
+                    if let Some(handle) = state.reduce_handles.remove(*id) {
                         handle.abort();
                     }
-                    if state.expand_handle.as_ref().is_some_and(|(active, _)| *active == *id)
-                        && let Some((_, handle)) = state.expand_handle.take()
-                    {
+                    if let Some(handle) = state.expand_handles.remove(*id) {
                         handle.abort();
                     }
                     state.pending_reduce_signatures.remove(*id);
@@ -1276,7 +1290,7 @@ mod tests {
     use crate::llm;
     use crate::store::{BlockStore, ExpansionDraftRecord, ReductionDraftRecord, StoreLoadError};
     use crate::undo::UndoHistory;
-    use slotmap::SecondaryMap;
+    use slotmap::SparseSecondaryMap;
     use std::collections::HashSet;
 
     fn test_state() -> (AppState, crate::store::BlockId) {
@@ -1288,12 +1302,12 @@ mod tests {
             undo_history: UndoHistory::with_capacity(64),
             llm_config: Ok(llm::LlmConfig::default()),
             error: None,
-            reduce_states: SecondaryMap::new(),
-            expand_states: SecondaryMap::new(),
-            reduce_handle: None,
-            expand_handle: None,
-            pending_reduce_signatures: SecondaryMap::new(),
-            pending_expand_signatures: SecondaryMap::new(),
+            reduce_states: SparseSecondaryMap::new(),
+            expand_states: SparseSecondaryMap::new(),
+            reduce_handles: SparseSecondaryMap::new(),
+            expand_handles: SparseSecondaryMap::new(),
+            pending_reduce_signatures: SparseSecondaryMap::new(),
+            pending_expand_signatures: SparseSecondaryMap::new(),
             overflow_open_for: None,
             active_block_id: None,
             focused_block_id: None,
@@ -1694,5 +1708,45 @@ mod tests {
         );
         assert!(state.store.reduction_draft(&root).is_none());
         assert!(state.reduce_states.get(root).is_none());
+    }
+
+    #[test]
+    fn reduce_handles_are_isolated_per_block_on_cancel() {
+        let (mut state, root) = test_state();
+        let sibling = state
+            .store
+            .append_sibling(&root, "sibling".to_string())
+            .expect("append sibling succeeds");
+
+        let _ = update(&mut state, Message::Reduce(ReduceMessage::Start(root)));
+        let _ = update(&mut state, Message::Reduce(ReduceMessage::Start(sibling)));
+
+        assert!(state.reduce_handles.get(root).is_some());
+        assert!(state.reduce_handles.get(sibling).is_some());
+
+        let _ = update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
+
+        assert!(state.reduce_handles.get(root).is_none());
+        assert!(state.reduce_handles.get(sibling).is_some());
+    }
+
+    #[test]
+    fn expand_handles_are_isolated_per_block_on_cancel() {
+        let (mut state, root) = test_state();
+        let sibling = state
+            .store
+            .append_sibling(&root, "sibling".to_string())
+            .expect("append sibling succeeds");
+
+        let _ = update(&mut state, Message::Expand(ExpandMessage::Start(root)));
+        let _ = update(&mut state, Message::Expand(ExpandMessage::Start(sibling)));
+
+        assert!(state.expand_handles.get(root).is_some());
+        assert!(state.expand_handles.get(sibling).is_some());
+
+        let _ = update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
+
+        assert!(state.expand_handles.get(root).is_none());
+        assert!(state.expand_handles.get(sibling).is_some());
     }
 }

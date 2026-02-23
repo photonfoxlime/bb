@@ -8,7 +8,7 @@ use crate::llm;
 use crate::mount::{BlockOrigin, MountEntry, MountError, MountTable};
 use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
-use slotmap::{SecondaryMap, SlotMap};
+use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
 use std::path::Path;
 use std::{fs, io};
 use thiserror::Error;
@@ -117,13 +117,15 @@ pub struct BlockStore {
     /// Persisted per-block expansion drafts (rewrite + suggested children).
     ///
     /// Invariant: keys should reference existing blocks in `nodes`.
+    /// Sparse by design: only blocks with pending expansion drafts are stored.
     #[serde(default)]
-    expansion_drafts: SecondaryMap<BlockId, ExpansionDraftRecord>,
+    expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord>,
     /// Persisted per-block reduction drafts.
     ///
     /// Invariant: keys should reference existing blocks in `nodes`.
+    /// Sparse by design: only blocks with pending reduction drafts are stored.
     #[serde(default)]
-    reduction_drafts: SecondaryMap<BlockId, ReductionDraftRecord>,
+    reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord>,
 }
 
 impl BlockStore {
@@ -135,14 +137,20 @@ impl BlockStore {
         roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
         points: SecondaryMap<BlockId, String>,
     ) -> Self {
-        Self::new_with_drafts(roots, nodes, points, SecondaryMap::new(), SecondaryMap::new())
+        Self::new_with_drafts(
+            roots,
+            nodes,
+            points,
+            SparseSecondaryMap::new(),
+            SparseSecondaryMap::new(),
+        )
     }
 
     fn new_with_drafts(
         roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
         points: SecondaryMap<BlockId, String>,
-        expansion_drafts: SecondaryMap<BlockId, ExpansionDraftRecord>,
-        reduction_drafts: SecondaryMap<BlockId, ReductionDraftRecord>,
+        expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord>,
+        reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord>,
     ) -> Self {
         Self {
             roots,
@@ -611,10 +619,10 @@ impl BlockStore {
     ) -> BlockStore {
         let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
         let mut sub_points: SecondaryMap<BlockId, String> = SecondaryMap::new();
-        let mut sub_expansion_drafts: SecondaryMap<BlockId, ExpansionDraftRecord> =
-            SecondaryMap::new();
-        let mut sub_reduction_drafts: SecondaryMap<BlockId, ReductionDraftRecord> =
-            SecondaryMap::new();
+        let mut sub_expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord> =
+            SparseSecondaryMap::new();
+        let mut sub_reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord> =
+            SparseSecondaryMap::new();
         let mut id_map: std::collections::HashMap<BlockId, BlockId> =
             std::collections::HashMap::new();
 
