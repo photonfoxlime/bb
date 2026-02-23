@@ -1,6 +1,6 @@
 //! Calm paper-and-ink theme: palette, layout tokens, and per-widget style functions.
 //!
-//! Supports light and dark variants. The active palette is determined by the
+//! Supports light and dark variants. The focused palette is determined by the
 //! `Theme::mode()` at render time, so all style functions adapt automatically
 //! when the system appearance changes.
 
@@ -16,7 +16,7 @@ pub const INTER: Font = Font::with_name("Inter");
 /// Semantic color slots shared by light and dark themes.
 ///
 /// Every style function resolves colors through a `Palette` obtained via
-/// [`active_palette`], which inspects `Theme::mode()`.
+/// [`focused_palette`], which inspects `Theme::mode()`.
 #[derive(Debug, Clone, Copy)]
 pub struct Palette {
     /// Primary surface / background color.
@@ -39,7 +39,7 @@ pub struct Palette {
     pub success: Color,
     /// Warning color.
     pub warning: Color,
-    /// Very faint accent wash for active-block highlight.
+    /// Very faint accent wash for focused block highlight.
     pub focus_wash: Color,
 }
 
@@ -73,8 +73,8 @@ pub const DARK: Palette = Palette {
     focus_wash: Color { r: 0.50, g: 0.65, b: 0.82, a: 0.08 },
 };
 
-/// Resolve the active palette from the current theme's mode.
-fn active_palette(theme: &Theme) -> &'static Palette {
+/// Resolve the focused palette from the current theme's mode.
+fn focused_palette(theme: &Theme) -> &'static Palette {
     match theme.mode() {
         | Mode::Dark => &DARK,
         | _ => &LIGHT,
@@ -145,7 +145,7 @@ pub const OVERFLOW_PAD_V: f32 = 4.0;
 /// Build the iced `Theme` for the given appearance mode.
 ///
 /// The mode is embedded in the extended palette's `is_dark` flag so that
-/// style functions can resolve the correct palette via [`active_palette`].
+/// style functions can resolve the correct palette via [`focused_palette`].
 pub fn app_theme(is_dark: bool) -> Theme {
     let pal = if is_dark { &DARK } else { &LIGHT };
     Theme::custom_with_fn(
@@ -171,7 +171,7 @@ pub fn app_theme(is_dark: bool) -> Theme {
 /// Annotation-style button: no background, subtle ink text that darkens on hover.
 /// Feels like a marginalia link rather than a toolbar control.
 pub fn action_button(theme: &Theme, status: button::Status) -> button::Style {
-    let p = active_palette(theme);
+    let p = focused_palette(theme);
     let base = button::Style {
         background: None,
         text_color: p.accent_muted,
@@ -199,7 +199,7 @@ pub fn action_button(theme: &Theme, status: button::Status) -> button::Style {
 
 /// Destructive action variant — uses danger color on hover/press.
 pub fn destructive_button(theme: &Theme, status: button::Status) -> button::Style {
-    let p = active_palette(theme);
+    let p = focused_palette(theme);
     let base = button::Style {
         background: None,
         text_color: p.accent_muted,
@@ -228,13 +228,13 @@ pub fn destructive_button(theme: &Theme, status: button::Status) -> button::Styl
 
 /// Main canvas container — paper background.
 pub fn canvas(theme: &Theme) -> container::Style {
-    let p = active_palette(theme);
+    let p = focused_palette(theme);
     container::Style { background: Some(p.paper.into()), ..Default::default() }
 }
 
 /// Draft / expansion panel — very subtle bordered region.
 pub fn draft_panel(theme: &Theme) -> container::Style {
-    let p = active_palette(theme);
+    let p = focused_palette(theme);
     container::Style {
         background: Some(p.tint.into()),
         border: border::rounded(4).width(1).color(p.spine),
@@ -244,7 +244,7 @@ pub fn draft_panel(theme: &Theme) -> container::Style {
 
 /// Error banner container.
 pub fn error_banner(theme: &Theme) -> container::Style {
-    let p = active_palette(theme);
+    let p = focused_palette(theme);
     container::Style {
         background: Some(Color { a: 0.08, ..p.danger }.into()),
         border: border::rounded(4).width(1).color(Color { a: 0.3, ..p.danger }),
@@ -253,9 +253,9 @@ pub fn error_banner(theme: &Theme) -> container::Style {
     }
 }
 
-/// Active block row — faint accent wash to indicate which block is selected.
-pub fn active_block(theme: &Theme) -> container::Style {
-    let p = active_palette(theme);
+/// Focused block row — faint accent wash to indicate which block is selected.
+pub fn focused_block(theme: &Theme) -> container::Style {
+    let p = focused_palette(theme);
     container::Style {
         background: Some(p.focus_wash.into()),
         border: border::rounded(4).width(0),
@@ -267,7 +267,7 @@ pub fn active_block(theme: &Theme) -> container::Style {
 
 /// Borderless editor that blends with the paper surface.
 pub fn point_editor(theme: &Theme, status: text_editor::Status) -> text_editor::Style {
-    let p = active_palette(theme);
+    let p = focused_palette(theme);
     let base = text_editor::Style {
         background: Color::TRANSPARENT.into(),
         border: border::rounded(2).width(0).color(Color::TRANSPARENT),
@@ -292,19 +292,19 @@ pub fn point_editor(theme: &Theme, status: text_editor::Status) -> text_editor::
 
 /// Spine / structural marker text — low-contrast gray.
 pub fn spine_text(theme: &Theme) -> text::Style {
-    let p = active_palette(theme);
+    let p = focused_palette(theme);
     text::Style { color: Some(p.spine) }
 }
 
 /// Status chip label text.
 pub fn status_text(theme: &Theme) -> text::Style {
-    let p = active_palette(theme);
+    let p = focused_palette(theme);
     text::Style { color: Some(p.accent_muted) }
 }
 
 /// Diff deletion container — red-tinted background for removed words.
 pub fn diff_deletion(theme: &Theme) -> container::Style {
-    let p = active_palette(theme);
+    let p = focused_palette(theme);
     container::Style {
         background: Some(Color { a: 0.08, ..p.danger }.into()),
         text_color: Some(p.ink),
@@ -314,7 +314,7 @@ pub fn diff_deletion(theme: &Theme) -> container::Style {
 
 /// Diff addition container — green-tinted background for added words.
 pub fn diff_addition(theme: &Theme) -> container::Style {
-    let p = active_palette(theme);
+    let p = focused_palette(theme);
     container::Style {
         background: Some(Color { a: 0.08, ..p.success }.into()),
         text_color: Some(p.ink),
@@ -324,7 +324,7 @@ pub fn diff_addition(theme: &Theme) -> container::Style {
 
 /// Diff context text — neutral styling for unchanged words.
 pub fn diff_context(theme: &Theme) -> text::Style {
-    let p = active_palette(theme);
+    let p = focused_palette(theme);
     text::Style { color: Some(p.ink) }
 }
 
@@ -333,7 +333,7 @@ pub fn diff_context(theme: &Theme) -> text::Style {
 /// Spine rule — a thin, low-contrast vertical line for tree structure.
 /// Uses spine_light for subtlety; the bullet marker carries the stronger spine color.
 pub fn spine_rule(theme: &Theme) -> rule::Style {
-    let p = active_palette(theme);
+    let p = focused_palette(theme);
     rule::Style {
         color: p.spine_light,
         radius: 0.0.into(),
@@ -346,7 +346,7 @@ pub fn spine_rule(theme: &Theme) -> rule::Style {
 
 /// Tooltip container — inverted colors for high contrast against the surface.
 pub fn tooltip(theme: &Theme) -> container::Style {
-    let p = active_palette(theme);
+    let p = focused_palette(theme);
     container::Style {
         background: Some(p.ink.into()),
         text_color: Some(p.paper),

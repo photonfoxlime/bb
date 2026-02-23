@@ -25,8 +25,6 @@ pub enum ActionId {
     ArchiveBlock,
     SaveToFile,
     LoadFromFile,
-    /// Add the active block as a friend of this block (for LLM context).
-    AddAsFriend,
 }
 
 /// Whether an action can fire given the current row state.
@@ -143,10 +141,6 @@ pub struct RowContext {
     /// Whether this block is an unexpanded mount (children still on disk).
     /// When true, SaveToFile and LoadFromFile are hidden.
     pub is_unexpanded_mount: bool,
-    /// Last block interacted with; used to offer "Add as friend" (add that block as friend of this one).
-    pub active_block_id: Option<BlockId>,
-    /// Block ids of this block's friends (for "Add as friend" availability).
-    pub friend_block_ids: Vec<BlockId>,
 }
 
 /// Resolved UI state for a row, used to pick availability and status chips.
@@ -314,18 +308,6 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
         .destructive(),
     );
 
-    let can_add_active_as_friend = ctx
-        .active_block_id
-        .is_some_and(|aid| aid != ctx.block_id && !ctx.friend_block_ids.contains(&aid));
-    if can_add_active_as_friend {
-        vm.overflow.push(ActionDescriptor::new(
-            ActionId::AddAsFriend,
-            "Add as friend",
-            ActionAvailability::Enabled,
-            ActionPriority::OverflowOnly,
-        ));
-    }
-
     vm.status_chip = match row_state {
         | RowUiState::BusyExpand => Some(StatusChipVm::Loading { op: ActionId::Expand }),
         | RowUiState::BusyReduce => Some(StatusChipVm::Loading { op: ActionId::Reduce }),
@@ -464,12 +446,6 @@ pub fn action_to_message_by_id(
         | ActionId::LoadFromFile => {
             Some(Message::MountFile(MountFileMessage::LoadFromFile(*block_id)))
         }
-        | ActionId::AddAsFriend => state.active_block_id.map(|friend_id| {
-            Message::Structure(StructureMessage::AddFriendBlock {
-                target: *block_id,
-                friend_id,
-            })
-        }),
         | ActionId::CollapseBranch | ActionId::ExpandBranch => None,
     }
 }
@@ -511,8 +487,6 @@ mod tests {
             is_mounted: false,
             has_children: true,
             is_unexpanded_mount: false,
-            active_block_id: None,
-            friend_block_ids: vec![],
         }
     }
 

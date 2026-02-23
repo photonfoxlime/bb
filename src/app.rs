@@ -49,14 +49,14 @@ const ERROR_STACK_PREVIEW_LIMIT: usize = 2;
 /// All mutable application state for the iced Elm architecture.
 ///
 /// Owns the document store, editor buffers, undo history, LLM config,
-/// async operation states, and transient UI state (overflow, active/focused/editing block ids).
+/// async operation states, and transient UI state (overflow, focused/editing block ids).
 ///
 /// Ownership split:
 /// - `store`: authoritative graph, persisted drafts, mount runtime metadata.
 /// - `editor_buffers`: widget-local text buffers + focus ids.
 /// - persistence flags: recovery guard for unsafe-on-disk state plus a runtime
 ///   write gate for side-effect-free runs.
-/// - selectors (`active_block_id`, `focused_block_id`, `editing_block_id`) and
+/// - selectors (`focused_block_id`, `editing_block_id`) and
 ///   overlay flags: view/controller state only.
 #[derive(Clone)]
 pub struct AppState {
@@ -81,9 +81,8 @@ pub struct AppState {
     /// `AppState::load()` initializes this to `false`; tests explicitly set it
     /// to `true` in `test_state` to avoid touching on-disk `blocks.json`.
     persistence_write_disabled: bool,
+    /// Block currently holding open the overflow menu.
     overflow_open_for: Option<BlockId>,
-    /// Last block interacted with by actions or edits.
-    active_block_id: Option<BlockId>,
     /// Block whose point editor currently has keyboard focus.
     focused_block_id: Option<BlockId>,
     /// Block currently coalescing point edits into a single undo entry.
@@ -125,7 +124,6 @@ impl AppState {
             persistence_blocked,
             persistence_write_disabled: false,
             overflow_open_for: None,
-            active_block_id: None,
             focused_block_id: None,
             editing_block_id: None,
 
@@ -226,15 +224,10 @@ impl AppState {
         }
     }
 
-    /// Resolve shortcut target priority: focused editor, then active block, then first root.
+    /// Resolve shortcut target priority: focused editor, then first root.
     fn current_block_for_shortcuts(&self) -> Option<BlockId> {
         self.focused_block_id
-            .or(self.active_block_id)
             .or_else(|| self.store.roots().first().copied())
-    }
-
-    fn set_active_block(&mut self, block_id: &BlockId) {
-        self.active_block_id = Some(*block_id);
     }
 
     /// Snapshot the current store into undo history before a mutation.
@@ -259,7 +252,6 @@ impl AppState {
         self.llm_requests.clear();
         self.focused_block_id = None;
         self.editing_block_id = None;
-        self.active_block_id = self.store.roots().first().copied();
 
         self.persist_with_context("after undo/redo");
     }
@@ -501,18 +493,10 @@ fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) 
 fn run_shortcut_for_block(
     state: &mut AppState, block_id: BlockId, action_id: ActionId,
 ) -> Task<Message> {
-    state.set_active_block(&block_id);
-
     let point_text =
         state.editor_buffers.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
     let expansion_draft = state.store.expansion_draft(&block_id);
     let reduction_draft = state.store.reduction_draft(&block_id);
-    let friend_block_ids = state
-        .store
-        .friend_blocks_for(&block_id)
-        .iter()
-        .map(|f| f.block_id)
-        .collect();
     let row_context = RowContext {
         block_id,
         point_text,
@@ -526,8 +510,6 @@ fn run_shortcut_for_block(
         is_mounted: state.store.mount_table().entry(block_id).is_some(),
         has_children: !state.store.children(&block_id).is_empty(),
         is_unexpanded_mount: state.store.node(&block_id).is_some_and(|n| n.mount_path().is_some()),
-        active_block_id: state.active_block_id,
-        friend_block_ids,
     };
     let vm = project_for_viewport(build_action_bar_vm(&row_context), ViewportBucket::Wide);
 
@@ -601,7 +583,6 @@ fn handle_error_message(state: &mut AppState, message: ErrorMessage) -> Task<Mes
 fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<Message> {
     match message {
         | ReduceMessage::Start(block_id) => {
-            state.set_active_block(&block_id);
             state.overflow_open_for = None;
             if state.llm_requests.is_reducing(block_id) {
                 return Task::none();
@@ -639,7 +620,6 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             request_task
         }
         | ReduceMessage::Cancel(block_id) => {
-            state.set_active_block(&block_id);
             if state.llm_requests.cancel_reduce(block_id) {
                 tracing::info!(block_id = ?block_id, "reduce request cancelled");
             }
@@ -690,7 +670,6 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             Task::none()
         }
         | ReduceMessage::Apply(block_id) => {
-            state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after applying reduction", |state| {
                 if let Some(draft) = state.store.remove_reduction_draft(&block_id) {
                     tracing::info!(
@@ -718,14 +697,12 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             Task::none()
         }
         | ReduceMessage::Reject(block_id) => {
-            state.set_active_block(&block_id);
             tracing::info!(block_id = ?block_id, "rejected reduction");
             state.store.remove_reduction_draft(&block_id);
             state.persist_with_context("after rejecting reduction");
             Task::none()
         }
         | ReduceMessage::AcceptChildDeletion { block_id, child_index } => {
-            state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after accepting child deletion", |state| {
                 let child_id = state
                     .store
@@ -752,7 +729,6 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             Task::none()
         }
         | ReduceMessage::RejectChildDeletion { block_id, child_index } => {
-            state.set_active_block(&block_id);
             if let Some(draft) = state.store.reduction_draft(&block_id) {
                 let mut updated = draft.clone();
                 if child_index < updated.redundant_children.len() {
@@ -764,7 +740,6 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             Task::none()
         }
         | ReduceMessage::AcceptAllDeletions(block_id) => {
-            state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after accepting all child deletions", |state| {
                 let draft = state.store.reduction_draft(&block_id).cloned();
                 if let Some(draft) = draft {
@@ -792,7 +767,6 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             Task::none()
         }
         | ReduceMessage::RejectAllDeletions(block_id) => {
-            state.set_active_block(&block_id);
             if let Some(draft) = state.store.reduction_draft(&block_id) {
                 state.store.insert_reduction_draft(
                     block_id,
@@ -811,7 +785,6 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
 fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<Message> {
     match message {
         | ExpandMessage::Start(block_id) => {
-            state.set_active_block(&block_id);
             state.overflow_open_for = None;
             if state.llm_requests.is_expanding(block_id) {
                 return Task::none();
@@ -844,7 +817,6 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
             request_task
         }
         | ExpandMessage::Cancel(block_id) => {
-            state.set_active_block(&block_id);
             if state.llm_requests.cancel_expand(block_id) {
                 tracing::info!(block_id = ?block_id, "expand request cancelled");
             }
@@ -905,7 +877,6 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
             Task::none()
         }
         | ExpandMessage::ApplyRewrite(block_id) => {
-            state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after applying rewrite", |state| {
                 let mut should_save = false;
                 let mut should_remove_draft = false;
@@ -928,7 +899,6 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
             Task::none()
         }
         | ExpandMessage::RejectRewrite(block_id) => {
-            state.set_active_block(&block_id);
             let mut changed = false;
             let mut should_remove_draft = false;
             if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
@@ -946,7 +916,6 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
             Task::none()
         }
         | ExpandMessage::AcceptChild { block_id, child_index } => {
-            state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after accepting expanded child", |state| {
                 let mut should_save = false;
                 let mut should_remove_draft = false;
@@ -979,7 +948,6 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
             Task::none()
         }
         | ExpandMessage::RejectChild { block_id, child_index } => {
-            state.set_active_block(&block_id);
             let mut changed = false;
             let mut should_remove_draft = false;
             if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
@@ -999,7 +967,6 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
             Task::none()
         }
         | ExpandMessage::AcceptAllChildren(block_id) => {
-            state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after accepting expanded children", |state| {
                 if let Some(mut draft) = state.store.remove_expansion_draft(&block_id) {
                     for point in draft.children.drain(..) {
@@ -1023,7 +990,6 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
             Task::none()
         }
         | ExpandMessage::DiscardAllChildren(block_id) => {
-            state.set_active_block(&block_id);
             let mut changed = false;
             let mut should_remove_draft = false;
             if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
@@ -1048,7 +1014,6 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
 fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> Task<Message> {
     match message {
         | StructureMessage::AddChild(block_id) => {
-            state.set_active_block(&block_id);
             state.overflow_open_for = None;
             state.mutate_with_undo_and_persist("after adding child", |state| {
                 if let Some(child_id) = state.store.append_child(&block_id, String::new()) {
@@ -1061,7 +1026,6 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
             Task::none()
         }
         | StructureMessage::AddSibling(block_id) => {
-            state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after adding sibling", |state| {
                 if let Some(sibling_id) = state.store.append_sibling(&block_id, String::new()) {
                     tracing::info!(block_id = ?block_id, sibling_block_id = ?sibling_id, "added sibling block");
@@ -1074,7 +1038,6 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
             Task::none()
         }
         | StructureMessage::DuplicateBlock(block_id) => {
-            state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after duplicating subtree", |state| {
                 if let Some(duplicate_id) = state.store.duplicate_subtree_after(&block_id) {
                     tracing::info!(block_id = ?block_id, duplicate_block_id = ?duplicate_id, "duplicated block subtree");
@@ -1087,7 +1050,6 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
             Task::none()
         }
         | StructureMessage::ArchiveBlock(block_id) => {
-            state.set_active_block(&block_id);
             state.snapshot_for_undo();
             if let Some(removed_ids) = state.store.remove_block_subtree(&block_id) {
                 tracing::info!(block_id = ?block_id, removed = removed_ids.len(), "archived block subtree");
@@ -1102,9 +1064,6 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
                     state.editor_buffers.ensure_block(&state.store, root_id);
                 }
                 state.overflow_open_for = None;
-                if state.active_block_id == Some(block_id) {
-                    state.active_block_id = state.store.roots().first().copied();
-                }
                 state.persist_with_context("after archiving subtree");
             }
             Task::none()
@@ -1115,7 +1074,6 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
             Task::none()
         }
         | StructureMessage::AddFriendBlock { target, friend_id } => {
-            state.set_active_block(&target);
             state.overflow_open_for = None;
             state.mutate_with_undo_and_persist("after adding friend block", |state| {
                 if friend_id == target {
@@ -1159,7 +1117,6 @@ fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> 
 fn handle_overlay_message(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
     match message {
         | OverlayMessage::ToggleOverflow(block_id) => {
-            state.set_active_block(&block_id);
             if state.overflow_open_for == Some(block_id) {
                 state.overflow_open_for = None;
             } else {
@@ -1178,7 +1135,6 @@ fn handle_overlay_message(state: &mut AppState, message: OverlayMessage) -> Task
 fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage) -> Task<Message> {
     match message {
         | MountFileMessage::ExpandMount(block_id) => {
-            state.set_active_block(&block_id);
             let base_dir = AppPaths::data_dir().unwrap_or_default();
             state.mutate_with_undo_and_persist("after expanding mount", |state| {
                 match state.store.expand_mount(&block_id, &base_dir) {
@@ -1199,7 +1155,6 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
             Task::none()
         }
         | MountFileMessage::CollapseMount(block_id) => {
-            state.set_active_block(&block_id);
             state.mutate_with_undo_and_persist("after collapsing mount", |state| {
                 if let Some(()) = state.store.collapse_mount(&block_id) {
                     tracing::info!(block_id = ?block_id, "collapsed mount");
@@ -1211,7 +1166,6 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
             Task::none()
         }
         | MountFileMessage::SaveToFile(block_id) => {
-            state.set_active_block(&block_id);
             state.overflow_open_for = None;
             Task::perform(
                 async move {
@@ -1264,7 +1218,6 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
             Task::none()
         }
         | MountFileMessage::LoadFromFile(block_id) => {
-            state.set_active_block(&block_id);
             state.overflow_open_for = None;
             Task::perform(
                 async move {
@@ -1339,7 +1292,6 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
 fn handle_point_edited(
     state: &mut AppState, block_id: BlockId, action: text_editor::Action,
 ) -> Task<Message> {
-    state.set_active_block(&block_id);
     state.focused_block_id = Some(block_id);
     if state.editing_block_id.as_ref() != Some(&block_id) {
         state.snapshot_for_undo();
@@ -1506,7 +1458,6 @@ mod tests {
             errors: vec![],
             llm_requests: super::LlmRequests::new(),
             overflow_open_for: None,
-            active_block_id: None,
             focused_block_id: None,
             editing_block_id: None,
             persistence_blocked: false,

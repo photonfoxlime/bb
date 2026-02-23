@@ -11,8 +11,6 @@
 //! - A "Friends" panel is rendered below the block row (same pattern as
 //!   expansion/reduction draft panels), listing each friend's point text and
 //!   optional perspective, with a remove button per friend.
-//! - Overflow menu exposes "Add [active block] as friend" when there is an
-//!   active block that is not this block and not already a friend.
 
 use super::action_bar::{
     ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
@@ -47,7 +45,6 @@ fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
         | ActionId::ArchiveBlock => icons::icon_archive(),
         | ActionId::SaveToFile => icons::icon_hard_drive_download(),
         | ActionId::LoadFromFile => icons::icon_hard_drive_upload(),
-        | ActionId::AddAsFriend => icons::icon_link_2(),
     };
     icon.size(16).line_height(iced::widget::text::LineHeight::Relative(1.0)).into()
 }
@@ -228,9 +225,8 @@ impl<'a> TreeView<'a> {
             }
         }
 
-        let is_active = self.state.focused_block_id == Some(*block_id)
-            || self.state.active_block_id == Some(*block_id);
-        if is_active { container(block).style(theme::active_block).into() } else { block.into() }
+        let is_focused = self.state.focused_block_id == Some(*block_id);
+        if is_focused { container(block).style(theme::focused_block).into() } else { block.into() }
     }
 
     fn render_expansion_panel(
@@ -428,22 +424,16 @@ impl<'a> TreeView<'a> {
             .spacing(theme::PANEL_INNER_GAP)
             .push(container(text("Friends").font(theme::INTER).size(13)).width(Length::Fill));
         for friend in friends {
-            let point_text = self
-                .state
-                .store
-                .point(&friend.block_id)
-                .unwrap_or_default();
-            let perspective_label = friend
-                .perspective
-                .as_deref()
-                .unwrap_or("")
-                .trim();
+            let point_text = self.state.store.point(&friend.block_id).unwrap_or_default();
+            let perspective_label = friend.perspective.as_deref().unwrap_or("").trim();
             let friend_id = friend.block_id;
             let target = *block_id;
             let line = if perspective_label.is_empty() {
                 row![]
                     .spacing(theme::PANEL_BUTTON_GAP)
-                    .push(container(text(point_text).font(theme::INTER).size(13)).width(Length::Fill))
+                    .push(
+                        container(text(point_text).font(theme::INTER).size(13)).width(Length::Fill),
+                    )
                     .push(
                         button(text("Remove").font(theme::INTER).size(13))
                             .style(theme::destructive_button)
@@ -490,13 +480,6 @@ impl<'a> TreeView<'a> {
         let expansion_draft = self.state.store.expansion_draft(block_id);
         let reduction_draft = self.state.store.reduction_draft(block_id);
         let node = self.state.store.node(block_id);
-        let friend_block_ids = self
-            .state
-            .store
-            .friend_blocks_for(block_id)
-            .iter()
-            .map(|f| f.block_id)
-            .collect();
         RowContext {
             block_id: *block_id,
             point_text,
@@ -510,8 +493,6 @@ impl<'a> TreeView<'a> {
             is_mounted: self.state.store.mount_table().entry(*block_id).is_some(),
             is_unexpanded_mount: node.is_some_and(|n| n.mount_path().is_some()),
             has_children: !self.state.store.children(block_id).is_empty(),
-            active_block_id: self.state.active_block_id,
-            friend_block_ids,
         }
     }
 
