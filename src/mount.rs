@@ -6,7 +6,7 @@
 //! `BlockNode::Children`. The `MountTable` remembers which blocks came from
 //! which file so that edits can be saved back to the originating file.
 
-use crate::store::BlockId;
+use crate::store::{BlockId, MountFormat};
 use slotmap::SecondaryMap;
 use std::path::PathBuf;
 use thiserror::Error;
@@ -21,6 +21,8 @@ pub enum MountError {
     Read { path: PathBuf, source: std::io::Error },
     #[error("failed to parse mount file {path}: {source}")]
     Parse { path: PathBuf, source: serde_json::Error },
+    #[error("mount file format {format:?} is not readable yet for {path}")]
+    UnsupportedFormat { path: PathBuf, format: MountFormat },
 }
 
 /// Identifies which file owns a block.
@@ -41,6 +43,8 @@ pub struct MountEntry {
     /// Original relative path as stored in the `BlockNode::Mount`.
     /// Restored on collapse to preserve the serialization form.
     pub rel_path: PathBuf,
+    /// Persisted format of the mount file.
+    pub format: MountFormat,
     /// Root block ids of the mounted sub-store (after re-keying).
     pub root_ids: Vec<BlockId>,
     /// All block ids belonging to this mount (roots + descendants).
@@ -49,9 +53,10 @@ pub struct MountEntry {
 
 impl MountEntry {
     pub fn new(
-        path: PathBuf, rel_path: PathBuf, root_ids: Vec<BlockId>, block_ids: Vec<BlockId>,
+        path: PathBuf, rel_path: PathBuf, format: MountFormat, root_ids: Vec<BlockId>,
+        block_ids: Vec<BlockId>,
     ) -> Self {
-        Self { path, rel_path, root_ids, block_ids }
+        Self { path, rel_path, format, root_ids, block_ids }
     }
 }
 
@@ -129,6 +134,7 @@ mod tests {
         let entry = MountEntry::new(
             PathBuf::from("sub.json"),
             PathBuf::from("sub.json"),
+            MountFormat::Json,
             vec![ids[1]],
             vec![ids[1], ids[2]],
         );
@@ -152,6 +158,7 @@ mod tests {
             MountEntry::new(
                 PathBuf::from("x.json"),
                 PathBuf::from("x.json"),
+                MountFormat::Json,
                 vec![ids[1]],
                 vec![ids[1], ids[2]],
             ),

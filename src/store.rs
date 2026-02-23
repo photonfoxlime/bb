@@ -43,6 +43,12 @@ use std::path::Path;
 use std::{fs, io};
 use thiserror::Error;
 
+#[derive(Debug, Clone)]
+struct MountProjection {
+    path: std::path::PathBuf,
+    format: MountFormat,
+}
+
 slotmap::new_key_type! {
     pub struct BlockId;
 }
@@ -84,6 +90,28 @@ pub enum StoreLoadError {
     Parse { path: std::path::PathBuf, source: serde_json::Error },
 }
 
+/// Persisted format for mount files referenced by [`BlockNode::Mount`].
+///
+/// `Json` remains the default for backward compatibility with existing files
+/// that only stored `path`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum MountFormat {
+    /// Canonical store JSON encoding used for full-fidelity mount round-trips.
+    Json,
+    /// Markdown Mount v1 encoding produced by [`BlockStore::render_markdown_mount_store`].
+    ///
+    /// This format is currently write-only in the runtime: mount expansion for
+    /// markdown returns `MountError::UnsupportedFormat` until the parser lands.
+    Markdown,
+}
+
+impl Default for MountFormat {
+    fn default() -> Self {
+        Self::Json
+    }
+}
+
 /// One node in the block tree.
 ///
 /// A node is either an inline list of child ids, or a mount point
@@ -100,7 +128,11 @@ pub enum BlockNode {
     /// The path is stored relative to the parent store's file when possible.
     /// At runtime, the referenced file is loaded and its blocks are re-keyed
     /// into the main store; the node is then swapped to `Children` in memory.
-    Mount { path: std::path::PathBuf },
+    Mount {
+        path: std::path::PathBuf,
+        #[serde(default)]
+        format: MountFormat,
+    },
 }
 
 impl BlockNode {
@@ -111,7 +143,12 @@ impl BlockNode {
 
     /// Create a mount-point node referencing an external file.
     pub fn with_path(path: std::path::PathBuf) -> Self {
-        Self::Mount { path }
+        Self::with_path_and_format(path, MountFormat::Json)
+    }
+
+    /// Create a mount-point node with an explicit persisted file format.
+    pub fn with_path_and_format(path: std::path::PathBuf, format: MountFormat) -> Self {
+        Self::Mount { path, format }
     }
 
     /// Return the inline children slice, or an empty slice for mount nodes.
@@ -136,7 +173,15 @@ impl BlockNode {
     pub fn mount_path(&self) -> Option<&std::path::Path> {
         match self {
             | Self::Children { .. } => None,
-            | Self::Mount { path } => Some(path),
+            | Self::Mount { path, .. } => Some(path),
+        }
+    }
+
+    /// Return the persisted mount format if this is a mount node.
+    pub fn mount_format(&self) -> Option<MountFormat> {
+        match self {
+            | Self::Children { .. } => None,
+            | Self::Mount { format, .. } => Some(*format),
         }
     }
 }
@@ -264,9 +309,17 @@ impl BlockStore {
             if let Some(parent) = entry.path.parent() {
                 fs::create_dir_all(parent)?;
             }
-            let json = serde_json::to_string_pretty(&sub)
-                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
-            fs::write(&entry.path, json)?;
+            match entry.format {
+                | MountFormat::Json => {
+                    let json = serde_json::to_string_pretty(&sub)
+                        .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+                    fs::write(&entry.path, json)?;
+                }
+                | MountFormat::Markdown => {
+                    let markdown = Self::render_markdown_mount_store(&sub);
+                    fs::write(&entry.path, markdown)?;
+                }
+            }
         }
         Ok(())
     }
@@ -335,10 +388,13 @@ impl BlockStore {
             }
         }
 
-        let mut mount_path_overrides: std::collections::HashMap<BlockId, std::path::PathBuf> =
+        let mut mount_path_overrides: std::collections::HashMap<BlockId, MountProjection> =
             std::collections::HashMap::new();
         for (mount_point, entry) in self.mount_table.entries() {
-            mount_path_overrides.insert(mount_point, entry.rel_path.clone());
+            mount_path_overrides.insert(
+                mount_point,
+                MountProjection { path: entry.rel_path.clone(), format: entry.format },
+            );
         }
 
         self.build_projected_store(&kept_ids, &self.roots, &mount_path_overrides)
@@ -361,11 +417,17 @@ impl BlockStore {
         let mut seen = std::collections::HashSet::new();
         own_ids.retain(|id| seen.insert(*id));
 
-        let mut mount_path_overrides: std::collections::HashMap<BlockId, std::path::PathBuf> =
+        let mut mount_path_overrides: std::collections::HashMap<BlockId, MountProjection> =
             std::collections::HashMap::new();
         for &old_id in &own_ids {
             if let Some(nested_entry) = self.mount_table.entry(old_id) {
-                mount_path_overrides.insert(old_id, nested_entry.rel_path.clone());
+                mount_path_overrides.insert(
+                    old_id,
+                    MountProjection {
+                        path: nested_entry.rel_path.clone(),
+                        format: nested_entry.format,
+                    },
+                );
             }
         }
 
@@ -522,12 +584,23 @@ impl BlockStore {
     /// The block must exist and have no children; otherwise returns `None`.
     /// After this call, [`expand_mount`](Self::expand_mount) can load the file.
     pub fn set_mount_path(&mut self, id: &BlockId, path: std::path::PathBuf) -> Option<()> {
+        self.set_mount_path_with_format(id, path, MountFormat::Json)
+    }
+
+    /// Convert a childless block into a mount-point node with a specific format.
+    pub fn set_mount_path_with_format(
+        &mut self, id: &BlockId, path: std::path::PathBuf, format: MountFormat,
+    ) -> Option<()> {
         let node = self.nodes.get(*id)?;
         if !node.children().is_empty() {
             return None;
         }
         if let Some(node) = self.nodes.get_mut(*id) {
-            *node = BlockNode::with_path(path);
+            *node = if format == MountFormat::Json {
+                BlockNode::with_path(path)
+            } else {
+                BlockNode::with_path_and_format(path, format)
+            };
         }
         Some(())
     }
@@ -548,8 +621,8 @@ impl BlockStore {
         &mut self, mount_point: &BlockId, base_dir: &Path,
     ) -> Result<Vec<BlockId>, MountError> {
         let node = self.nodes.get(*mount_point).ok_or(MountError::UnknownBlock)?;
-        let rel_path = match node {
-            | BlockNode::Mount { path } => path.clone(),
+        let (rel_path, format) = match node {
+            | BlockNode::Mount { path, format } => (path.clone(), *format),
             | BlockNode::Children { .. } => return Err(MountError::NotAMount),
         };
 
@@ -562,14 +635,19 @@ impl BlockStore {
 
         let contents = fs::read_to_string(&resolved)
             .map_err(|e| MountError::Read { path: resolved.clone(), source: e })?;
-        let sub_store: BlockStore = serde_json::from_str(&contents)
-            .map_err(|e| MountError::Parse { path: resolved.clone(), source: e })?;
+        let sub_store: BlockStore = match format {
+            | MountFormat::Json => serde_json::from_str(&contents)
+                .map_err(|e| MountError::Parse { path: resolved.clone(), source: e })?,
+            | MountFormat::Markdown => {
+                return Err(MountError::UnsupportedFormat { path: resolved.clone(), format });
+            }
+        };
 
         let (new_roots, all_new_ids) = self.rekey_sub_store(&sub_store, mount_point);
 
         self.mount_table.insert_entry(
             *mount_point,
-            MountEntry::new(canonical, rel_path.clone(), new_roots.clone(), all_new_ids),
+            MountEntry::new(canonical, rel_path.clone(), format, new_roots.clone(), all_new_ids),
         );
 
         if let Some(node) = self.nodes.get_mut(*mount_point) {
@@ -614,7 +692,7 @@ impl BlockStore {
             self.mount_table.remove_origin(id);
         }
         if let Some(node) = self.nodes.get_mut(*mount_point) {
-            *node = BlockNode::with_path(entry.rel_path);
+            *node = BlockNode::with_path_and_format(entry.rel_path, entry.format);
         }
         Some(())
     }
@@ -640,24 +718,38 @@ impl BlockStore {
             self.collect_own_subtree_ids(child, &mut own_ids, &mut nested_mounts);
         }
 
-        let mut mount_path_overrides: std::collections::HashMap<BlockId, std::path::PathBuf> =
+        let mut mount_path_overrides: std::collections::HashMap<BlockId, MountProjection> =
             std::collections::HashMap::new();
         for &old_id in &nested_mounts {
             if let Some(entry) = self.mount_table.entry(old_id) {
-                mount_path_overrides.insert(old_id, entry.rel_path.clone());
+                mount_path_overrides.insert(
+                    old_id,
+                    MountProjection { path: entry.rel_path.clone(), format: entry.format },
+                );
             }
         }
         let sub_store = self.build_projected_store(&own_ids, &children, &mount_path_overrides);
+
+        let format = Self::format_from_path(path);
 
         // Write to file.
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
                 .map_err(|e| MountError::Read { path: path.to_path_buf(), source: e })?;
         }
-        let json = serde_json::to_string_pretty(&sub_store)
-            .map_err(|e| MountError::Parse { path: path.to_path_buf(), source: e })?;
-        fs::write(path, &json)
-            .map_err(|e| MountError::Read { path: path.to_path_buf(), source: e })?;
+        match format {
+            | MountFormat::Json => {
+                let json = serde_json::to_string_pretty(&sub_store)
+                    .map_err(|e| MountError::Parse { path: path.to_path_buf(), source: e })?;
+                fs::write(path, &json)
+                    .map_err(|e| MountError::Read { path: path.to_path_buf(), source: e })?;
+            }
+            | MountFormat::Markdown => {
+                let markdown = Self::render_markdown_mount_store(&sub_store);
+                fs::write(path, markdown)
+                    .map_err(|e| MountError::Read { path: path.to_path_buf(), source: e })?;
+            }
+        }
 
         // Clean up nested expanded mounts and their blocks.
         for &mount_id in &nested_mounts {
@@ -690,7 +782,7 @@ impl BlockStore {
 
         // Replace node with mount.
         if let Some(node) = self.nodes.get_mut(*block_id) {
-            *node = BlockNode::with_path(rel_path);
+            *node = BlockNode::with_path_and_format(rel_path, format);
         }
 
         Ok(())
@@ -698,7 +790,7 @@ impl BlockStore {
 
     fn build_projected_store(
         &self, kept_ids: &[BlockId], roots: &[BlockId],
-        mount_path_overrides: &std::collections::HashMap<BlockId, std::path::PathBuf>,
+        mount_path_overrides: &std::collections::HashMap<BlockId, MountProjection>,
     ) -> BlockStore {
         let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
         let mut sub_points: SecondaryMap<BlockId, String> = SecondaryMap::new();
@@ -720,9 +812,12 @@ impl BlockStore {
             let Some(&new_id) = id_map.get(&old_id) else {
                 continue;
             };
-            if let Some(path) = mount_path_overrides.get(&old_id) {
+            if let Some(mount_projection) = mount_path_overrides.get(&old_id) {
                 if let Some(node) = sub_nodes.get_mut(new_id) {
-                    *node = BlockNode::with_path(path.clone());
+                    *node = BlockNode::with_path_and_format(
+                        mount_projection.path.clone(),
+                        mount_projection.format,
+                    );
                 }
                 continue;
             }
@@ -736,9 +831,9 @@ impl BlockStore {
                             *node = BlockNode::with_children(new_children);
                         }
                     }
-                    | BlockNode::Mount { path } => {
+                    | BlockNode::Mount { path, format } => {
                         if let Some(node) = sub_nodes.get_mut(new_id) {
-                            *node = BlockNode::with_path(path.clone());
+                            *node = BlockNode::with_path_and_format(path.clone(), *format);
                         }
                     }
                 }
@@ -807,9 +902,9 @@ impl BlockStore {
                         *node = BlockNode::with_children(remapped_children);
                     }
                 }
-                | BlockNode::Mount { path } => {
+                | BlockNode::Mount { path, format } => {
                     if let Some(node) = self.nodes.get_mut(new_id) {
-                        *node = BlockNode::with_path(path.clone());
+                        *node = BlockNode::with_path_and_format(path.clone(), *format);
                     }
                 }
             }
@@ -842,6 +937,79 @@ impl BlockStore {
     /// If the path is relative, join it with `base_dir`. Otherwise use as-is.
     fn resolve_mount_path(rel_path: &Path, base_dir: &Path) -> std::path::PathBuf {
         if rel_path.is_relative() { base_dir.join(rel_path) } else { rel_path.to_path_buf() }
+    }
+
+    /// Infer mount file format from the target path extension.
+    ///
+    /// `.md` and `.markdown` map to [`MountFormat::Markdown`].
+    /// All other extensions (or missing extension) map to [`MountFormat::Json`].
+    fn format_from_path(path: &Path) -> MountFormat {
+        match path
+            .extension()
+            .and_then(std::ffi::OsStr::to_str)
+            .map(str::to_ascii_lowercase)
+            .as_deref()
+        {
+            | Some("md") | Some("markdown") => MountFormat::Markdown,
+            | _ => MountFormat::Json,
+        }
+    }
+
+    /// Render a projected mount store into Markdown Mount v1.
+    ///
+    /// Mapping rules (block graph -> markdown):
+    ///
+    /// 1. Emit a required preamble line:
+    ///    `<!-- bb-mount format=markdown v1 -->`.
+    /// 2. Emit each root block as a top-level list item in root order.
+    /// 3. Emit each child block as a nested list item in child order.
+    /// 4. Indent nested list items by two spaces per depth level.
+    /// 5. Serialize each block point as a double-quoted scalar:
+    ///    `- "<escaped-point>"`.
+    /// 6. Escape point text with [`Self::escape_markdown_point`].
+    ///
+    /// Notes:
+    /// - This projection intentionally writes only structural hierarchy and
+    ///   point text for parser-friendly, deterministic output.
+    /// - Runtime-only metadata (drafts, fold state, mount table) is excluded.
+    fn render_markdown_mount_store(store: &BlockStore) -> String {
+        let mut output = String::from("<!-- bb-mount format=markdown v1 -->\n");
+        for &root in store.roots() {
+            Self::render_markdown_node(store, root, 0, &mut output);
+        }
+        output
+    }
+
+    /// Emit one block as a markdown list item, then recurse into children.
+    fn render_markdown_node(store: &BlockStore, id: BlockId, depth: usize, out: &mut String) {
+        let indent = "  ".repeat(depth);
+        let point = store.point(&id).unwrap_or_default();
+        let escaped = Self::escape_markdown_point(&point);
+        out.push_str(&indent);
+        out.push_str("- \"");
+        out.push_str(&escaped);
+        out.push_str("\"\n");
+        for child in store.children(&id) {
+            Self::render_markdown_node(store, *child, depth + 1, out);
+        }
+    }
+
+    /// Escape point text used in markdown quoted scalars.
+    ///
+    /// Escapes: `\\`, `"`, `\n`, `\r`, and `\t`.
+    fn escape_markdown_point(point: &str) -> String {
+        let mut escaped = String::with_capacity(point.len());
+        for ch in point.chars() {
+            match ch {
+                | '\\' => escaped.push_str("\\\\"),
+                | '"' => escaped.push_str("\\\""),
+                | '\n' => escaped.push_str("\\n"),
+                | '\r' => escaped.push_str("\\r"),
+                | '\t' => escaped.push_str("\\t"),
+                | _ => escaped.push(ch),
+            }
+        }
+        escaped
     }
 
     fn mount_origin_path(&self, block_id: &BlockId) -> Option<&Path> {
@@ -1397,6 +1565,38 @@ mod tests {
     }
 
     #[test]
+    fn backward_compat_mount_without_format_defaults_to_json() {
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let mount_id = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("legacy.json")));
+        points.insert(mount_id, "legacy mount".to_string());
+        let store = BlockStore::new(vec![mount_id], nodes, points);
+
+        let mut value = serde_json::to_value(&store).unwrap();
+        if let Some(nodes_obj) = value["nodes"].as_object_mut() {
+            for node in nodes_obj.values_mut() {
+                if node.get("path").is_some() {
+                    node.as_object_mut().expect("mount node object").remove("format");
+                }
+            }
+        } else if let Some(nodes_arr) = value["nodes"].as_array_mut() {
+            for node in nodes_arr {
+                if node.get("path").is_some() {
+                    node.as_object_mut().expect("mount node object").remove("format");
+                }
+            }
+        } else {
+            panic!("unexpected nodes serialization shape");
+        }
+
+        let restored: BlockStore = serde_json::from_value(value).unwrap();
+        assert_eq!(
+            restored.node(&restored.roots()[0]).and_then(|node| node.mount_format()),
+            Some(MountFormat::Json)
+        );
+    }
+
+    #[test]
     fn load_from_path_returns_parse_error_on_malformed_json() {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("broken.json");
@@ -1570,6 +1770,42 @@ mod tests {
         let saved: BlockStore = serde_json::from_str(&saved_json).unwrap();
         let saved_root_point = saved.point(&saved.roots()[0]);
         assert_eq!(saved_root_point, Some("modified root".to_string()));
+    }
+
+    #[test]
+    fn save_subtree_to_markdown_sets_mount_format_and_writes_markdown() {
+        let tmp = tempfile::tempdir().unwrap();
+        let (mut store, root, _child_a, _child_b) = simple_store();
+        let path = tmp.path().join("subtree.md");
+
+        store.save_subtree_to_file(&root, &path, tmp.path()).unwrap();
+
+        let mount_node = store.node(&root).unwrap();
+        assert_eq!(mount_node.mount_path(), Some(std::path::Path::new("subtree.md")));
+        assert_eq!(mount_node.mount_format(), Some(MountFormat::Markdown));
+
+        let markdown = fs::read_to_string(&path).unwrap();
+        assert!(markdown.starts_with("<!-- bb-mount format=markdown v1 -->\n"));
+        assert!(markdown.contains("- \"child_a\"\n"));
+        assert!(markdown.contains("- \"child_b\"\n"));
+    }
+
+    #[test]
+    fn save_subtree_to_markdown_escapes_special_characters() {
+        let tmp = tempfile::tempdir().unwrap();
+        let mut nodes = SlotMap::with_key();
+        let mut points = SecondaryMap::new();
+        let child = nodes.insert(BlockNode::with_children(vec![]));
+        points.insert(child, "line1\n\"quoted\"\\tail".to_string());
+        let root = nodes.insert(BlockNode::with_children(vec![child]));
+        points.insert(root, "root".to_string());
+        let mut store = BlockStore::new(vec![root], nodes, points);
+
+        let path = tmp.path().join("escaped.md");
+        store.save_subtree_to_file(&root, &path, tmp.path()).unwrap();
+
+        let markdown = fs::read_to_string(&path).unwrap();
+        assert!(markdown.contains("- \"line1\\n\\\"quoted\\\"\\\\tail\"\n"));
     }
 
     #[test]
@@ -2011,7 +2247,7 @@ mod tests {
 
         let snapshot = store.snapshot_for_save();
         let has_mount = snapshot.nodes.iter().any(
-            |(_, node)| matches!(node, BlockNode::Mount { path } if path == std::path::Path::new("sub.json")),
+            |(_, node)| matches!(node, BlockNode::Mount { path, .. } if path == std::path::Path::new("sub.json")),
         );
         assert!(has_mount);
         let leaks_new_mounted_node =

@@ -13,7 +13,7 @@ mod view;
 use crate::llm;
 use crate::paths::AppPaths;
 use crate::store::{
-    BlockId, BlockStore, ExpansionDraftRecord, ReductionDraftRecord, StoreLoadError,
+    BlockId, BlockStore, ExpansionDraftRecord, MountFormat, ReductionDraftRecord, StoreLoadError,
 };
 use crate::theme;
 use crate::undo::UndoHistory;
@@ -1166,6 +1166,7 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
                     let dialog = rfd::AsyncFileDialog::new()
                         .set_title("Save block to file")
                         .add_filter("JSON", &["json"])
+                        .add_filter("Markdown", &["md", "markdown"])
                         .save_file()
                         .await;
                     dialog.map(|handle| handle.path().to_path_buf())
@@ -1182,16 +1183,25 @@ fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage
                     match state.store.save_subtree_to_file(&block_id, &path, &base_dir) {
                         | Ok(()) => {
                             tracing::info!(block_id = ?block_id, path = %path.display(), "saved subtree to file");
-                            match state.store.expand_mount(&block_id, &base_dir) {
-                                | Ok(new_roots) => {
-                                    for &id in &new_roots {
-                                        state.editor_buffers.ensure_subtree(&state.store, &id);
+                            let mount_format = state
+                                .store
+                                .node(&block_id)
+                                .and_then(|node| node.mount_format())
+                                .unwrap_or(MountFormat::Json);
+                            if mount_format == MountFormat::Json {
+                                match state.store.expand_mount(&block_id, &base_dir) {
+                                    | Ok(new_roots) => {
+                                        for &id in &new_roots {
+                                            state.editor_buffers.ensure_subtree(&state.store, &id);
+                                        }
+                                    }
+                                    | Err(err) => {
+                                        tracing::error!(block_id = ?block_id, %err, "failed to re-expand after save-to-file");
+                                        state.record_error(AppError::Mount(UiError::from_message(&err)));
                                     }
                                 }
-                                | Err(err) => {
-                                    tracing::error!(block_id = ?block_id, %err, "failed to re-expand after save-to-file");
-                    state.record_error(AppError::Mount(UiError::from_message(&err)));
-                                }
+                            } else {
+                                state.editor_buffers = EditorBuffers::from_store(&state.store);
                             }
                             true
                         }
