@@ -611,11 +611,16 @@ impl BlockStore {
         llm::Lineage::from_points(vec![])
     }
 
-    /// Build a [`llm::BlockContext`] for the given block, combining its lineage
-    /// (root-to-target points) with its direct children's point text.
+    /// Build a [`llm::BlockContext`] for the given block from all visible context.
     ///
-    /// Used by reduce/expand handlers to give the LLM full context about
-    /// the block's position in the tree and its existing children.
+    /// Visibility model:
+    /// - target point (as the final lineage item),
+    /// - parent chain (earlier lineage items),
+    /// - direct children point texts,
+    /// - user-selected friend blocks.
+    ///
+    /// Used by inquire/reduce/expand handlers so all three operations read the
+    /// same context envelope.
     pub fn block_context_for_id(&self, target: &BlockId) -> llm::BlockContext {
         let friend_ids = self.friend_blocks.get(*target).cloned().unwrap_or_default();
         self.block_context_for_id_with_friend_blocks(target, &friend_ids)

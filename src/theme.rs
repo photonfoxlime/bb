@@ -200,12 +200,18 @@ pub fn action_button(theme: &Theme, status: button::Status) -> button::Style {
 /// When `is_active` is true, the button shows with accent color text and border,
 /// indicating the panel is currently open. This provides visual feedback without
 /// needing to change the button text.
-pub fn panel_toggle_button(theme: &Theme, status: button::Status, is_active: bool) -> button::Style {
+pub fn panel_toggle_button(
+    theme: &Theme, status: button::Status, is_active: bool,
+) -> button::Style {
     let p = focused_palette(theme);
     let base = button::Style {
         background: if is_active { Some(p.tint.into()) } else { None },
         text_color: if is_active { p.accent } else { p.accent_muted },
-        border: border::rounded(3).width(if is_active { 1 } else { 0 }).color(if is_active { p.accent } else { Color::TRANSPARENT }),
+        border: border::rounded(3).width(if is_active { 1 } else { 0 }).color(if is_active {
+            p.accent
+        } else {
+            Color::TRANSPARENT
+        }),
         shadow: Default::default(),
         snap: false,
     };

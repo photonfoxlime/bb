@@ -17,7 +17,10 @@ pub(crate) struct EditorBuffers {
     buffers: SecondaryMap<BlockId, text_editor::Content>,
     /// Stable `widget::Id` per block, used for programmatic focus.
     widget_ids: SecondaryMap<BlockId, widget::Id>,
-    /// Text editor content for the instruction panel.
+    /// Text editor content for the instruction panel draft.
+    ///
+    /// This buffer is independent from per-block point editors and is consumed
+    /// by inquire / expand / reduce instruction submissions.
     instruction_content: text_editor::Content,
 }
 
@@ -110,7 +113,7 @@ impl EditorBuffers {
         &mut self.instruction_content
     }
 
-    /// Set instruction panel text.
+    /// Set instruction panel draft text.
     pub(crate) fn set_instruction_text(&mut self, text: &str) {
         self.instruction_content = text_editor::Content::with_text(text);
     }

@@ -1,9 +1,41 @@
 //! Instruction panel for LLM interactions.
 //!
-//! Provides a text editor for entering instructions and three actions:
-//! - Inquire: Send instruction as a one-time query, result can be applied as rewrite
-//! - Expand: Inject instruction as system prompt for expand operations
-//! - Reduce: Inject instruction as system prompt for reduce operations
+//! This module defines the behavior contract for instruction-driven operations
+//! from one focused block. A block's visible context is the union of:
+//! - the block point itself,
+//! - the full parent chain (root -> target),
+//! - all direct children of the target,
+//! - all user-selected friend blocks for the target.
+//!
+//! # Instruction Draft Lifecycle
+//!
+//! The instruction editor is treated as a short-lived draft buffer whose text is
+//! authored before submission through one of three actions:
+//! - `Inquire`: ask a free-form question against visible context and surface a
+//!   response draft for user-directed insertion.
+//! - `Expand`: run normal expand semantics with the draft injected as extra
+//!   instruction.
+//! - `Reduce`: run normal reduce semantics with the draft injected as extra
+//!   instruction.
+//!
+//! # Inquire Result Contract
+//!
+//! Inquiry returns one response draft scoped to the focused block context at the
+//! time of submission. The product intent is that this draft can be inserted by
+//! the user either into the current point or as a new child point.
+//!
+//! # Expand/Reduce Contract
+//!
+//! Expand and reduce preserve their canonical semantics from `crate::llm`
+//! prompt builders; instruction text only adds additional guidance and does not
+//! redefine the output schema.
+//!
+//! # Inquiry Apply Operations
+//!
+//! Inquiry drafts currently support three explicit apply actions:
+//! - replace target point with response,
+//! - append response to target point,
+//! - add response as a new child under the target.
 
 use crate::app::{AppState, Message, PanelBarState};
 use crate::llm;
@@ -20,11 +52,16 @@ const INSTRUCTION_EDITOR_HEIGHT: f32 = 80.0;
 /// Instruction panel state.
 #[derive(Debug, Clone, Default)]
 pub struct InstructionPanel {
-    /// Result from the last inquiry request (rewrite suggestion).
+    /// Result draft from the last inquiry request.
+    ///
+    /// This value is owned by the instruction panel workflow and can later be
+    /// transformed into a concrete tree mutation (for example, rewrite/append/new-child).
     pub inquiry_result: Option<String>,
+    /// Block id that the current inquiry draft is bound to.
+    pub inquiry_target_block_id: Option<BlockId>,
     /// Whether an inquiry request is currently in progress.
     pub is_inquiring: bool,
-    /// System prompt instruction to prepend to expand/reduce requests.
+    /// Instruction draft submitted into expand/reduce as additional guidance.
     pub prompt: Option<String>,
 }
 
@@ -37,6 +74,7 @@ impl InstructionPanel {
     /// Reset the panel state, clearing all fields.
     pub fn reset(&mut self) {
         self.inquiry_result = None;
+        self.inquiry_target_block_id = None;
         self.is_inquiring = false;
         self.prompt = None;
     }
@@ -59,6 +97,10 @@ pub enum InstructionPanelMessage {
     ReduceWithInstruction,
     /// Apply rewrite from inquiry result.
     ApplyInstructionRewrite,
+    /// Append inquiry result to the target block point.
+    AppendInstructionResponse,
+    /// Add inquiry result as a new child under the target block.
+    AddInstructionResponseAsChild,
     /// Dismiss inquiry result.
     Dismiss,
 }
@@ -77,8 +119,6 @@ pub fn handle(
         | InstructionPanelMessage::Toggle => {
             if matches!(&state.panel_bar_state, Some(PanelBarState::Instruction)) {
                 state.panel_bar_state = None;
-                state.instruction_panel.reset();
-                state.editor_buffers.set_instruction_text("");
             } else {
                 state.panel_bar_state = Some(PanelBarState::Instruction);
             }
@@ -89,15 +129,18 @@ pub fn handle(
             iced::Task::none()
         }
         | InstructionPanelMessage::Inquire => {
-            let instruction = state.editor_buffers.instruction_content().text().to_string();
+            let instruction = state.editor_buffers.instruction_content().text().trim().to_string();
             if instruction.is_empty() {
                 return iced::Task::none();
             }
             state.instruction_panel.is_inquiring = true;
+            state.instruction_panel.inquiry_result = None;
+            state.instruction_panel.inquiry_target_block_id = None;
             let context = state.store.block_context_for_id(&target_block_id);
             let Some(config) = state.llm_config.clone().ok() else {
                 return iced::Task::none();
             };
+            state.editor_buffers.set_instruction_text("");
             tracing::info!(block_id = ?target_block_id, "instruction inquiry started");
             let request_task = iced::Task::perform(
                 async move {
@@ -130,6 +173,7 @@ pub fn handle(
                         "instruction inquiry succeeded"
                     );
                     state.instruction_panel.inquiry_result = Some(response);
+                    state.instruction_panel.inquiry_target_block_id = Some(block_id);
                 }
                 | Err(reason) => {
                     tracing::error!(
@@ -149,6 +193,7 @@ pub fn handle(
             }
             state.instruction_panel.prompt =
                 Some(format!("Additional instruction: {}", instruction));
+            state.editor_buffers.set_instruction_text("");
             // Close the instruction panel and trigger expand
             state.panel_bar_state = None;
             crate::app::update(state, Message::Expand(ExpandMessage::Start(target_block_id)))
@@ -160,12 +205,16 @@ pub fn handle(
             }
             state.instruction_panel.prompt =
                 Some(format!("Additional instruction: {}", instruction));
+            state.editor_buffers.set_instruction_text("");
             // Close the instruction panel and trigger reduce
             state.panel_bar_state = None;
             crate::app::update(state, Message::Reduce(ReduceMessage::Start(target_block_id)))
         }
         | InstructionPanelMessage::ApplyInstructionRewrite => {
-            if let Some(rewrite) = state.instruction_panel.inquiry_result.take() {
+            if let (Some(rewrite), Some(target_block_id)) = (
+                state.instruction_panel.inquiry_result.take(),
+                state.instruction_panel.inquiry_target_block_id,
+            ) {
                 state.mutate_with_undo_and_persist("after applying instruction rewrite", |state| {
                     state.store.update_point(&target_block_id, rewrite.clone());
                     state.editor_buffers.set_text(&target_block_id, &rewrite);
@@ -173,10 +222,58 @@ pub fn handle(
                 });
             }
             state.instruction_panel.inquiry_result = None;
+            state.instruction_panel.inquiry_target_block_id = None;
+            iced::Task::none()
+        }
+        | InstructionPanelMessage::AppendInstructionResponse => {
+            if let (Some(response), Some(target_block_id)) = (
+                state.instruction_panel.inquiry_result.take(),
+                state.instruction_panel.inquiry_target_block_id,
+            ) {
+                state.mutate_with_undo_and_persist(
+                    "after appending instruction inquiry response",
+                    |state| {
+                        let current = state.store.point(&target_block_id).unwrap_or_default();
+                        let next = if current.trim().is_empty() {
+                            response.clone()
+                        } else {
+                            format!("{current}\n\n{response}")
+                        };
+                        state.store.update_point(&target_block_id, next.clone());
+                        state.editor_buffers.set_text(&target_block_id, &next);
+                        true
+                    },
+                );
+            }
+            state.instruction_panel.inquiry_result = None;
+            state.instruction_panel.inquiry_target_block_id = None;
+            iced::Task::none()
+        }
+        | InstructionPanelMessage::AddInstructionResponseAsChild => {
+            if let (Some(response), Some(target_block_id)) = (
+                state.instruction_panel.inquiry_result.take(),
+                state.instruction_panel.inquiry_target_block_id,
+            ) {
+                state.mutate_with_undo_and_persist(
+                    "after adding instruction inquiry response as child",
+                    |state| {
+                        if let Some(child_id) =
+                            state.store.append_child(&target_block_id, response.clone())
+                        {
+                            state.editor_buffers.set_text(&child_id, &response);
+                            return true;
+                        }
+                        false
+                    },
+                );
+            }
+            state.instruction_panel.inquiry_result = None;
+            state.instruction_panel.inquiry_target_block_id = None;
             iced::Task::none()
         }
         | InstructionPanelMessage::Dismiss => {
             state.instruction_panel.inquiry_result = None;
+            state.instruction_panel.inquiry_target_block_id = None;
             iced::Task::none()
         }
     }
@@ -268,6 +365,26 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 ),
         );
         result_buttons = result_buttons.push(
+            button(text("Append to Block").font(theme::INTER).size(13))
+                .style(theme::action_button)
+                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(
+                    Message::InstructionPanel(InstructionPanelMessage::AppendInstructionResponse)
+                        .into(),
+                ),
+        );
+        result_buttons = result_buttons.push(
+            button(text("Add as Child").font(theme::INTER).size(13))
+                .style(theme::action_button)
+                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(
+                    Message::InstructionPanel(
+                        InstructionPanelMessage::AddInstructionResponseAsChild,
+                    )
+                    .into(),
+                ),
+        );
+        result_buttons = result_buttons.push(
             button(text("Dismiss").font(theme::INTER).size(13))
                 .style(theme::destructive_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
@@ -292,6 +409,7 @@ mod tests {
     fn instruction_panel_default_is_blank() {
         let panel = InstructionPanel::new();
         assert!(panel.inquiry_result.is_none());
+        assert!(panel.inquiry_target_block_id.is_none());
         assert!(!panel.is_inquiring);
         assert!(panel.prompt.is_none());
     }
@@ -300,12 +418,14 @@ mod tests {
     fn instruction_panel_reset_clears_all_fields() {
         let mut panel = InstructionPanel::new();
         panel.inquiry_result = Some("test result".to_string());
+        panel.inquiry_target_block_id = Some(BlockId::default());
         panel.is_inquiring = true;
         panel.prompt = Some("test prompt".to_string());
 
         panel.reset();
 
         assert!(panel.inquiry_result.is_none());
+        assert!(panel.inquiry_target_block_id.is_none());
         assert!(!panel.is_inquiring);
         assert!(panel.prompt.is_none());
     }
@@ -335,12 +455,14 @@ mod tests {
     fn instruction_panel_clone_works() {
         let mut panel = InstructionPanel::new();
         panel.inquiry_result = Some("test".to_string());
+        panel.inquiry_target_block_id = Some(BlockId::default());
         panel.is_inquiring = true;
         panel.prompt = Some("prompt".to_string());
 
         let cloned = panel.clone();
 
         assert_eq!(cloned.inquiry_result, Some("test".to_string()));
+        assert_eq!(cloned.inquiry_target_block_id, Some(BlockId::default()));
         assert!(cloned.is_inquiring);
         assert_eq!(cloned.prompt, Some("prompt".to_string()));
     }

@@ -641,7 +641,7 @@ fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<M
             };
             let children_snapshot: Vec<BlockId> = state.store.children(&block_id).to_vec();
             state.llm_requests.mark_reduce_loading(block_id, request_signature);
-            let instruction = state.instruction_panel.prompt.clone();
+            let instruction = state.instruction_panel.prompt.take();
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
@@ -849,7 +849,7 @@ fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<M
                 return Task::none();
             };
             state.llm_requests.mark_expand_loading(block_id, request_signature);
-            let instruction = state.instruction_panel.prompt.clone();
+            let instruction = state.instruction_panel.prompt.take();
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
@@ -2056,21 +2056,84 @@ mod tests {
     }
 
     #[test]
-    fn instruction_toggle_closes_panel_and_resets_state() {
+    fn instruction_toggle_closes_panel_and_preserves_instruction_draft_state() {
         let (mut state, root) = test_state();
         state.focused_block_id = Some(root);
         state.panel_bar_state = Some(super::PanelBarState::Instruction);
         state.instruction_panel.inquiry_result = Some("result".to_string());
+        state.instruction_panel.inquiry_target_block_id = Some(root);
         state.instruction_panel.is_inquiring = true;
         state.instruction_panel.prompt = Some("prompt".to_string());
-        state.editor_buffers.set_instruction_text("clear me");
+        state.editor_buffers.set_instruction_text("keep me");
 
         let _ = update(&mut state, Message::InstructionPanel(InstructionPanelMessage::Toggle));
 
         assert_eq!(state.panel_bar_state, None);
+        assert_eq!(state.instruction_panel.inquiry_result.as_deref(), Some("result"));
+        assert_eq!(state.instruction_panel.inquiry_target_block_id, Some(root));
+        assert!(state.instruction_panel.is_inquiring);
+        assert_eq!(state.instruction_panel.prompt.as_deref(), Some("prompt"));
+        assert_eq!(state.editor_buffers.instruction_content().text(), "keep me");
+    }
+
+    #[test]
+    fn inquire_append_applies_to_bound_target_not_current_focus() {
+        let (mut state, root) = test_state();
+        let sibling = state
+            .store
+            .append_sibling(&root, "sibling text".to_string())
+            .expect("append sibling succeeds");
+        state.store.update_point(&root, "root text".to_string());
+        state.editor_buffers.set_text(&root, "root text");
+        state.focused_block_id = Some(sibling);
+        state.instruction_panel.inquiry_result = Some("inquiry response".to_string());
+        state.instruction_panel.inquiry_target_block_id = Some(root);
+
+        let _ = update(
+            &mut state,
+            Message::InstructionPanel(InstructionPanelMessage::AppendInstructionResponse),
+        );
+
+        assert_eq!(state.store.point(&root).as_deref(), Some("root text\n\ninquiry response"));
+        assert_eq!(state.store.point(&sibling).as_deref(), Some("sibling text"));
         assert!(state.instruction_panel.inquiry_result.is_none());
-        assert!(!state.instruction_panel.is_inquiring);
-        assert!(state.instruction_panel.prompt.is_none());
+        assert!(state.instruction_panel.inquiry_target_block_id.is_none());
+    }
+
+    #[test]
+    fn inquire_add_child_applies_to_bound_target_not_current_focus() {
+        let (mut state, root) = test_state();
+        let sibling = state
+            .store
+            .append_sibling(&root, "sibling text".to_string())
+            .expect("append sibling succeeds");
+        let before_len = state.store.children(&root).len();
+        state.focused_block_id = Some(sibling);
+        state.instruction_panel.inquiry_result = Some("child from inquiry".to_string());
+        state.instruction_panel.inquiry_target_block_id = Some(root);
+
+        let _ = update(
+            &mut state,
+            Message::InstructionPanel(InstructionPanelMessage::AddInstructionResponseAsChild),
+        );
+
+        let children = state.store.children(&root);
+        assert_eq!(children.len(), before_len + 1);
+        let child_id = *children.last().expect("new child added under root");
+        assert_eq!(state.store.point(&child_id).as_deref(), Some("child from inquiry"));
+        assert!(state.instruction_panel.inquiry_result.is_none());
+        assert!(state.instruction_panel.inquiry_target_block_id.is_none());
+    }
+
+    #[test]
+    fn inquire_submission_consumes_instruction_editor_text() {
+        let (mut state, root) = test_state();
+        state.focused_block_id = Some(root);
+        state.editor_buffers.set_instruction_text("ask this");
+
+        let _ = update(&mut state, Message::InstructionPanel(InstructionPanelMessage::Inquire));
+
+        assert!(state.instruction_panel.is_inquiring);
         assert!(state.editor_buffers.instruction_content().text().is_empty());
     }
 
