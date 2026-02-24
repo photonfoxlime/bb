@@ -121,11 +121,17 @@ pub fn handle(
                 state.panel_bar_state = None;
             } else {
                 state.panel_bar_state = Some(PanelBarState::Instruction);
+                sync_instruction_panel_from_store(state, &target_block_id);
             }
             iced::Task::none()
         }
         | InstructionPanelMessage::TextEdited(action) => {
             state.editor_buffers.instruction_content_mut().perform(action);
+            if state.store.node(&target_block_id).is_some() {
+                let updated_text = state.editor_buffers.instruction_content().text().to_string();
+                state.store.set_instruction_draft(target_block_id, updated_text);
+                state.persist_with_context("after editing instruction draft");
+            }
             iced::Task::none()
         }
         | InstructionPanelMessage::Inquire => {
@@ -140,6 +146,10 @@ pub fn handle(
             let Some(config) = state.llm_config.clone().ok() else {
                 return iced::Task::none();
             };
+            state.store.remove_inquiry_draft(&target_block_id);
+            state.store.remove_instruction_draft(&target_block_id);
+            state
+                .persist_with_context("after consuming instruction and inquiry drafts for inquire");
             state.editor_buffers.set_instruction_text("");
             tracing::info!(block_id = ?target_block_id, "instruction inquiry started");
             let request_task = iced::Task::perform(
@@ -172,8 +182,10 @@ pub fn handle(
                         chars = response.len(),
                         "instruction inquiry succeeded"
                     );
-                    state.instruction_panel.inquiry_result = Some(response);
+                    state.instruction_panel.inquiry_result = Some(response.clone());
                     state.instruction_panel.inquiry_target_block_id = Some(block_id);
+                    state.store.set_inquiry_draft(block_id, response);
+                    state.persist_with_context("after persisting instruction inquiry draft");
                 }
                 | Err(reason) => {
                     tracing::error!(
@@ -193,6 +205,8 @@ pub fn handle(
             }
             state.instruction_panel.prompt =
                 Some(format!("Additional instruction: {}", instruction));
+            state.store.remove_instruction_draft(&target_block_id);
+            state.persist_with_context("after consuming instruction draft for expand");
             state.editor_buffers.set_instruction_text("");
             // Close the instruction panel and trigger expand
             state.panel_bar_state = None;
@@ -205,16 +219,20 @@ pub fn handle(
             }
             state.instruction_panel.prompt =
                 Some(format!("Additional instruction: {}", instruction));
+            state.store.remove_instruction_draft(&target_block_id);
+            state.persist_with_context("after consuming instruction draft for reduce");
             state.editor_buffers.set_instruction_text("");
             // Close the instruction panel and trigger reduce
             state.panel_bar_state = None;
             crate::app::update(state, Message::Reduce(ReduceMessage::Start(target_block_id)))
         }
         | InstructionPanelMessage::ApplyInstructionRewrite => {
+            let mut cleared_target = None;
             if let (Some(rewrite), Some(target_block_id)) = (
                 state.instruction_panel.inquiry_result.take(),
                 state.instruction_panel.inquiry_target_block_id,
             ) {
+                cleared_target = Some(target_block_id);
                 state.mutate_with_undo_and_persist("after applying instruction rewrite", |state| {
                     state.store.update_point(&target_block_id, rewrite.clone());
                     state.editor_buffers.set_text(&target_block_id, &rewrite);
@@ -223,13 +241,19 @@ pub fn handle(
             }
             state.instruction_panel.inquiry_result = None;
             state.instruction_panel.inquiry_target_block_id = None;
+            if let Some(target) = cleared_target {
+                state.store.remove_inquiry_draft(&target);
+                state.persist_with_context("after clearing inquiry draft by rewrite apply");
+            }
             iced::Task::none()
         }
         | InstructionPanelMessage::AppendInstructionResponse => {
+            let mut cleared_target = None;
             if let (Some(response), Some(target_block_id)) = (
                 state.instruction_panel.inquiry_result.take(),
                 state.instruction_panel.inquiry_target_block_id,
             ) {
+                cleared_target = Some(target_block_id);
                 state.mutate_with_undo_and_persist(
                     "after appending instruction inquiry response",
                     |state| {
@@ -247,13 +271,19 @@ pub fn handle(
             }
             state.instruction_panel.inquiry_result = None;
             state.instruction_panel.inquiry_target_block_id = None;
+            if let Some(target) = cleared_target {
+                state.store.remove_inquiry_draft(&target);
+                state.persist_with_context("after clearing inquiry draft by append apply");
+            }
             iced::Task::none()
         }
         | InstructionPanelMessage::AddInstructionResponseAsChild => {
+            let mut cleared_target = None;
             if let (Some(response), Some(target_block_id)) = (
                 state.instruction_panel.inquiry_result.take(),
                 state.instruction_panel.inquiry_target_block_id,
             ) {
+                cleared_target = Some(target_block_id);
                 state.mutate_with_undo_and_persist(
                     "after adding instruction inquiry response as child",
                     |state| {
@@ -269,13 +299,40 @@ pub fn handle(
             }
             state.instruction_panel.inquiry_result = None;
             state.instruction_panel.inquiry_target_block_id = None;
+            if let Some(target) = cleared_target {
+                state.store.remove_inquiry_draft(&target);
+                state.persist_with_context("after clearing inquiry draft by add-child apply");
+            }
             iced::Task::none()
         }
         | InstructionPanelMessage::Dismiss => {
+            let dismiss_target =
+                state.instruction_panel.inquiry_target_block_id.or(Some(target_block_id));
             state.instruction_panel.inquiry_result = None;
             state.instruction_panel.inquiry_target_block_id = None;
+            if let Some(target) = dismiss_target {
+                state.store.remove_inquiry_draft(&target);
+                state.persist_with_context("after dismissing inquiry draft");
+            }
             iced::Task::none()
         }
+    }
+}
+
+fn sync_instruction_panel_from_store(state: &mut AppState, target_block_id: &BlockId) {
+    let instruction = state
+        .store
+        .instruction_draft(target_block_id)
+        .map(|draft| draft.instruction.clone())
+        .unwrap_or_default();
+    state.editor_buffers.set_instruction_text(&instruction);
+
+    if let Some(inquiry) = state.store.inquiry_draft(target_block_id) {
+        state.instruction_panel.inquiry_result = Some(inquiry.response.clone());
+        state.instruction_panel.inquiry_target_block_id = Some(*target_block_id);
+    } else {
+        state.instruction_panel.inquiry_result = None;
+        state.instruction_panel.inquiry_target_block_id = None;
     }
 }
 

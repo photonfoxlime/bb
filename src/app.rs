@@ -2048,11 +2048,26 @@ mod tests {
         let (mut state, root) = test_state();
         state.focused_block_id = Some(root);
         state.editor_buffers.set_instruction_text("keep this instruction");
+        state.store.set_instruction_draft(root, "keep this instruction".to_string());
 
         let _ = update(&mut state, Message::InstructionPanel(InstructionPanelMessage::Toggle));
 
         assert_eq!(state.panel_bar_state, Some(super::PanelBarState::Instruction));
         assert_eq!(state.editor_buffers.instruction_content().text(), "keep this instruction");
+    }
+
+    #[test]
+    fn instruction_toggle_opens_panel_with_persisted_drafts() {
+        let (mut state, root) = test_state();
+        state.focused_block_id = Some(root);
+        state.store.set_instruction_draft(root, "persisted instruction".to_string());
+        state.store.set_inquiry_draft(root, "persisted inquiry".to_string());
+
+        let _ = update(&mut state, Message::InstructionPanel(InstructionPanelMessage::Toggle));
+
+        assert_eq!(state.editor_buffers.instruction_content().text(), "persisted instruction");
+        assert_eq!(state.instruction_panel.inquiry_result.as_deref(), Some("persisted inquiry"));
+        assert_eq!(state.instruction_panel.inquiry_target_block_id, Some(root));
     }
 
     #[test]
@@ -2130,11 +2145,58 @@ mod tests {
         let (mut state, root) = test_state();
         state.focused_block_id = Some(root);
         state.editor_buffers.set_instruction_text("ask this");
+        state.store.set_instruction_draft(root, "ask this".to_string());
 
         let _ = update(&mut state, Message::InstructionPanel(InstructionPanelMessage::Inquire));
 
         assert!(state.instruction_panel.is_inquiring);
         assert!(state.editor_buffers.instruction_content().text().is_empty());
+        assert!(state.store.instruction_draft(&root).is_none());
+    }
+
+    #[test]
+    fn inquire_done_persists_inquiry_draft() {
+        let (mut state, root) = test_state();
+        let _ = update(
+            &mut state,
+            Message::InstructionPanel(InstructionPanelMessage::InquireDone {
+                block_id: root,
+                result: Ok("persisted response".to_string()),
+            }),
+        );
+
+        assert_eq!(
+            state.store.inquiry_draft(&root).map(|draft| draft.response.as_str()),
+            Some("persisted response")
+        );
+    }
+
+    #[test]
+    fn expand_with_instruction_consumes_persisted_instruction_draft() {
+        let (mut state, root) = test_state();
+        state.focused_block_id = Some(root);
+        state.store.set_instruction_draft(root, "expand this".to_string());
+        state.editor_buffers.set_instruction_text("expand this");
+
+        let _ = update(
+            &mut state,
+            Message::InstructionPanel(InstructionPanelMessage::ExpandWithInstruction),
+        );
+
+        assert!(state.store.instruction_draft(&root).is_none());
+    }
+
+    #[test]
+    fn dismiss_clears_persisted_inquiry_draft() {
+        let (mut state, root) = test_state();
+        state.focused_block_id = Some(root);
+        state.store.set_inquiry_draft(root, "draft".to_string());
+        state.instruction_panel.inquiry_result = Some("draft".to_string());
+        state.instruction_panel.inquiry_target_block_id = Some(root);
+
+        let _ = update(&mut state, Message::InstructionPanel(InstructionPanelMessage::Dismiss));
+
+        assert!(state.store.inquiry_draft(&root).is_none());
     }
 
     #[test]

@@ -81,6 +81,24 @@ pub struct ReductionDraftRecord {
     pub redundant_children: Vec<BlockId>,
 }
 
+/// Persisted instruction draft text keyed by target [`BlockId`].
+///
+/// Stores per-block instruction-editor input so drafts survive reloads and
+/// round-trips through mount projections.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InstructionDraftRecord {
+    pub instruction: String,
+}
+
+/// Persisted inquiry draft payload keyed by target [`BlockId`].
+///
+/// This captures the latest inquiry response for a target block until the user
+/// applies or dismisses it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct InquiryDraftRecord {
+    pub response: String,
+}
+
 /// Persisted friend relation from a source block to a target block.
 ///
 /// Friend blocks are user-selected related context for a block: they are not
@@ -231,6 +249,12 @@ pub struct BlockStore {
     /// Sparse by design: only blocks with pending reduction drafts are stored.
     #[serde(default)]
     reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord>,
+    /// Persisted per-block instruction drafts.
+    #[serde(default)]
+    instruction_drafts: SparseSecondaryMap<BlockId, InstructionDraftRecord>,
+    /// Persisted per-block inquiry drafts.
+    #[serde(default)]
+    inquiry_drafts: SparseSecondaryMap<BlockId, InquiryDraftRecord>,
     /// Persisted per-block fold (collapse) state.
     ///
     /// Presence of a key means the block's children are hidden in the UI.
@@ -259,6 +283,8 @@ impl BlockStore {
             SparseSecondaryMap::new(),
             SparseSecondaryMap::new(),
             SparseSecondaryMap::new(),
+            SparseSecondaryMap::new(),
+            SparseSecondaryMap::new(),
         )
     }
 
@@ -267,6 +293,8 @@ impl BlockStore {
         points: SecondaryMap<BlockId, String>,
         expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord>,
         reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord>,
+        instruction_drafts: SparseSecondaryMap<BlockId, InstructionDraftRecord>,
+        inquiry_drafts: SparseSecondaryMap<BlockId, InquiryDraftRecord>,
         view_collapsed: SparseSecondaryMap<BlockId, bool>,
         friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>>,
     ) -> Self {
@@ -277,6 +305,8 @@ impl BlockStore {
             mount_table: MountTable::new(),
             expansion_drafts,
             reduction_drafts,
+            instruction_drafts,
+            inquiry_drafts,
             view_collapsed,
             friend_blocks,
         }
@@ -374,6 +404,39 @@ impl BlockStore {
 
     pub fn remove_reduction_draft(&mut self, id: &BlockId) -> Option<ReductionDraftRecord> {
         self.reduction_drafts.remove(*id)
+    }
+
+    pub fn instruction_draft(&self, id: &BlockId) -> Option<&InstructionDraftRecord> {
+        self.instruction_drafts.get(*id)
+    }
+
+    pub fn set_instruction_draft(&mut self, id: BlockId, instruction: String) {
+        if instruction.is_empty() {
+            self.instruction_drafts.remove(id);
+        } else {
+            self.instruction_drafts.insert(id, InstructionDraftRecord { instruction });
+        }
+    }
+
+    pub fn remove_instruction_draft(&mut self, id: &BlockId) -> Option<InstructionDraftRecord> {
+        self.instruction_drafts.remove(*id)
+    }
+
+    pub fn inquiry_draft(&self, id: &BlockId) -> Option<&InquiryDraftRecord> {
+        self.inquiry_drafts.get(*id)
+    }
+
+    pub fn set_inquiry_draft(&mut self, id: BlockId, response: String) {
+        let trimmed = response.trim();
+        if trimmed.is_empty() {
+            self.inquiry_drafts.remove(id);
+        } else {
+            self.inquiry_drafts.insert(id, InquiryDraftRecord { response: trimmed.to_string() });
+        }
+    }
+
+    pub fn remove_inquiry_draft(&mut self, id: &BlockId) -> Option<InquiryDraftRecord> {
+        self.inquiry_drafts.remove(*id)
     }
 
     /// Whether the given block's children are folded (hidden) in the UI.
@@ -585,6 +648,8 @@ impl BlockStore {
             self.points.remove(*id);
             self.expansion_drafts.remove(*id);
             self.reduction_drafts.remove(*id);
+            self.instruction_drafts.remove(*id);
+            self.inquiry_drafts.remove(*id);
             self.view_collapsed.remove(*id);
             self.friend_blocks.remove(*id);
             self.mount_table.remove_origin(*id);
@@ -776,6 +841,8 @@ impl BlockStore {
             self.points.remove(*id);
             self.expansion_drafts.remove(*id);
             self.reduction_drafts.remove(*id);
+            self.instruction_drafts.remove(*id);
+            self.inquiry_drafts.remove(*id);
             self.view_collapsed.remove(*id);
             self.friend_blocks.remove(*id);
             self.mount_table.remove_origin(*id);
@@ -851,6 +918,8 @@ impl BlockStore {
                     self.points.remove(id);
                     self.expansion_drafts.remove(id);
                     self.reduction_drafts.remove(id);
+                    self.instruction_drafts.remove(id);
+                    self.inquiry_drafts.remove(id);
                     self.view_collapsed.remove(id);
                     self.friend_blocks.remove(id);
                 }
@@ -863,6 +932,8 @@ impl BlockStore {
             self.points.remove(id);
             self.expansion_drafts.remove(id);
             self.reduction_drafts.remove(id);
+            self.instruction_drafts.remove(id);
+            self.inquiry_drafts.remove(id);
             self.view_collapsed.remove(id);
             self.friend_blocks.remove(id);
             self.mount_table.remove_origin(id);
@@ -893,6 +964,10 @@ impl BlockStore {
         let mut sub_expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord> =
             SparseSecondaryMap::new();
         let mut sub_reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord> =
+            SparseSecondaryMap::new();
+        let mut sub_instruction_drafts: SparseSecondaryMap<BlockId, InstructionDraftRecord> =
+            SparseSecondaryMap::new();
+        let mut sub_inquiry_drafts: SparseSecondaryMap<BlockId, InquiryDraftRecord> =
             SparseSecondaryMap::new();
         let mut sub_friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>> =
             SparseSecondaryMap::new();
@@ -950,6 +1025,16 @@ impl BlockStore {
                 sub_reduction_drafts.insert(new_id, draft.clone());
             }
         }
+        for (old_id, draft) in &self.instruction_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                sub_instruction_drafts.insert(new_id, draft.clone());
+            }
+        }
+        for (old_id, draft) in &self.inquiry_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                sub_inquiry_drafts.insert(new_id, draft.clone());
+            }
+        }
         let mut sub_view_collapsed: SparseSecondaryMap<BlockId, bool> = SparseSecondaryMap::new();
         for (old_id, _) in &self.view_collapsed {
             if let Some(&new_id) = id_map.get(&old_id) {
@@ -979,6 +1064,8 @@ impl BlockStore {
             sub_points,
             sub_expansion_drafts,
             sub_reduction_drafts,
+            sub_instruction_drafts,
+            sub_inquiry_drafts,
             sub_view_collapsed,
             sub_friend_blocks,
         )
@@ -1037,6 +1124,16 @@ impl BlockStore {
         for (old_id, draft) in &sub_store.reduction_drafts {
             if let Some(&new_id) = id_map.get(&old_id) {
                 self.reduction_drafts.insert(new_id, draft.clone());
+            }
+        }
+        for (old_id, draft) in &sub_store.instruction_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                self.instruction_drafts.insert(new_id, draft.clone());
+            }
+        }
+        for (old_id, draft) in &sub_store.inquiry_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                self.inquiry_drafts.insert(new_id, draft.clone());
             }
         }
 
@@ -1519,6 +1616,16 @@ impl PartialEq for BlockStore {
                 .reduction_drafts
                 .iter()
                 .all(|(id, draft)| other.reduction_drafts.get(id) == Some(draft))
+            && self.instruction_drafts.len() == other.instruction_drafts.len()
+            && self
+                .instruction_drafts
+                .iter()
+                .all(|(id, draft)| other.instruction_drafts.get(id) == Some(draft))
+            && self.inquiry_drafts.len() == other.inquiry_drafts.len()
+            && self
+                .inquiry_drafts
+                .iter()
+                .all(|(id, draft)| other.inquiry_drafts.get(id) == Some(draft))
             && self.view_collapsed.len() == other.view_collapsed.len()
             && self.view_collapsed.iter().all(|(id, _)| other.view_collapsed.contains_key(id))
             && self.friend_blocks.len() == other.friend_blocks.len()
@@ -1854,6 +1961,8 @@ mod tests {
             child_a,
             ReductionDraftRecord { reduction: "reduction".to_string(), redundant_children: vec![] },
         );
+        store.set_instruction_draft(root, "instruction".to_string());
+        store.set_inquiry_draft(child_a, "inquiry".to_string());
 
         let json = serde_json::to_string(&store).unwrap();
         let restored: BlockStore = serde_json::from_str(&json).unwrap();
@@ -1861,6 +1970,14 @@ mod tests {
         assert_eq!(store, restored);
         assert!(restored.expansion_draft(&root).is_some());
         assert!(restored.reduction_draft(&child_a).is_some());
+        assert_eq!(
+            restored.instruction_draft(&root).map(|draft| draft.instruction.as_str()),
+            Some("instruction")
+        );
+        assert_eq!(
+            restored.inquiry_draft(&child_a).map(|draft| draft.response.as_str()),
+            Some("inquiry")
+        );
     }
 
     #[test]
@@ -1874,12 +1991,16 @@ mod tests {
             child_b,
             ReductionDraftRecord { reduction: "draft".to_string(), redundant_children: vec![] },
         );
+        store.set_instruction_draft(child_a, "instruction draft".to_string());
+        store.set_inquiry_draft(child_b, "inquiry draft".to_string());
 
         store.remove_block_subtree(&child_a).unwrap();
         store.remove_block_subtree(&child_b).unwrap();
 
         assert!(store.expansion_draft(&child_a).is_none());
         assert!(store.reduction_draft(&child_b).is_none());
+        assert!(store.instruction_draft(&child_a).is_none());
+        assert!(store.inquiry_draft(&child_b).is_none());
     }
 
     #[test]
@@ -1888,10 +2009,14 @@ mod tests {
         let mut value = serde_json::to_value(&store).unwrap();
         value.as_object_mut().unwrap().remove("expansion_drafts");
         value.as_object_mut().unwrap().remove("reduction_drafts");
+        value.as_object_mut().unwrap().remove("instruction_drafts");
+        value.as_object_mut().unwrap().remove("inquiry_drafts");
 
         let restored: BlockStore = serde_json::from_value(value).unwrap();
         assert_eq!(restored.expansion_drafts.len(), 0);
         assert_eq!(restored.reduction_drafts.len(), 0);
+        assert_eq!(restored.instruction_drafts.len(), 0);
+        assert_eq!(restored.inquiry_drafts.len(), 0);
     }
 
     #[test]
