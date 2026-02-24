@@ -1,6 +1,6 @@
 # bb
 
-A document editor that catalyzes text-based design and implementation.
+A tree-structured document editor that catalyzes text-based design and implementation.
 
 ## Core Concepts
 
