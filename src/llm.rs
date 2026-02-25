@@ -56,6 +56,62 @@ impl LlmConfig {
         Self::from_env_or_file()
     }
 
+    /// Read-only access to the base URL.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+
+    /// Read-only access to the API key.
+    pub fn api_key(&self) -> &str {
+        &self.api_key
+    }
+
+    /// Read-only access to the model name.
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
+    /// Persist the current config to the TOML config file.
+    ///
+    /// Creates parent directories if missing. Returns `Err` if the
+    /// platform config directory cannot be resolved or the write fails.
+    pub fn save_to_file(&self) -> Result<(), LlmConfigError> {
+        let Some(path) = Self::config_path() else {
+            return Err(LlmConfigError::MissingConfig);
+        };
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|err| {
+                LlmConfigError::from(ConfigFileError::create_dir(parent.to_path_buf(), err))
+            })?;
+        }
+        let body = toml::to_string_pretty(self).expect("LlmConfig is always serializable");
+        fs::write(&path, body)
+            .map_err(|err| LlmConfigError::from(ConfigFileError::write(path, err)))
+    }
+
+    /// Validate and construct a config from raw string fields.
+    ///
+    /// Applies the same trimming and validation rules as [`load`].
+    pub fn from_raw(
+        base_url: String, api_key: String, model: String,
+    ) -> Result<Self, LlmConfigError> {
+        let base_url = base_url.trim().to_string();
+        let api_key = api_key.trim().to_string();
+        let model = model.trim().to_string();
+
+        if !base_url.starts_with("https://") {
+            return Err(LlmConfigError::InvalidConfig(InvalidConfigReason::BaseUrlNotHttps));
+        }
+        if api_key.is_empty() {
+            return Err(LlmConfigError::InvalidConfig(InvalidConfigReason::ApiKeyEmpty));
+        }
+        if model.is_empty() {
+            return Err(LlmConfigError::InvalidConfig(InvalidConfigReason::ModelEmpty));
+        }
+
+        Ok(Self { base_url, api_key, model })
+    }
+
     fn from_file() -> Result<Option<Self>, LlmConfigError> {
         let Some(path) = Self::config_path() else {
             return Ok(None);
