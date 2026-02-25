@@ -143,8 +143,9 @@ pub fn handle(
             state.instruction_panel.inquiry_result = None;
             state.instruction_panel.inquiry_target_block_id = None;
             let context = state.store.block_context_for_id(&target_block_id);
-            let Some(config) = state.llm_config.clone().ok() else {
-                return iced::Task::none();
+            let config = match state.providers.resolve_active() {
+                | Ok(c) => c,
+                | Err(_) => return iced::Task::none(),
             };
             state.store.remove_inquiry_draft(&target_block_id);
             state.store.remove_instruction_draft(&target_block_id);

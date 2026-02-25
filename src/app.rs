@@ -52,7 +52,7 @@ const ERROR_STACK_PREVIEW_LIMIT: usize = 2;
 
 /// All mutable application state for the iced Elm architecture.
 ///
-/// Owns the document store, editor buffers, undo history, LLM config,
+/// Named LLM provider configurations with active provider selection.
 /// async operation states, and transient UI state (overflow, focused/editing block ids).
 ///
 /// Ownership split:
@@ -66,7 +66,7 @@ const ERROR_STACK_PREVIEW_LIMIT: usize = 2;
 pub struct AppState {
     store: BlockStore,
     undo_history: UndoHistory<UndoSnapshot>,
-    llm_config: Result<llm::LlmConfig, llm::LlmConfigError>,
+    providers: llm::LlmProviders,
     errors: Vec<AppError>,
     llm_requests: LlmRequests,
     editor_buffers: EditorBuffers,
@@ -117,9 +117,15 @@ impl AppState {
     /// - recovery mode uses a blank one-root workspace and blocks save-through
     ///   to avoid overwriting unknown/corrupt on-disk state.
     pub fn load() -> Self {
-        let llm_config = llm::LlmConfig::load();
+        let providers = match llm::LlmProviders::load() {
+            | Ok(p) => p,
+            | Err(err) => {
+                tracing::error!(%err, "failed to load LLM providers; using defaults");
+                llm::LlmProviders::default()
+            }
+        };
         let mut errors = vec![];
-        if let Some(err) = llm_config.as_ref().err() {
+        if let Err(err) = providers.resolve_active() {
             errors.push(AppError::Configuration(UiError::from_message(err)));
         }
         let (store, persistence_blocked, persistence_errors) =
@@ -129,11 +135,11 @@ impl AppState {
 
         let is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
         tracing::info!(is_dark, "detected system appearance");
-        let settings = SettingsState::from_config(&llm_config);
+        let settings = SettingsState::from_providers(&providers);
         Self {
             store,
             undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
-            llm_config,
+            providers,
             errors,
             llm_requests: LlmRequests::new(),
             editor_buffers,
@@ -203,8 +209,8 @@ impl AppState {
     }
 
     fn llm_config_for_reduce(&mut self, block_id: BlockId) -> Option<llm::LlmConfig> {
-        match &self.llm_config {
-            | Ok(config) => Some(config.clone()),
+        match self.providers.resolve_active() {
+            | Ok(config) => Some(config),
             | Err(err) => {
                 let ui_err = UiError::from_message(err);
                 self.record_error(AppError::Configuration(ui_err.clone()));
@@ -215,8 +221,8 @@ impl AppState {
     }
 
     fn llm_config_for_expand(&mut self, block_id: BlockId) -> Option<llm::LlmConfig> {
-        match &self.llm_config {
-            | Ok(config) => Some(config.clone()),
+        match self.providers.resolve_active() {
+            | Ok(config) => Some(config),
             | Err(err) => {
                 let ui_err = UiError::from_message(err);
                 self.record_error(AppError::Configuration(ui_err.clone()));
@@ -1599,11 +1605,13 @@ mod tests {
     fn test_state() -> (AppState, crate::store::BlockId) {
         let store = BlockStore::default();
         let root = *store.roots().first().expect("default store has a root");
+        let providers = llm::LlmProviders::test_valid();
         let state = AppState {
             editor_buffers: super::EditorBuffers::from_store(&store),
             store,
             undo_history: UndoHistory::with_capacity(64),
-            llm_config: Ok(llm::LlmConfig::default()),
+            settings: super::SettingsState::from_providers(&providers),
+            providers,
             errors: vec![],
             llm_requests: super::LlmRequests::new(),
             overflow_open_for: None,
@@ -1617,7 +1625,6 @@ mod tests {
 
             is_dark: false,
             active_view: super::ViewMode::default(),
-            settings: super::SettingsState::from_config(&Ok(llm::LlmConfig::default())),
         };
         (state, root)
     }

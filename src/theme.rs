@@ -74,7 +74,7 @@ pub const DARK: Palette = Palette {
 };
 
 /// Resolve the focused palette from the current theme's mode.
-fn focused_palette(theme: &Theme) -> &'static Palette {
+pub(crate) fn focused_palette(theme: &Theme) -> &'static Palette {
     match theme.mode() {
         | Mode::Dark => &DARK,
         | _ => &LIGHT,

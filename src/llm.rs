@@ -1,40 +1,41 @@
 //! LLM integration: configuration, prompt construction, and API client.
 //!
-//! The client speaks the OpenAI-compatible chat completions API. Configuration
-//! is loaded from environment variables (`LLM_BASE_URL`, `LLM_API_KEY`,
-//! `LLM_MODEL`) with fallback to a TOML config file.
+//! The client speaks the OpenAI-compatible chat completions API.
+//!
+//! # Provider model
+//!
+//! [`LlmProviders`] holds a named set of [`LlmConfig`] entries plus an
+//! `active` key that selects the current provider. The on-disk format is a
+//! single TOML file at [`AppPaths::llm_config()`]:
+//!
+//! ```toml
+//! active = "default"
+//!
+//! [providers.default]
+//! base_url = "https://api.example.com/v1"
+//! api_key  = ""
+//! model    = ""
+//! ```
+//!
+//! Environment variables (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`)
+//! override fields on the **active** provider only at load time.
 
 use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{env, fs, io, path::PathBuf};
+use std::{collections::BTreeMap, env, fs, io, path::PathBuf};
 use thiserror::Error;
-
-/// Classification of LLM task types, each with configurable model.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum LlmTask {
-    /// Reduce a block's point to be more concise.
-    Reduce,
-    /// Expand a block into rewrite + child point suggestions.
-    Expand,
-    /// One-time instruction inquiry.
-    Inquire,
-}
 
 /// Validated LLM endpoint configuration.
 ///
-/// Invariants (enforced by [`LlmConfig::load`]):
+/// Invariants (enforced by [`LlmConfig::from_raw`]):
 /// - `base_url` starts with `https://`
-/// - `api_key` and `default_model` are non-empty after trimming
+/// - `api_key` and `model` are non-empty after trimming
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConfig {
     base_url: String,
     api_key: String,
-    /// Model used when task-specific model is not configured.
-    default_model: String,
-    /// Per-task model overrides. If a task type is not present, uses `default_model`.
-    task_models: std::collections::HashMap<LlmTask, String>,
+    model: String,
 }
 
 impl Default for LlmConfig {
@@ -42,20 +43,12 @@ impl Default for LlmConfig {
         Self {
             base_url: "https://api.example.com/v1".to_string(),
             api_key: String::new(),
-            default_model: String::new(),
-            task_models: std::collections::HashMap::new(),
+            model: String::new(),
         }
     }
 }
 
 impl LlmConfig {
-    /// Load config from env vars with TOML file fallback.
-    ///
-    /// Returns `Err` if any required field is missing or invalid.
-    pub fn load() -> Result<Self, LlmConfigError> {
-        Self::from_env_or_file()
-    }
-
     /// Read-only access to the base URL.
     pub fn base_url(&self) -> &str {
         &self.base_url
@@ -71,27 +64,9 @@ impl LlmConfig {
         &self.model
     }
 
-    /// Persist the current config to the TOML config file.
-    ///
-    /// Creates parent directories if missing. Returns `Err` if the
-    /// platform config directory cannot be resolved or the write fails.
-    pub fn save_to_file(&self) -> Result<(), LlmConfigError> {
-        let Some(path) = Self::config_path() else {
-            return Err(LlmConfigError::MissingConfig);
-        };
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).map_err(|err| {
-                LlmConfigError::from(ConfigFileError::create_dir(parent.to_path_buf(), err))
-            })?;
-        }
-        let body = toml::to_string_pretty(self).expect("LlmConfig is always serializable");
-        fs::write(&path, body)
-            .map_err(|err| LlmConfigError::from(ConfigFileError::write(path, err)))
-    }
-
     /// Validate and construct a config from raw string fields.
     ///
-    /// Applies the same trimming and validation rules as [`load`].
+    /// Trims whitespace from all fields and enforces invariants.
     pub fn from_raw(
         base_url: String, api_key: String, model: String,
     ) -> Result<Self, LlmConfigError> {
@@ -112,122 +87,203 @@ impl LlmConfig {
         Ok(Self { base_url, api_key, model })
     }
 
-    fn from_file() -> Result<Option<Self>, LlmConfigError> {
-        let Some(path) = Self::config_path() else {
-            return Ok(None);
+    fn config_path() -> Option<PathBuf> {
+        AppPaths::llm_config()
+    }
+}
+
+/// Default provider name used when creating a fresh config file.
+const DEFAULT_PROVIDER_NAME: &str = "default";
+
+/// Named collection of [`LlmConfig`] entries with one designated active provider.
+///
+/// Invariants:
+/// - `providers` is never empty.
+/// - `active` always refers to a key present in `providers`.
+///
+/// The TOML representation uses `active = "name"` plus a
+/// `[providers.<name>]` table per entry.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LlmProviders {
+    /// Key into `providers` selecting the current configuration.
+    active: String,
+    /// Named provider configurations.
+    providers: BTreeMap<String, LlmConfig>,
+}
+
+impl Default for LlmProviders {
+    fn default() -> Self {
+        let mut providers = BTreeMap::new();
+        providers.insert(DEFAULT_PROVIDER_NAME.to_string(), LlmConfig::default());
+        Self { active: DEFAULT_PROVIDER_NAME.to_string(), providers }
+    }
+}
+
+impl LlmProviders {
+    /// Load providers from the TOML config file, applying env-var overrides
+    /// to the active provider's fields.
+    ///
+    /// If no config file exists, a default template is written and returned.
+    pub fn load() -> Result<Self, LlmConfigError> {
+        let mut providers = Self::from_file()?;
+        providers.apply_env_overrides();
+        Ok(providers)
+    }
+
+    /// Name of the currently active provider.
+    pub fn active(&self) -> &str {
+        &self.active
+    }
+
+    /// Resolve the active provider's [`LlmConfig`], returning an error
+    /// if the active config has missing or invalid fields.
+    pub fn resolve_active(&self) -> Result<LlmConfig, LlmConfigError> {
+        let config = self.providers.get(&self.active).cloned().unwrap_or_default();
+        LlmConfig::from_raw(config.base_url.clone(), config.api_key.clone(), config.model.clone())
+    }
+
+    /// Iterate over provider names in sorted order.
+    pub fn provider_names(&self) -> Vec<String> {
+        self.providers.keys().cloned().collect()
+    }
+
+    /// Get a provider config by name.
+    pub fn get(&self, name: &str) -> Option<&LlmConfig> {
+        self.providers.get(name)
+    }
+
+    /// Set the active provider, returning an error if the name does not exist.
+    pub fn set_active(&mut self, name: &str) -> Result<(), LlmConfigError> {
+        if !self.providers.contains_key(name) {
+            return Err(LlmConfigError::ProviderNotFound(name.to_string()));
+        }
+        self.active = name.to_string();
+        Ok(())
+    }
+
+    /// Insert or update a named provider configuration.
+    ///
+    /// If the name is new, it is added. If it already exists, its config
+    /// is replaced.
+    pub fn upsert_provider(&mut self, name: String, config: LlmConfig) {
+        self.providers.insert(name, config);
+    }
+
+    /// Remove a provider by name.
+    ///
+    /// Returns `Err` if the provider is the currently active one (switch
+    /// active first) or if the name does not exist. The last remaining
+    /// provider cannot be removed.
+    pub fn remove_provider(&mut self, name: &str) -> Result<(), LlmConfigError> {
+        if self.active == name {
+            return Err(LlmConfigError::CannotRemoveActive);
+        }
+        if self.providers.len() <= 1 {
+            return Err(LlmConfigError::CannotRemoveLast);
+        }
+        if self.providers.remove(name).is_none() {
+            return Err(LlmConfigError::ProviderNotFound(name.to_string()));
+        }
+        Ok(())
+    }
+
+    /// Persist the current providers to the TOML config file.
+    pub fn save_to_file(&self) -> Result<(), LlmConfigError> {
+        let Some(path) = LlmConfig::config_path() else {
+            return Err(LlmConfigError::MissingConfig);
+        };
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|err| {
+                LlmConfigError::from(ConfigFileError::create_dir(parent.to_path_buf(), err))
+            })?;
+        }
+        let body = toml::to_string_pretty(self).expect("LlmProviders is always serializable");
+        fs::write(&path, body)
+            .map_err(|err| LlmConfigError::from(ConfigFileError::write(path, err)))
+    }
+
+    /// Load from the TOML file, migrating legacy single-config format if needed.
+    fn from_file() -> Result<Self, LlmConfigError> {
+        let Some(path) = LlmConfig::config_path() else {
+            return Err(LlmConfigError::MissingConfig);
         };
         match fs::read_to_string(&path) {
-            | Ok(contents) => toml::from_str(&contents)
-                .map(Some)
-                .map_err(|err| ConfigFileError::parse(path.clone(), err).into()),
+            | Ok(contents) => Self::parse_or_migrate(&contents, &path),
             | Err(err) if err.kind() == io::ErrorKind::NotFound => {
+                let defaults = Self::default();
+                // Write default template.
                 if let Some(parent) = path.parent() {
                     fs::create_dir_all(parent).map_err(|err| {
                         LlmConfigError::from(ConfigFileError::create_dir(parent.to_path_buf(), err))
                     })?;
                 }
-                fs::write(&path, Self::default_template()).map_err(|err| {
+                let body = toml::to_string_pretty(&defaults)
+                    .expect("default LlmProviders is always serializable");
+                fs::write(&path, body).map_err(|err| {
                     LlmConfigError::from(ConfigFileError::write(path.clone(), err))
                 })?;
-                Ok(None)
+                Ok(defaults)
             }
-            | Err(err) => Err(LlmConfigError::from(ConfigFileError::read(path.clone(), err))),
+            | Err(err) => Err(LlmConfigError::from(ConfigFileError::read(path, err))),
         }
     }
 
-    fn from_env_or_file() -> Result<Self, LlmConfigError> {
-        fn retrieve_non_empty_env_var(var_name: &str) -> Option<String> {
-            match env::var(var_name) {
-                | Err(_) => None,
-                | Ok(value) if value.is_empty() => None,
-                | Ok(value) => Some(value),
+    /// Try parsing as `LlmProviders` first; fall back to legacy `LlmConfig`.
+    fn parse_or_migrate(contents: &str, path: &PathBuf) -> Result<Self, LlmConfigError> {
+        // Try multi-provider format first.
+        if let Ok(providers) = toml::from_str::<Self>(contents) {
+            if !providers.providers.is_empty()
+                && providers.providers.contains_key(&providers.active)
+            {
+                return Ok(providers);
             }
         }
+        // Fall back: legacy single-config (flat base_url/api_key/model).
+        if let Ok(legacy) = toml::from_str::<LlmConfig>(contents) {
+            let mut providers = BTreeMap::new();
+            providers.insert(DEFAULT_PROVIDER_NAME.to_string(), legacy);
+            return Ok(Self { active: DEFAULT_PROVIDER_NAME.to_string(), providers });
+        }
+        Err(ConfigFileError::parse(path.clone(), toml::from_str::<Self>(contents).unwrap_err())
+            .into())
+    }
 
-        let mut base_url = retrieve_non_empty_env_var("LLM_BASE_URL");
-        let mut api_key = retrieve_non_empty_env_var("LLM_API_KEY");
-        let mut default_model = retrieve_non_empty_env_var("LLM_MODEL");
-
-        // Load per-task model overrides from env vars
-        let mut task_models = std::collections::HashMap::new();
-        if let Some(model) = retrieve_non_empty_env_var("LLM_MODEL_REDUCE") {
-            task_models.insert(LlmTask::Reduce, model);
+    /// Apply `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` env vars to the
+    /// active provider's fields, overriding file-based values.
+    fn apply_env_overrides(&mut self) {
+        fn env_non_empty(var: &str) -> Option<String> {
+            env::var(var).ok().filter(|v| !v.is_empty())
         }
-        if let Some(model) = retrieve_non_empty_env_var("LLM_MODEL_EXPAND") {
-            task_models.insert(LlmTask::Expand, model);
-        }
-        if let Some(model) = retrieve_non_empty_env_var("LLM_MODEL_INQUIRE") {
-            task_models.insert(LlmTask::Inquire, model);
-        }
-
-        if let Some(file_config) = Self::from_file()? {
-            if base_url.is_none() {
-                base_url = Some(file_config.base_url);
-            }
-            if api_key.is_none() {
-                api_key = Some(file_config.api_key);
-            }
-            if default_model.is_none() {
-                default_model = Some(file_config.default_model);
-            }
-            // Merge file task models with env var task models (env takes precedence)
-            for (task, model) in file_config.task_models {
-                task_models.entry(task).or_insert(model);
-            }
-        }
-
-        let Some(base_url) = base_url else {
-            return Err(LlmConfigError::MissingConfig);
+        let Some(active_config) = self.providers.get_mut(&self.active) else {
+            return;
         };
-        let Some(api_key) = api_key else {
-            return Err(LlmConfigError::MissingConfig);
-        };
-        let Some(default_model) = default_model else {
-            return Err(LlmConfigError::MissingConfig);
-        };
-
-        let base_url = base_url.trim().to_string();
-        let api_key = api_key.trim().to_string();
-        let default_model = default_model.trim().to_string();
-
-        if !base_url.starts_with("https://") {
-            return Err(LlmConfigError::InvalidConfig(InvalidConfigReason::BaseUrlNotHttps));
+        if let Some(url) = env_non_empty("LLM_BASE_URL") {
+            active_config.base_url = url;
         }
-        if api_key.is_empty() {
-            return Err(LlmConfigError::InvalidConfig(InvalidConfigReason::ApiKeyEmpty));
+        if let Some(key) = env_non_empty("LLM_API_KEY") {
+            active_config.api_key = key;
         }
-        if default_model.is_empty() {
-            return Err(LlmConfigError::InvalidConfig(InvalidConfigReason::ModelEmpty));
+        if let Some(model) = env_non_empty("LLM_MODEL") {
+            active_config.model = model;
         }
-
-        // Trim task models
-        for (_, model) in &mut task_models {
-            *model = model.trim().to_string();
-        }
-
-        Ok(Self { base_url, api_key, default_model, task_models })
     }
+}
 
-    fn config_path() -> Option<PathBuf> {
-        AppPaths::llm_config()
-    }
-
-    fn default_template() -> String {
-        let mut rendered = String::from("# LLM config\n");
-        let body =
-            toml::to_string_pretty(&Self::default()).expect("failed to render default config");
-        rendered.push_str(&body);
-        if !rendered.ends_with('\n') {
-            rendered.push('\n');
-        }
-        rendered
-    }
-
-    /// Get the model to use for a specific task.
+#[cfg(test)]
+impl LlmProviders {
+    /// Create a provider set with a single valid config for testing.
     ///
-    /// Returns the task-specific model if configured, otherwise falls back to `default_model`.
-    pub fn model_for_task(&self, task: LlmTask) -> &str {
-        self.task_models.get(&task).map(|s| s.as_str()).unwrap_or(&self.default_model)
+    /// The config passes [`LlmConfig::from_raw`] validation so that
+    /// `resolve_active()` succeeds.
+    pub fn test_valid() -> Self {
+        let config = LlmConfig {
+            base_url: "https://test.example.com/v1".to_string(),
+            api_key: "test-key".to_string(),
+            model: "test-model".to_string(),
+        };
+        let mut providers = BTreeMap::new();
+        providers.insert(DEFAULT_PROVIDER_NAME.to_string(), config);
+        Self { active: DEFAULT_PROVIDER_NAME.to_string(), providers }
     }
 }
 
@@ -239,6 +295,12 @@ pub enum LlmConfigError {
     InvalidConfig(InvalidConfigReason),
     #[error("LLM config file error: {0}")]
     ConfigFile(ConfigFileError),
+    #[error("provider not found: {0}")]
+    ProviderNotFound(String),
+    #[error("cannot remove the active provider")]
+    CannotRemoveActive,
+    #[error("cannot remove the last provider")]
+    CannotRemoveLast,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -528,7 +590,7 @@ impl LlmClient {
             !context.existing_children.is_empty() || !context.friend_blocks.is_empty();
         let prompt = Prompt::reduce_from_context(context, instruction);
         let max_tokens = if has_children { 400 } else { 200 };
-        let content = self.request_completion(LlmTask::Reduce, prompt, 0.2, max_tokens).await?;
+        let content = self.request_completion("reduce", prompt, 0.2, max_tokens).await?;
 
         if has_children {
             // Try structured JSON first; fall back to plain-text reduction.
@@ -575,7 +637,7 @@ impl LlmClient {
         }
 
         let prompt = Prompt::expand_from_context(context, instruction);
-        let content = self.request_completion(LlmTask::Expand, prompt, 0.7, 500).await?;
+        let content = self.request_completion("expand", prompt, 0.7, 500).await?;
         let payload: ExpandResponsePayload =
             serde_json::from_str(&content).map_err(|_| LlmError::InvalidExpandResponse)?;
 
@@ -616,24 +678,22 @@ impl LlmClient {
         }
 
         let prompt = Prompt::inquire_from_context(context, instruction);
-        let content = self.request_completion(LlmTask::Inquire, prompt, 0.7, 700).await?;
+        let content = self.request_completion("inquire", prompt, 0.7, 700).await?;
 
         tracing::info!(chars = content.len(), "llm inquire response");
         Ok(content.trim().to_string())
     }
 
     async fn request_completion(
-        &self, task: LlmTask, prompt: Prompt, temperature: f32, max_completion_tokens: u32,
+        &self, purpose: &'static str, prompt: Prompt, temperature: f32, max_completion_tokens: u32,
     ) -> Result<String, LlmError> {
-        let model = self.config.model_for_task(task);
         let url = self.chat_url();
-        tracing::info!(model, url = %url, task = ?task, max_completion_tokens, "llm request");
-        let (value, body) = self
-            .send_completion_request(&url, model, &prompt, temperature, max_completion_tokens)
-            .await?;
+        tracing::info!(model = %self.config.model, url = %url, purpose, max_completion_tokens, "llm request");
+        let (value, body) =
+            self.send_completion_request(&url, &prompt, temperature, max_completion_tokens).await?;
 
         if let Some(content) = extract_completion_content_from_chat_value(&value) {
-            tracing::info!(task = ?task, chars = content.len(), "llm completion response");
+            tracing::info!(purpose, chars = content.len(), "llm completion response");
             return Ok(content);
         }
 
@@ -641,17 +701,17 @@ impl LlmClient {
             let retry_max_tokens = (max_completion_tokens.saturating_mul(2)).min(2_000);
             if retry_max_tokens > max_completion_tokens {
                 tracing::warn!(
-                    task = ?task,
+                    purpose,
                     first_max_completion_tokens = max_completion_tokens,
                     retry_max_completion_tokens = retry_max_tokens,
                     "llm response reached token limit with no extractable text; retrying once"
                 );
                 let (retry_value, retry_body) = self
-                    .send_completion_request(&url, model, &prompt, temperature, retry_max_tokens)
+                    .send_completion_request(&url, &prompt, temperature, retry_max_tokens)
                     .await?;
                 if let Some(content) = extract_completion_content_from_chat_value(&retry_value) {
                     tracing::info!(
-                        task = ?task,
+                        purpose,
                         chars = content.len(),
                         max_completion_tokens = retry_max_tokens,
                         "llm completion response after token-limit retry"
@@ -659,7 +719,7 @@ impl LlmClient {
                     return Ok(content);
                 }
                 tracing::error!(
-                    task = ?task,
+                    purpose,
                     body_preview = %preview_body(&retry_body),
                     finish_reason = ?first_choice_finish_reason(&retry_value),
                     completion_tokens = ?completion_tokens(&retry_value),
@@ -670,7 +730,7 @@ impl LlmClient {
         }
 
         tracing::error!(
-            task = ?task,
+            purpose,
             body_preview = %preview_body(&body),
             finish_reason = ?first_choice_finish_reason(&value),
             completion_tokens = ?completion_tokens(&value),
@@ -680,11 +740,10 @@ impl LlmClient {
     }
 
     async fn send_completion_request(
-        &self, url: &str, model: &str, prompt: &Prompt, temperature: f32,
-        max_completion_tokens: u32,
+        &self, url: &str, prompt: &Prompt, temperature: f32, max_completion_tokens: u32,
     ) -> Result<(Value, String), LlmError> {
         let request = ChatRequest {
-            model: model.to_string(),
+            model: self.config.model.clone(),
             messages: vec![
                 Message { role: Role::System, content: prompt.system.clone() },
                 Message { role: Role::User, content: prompt.user.clone() },

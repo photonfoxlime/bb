@@ -1,9 +1,16 @@
-//! Settings view: LLM configuration, appearance toggle, and data path display.
+//! Settings view: multi-provider LLM configuration, appearance toggle, and data path display.
 //!
 //! The settings view is an alternative screen accessible from the document view
-//! via a gear icon button. It exposes editable LLM configuration (base URL,
-//! API key, model) with save-to-file support, a light/dark theme toggle, and
-//! read-only display of resolved data and config paths.
+//! via a gear icon button. It exposes editable LLM provider configurations with
+//! CRUD support (add, edit, delete, switch active), a light/dark theme toggle,
+//! and read-only display of resolved data and config paths.
+//!
+//! # Multi-provider model
+//!
+//! [`LlmProviders`] holds a named `BTreeMap<String, LlmConfig>` with one
+//! designated active provider. The settings view drafts edits against the
+//! currently *selected* provider (which may differ from the *active* provider).
+//! Changes are non-destructive until the user explicitly saves.
 //!
 //! # Architecture
 //!
@@ -15,10 +22,10 @@
 //!   standard Elm-architecture `update` cycle.
 
 use super::{AppState, Message};
-use crate::llm::{self, LlmConfig};
+use crate::llm;
 use crate::paths::AppPaths;
 use crate::theme;
-use iced::widget::{button, column, container, row, text, text_input, toggler};
+use iced::widget::{button, column, container, pick_list, row, text, text_input, toggler};
 use iced::{Element, Fill, Length, Task};
 
 /// Which top-level screen is active.
@@ -36,16 +43,25 @@ pub enum ViewMode {
 
 /// Draft form values for the settings screen.
 ///
-/// Populated from the current `LlmConfig` (or defaults) when the settings
-/// screen opens, and written back on explicit save.
+/// Populated from the current [`LlmProviders`] when the settings screen opens,
+/// and written back on explicit save. The `selected_provider` tracks which
+/// provider's fields are being edited; it may differ from `active_provider`.
 #[derive(Debug, Clone)]
 pub struct SettingsState {
-    /// Draft base URL for the LLM endpoint.
+    /// Name of the provider currently being edited in the form.
+    pub selected_provider: String,
+    /// Draft base URL for the selected provider's LLM endpoint.
     pub base_url: String,
-    /// Draft API key.
+    /// Draft API key for the selected provider.
     pub api_key: String,
-    /// Draft model identifier.
+    /// Draft model identifier for the selected provider.
     pub model: String,
+    /// Names of all providers, kept in sync for the picker UI.
+    pub provider_names: Vec<String>,
+    /// Name of the provider designated as active for LLM requests.
+    pub active_provider: String,
+    /// Draft name for a new provider being added.
+    pub new_provider_name: String,
     /// Transient status message shown after save attempts.
     pub status: Option<SettingsStatus>,
 }
@@ -66,6 +82,16 @@ pub enum SettingsMessage {
     Open,
     /// Return to the document view.
     Close,
+    /// Switch the form to edit a different provider's fields.
+    SelectProvider(String),
+    /// Designate a provider as the active one for LLM requests.
+    SetActiveProvider(String),
+    /// Add a new provider with the name from `new_provider_name`.
+    AddProvider,
+    /// Delete a provider by name (must not be the active one).
+    DeleteProvider(String),
+    /// Draft new-provider name changed.
+    NewProviderNameChanged(String),
     /// Draft base URL changed.
     BaseUrlChanged(String),
     /// Draft API key changed.
@@ -79,22 +105,34 @@ pub enum SettingsMessage {
 }
 
 impl SettingsState {
-    /// Initialize draft values from the current LLM config or defaults.
-    pub fn from_config(config: &Result<LlmConfig, llm::LlmConfigError>) -> Self {
-        match config {
-            | Ok(cfg) => Self {
-                base_url: cfg.base_url().to_string(),
-                api_key: cfg.api_key().to_string(),
-                model: cfg.model().to_string(),
-                status: None,
-            },
-            | Err(_) => Self {
-                base_url: String::new(),
-                api_key: String::new(),
-                model: String::new(),
-                status: None,
-            },
+    /// Initialize draft values from the current provider collection.
+    ///
+    /// Selects the active provider's fields for initial editing.
+    pub fn from_providers(providers: &llm::LlmProviders) -> Self {
+        let active = providers.active().to_string();
+        let selected = active.clone();
+        let config = providers.get(&selected).cloned().unwrap_or_default();
+        Self {
+            selected_provider: selected,
+            base_url: config.base_url().to_string(),
+            api_key: config.api_key().to_string(),
+            model: config.model().to_string(),
+            provider_names: providers.provider_names(),
+            active_provider: active,
+            new_provider_name: String::new(),
+            status: None,
         }
+    }
+
+    /// Reload draft fields from the provider collection for the currently selected provider.
+    fn load_selected_fields(&mut self, providers: &llm::LlmProviders) {
+        if let Some(config) = providers.get(&self.selected_provider) {
+            self.base_url = config.base_url().to_string();
+            self.api_key = config.api_key().to_string();
+            self.model = config.model().to_string();
+        }
+        self.provider_names = providers.provider_names();
+        self.active_provider = providers.active().to_string();
     }
 }
 
@@ -102,7 +140,7 @@ impl SettingsState {
 pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
     match message {
         | SettingsMessage::Open => {
-            state.settings = SettingsState::from_config(&state.llm_config);
+            state.settings = SettingsState::from_providers(&state.providers);
             state.active_view = ViewMode::Settings;
             tracing::info!("settings view opened");
             Task::none()
@@ -110,6 +148,82 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
         | SettingsMessage::Close => {
             state.active_view = ViewMode::Document;
             tracing::info!("settings view closed");
+            Task::none()
+        }
+        | SettingsMessage::SelectProvider(name) => {
+            state.settings.selected_provider = name;
+            state.settings.load_selected_fields(&state.providers);
+            state.settings.status = None;
+            tracing::info!(
+                provider = %state.settings.selected_provider,
+                "switched settings form to provider"
+            );
+            Task::none()
+        }
+        | SettingsMessage::SetActiveProvider(name) => {
+            match state.providers.set_active(&name) {
+                | Ok(()) => {
+                    state.settings.active_provider = name.clone();
+                    state.settings.status = None;
+                    if let Err(err) = state.providers.save_to_file() {
+                        state.settings.status =
+                            Some(SettingsStatus::Error(format!("save failed: {err}")));
+                        tracing::error!(%err, "failed to save active provider change");
+                    } else {
+                        tracing::info!(provider = %name, "active provider changed");
+                    }
+                }
+                | Err(err) => {
+                    state.settings.status =
+                        Some(SettingsStatus::Error(format!("invalid provider: {err}")));
+                }
+            }
+            Task::none()
+        }
+        | SettingsMessage::AddProvider => {
+            let name = state.settings.new_provider_name.trim().to_string();
+            if name.is_empty() {
+                state.settings.status =
+                    Some(SettingsStatus::Error("provider name cannot be empty".to_string()));
+                return Task::none();
+            }
+            if state.providers.get(&name).is_some() {
+                state.settings.status =
+                    Some(SettingsStatus::Error(format!("provider \"{name}\" already exists")));
+                return Task::none();
+            }
+            state.providers.upsert_provider(name.clone(), llm::LlmConfig::default());
+            state.settings.new_provider_name.clear();
+            state.settings.selected_provider = name.clone();
+            state.settings.load_selected_fields(&state.providers);
+            state.settings.status = None;
+            tracing::info!(provider = %name, "added new provider");
+            Task::none()
+        }
+        | SettingsMessage::DeleteProvider(name) => {
+            match state.providers.remove_provider(&name) {
+                | Ok(()) => {
+                    if state.settings.selected_provider == name {
+                        state.settings.selected_provider = state.providers.active().to_string();
+                    }
+                    state.settings.load_selected_fields(&state.providers);
+                    state.settings.status = None;
+                    if let Err(err) = state.providers.save_to_file() {
+                        state.settings.status =
+                            Some(SettingsStatus::Error(format!("save failed: {err}")));
+                        tracing::error!(%err, "failed to save provider deletion");
+                    } else {
+                        tracing::info!(provider = %name, "deleted provider");
+                    }
+                }
+                | Err(err) => {
+                    state.settings.status = Some(SettingsStatus::Error(format!("{err}")));
+                }
+            }
+            Task::none()
+        }
+        | SettingsMessage::NewProviderNameChanged(value) => {
+            state.settings.new_provider_name = value;
             Task::none()
         }
         | SettingsMessage::BaseUrlChanged(value) => {
@@ -128,28 +242,33 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             Task::none()
         }
         | SettingsMessage::Save => {
-            let draft = LlmConfig::from_raw(
+            let draft = llm::LlmConfig::from_raw(
                 state.settings.base_url.clone(),
                 state.settings.api_key.clone(),
                 state.settings.model.clone(),
             );
             match draft {
-                | Ok(config) => match config.save_to_file() {
-                    | Ok(()) => {
-                        state.llm_config = Ok(config);
-                        state.settings.status = Some(SettingsStatus::Saved);
-                        // Clear any prior configuration errors from the error stack.
-                        state
-                            .errors
-                            .retain(|e| !matches!(e, super::error::AppError::Configuration(_)));
-                        tracing::info!("LLM config saved to file");
+                | Ok(config) => {
+                    let provider_name = state.settings.selected_provider.clone();
+                    state.providers.upsert_provider(provider_name.clone(), config);
+                    match state.providers.save_to_file() {
+                        | Ok(()) => {
+                            state.settings.status = Some(SettingsStatus::Saved);
+                            state
+                                .errors
+                                .retain(|e| !matches!(e, super::error::AppError::Configuration(_)));
+                            tracing::info!(
+                                provider = %provider_name,
+                                "provider config saved to file"
+                            );
+                        }
+                        | Err(err) => {
+                            state.settings.status =
+                                Some(SettingsStatus::Error(format!("save failed: {err}")));
+                            tracing::error!(%err, "failed to save provider config");
+                        }
                     }
-                    | Err(err) => {
-                        state.settings.status =
-                            Some(SettingsStatus::Error(format!("save failed: {err}")));
-                        tracing::error!(%err, "failed to save LLM config");
-                    }
-                },
+                }
                 | Err(err) => {
                     state.settings.status =
                         Some(SettingsStatus::Error(format!("invalid config: {err}")));
@@ -169,11 +288,12 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
 
 /// Render the settings screen.
 ///
-/// Layout: back button + title, then sections for LLM config, appearance,
-/// and data paths, all within a centered scrollable container matching
-/// the document canvas width.
+/// Layout: back button + title, then sections for provider management,
+/// provider config editing, appearance, and data paths, all within a
+/// centered scrollable container matching the document canvas width.
 pub fn view(state: &AppState) -> Element<'_, Message> {
     let settings = &state.settings;
+    let palette = if state.is_dark { &theme::DARK } else { &theme::LIGHT };
 
     // ── Header ───────────────────────────────────────────────────────
     let back_button = button(
@@ -189,11 +309,61 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         .spacing(12)
         .align_y(iced::Alignment::Center);
 
-    // ── LLM Configuration section ────────────────────────────────────
-    let llm_status = match &state.llm_config {
-        | Ok(_) => text("Configured").size(13).color(theme::LIGHT.success),
-        | Err(err) => text(format!("Error: {err}")).size(13).color(theme::LIGHT.danger),
-    };
+    // ── Provider selector section ────────────────────────────────────
+    let provider_picker = pick_list(
+        settings.provider_names.clone(),
+        Some(settings.selected_provider.clone()),
+        |name| Message::Settings(SettingsMessage::SelectProvider(name)),
+    )
+    .text_size(14)
+    .padding(8);
+
+    let active_indicator: Element<'_, Message> =
+        if settings.selected_provider == settings.active_provider {
+            text("Active").size(12).color(palette.success).into()
+        } else {
+            button(text("Set Active").size(12).font(theme::INTER))
+                .on_press(Message::Settings(SettingsMessage::SetActiveProvider(
+                    settings.selected_provider.clone(),
+                )))
+                .style(theme::action_button)
+                .padding(iced::Padding::new(4.0).left(10.0).right(10.0))
+                .into()
+        };
+
+    let selector_row =
+        row![provider_picker, active_indicator].spacing(12).align_y(iced::Alignment::Center);
+
+    let new_provider_input = text_input("New provider name...", &settings.new_provider_name)
+        .on_input(|v| Message::Settings(SettingsMessage::NewProviderNameChanged(v)))
+        .size(14)
+        .padding(8);
+
+    let add_button = button(text("Add").font(theme::INTER).size(13))
+        .on_press(Message::Settings(SettingsMessage::AddProvider))
+        .style(theme::action_button)
+        .padding(iced::Padding::new(6.0).left(12.0).right(12.0));
+
+    let add_row = row![new_provider_input, add_button].spacing(8).align_y(iced::Alignment::Center);
+
+    let mut provider_management = column![selector_row, add_row].spacing(10);
+
+    let can_delete =
+        settings.provider_names.len() > 1 && settings.selected_provider != settings.active_provider;
+    if can_delete {
+        let delete_btn = button(text("Delete this provider").size(12).color(palette.danger))
+            .on_press(Message::Settings(SettingsMessage::DeleteProvider(
+                settings.selected_provider.clone(),
+            )))
+            .style(theme::action_button)
+            .padding(iced::Padding::new(4.0).left(10.0).right(10.0));
+        provider_management = provider_management.push(delete_btn);
+    }
+
+    let provider_section = section("Providers", provider_management);
+
+    // ── Provider config editing section ──────────────────────────────
+    let editing_title = format!("Configuration: {}", settings.selected_provider);
 
     let base_url_input =
         labeled_input("Base URL", &settings.base_url, "https://api.example.com/v1", |v| {
@@ -214,16 +384,24 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let mut save_row = row![save_button].spacing(12).align_y(iced::Alignment::Center);
     if let Some(status) = &settings.status {
         let status_text = match status {
-            | SettingsStatus::Saved => text("Saved").size(13).color(theme::LIGHT.success),
-            | SettingsStatus::Error(msg) => text(msg.as_str()).size(13).color(theme::LIGHT.danger),
+            | SettingsStatus::Saved => text("Saved").size(13).color(palette.success),
+            | SettingsStatus::Error(msg) => text(msg.as_str()).size(13).color(palette.danger),
         };
         save_row = save_row.push(status_text);
     }
 
-    let llm_section = section(
-        "LLM Configuration",
-        column![llm_status, base_url_input, api_key_input, model_input, save_row,].spacing(10),
-    );
+    let config_section = container(
+        column![
+            text(editing_title).size(16).font(theme::INTER),
+            column![base_url_input, api_key_input, model_input, save_row,].spacing(10),
+        ]
+        .spacing(12),
+    )
+    .style(theme::draft_panel)
+    .padding(
+        iced::Padding::new(theme::PANEL_PAD_V).left(theme::PANEL_PAD_H).right(theme::PANEL_PAD_H),
+    )
+    .width(Fill);
 
     // ── Appearance section ───────────────────────────────────────────
     let theme_toggler = toggler(state.is_dark)
@@ -247,9 +425,10 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     );
 
     // ── Assemble ─────────────────────────────────────────────────────
-    let content = column![header, llm_section, appearance_section, paths_section]
-        .spacing(24)
-        .max_width(theme::CANVAS_MAX_WIDTH);
+    let content =
+        column![header, provider_section, config_section, appearance_section, paths_section]
+            .spacing(24)
+            .max_width(theme::CANVAS_MAX_WIDTH);
 
     let padded = container(content).padding(theme::CANVAS_PAD).width(Fill).center_x(Fill);
 
