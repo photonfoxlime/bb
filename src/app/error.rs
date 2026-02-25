@@ -4,16 +4,16 @@
 ///
 /// Keeps error transport lightweight while preserving user-facing messages.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct UiError {
+pub struct UiError {
     message: String,
 }
 
 impl UiError {
-    pub(crate) fn from_message(message: impl ToString) -> Self {
+    pub fn from_message(message: impl ToString) -> Self {
         Self { message: message.to_string() }
     }
 
-    pub(crate) fn as_str(&self) -> &str {
+    pub fn as_str(&self) -> &str {
         self.message.as_str()
     }
 }
@@ -23,7 +23,7 @@ impl UiError {
 /// The variant indicates the subsystem so rendering and telemetry can distinguish
 /// configuration, persistence, and LLM workflow failures.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum AppError {
+pub enum AppError {
     Configuration(UiError),
     Persistence(UiError),
     Reduce(UiError),
@@ -33,7 +33,7 @@ pub(crate) enum AppError {
 }
 
 impl AppError {
-    pub(crate) fn message(&self) -> &str {
+    pub fn message(&self) -> &str {
         match self {
             | Self::Configuration(err)
             | Self::Persistence(err)
@@ -100,6 +100,7 @@ mod tests {
             persistence_write_disabled: true,
             is_dark: false,
             active_view: super::super::ViewMode::default(),
+            locale: crate::i18n::DEFAULT_LOCALE.to_string(),
         };
         (state, root)
     }

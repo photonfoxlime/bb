@@ -33,6 +33,7 @@ use super::{AppState, Message, ViewMode};
 use crate::llm;
 use crate::paths::AppPaths;
 use crate::theme;
+use rust_i18n::t;
 use iced::widget::{button, column, container, pick_list, row, text, text_input, toggler};
 use iced::{Element, Fill, Length, Task};
 
@@ -342,7 +343,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     .style(theme::action_button)
     .padding(theme::BUTTON_PAD);
 
-    let header = row![back_button, text("Settings").size(20).font(theme::INTER),]
+    let header = row![back_button, text(t!("settings_title").to_string()).size(20).font(theme::INTER),]
         .spacing(12)
         .align_y(iced::Alignment::Center);
 
@@ -357,9 +358,9 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 
     let active_indicator: Element<'_, Message> =
         if settings.selected_provider == settings.active_provider {
-            text("Active").size(12).color(palette.success).into()
+            text(t!("settings_active").to_string()).size(12).color(palette.success).into()
         } else {
-            button(text("Set Active").size(12).font(theme::INTER))
+            button(text(t!("settings_set_active").to_string()).size(12).font(theme::INTER))
                 .on_press(Message::Settings(SettingsMessage::SetActiveProvider(
                     settings.selected_provider.clone(),
                 )))
@@ -371,12 +372,13 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let selector_row =
         row![provider_picker, active_indicator].spacing(12).align_y(iced::Alignment::Center);
 
-    let new_provider_input = text_input("New custom provider name...", &settings.new_provider_name)
+    let new_provider_placeholder = t!("settings_new_provider_placeholder").to_string();
+    let new_provider_input = text_input(&new_provider_placeholder, &settings.new_provider_name)
         .on_input(|v| Message::Settings(SettingsMessage::NewProviderNameChanged(v)))
         .size(14)
         .padding(8);
 
-    let add_button = button(text("Add").font(theme::INTER).size(13))
+    let add_button = button(text(t!("settings_add").to_string()).font(theme::INTER).size(13))
         .on_press(Message::Settings(SettingsMessage::AddProvider))
         .style(theme::action_button)
         .padding(iced::Padding::new(6.0).left(12.0).right(12.0));
@@ -389,7 +391,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let can_delete =
         !settings.selected_is_preset && settings.selected_provider != settings.active_provider;
     if can_delete {
-        let delete_btn = button(text("Delete this provider").size(12).color(palette.danger))
+        let delete_btn = button(text(t!("settings_delete_provider").to_string()).size(12).color(palette.danger))
             .on_press(Message::Settings(SettingsMessage::DeleteProvider(
                 settings.selected_provider.clone(),
             )))
@@ -401,25 +403,31 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let provider_section = section("Providers", provider_management);
 
     // ── Provider config editing section ──────────────────────────────
-    let editing_title = format!("Configuration: {}", settings.selected_provider);
+    let editing_title = t!("settings_configuration", name = settings.selected_provider.as_str()).to_string();
 
     // For preset providers, base URL is fixed and shown as read-only text.
     // For custom providers, base URL is an editable input field.
+    let base_url_label = t!("settings_base_url").to_string();
+    let base_url_placeholder = t!("settings_base_url_placeholder").to_string();
+    let api_key_label = t!("settings_api_key").to_string();
+    let api_key_placeholder = t!("settings_api_key_placeholder").to_string();
+    let model_label = t!("settings_model").to_string();
+    let model_placeholder = t!("settings_model_placeholder").to_string();
     let base_url_field: Element<'_, Message> = if settings.selected_is_preset {
-        labeled_readonly("Base URL", &settings.base_url)
+        labeled_readonly(base_url_label, &settings.base_url)
     } else {
-        labeled_input("Base URL", &settings.base_url, "https://api.example.com/v1", |v| {
+        labeled_input(base_url_label, &settings.base_url, base_url_placeholder, |v| {
             Message::Settings(SettingsMessage::BaseUrlChanged(v))
         })
     };
-    let api_key_input = labeled_input("API Key", &settings.api_key, "sk-...", |v| {
+    let api_key_input = labeled_input(api_key_label, &settings.api_key, api_key_placeholder, |v| {
         Message::Settings(SettingsMessage::ApiKeyChanged(v))
     });
-    let model_input = labeled_input("Model", &settings.model, "gpt-4o", |v| {
+    let model_input = labeled_input(model_label, &settings.model, model_placeholder, |v| {
         Message::Settings(SettingsMessage::ModelChanged(v))
     });
 
-    let save_button = button(row![text("Save").font(theme::INTER).size(14),])
+    let save_button = button(row![text(t!("settings_save").to_string()).font(theme::INTER).size(14),])
         .on_press(Message::Settings(SettingsMessage::Save))
         .style(theme::action_button)
         .padding(iced::Padding::new(6.0).left(16.0).right(16.0));
@@ -427,7 +435,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let mut save_row = row![save_button].spacing(12).align_y(iced::Alignment::Center);
     if let Some(status) = &settings.status {
         let status_text = match status {
-            | SettingsStatus::Saved => text("Saved").size(13).color(palette.success),
+            | SettingsStatus::Saved => text(t!("settings_saved").to_string()).size(13).color(palette.success),
             | SettingsStatus::Error(msg) => text(msg.as_str()).size(13).color(palette.danger),
         };
         save_row = save_row.push(status_text);
@@ -493,22 +501,26 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 // ── Helpers ──────────────────────────────────────────────────────────
 
 /// A labeled text input field.
-fn labeled_input<'a>(
-    label: &'a str, value: &'a str, placeholder: &'a str, on_input: impl Fn(String) -> Message + 'a,
-) -> Element<'a, Message> {
+/// Takes owned strings so the returned element does not borrow from the view.
+fn labeled_input(
+    label: String,
+    value: &str,
+    placeholder: String,
+    on_input: impl Fn(String) -> Message + 'static,
+) -> Element<'static, Message> {
     column![
         text(label).size(13).font(theme::INTER).color(theme::LIGHT.accent_muted),
-        text_input(placeholder, value).on_input(on_input).size(14).padding(8),
+        text_input(placeholder.as_str(), value).on_input(on_input).size(14).padding(8),
     ]
     .spacing(4)
     .into()
 }
 
 /// A labeled read-only text display (used for preset base URLs).
-fn labeled_readonly<'a>(label: &'a str, value: &'a str) -> Element<'a, Message> {
+fn labeled_readonly(label: String, value: &str) -> Element<'static, Message> {
     column![
         text(label).size(13).font(theme::INTER).color(theme::LIGHT.accent_muted),
-        text(value).size(14),
+        text(value.to_string()).size(14),
     ]
     .spacing(4)
     .into()

@@ -8,6 +8,7 @@ use super::error::{AppError, UiError};
 use super::{AppState, Message};
 use crate::paths::AppPaths;
 use crate::store::{BlockId, MountFormat};
+use rust_i18n::t;
 use iced::Task;
 use iced::theme::Mode;
 
@@ -59,10 +60,11 @@ pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> 
         }
         | MountFileMessage::SaveToFile(block_id) => {
             state.overflow_open_for = None;
+            let title = t!("save_block_to_file").to_string();
             Task::perform(
                 async move {
                     let dialog = rfd::AsyncFileDialog::new()
-                        .set_title("Save block to file")
+                        .set_title(title)
                         .add_filter("JSON", &["json"])
                         .add_filter("Markdown", &["md", "markdown"])
                         .save_file()
@@ -111,10 +113,11 @@ pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> 
         }
         | MountFileMessage::LoadFromFile(block_id) => {
             state.overflow_open_for = None;
+            let title = t!("load_block_from_file").to_string();
             Task::perform(
                 async move {
                     let dialog = rfd::AsyncFileDialog::new()
-                        .set_title("Load block from file")
+                        .set_title(title)
                         .add_filter("JSON", &["json"])
                         .add_filter("Markdown", &["md", "markdown"])
                         .pick_file()

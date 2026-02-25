@@ -41,6 +41,7 @@ use crate::app::{AppState, Message, PanelBarState};
 use crate::llm;
 use crate::store::BlockId;
 use crate::theme;
+use rust_i18n::t;
 
 use iced::Element;
 use iced::widget::{button, container, text, text_editor};
@@ -365,7 +366,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
     panel = panel.push(
         container(
             text_editor(instruction_content)
-                .placeholder("Enter instruction...")
+                .placeholder(t!("instruction_placeholder").to_string())
                 .style(theme::point_editor)
                 .height(INSTRUCTION_EDITOR_HEIGHT)
                 .on_action(move |action| {
@@ -381,7 +382,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
     // Inquire button
     let inquire_btn = button(
-        text(if is_inquiring { "Inquiring..." } else { "Inquire" }).font(theme::INTER).size(13),
+        text(if is_inquiring { t!("instruction_inquiring").to_string() } else { t!("instruction_inquire").to_string() }).font(theme::INTER).size(13),
     )
     .style(theme::action_button)
     .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
@@ -391,7 +392,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
     // Expand button
     button_row = button_row.push(
-        button(text("Expand").font(theme::INTER).size(13))
+        button(text(t!("instruction_expand").to_string()).font(theme::INTER).size(13))
             .style(theme::action_button)
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
             .on_press(
@@ -401,7 +402,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
     // Reduce button
     button_row = button_row.push(
-        button(text("Reduce").font(theme::INTER).size(13))
+        button(text(t!("instruction_reduce").to_string()).font(theme::INTER).size(13))
             .style(theme::action_button)
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
             .on_press(
@@ -414,13 +415,13 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
     // Show inquiry result if available
     if let Some(result) = inquiry_result {
         let mut result_col = column![].spacing(theme::PANEL_INNER_GAP);
-        result_col = result_col.push(container(text("Response")).width(iced::Length::Fill));
+        result_col = result_col.push(container(text(t!("instruction_response").to_string()).width(iced::Length::Fill)));
         result_col = result_col.push(container(text(result.as_str())).width(iced::Length::Fill));
 
         // Action buttons for the result
         let mut result_buttons = row![].spacing(theme::PANEL_BUTTON_GAP);
         result_buttons = result_buttons.push(
-            button(text("Apply as Rewrite").font(theme::INTER).size(13))
+            button(text(t!("instruction_apply_rewrite").to_string()).font(theme::INTER).size(13))
                 .style(theme::action_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .on_press(
@@ -429,7 +430,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 ),
         );
         result_buttons = result_buttons.push(
-            button(text("Append to Block").font(theme::INTER).size(13))
+            button(text(t!("instruction_append_block").to_string()).font(theme::INTER).size(13))
                 .style(theme::action_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .on_press(
@@ -438,7 +439,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 ),
         );
         result_buttons = result_buttons.push(
-            button(text("Add as Child").font(theme::INTER).size(13))
+            button(text(t!("instruction_add_child").to_string()).font(theme::INTER).size(13))
                 .style(theme::action_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .on_press(
@@ -449,7 +450,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 ),
         );
         result_buttons = result_buttons.push(
-            button(text("Dismiss").font(theme::INTER).size(13))
+            button(text(t!("ui_dismiss").to_string()).font(theme::INTER).size(13))
                 .style(theme::destructive_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .on_press(Message::InstructionPanel(InstructionPanelMessage::Dismiss).into()),
@@ -494,6 +495,7 @@ mod tests {
             persistence_write_disabled: true,
             is_dark: false,
             active_view: super::super::ViewMode::default(),
+            locale: crate::i18n::DEFAULT_LOCALE.to_string(),
         };
         (state, root)
     }

@@ -31,4 +31,10 @@ impl AppPaths {
     pub fn llm_config() -> Option<PathBuf> {
         PROJECT_DIRS.as_ref().map(|p| p.config_dir().join("llm.toml"))
     }
+
+    /// Path to the app preferences TOML: `<config_dir>/app.toml`.
+    /// Used for optional persisted locale and other app-level preferences.
+    pub fn app_config() -> Option<PathBuf> {
+        PROJECT_DIRS.as_ref().map(|p| p.config_dir().join("app.toml"))
+    }
 }

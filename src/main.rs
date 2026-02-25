@@ -5,12 +5,7 @@
 //! - route `update` + `view` + `subscription`,
 //! - load fonts and theme from app state.
 
-mod app;
-mod store;
-mod llm;
-mod paths;
-mod theme;
-mod undo;
+use blooming_blockery::AppState;
 
 // const DEFAULT_FONT: iced::Font = iced::Font::with_name("Inter");
 const DEFAULT_FONT: iced::Font = iced::Font::with_name("LXGW WenKai");
@@ -18,8 +13,8 @@ const DEFAULT_FONT: iced::Font = iced::Font::with_name("LXGW WenKai");
 fn main() -> iced::Result {
     #[cfg(feature = "log")]
     init_tracing();
-    iced::application(app::AppState::load, app::AppState::update, app::AppState::view)
-        .subscription(app::AppState::subscription)
+    iced::application(AppState::load, AppState::update, AppState::view)
+        .subscription(AppState::subscription)
         .font(include_bytes!("../assets/fonts/Inter-300.woff2").as_slice())
         .font(include_bytes!("../assets/fonts/Inter-400.woff2").as_slice())
         .font(include_bytes!("../assets/fonts/Inter-500.woff2").as_slice())
@@ -28,7 +23,7 @@ fn main() -> iced::Result {
         .font(include_bytes!("../assets/fonts/LXGWWenKai-Medium.ttf").as_slice())
         .font(lucide_icons::LUCIDE_FONT_BYTES)
         .default_font(DEFAULT_FONT)
-        .theme(|state: &app::AppState| theme::app_theme(state.is_dark))
+        .theme(|state: &AppState| AppState::theme(state.is_dark))
         .title("Blooming Blockery")
         .run()
 }

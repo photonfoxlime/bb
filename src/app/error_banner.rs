@@ -2,6 +2,7 @@
 //!
 //! Converts the raw `AppState::errors` stack into a display-ready structure
 //! with a title, a preview of recent entries, and a hidden-count summary.
+//! Assumes [`rust_i18n::set_locale`] has been set (e.g. at view start) before calling [`title`].
 
 use super::AppState;
 use super::error::AppError;
@@ -16,7 +17,8 @@ pub(super) struct ErrorBannerEntry {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ErrorBanner {
-    pub prefix: &'static str,
+    /// Key for the prefix string (e.g. "error", "error_recovery_mode").
+    pub prefix_key: &'static str,
     pub latest: ErrorBannerEntry,
     pub previous_entries: Vec<ErrorBannerEntry>,
     pub hidden_previous_count: usize,
@@ -26,10 +28,10 @@ pub(super) struct ErrorBanner {
 impl ErrorBanner {
     pub fn from_state(state: &AppState) -> Option<Self> {
         let (latest_index, latest) = state.errors.iter().enumerate().last()?;
-        let prefix = if state.persistence_blocked && matches!(latest, AppError::Persistence(_)) {
-            "Recovery mode"
+        let prefix_key = if state.persistence_blocked && matches!(latest, AppError::Persistence(_)) {
+            "error_recovery_mode"
         } else {
-            "Error"
+            "error"
         };
         let previous_entries = state
             .errors
@@ -42,7 +44,7 @@ impl ErrorBanner {
             .collect::<Vec<_>>();
         let hidden_previous_count = state.errors.len().saturating_sub(1 + previous_entries.len());
         Some(Self {
-            prefix,
+            prefix_key,
             latest: ErrorBannerEntry { index: latest_index, message: latest.message().to_string() },
             previous_entries,
             hidden_previous_count,
@@ -50,11 +52,18 @@ impl ErrorBanner {
         })
     }
 
+    /// Localized title. Call only after locale is set (e.g. in view).
     pub fn title(&self) -> String {
+        let prefix = rust_i18n::t!(self.prefix_key).to_string();
         if self.total_count == 1 {
-            format!("{}: {}", self.prefix, self.latest.message)
+            rust_i18n::t!("error_title_single", prefix = prefix.as_str(), message = self.latest.message.as_str()).to_string()
         } else {
-            format!("{} ({} total): {}", self.prefix, self.total_count, self.latest.message)
+            rust_i18n::t!(
+                "error_title_multi",
+                prefix = prefix.as_str(),
+                total = self.total_count,
+                message = self.latest.message.as_str()
+            ).to_string()
         }
     }
 }
@@ -89,6 +98,7 @@ mod tests {
             persistence_write_disabled: true,
             is_dark: false,
             active_view: ViewMode::default(),
+            locale: crate::i18n::DEFAULT_LOCALE.to_string(),
         }
     }
 
@@ -100,6 +110,7 @@ mod tests {
 
     #[test]
     fn uses_latest_error_and_total_count() {
+        rust_i18n::set_locale("en-US");
         let mut state = test_state();
         state.errors.push(AppError::Reduce(UiError::from_message("reduce failed")));
         state.errors.push(AppError::Expand(UiError::from_message("expand failed")));
@@ -115,6 +126,7 @@ mod tests {
 
     #[test]
     fn uses_recovery_prefix_for_latest_persistence_error() {
+        rust_i18n::set_locale("en-US");
         let mut state = test_state();
         state.persistence_blocked = true;
         state.errors.push(AppError::Persistence(UiError::from_message("persistence disabled")));
@@ -125,6 +137,7 @@ mod tests {
 
     #[test]
     fn limits_previous_preview_and_reports_hidden_count() {
+        rust_i18n::set_locale("en-US");
         let mut state = test_state();
         state.errors.push(AppError::Mount(UiError::from_message("m1")));
         state.errors.push(AppError::Mount(UiError::from_message("m2")));

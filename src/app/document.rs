@@ -28,6 +28,7 @@ use crate::{
     store::{BlockId, ExpansionDraftRecord, FriendBlock, ReductionDraftRecord},
     theme,
 };
+use rust_i18n::t;
 use iced::{
     Element, Fill, Length, Padding,
     widget::{
@@ -66,7 +67,7 @@ impl<'a> DocumentView<'a> {
             let mut banner_content = column![
                 row![
                     text(error_banner.title()),
-                    button("Dismiss").on_press(Message::Error(ErrorMessage::DismissAt(
+                    button(text(t!("ui_dismiss").to_string())).on_press(Message::Error(ErrorMessage::DismissAt(
                         error_banner.latest.index
                     ))),
                 ]
@@ -76,18 +77,18 @@ impl<'a> DocumentView<'a> {
             for entry in &error_banner.previous_entries {
                 banner_content = banner_content.push(
                     row![
-                        text(format!("Earlier: {}", entry.message)),
-                        button("Dismiss")
+                        text(t!("error_earlier", message = entry.message.as_str()).to_string()),
+                        button(text(t!("ui_dismiss").to_string()))
                             .on_press(Message::Error(ErrorMessage::DismissAt(entry.index))),
                     ]
                     .spacing(8),
                 );
             }
             if error_banner.hidden_previous_count > 0 {
-                banner_content = banner_content.push(text(format!(
-                    "...and {} older error(s)",
-                    error_banner.hidden_previous_count
-                )));
+                banner_content = banner_content.push(text(t!(
+                    "error_older_count",
+                    count = error_banner.hidden_previous_count
+                ).to_string()));
             }
             layout = layout.push(
                 container(banner_content).style(theme::error_banner).padding(theme::BANNER_PAD),
@@ -243,7 +244,7 @@ impl<'a> TreeView<'a> {
             )
             .push({
                 let mut editor = text_editor(editor_content)
-                    .placeholder("point")
+                    .placeholder(t!("doc_placeholder_point").to_string())
                     .style(theme::point_editor)
                     .on_action(move |action| {
                         Message::Edit(EditMessage::PointEdited {
@@ -338,7 +339,7 @@ impl<'a> TreeView<'a> {
             panel = panel.push(
                 column![]
                     .spacing(theme::PANEL_INNER_GAP)
-                    .push(container(text("Rewrite")).width(Length::Fill))
+                    .push(container(text(t!("doc_rewrite").to_string())).width(Length::Fill))
                     .push(container(diff_content).width(Length::Fill))
                     .push(
                         row![]
@@ -346,7 +347,7 @@ impl<'a> TreeView<'a> {
                             .spacing(theme::PANEL_BUTTON_GAP)
                             .push(space::horizontal())
                             .push(
-                                button(text("Apply rewrite").font(theme::INTER).size(13))
+                                button(text(t!("doc_apply_rewrite").to_string()).font(theme::INTER).size(13))
                                     .style(theme::action_button)
                                     .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                     .on_press(Message::Expand(ExpandMessage::ApplyRewrite(
@@ -354,7 +355,7 @@ impl<'a> TreeView<'a> {
                                     ))),
                             )
                             .push(
-                                button(text("Dismiss rewrite").font(theme::INTER).size(13))
+                                button(text(t!("doc_dismiss_rewrite").to_string()).font(theme::INTER).size(13))
                                     .style(theme::destructive_button)
                                     .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                     .on_press(Message::Expand(ExpandMessage::RejectRewrite(
@@ -369,15 +370,15 @@ impl<'a> TreeView<'a> {
             panel = panel.push(
                 row![]
                     .spacing(theme::PANEL_BUTTON_GAP)
-                    .push(container(text("Child suggestions")).width(Length::Fill))
+                    .push(container(text(t!("doc_child_suggestions").to_string())).width(Length::Fill))
                     .push(
-                        button(text("Accept all").font(theme::INTER).size(13))
+                        button(text(t!("doc_accept_all").to_string()).font(theme::INTER).size(13))
                             .style(theme::action_button)
                             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                             .on_press(Message::Expand(ExpandMessage::AcceptAllChildren(*block_id))),
                     )
                     .push(
-                        button(text("Discard all").font(theme::INTER).size(13))
+                        button(text(t!("doc_discard_all").to_string()).font(theme::INTER).size(13))
                             .style(theme::destructive_button)
                             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                             .on_press(Message::Expand(ExpandMessage::DiscardAllChildren(
@@ -392,7 +393,7 @@ impl<'a> TreeView<'a> {
                         .spacing(theme::PANEL_BUTTON_GAP)
                         .push(container(text(child.as_str())).width(Length::Fill))
                         .push(
-                            button(text("Keep").font(theme::INTER).size(13))
+                            button(text(t!("doc_keep").to_string()).font(theme::INTER).size(13))
                                 .style(theme::action_button)
                                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                 .on_press(Message::Expand(ExpandMessage::AcceptChild {
@@ -401,7 +402,7 @@ impl<'a> TreeView<'a> {
                                 })),
                         )
                         .push(
-                            button(text("Drop").font(theme::INTER).size(13))
+                            button(text(t!("doc_drop").to_string()).font(theme::INTER).size(13))
                                 .style(theme::destructive_button)
                                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                 .on_press(Message::Expand(ExpandMessage::RejectChild {
@@ -428,7 +429,7 @@ impl<'a> TreeView<'a> {
         let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
 
         panel = panel
-            .push(container(text("Reduce")).width(Length::Fill))
+            .push(container(text(t!("doc_reduce").to_string())).width(Length::Fill))
             .push(container(diff_content).width(Length::Fill))
             .push(
                 row![]
@@ -436,13 +437,13 @@ impl<'a> TreeView<'a> {
                     .spacing(theme::PANEL_BUTTON_GAP)
                     .push(space::horizontal())
                     .push(
-                        button(text("Apply reduction").font(theme::INTER).size(13))
+                        button(text(t!("doc_apply_reduction").to_string()).font(theme::INTER).size(13))
                             .style(theme::action_button)
                             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                             .on_press(Message::Reduce(ReduceMessage::Apply(*block_id))),
                     )
                     .push(
-                        button(text("Dismiss reduction").font(theme::INTER).size(13))
+                        button(text(t!("doc_dismiss_reduction").to_string()).font(theme::INTER).size(13))
                             .style(theme::destructive_button)
                             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                             .on_press(Message::Reduce(ReduceMessage::Reject(*block_id))),
@@ -460,9 +461,9 @@ impl<'a> TreeView<'a> {
             panel = panel.push(
                 row![]
                     .spacing(theme::PANEL_BUTTON_GAP)
-                    .push(container(text("Redundant children")).width(Length::Fill))
+                    .push(container(text(t!("doc_redundant_children").to_string())).width(Length::Fill))
                     .push(
-                        button(text("Delete all").font(theme::INTER).size(13))
+                        button(text(t!("doc_delete_all").to_string()).font(theme::INTER).size(13))
                             .style(theme::destructive_button)
                             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                             .on_press(Message::Reduce(ReduceMessage::AcceptAllDeletions(
@@ -470,7 +471,7 @@ impl<'a> TreeView<'a> {
                             ))),
                     )
                     .push(
-                        button(text("Keep all").font(theme::INTER).size(13))
+                        button(text(t!("doc_keep_all").to_string()).font(theme::INTER).size(13))
                             .style(theme::action_button)
                             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                             .on_press(Message::Reduce(ReduceMessage::RejectAllDeletions(
@@ -486,7 +487,7 @@ impl<'a> TreeView<'a> {
                         .spacing(theme::PANEL_BUTTON_GAP)
                         .push(container(text(child_text)).width(Length::Fill))
                         .push(
-                            button(text("Delete").font(theme::INTER).size(13))
+                            button(text(t!("doc_delete").to_string()).font(theme::INTER).size(13))
                                 .style(theme::destructive_button)
                                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                 .on_press(Message::Reduce(ReduceMessage::AcceptChildDeletion {
@@ -495,7 +496,7 @@ impl<'a> TreeView<'a> {
                                 })),
                         )
                         .push(
-                            button(text("Keep").font(theme::INTER).size(13))
+                            button(text(t!("doc_keep").to_string()).font(theme::INTER).size(13))
                                 .style(theme::action_button)
                                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                 .on_press(Message::Reduce(ReduceMessage::RejectChildDeletion {
@@ -522,7 +523,7 @@ impl<'a> TreeView<'a> {
         // Header with "+" button to start friend picker
         let header = row![]
             .spacing(theme::PANEL_BUTTON_GAP)
-            .push(container(text("Friends").font(theme::INTER).size(13)).width(Length::Fill))
+            .push(container(text(t!("ui_friends").to_string()).font(theme::INTER).size(13)).width(Length::Fill))
             .push(
                 button(text("+").font(theme::INTER).size(13))
                     .style(theme::action_button)
@@ -538,7 +539,7 @@ impl<'a> TreeView<'a> {
             // In picker mode - show instruction
             panel = panel.push(
                 container(
-                    text("Click on a block to add it as a friend. Press Escape to cancel.")
+                    text(t!("doc_friend_picker_hint").to_string())
                         .font(theme::INTER)
                         .size(12),
                 )
@@ -548,7 +549,7 @@ impl<'a> TreeView<'a> {
             // Empty state - show instruction to start picker
             panel = panel.push(
                 container(
-                    text("Click + to add a friend from another block.")
+                    text(t!("doc_friend_empty_hint").to_string())
                         .font(theme::INTER)
                         .size(12)
                         .style(theme::spine_text),
@@ -569,7 +570,7 @@ impl<'a> TreeView<'a> {
                         container(text(point_text).font(theme::INTER).size(13)).width(Length::Fill),
                     )
                     .push(
-                        button(text("Remove").font(theme::INTER).size(13))
+                        button(text(t!("ui_remove").to_string()).font(theme::INTER).size(13))
                             .style(theme::destructive_button)
                             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                             .on_press(Message::Structure(StructureMessage::RemoveFriendBlock {
@@ -585,7 +586,7 @@ impl<'a> TreeView<'a> {
                             .spacing(0)
                             .push(text(point_text).font(theme::INTER).size(13))
                             .push(
-                                text(format!("perspective: {}", perspective_label))
+                                text(t!("doc_perspective", label = perspective_label).to_string())
                                     .font(theme::INTER)
                                     .size(12)
                                     .style(theme::spine_text),
@@ -593,7 +594,7 @@ impl<'a> TreeView<'a> {
                             .width(Length::Fill),
                     )
                     .push(
-                        button(text("Remove").font(theme::INTER).size(13))
+                        button(text(t!("ui_remove").to_string()).font(theme::INTER).size(13))
                             .style(theme::destructive_button)
                             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                             .on_press(Message::Structure(StructureMessage::RemoveFriendBlock {
@@ -679,14 +680,14 @@ impl<'a> TreeView<'a> {
 
     fn render_status_chip(&self, vm: &ActionBarVm) -> Element<'a, Message> {
         let label = match &vm.status_chip {
-            | Some(StatusChipVm::Loading { op: ActionId::Expand }) => "Expanding...".to_string(),
-            | Some(StatusChipVm::Loading { op: ActionId::Reduce }) => "Reducing...".to_string(),
-            | Some(StatusChipVm::Loading { .. }) => "Working...".to_string(),
+            | Some(StatusChipVm::Loading { op: ActionId::Expand }) => t!("doc_status_expanding").to_string(),
+            | Some(StatusChipVm::Loading { op: ActionId::Reduce }) => t!("doc_status_reducing").to_string(),
+            | Some(StatusChipVm::Loading { .. }) => t!("doc_status_working").to_string(),
             | Some(StatusChipVm::Error { message, .. }) => message.clone(),
             | Some(StatusChipVm::DraftActive { suggestion_count }) if *suggestion_count > 0 => {
-                "Draft ready".to_string()
+                t!("doc_status_draft_ready").to_string()
             }
-            | Some(StatusChipVm::DraftActive { .. }) => "Draft".to_string(),
+            | Some(StatusChipVm::DraftActive { .. }) => t!("doc_status_draft").to_string(),
             | None => String::new(),
         };
 
@@ -717,7 +718,7 @@ impl<'a> TreeView<'a> {
 
         let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
         button_row = button_row.push(
-            button(text("Friends").font(theme::INTER).size(13))
+            button(text(t!("ui_friends").to_string()).font(theme::INTER).size(13))
                 .style(move |theme, status| {
                     theme::panel_toggle_button(theme, status, friends_panel_open)
                 })
@@ -725,7 +726,7 @@ impl<'a> TreeView<'a> {
                 .on_press(Message::Overlay(OverlayMessage::ToggleFriendsPanel(*block_id))),
         );
         button_row = button_row.push(
-            button(text("Instruction").font(theme::INTER).size(13))
+            button(text(t!("ui_instruction").to_string()).font(theme::INTER).size(13))
                 .style(move |theme, status| {
                     theme::panel_toggle_button(theme, status, instruction_panel_open)
                 })
@@ -781,7 +782,7 @@ impl<'a> TreeView<'a> {
                 actions_row = actions_row.push(
                     tooltip(
                         btn,
-                        text("Close").size(12).font(theme::INTER),
+                        text(t!("ui_close").to_string()).size(12).font(theme::INTER),
                         tooltip::Position::Bottom,
                     )
                     .style(theme::tooltip)
@@ -800,7 +801,7 @@ impl<'a> TreeView<'a> {
                 actions_row = actions_row.push(
                     tooltip(
                         btn,
-                        text("More").size(12).font(theme::INTER),
+                        text(t!("ui_more").to_string()).size(12).font(theme::INTER),
                         tooltip::Position::Bottom,
                     )
                     .style(theme::tooltip)

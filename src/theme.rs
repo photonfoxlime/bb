@@ -140,28 +140,30 @@ pub const BANNER_PAD: f32 = 8.0;
 
 // ── Theme constructor ────────────────────────────────────────────────
 
-/// Build the iced `Theme` for the given appearance mode.
-///
-/// The mode is embedded in the extended palette's `is_dark` flag so that
-/// style functions can resolve the correct palette via [`focused_palette`].
-pub fn app_theme(is_dark: bool) -> Theme {
-    let pal = if is_dark { &DARK } else { &LIGHT };
-    Theme::custom_with_fn(
-        if is_dark { "bb night".to_string() } else { "bb paper".to_string() },
-        iced::theme::Palette {
-            background: pal.paper,
-            text: pal.ink,
-            primary: pal.accent,
-            success: pal.success,
-            warning: pal.warning,
-            danger: pal.danger,
-        },
-        move |palette| {
-            let mut ext = iced::theme::palette::Extended::generate(palette);
-            ext.is_dark = is_dark;
-            ext
-        },
-    )
+impl crate::app::AppState {
+    /// Build the iced `Theme` for the given appearance mode.
+    ///
+    /// The mode is embedded in the extended palette's `is_dark` flag so that
+    /// style functions can resolve the correct palette via [`focused_palette`].
+    pub fn theme(is_dark: bool) -> Theme {
+        let pal = if is_dark { &DARK } else { &LIGHT };
+        Theme::custom_with_fn(
+            if is_dark { "bb night".to_string() } else { "bb paper".to_string() },
+            iced::theme::Palette {
+                background: pal.paper,
+                text: pal.ink,
+                primary: pal.accent,
+                success: pal.success,
+                warning: pal.warning,
+                danger: pal.danger,
+            },
+            move |palette| {
+                let mut ext = iced::theme::palette::Extended::generate(palette);
+                ext.is_dark = is_dark;
+                ext
+            },
+        )
+    }
 }
 
 // ── Button styles ────────────────────────────────────────────────────

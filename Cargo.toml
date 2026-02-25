@@ -29,6 +29,7 @@ similar = "2.5"
 rfd = "0.17.2"
 dark-light = "2.0.0"
 tokio = { version = "1", features = ["time"] }
+rust-i18n = "3.1.5"
 
 [dev-dependencies]
 tempfile = "3"

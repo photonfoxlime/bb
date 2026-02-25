@@ -38,6 +38,7 @@ use self::{
     undo_redo::UndoRedoMessage,
 };
 use crate::{
+    i18n,
     llm,
     store::{BlockId, BlockStore, StoreLoadError},
     undo::UndoHistory,
@@ -107,6 +108,8 @@ pub struct AppState {
     pub active_view: ViewMode,
     /// Draft form state for the settings screen.
     pub settings: SettingsState,
+    /// UI locale (e.g. "en-US", "zh-CN"). Resolved at load from persisted → env → default.
+    pub locale: String,
 }
 
 impl AppState {
@@ -138,6 +141,7 @@ impl AppState {
         let is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
         tracing::info!(is_dark, "detected system appearance");
         let settings = SettingsState::from_providers(&providers);
+        let locale = i18n::resolved_locale();
         Self {
             store,
             undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
@@ -157,6 +161,7 @@ impl AppState {
             is_dark,
             active_view: ViewMode::default(),
             settings,
+            locale,
         }
     }
 
@@ -347,6 +352,7 @@ impl AppState {
 
 impl AppState {
     pub fn view(&self) -> Element<'_, Message> {
+        i18n::set_app_locale(&self.locale);
         match self.active_view {
             | ViewMode::Document => document::DocumentView::new(self).view(),
             | ViewMode::Settings => settings::view(self),
@@ -640,6 +646,7 @@ mod tests {
             persistence_write_disabled: true,
             is_dark: false,
             active_view: super::ViewMode::default(),
+            locale: crate::i18n::DEFAULT_LOCALE.to_string(),
         };
         (state, root)
     }

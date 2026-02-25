@@ -12,7 +12,7 @@ use std::hash::{Hash, Hasher};
 ///
 /// This struct owns transient request state only; persisted drafts remain in
 /// `BlockStore` so request orchestration and persisted content stay decoupled.
-pub(crate) struct LlmRequests {
+pub struct LlmRequests {
     reduce_states: SparseSecondaryMap<BlockId, ReduceState>,
     expand_states: SparseSecondaryMap<BlockId, ExpandState>,
     reduce_handles: SparseSecondaryMap<BlockId, task::Handle>,
@@ -22,11 +22,11 @@ pub(crate) struct LlmRequests {
 }
 
 impl LlmRequests {
-    pub(crate) fn new() -> Self {
+    pub fn new() -> Self {
         Self::default()
     }
 
-    pub(crate) fn clear(&mut self) {
+    pub fn clear(&mut self) {
         self.reduce_states.clear();
         self.expand_states.clear();
         self.reduce_handles.clear();
@@ -35,48 +35,48 @@ impl LlmRequests {
         self.pending_expand_signatures.clear();
     }
 
-    pub(crate) fn is_reducing(&self, block_id: BlockId) -> bool {
+    pub fn is_reducing(&self, block_id: BlockId) -> bool {
         self.reduce_states.get(block_id).is_some_and(|state| matches!(state, ReduceState::Loading))
     }
 
-    pub(crate) fn is_expanding(&self, block_id: BlockId) -> bool {
+    pub fn is_expanding(&self, block_id: BlockId) -> bool {
         self.expand_states.get(block_id).is_some_and(|state| matches!(state, ExpandState::Loading))
     }
 
-    pub(crate) fn has_reduce_error(&self, block_id: BlockId) -> bool {
+    pub fn has_reduce_error(&self, block_id: BlockId) -> bool {
         self.reduce_states
             .get(block_id)
             .is_some_and(|state| matches!(state, ReduceState::Error { .. }))
     }
 
-    pub(crate) fn has_expand_error(&self, block_id: BlockId) -> bool {
+    pub fn has_expand_error(&self, block_id: BlockId) -> bool {
         self.expand_states
             .get(block_id)
             .is_some_and(|state| matches!(state, ExpandState::Error { .. }))
     }
 
-    pub(crate) fn mark_reduce_loading(
+    pub fn mark_reduce_loading(
         &mut self, block_id: BlockId, request_signature: RequestSignature,
     ) {
         self.reduce_states.insert(block_id, ReduceState::Loading);
         self.pending_reduce_signatures.insert(block_id, request_signature);
     }
 
-    pub(crate) fn mark_expand_loading(
+    pub fn mark_expand_loading(
         &mut self, block_id: BlockId, request_signature: RequestSignature,
     ) {
         self.expand_states.insert(block_id, ExpandState::Loading);
         self.pending_expand_signatures.insert(block_id, request_signature);
     }
 
-    pub(crate) fn replace_reduce_handle(&mut self, block_id: BlockId, handle: task::Handle) {
+    pub fn replace_reduce_handle(&mut self, block_id: BlockId, handle: task::Handle) {
         if let Some(previous) = self.reduce_handles.remove(block_id) {
             previous.abort();
         }
         self.reduce_handles.insert(block_id, handle.abort_on_drop());
     }
 
-    pub(crate) fn replace_expand_handle(&mut self, block_id: BlockId, handle: task::Handle) {
+    pub fn replace_expand_handle(&mut self, block_id: BlockId, handle: task::Handle) {
         if let Some(previous) = self.expand_handles.remove(block_id) {
             previous.abort();
         }
@@ -87,7 +87,7 @@ impl LlmRequests {
     ///
     /// Finalization is atomic per block: loading marker, handle, and pending
     /// signature are cleared together.
-    pub(crate) fn finish_reduce_request(&mut self, block_id: BlockId) -> Option<RequestSignature> {
+    pub fn finish_reduce_request(&mut self, block_id: BlockId) -> Option<RequestSignature> {
         self.reduce_handles.remove(block_id);
         self.reduce_states.remove(block_id);
         self.pending_reduce_signatures.remove(block_id)
@@ -97,21 +97,21 @@ impl LlmRequests {
     ///
     /// Finalization is atomic per block: loading marker, handle, and pending
     /// signature are cleared together.
-    pub(crate) fn finish_expand_request(&mut self, block_id: BlockId) -> Option<RequestSignature> {
+    pub fn finish_expand_request(&mut self, block_id: BlockId) -> Option<RequestSignature> {
         self.expand_handles.remove(block_id);
         self.expand_states.remove(block_id);
         self.pending_expand_signatures.remove(block_id)
     }
 
-    pub(crate) fn set_reduce_error(&mut self, block_id: BlockId, reason: UiError) {
+    pub fn set_reduce_error(&mut self, block_id: BlockId, reason: UiError) {
         self.reduce_states.insert(block_id, ReduceState::Error { reason });
     }
 
-    pub(crate) fn set_expand_error(&mut self, block_id: BlockId, reason: UiError) {
+    pub fn set_expand_error(&mut self, block_id: BlockId, reason: UiError) {
         self.expand_states.insert(block_id, ExpandState::Error { reason });
     }
 
-    pub(crate) fn cancel_reduce(&mut self, block_id: BlockId) -> bool {
+    pub fn cancel_reduce(&mut self, block_id: BlockId) -> bool {
         if !self.is_reducing(block_id) {
             return false;
         }
@@ -123,7 +123,7 @@ impl LlmRequests {
         true
     }
 
-    pub(crate) fn cancel_expand(&mut self, block_id: BlockId) -> bool {
+    pub fn cancel_expand(&mut self, block_id: BlockId) -> bool {
         if !self.is_expanding(block_id) {
             return false;
         }
@@ -135,7 +135,7 @@ impl LlmRequests {
         true
     }
 
-    pub(crate) fn remove_block(&mut self, block_id: BlockId) {
+    pub fn remove_block(&mut self, block_id: BlockId) {
         if let Some(handle) = self.reduce_handles.remove(block_id) {
             handle.abort();
         }
@@ -149,22 +149,22 @@ impl LlmRequests {
     }
 
     #[cfg(test)]
-    pub(crate) fn has_pending_reduce_signature(&self, block_id: BlockId) -> bool {
+    pub fn has_pending_reduce_signature(&self, block_id: BlockId) -> bool {
         self.pending_reduce_signatures.get(block_id).is_some()
     }
 
     #[cfg(test)]
-    pub(crate) fn has_pending_expand_signature(&self, block_id: BlockId) -> bool {
+    pub fn has_pending_expand_signature(&self, block_id: BlockId) -> bool {
         self.pending_expand_signatures.get(block_id).is_some()
     }
 
     #[cfg(test)]
-    pub(crate) fn has_reduce_handle(&self, block_id: BlockId) -> bool {
+    pub fn has_reduce_handle(&self, block_id: BlockId) -> bool {
         self.reduce_handles.get(block_id).is_some()
     }
 
     #[cfg(test)]
-    pub(crate) fn has_expand_handle(&self, block_id: BlockId) -> bool {
+    pub fn has_expand_handle(&self, block_id: BlockId) -> bool {
         self.expand_handles.get(block_id).is_some()
     }
 }
@@ -173,7 +173,7 @@ impl LlmRequests {
 ///
 /// Stored in a map keyed by `BlockId`; missing entry means Idle.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) enum ReduceState {
+pub enum ReduceState {
     #[default]
     Idle,
     Loading,
@@ -186,7 +186,7 @@ pub(crate) enum ReduceState {
 ///
 /// Stored in a map keyed by `BlockId`; missing entry means Idle.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub(crate) enum ExpandState {
+pub enum ExpandState {
     #[default]
     Idle,
     Loading,
@@ -200,14 +200,14 @@ pub(crate) enum ExpandState {
 /// Built from full lineage (root-to-target points). Responses are applied only
 /// when the current lineage fingerprint matches this value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct RequestSignature {
+pub struct RequestSignature {
     hash: u64,
     item_count: usize,
 }
 
 impl RequestSignature {
     #[cfg(test)]
-    pub(crate) fn from_lineage(lineage: &llm::Lineage) -> Option<Self> {
+    pub fn from_lineage(lineage: &llm::Lineage) -> Option<Self> {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         let mut item_count = 0usize;
         for point in lineage.points() {
@@ -225,7 +225,7 @@ impl RequestSignature {
     /// This includes lineage points, existing children points, and friend block
     /// points so async
     /// expand/reduce responses are invalidated when either input changes.
-    pub(crate) fn from_block_context(context: &llm::BlockContext) -> Option<Self> {
+    pub fn from_block_context(context: &llm::BlockContext) -> Option<Self> {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         let mut item_count = 0usize;
         for point in context.lineage().points() {
