@@ -134,14 +134,19 @@ pub enum StoreLoadError {
 ///
 /// `Json` remains the default for backward compatibility with existing files
 /// that only stored `path`.
-#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum MountFormat {
     /// Canonical store JSON encoding used for full-fidelity mount round-trips.
-    #[default]
     Json,
     /// Markdown Mount v1 encoding produced by [`BlockStore::render_markdown_mount_store`].
     Markdown,
+}
+
+impl Default for MountFormat {
+    fn default() -> Self {
+        Self::Json
+    }
 }
 
 /// One node in the block tree.

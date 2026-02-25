@@ -1488,7 +1488,7 @@ struct ErrorBanner {
 
 impl ErrorBanner {
     fn from_state(state: &AppState) -> Option<Self> {
-        let (latest_index, latest) = state.errors.iter().enumerate().next_back()?;
+        let (latest_index, latest) = state.errors.iter().enumerate().last()?;
         let prefix = if state.persistence_blocked && matches!(latest, AppError::Persistence(_)) {
             "Recovery mode"
         } else {

@@ -247,9 +247,8 @@ impl<'a> TreeView<'a> {
         let is_picker_target = self.state.friend_picker_for == Some(*block_id);
 
         // When in friend picker mode, make blocks clickable to select as friend
-        if let Some(target) = self.state.friend_picker_for
-            && !is_picker_target
-        {
+        if self.state.friend_picker_for.is_some() && !is_picker_target {
+            let target = self.state.friend_picker_for.unwrap();
             button(container(block).style(theme::friend_picker_hover))
                 .on_press(Message::Structure(StructureMessage::AddFriendBlock {
                     target,
@@ -669,9 +668,10 @@ impl<'a> TreeView<'a> {
                     theme::panel_toggle_button(theme, status, instruction_panel_open)
                 })
                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(
-                    instruction_panel::InstructionPanelMessage::Toggle,
-                )),
+                .on_press(
+                    Message::InstructionPanel(instruction_panel::InstructionPanelMessage::Toggle)
+                        .into(),
+                ),
         );
 
         let mut col =
@@ -685,7 +685,7 @@ impl<'a> TreeView<'a> {
                 );
             }
             | Some(PanelBarState::Instruction) => {
-                col = col.push(container(instruction_panel::view(self.state)).width(Length::Fill));
+                col = col.push(container(instruction_panel::view(&self.state)).width(Length::Fill));
             }
             | None => {}
         }

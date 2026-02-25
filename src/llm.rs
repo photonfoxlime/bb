@@ -5,17 +5,21 @@
 //! # Provider model
 //!
 //! [`LlmProviders`] holds a named set of [`LlmConfig`] entries plus an
-//! `active` key that selects the current provider. The on-disk format is a
-//! single TOML file at [`AppPaths::llm_config()`]:
+//! `active` key that selects the current provider. New config files are
+//! seeded with [`PROVIDER_PRESETS`] so users only need to fill in API keys.
+//! The on-disk format is a single TOML file at [`AppPaths::llm_config()`]:
 //!
 //! ```toml
-//! active = "default"
+//! active = "openai"
 //!
-//! [providers.default]
-//! base_url = "https://api.example.com/v1"
+//! [providers.openai]
+//! base_url = "https://api.openai.com/v1"
 //! api_key  = ""
-//! model    = ""
+//! model    = "gpt-4o"
 //! ```
+//!
+//! Environment variables (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`)
+//! override fields on the **active** provider only at load time.
 //!
 //! Environment variables (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`)
 //! override fields on the **active** provider only at load time.
@@ -92,8 +96,40 @@ impl LlmConfig {
     }
 }
 
-/// Default provider name used when creating a fresh config file.
-const DEFAULT_PROVIDER_NAME: &str = "default";
+/// Pre-filled provider template for a known OpenAI-compatible LLM service.
+///
+/// Each preset seeds one entry in new config files. Users only need to
+/// supply their API key (and optionally change the model).
+struct ProviderPreset {
+    /// Display name used as the provider key in the TOML file.
+    name: &'static str,
+    /// Pre-filled base URL for the OpenAI-compatible chat completions endpoint.
+    base_url: &'static str,
+    /// Suggested model name (empty when the provider offers too many to pick one).
+    model: &'static str,
+}
+
+/// Built-in provider presets for common OpenAI-compatible LLM services.
+///
+/// The first entry (`"openai"`) is the default active provider.
+const PROVIDER_PRESETS: &[ProviderPreset] = &[
+    ProviderPreset { name: "openai", base_url: "https://api.openai.com/v1", model: "gpt-4o" },
+    ProviderPreset { name: "openrouter", base_url: "https://openrouter.ai/api/v1", model: "" },
+    ProviderPreset {
+        name: "deepseek",
+        base_url: "https://api.deepseek.com",
+        model: "deepseek-chat",
+    },
+    ProviderPreset {
+        name: "gemini",
+        base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
+        model: "gemini-2.0-flash",
+    },
+    ProviderPreset { name: "groq", base_url: "https://api.groq.com/openai/v1", model: "" },
+];
+
+/// Default active provider name (must match a [`PROVIDER_PRESETS`] entry).
+const DEFAULT_ACTIVE_PROVIDER: &str = "openai";
 
 /// Named collection of [`LlmConfig`] entries with one designated active provider.
 ///
@@ -113,9 +149,18 @@ pub struct LlmProviders {
 
 impl Default for LlmProviders {
     fn default() -> Self {
-        let mut providers = BTreeMap::new();
-        providers.insert(DEFAULT_PROVIDER_NAME.to_string(), LlmConfig::default());
-        Self { active: DEFAULT_PROVIDER_NAME.to_string(), providers }
+        let providers = PROVIDER_PRESETS
+            .iter()
+            .map(|p| {
+                let config = LlmConfig {
+                    base_url: p.base_url.to_string(),
+                    api_key: String::new(),
+                    model: p.model.to_string(),
+                };
+                (p.name.to_string(), config)
+            })
+            .collect();
+        Self { active: DEFAULT_ACTIVE_PROVIDER.to_string(), providers }
     }
 }
 
@@ -241,8 +286,8 @@ impl LlmProviders {
         // Fall back: legacy single-config (flat base_url/api_key/model).
         if let Ok(legacy) = toml::from_str::<LlmConfig>(contents) {
             let mut providers = BTreeMap::new();
-            providers.insert(DEFAULT_PROVIDER_NAME.to_string(), legacy);
-            return Ok(Self { active: DEFAULT_PROVIDER_NAME.to_string(), providers });
+            providers.insert(DEFAULT_ACTIVE_PROVIDER.to_string(), legacy);
+            return Ok(Self { active: DEFAULT_ACTIVE_PROVIDER.to_string(), providers });
         }
         Err(ConfigFileError::parse(path.clone(), toml::from_str::<Self>(contents).unwrap_err())
             .into())
@@ -266,24 +311,6 @@ impl LlmProviders {
         if let Some(model) = env_non_empty("LLM_MODEL") {
             active_config.model = model;
         }
-    }
-}
-
-#[cfg(test)]
-impl LlmProviders {
-    /// Create a provider set with a single valid config for testing.
-    ///
-    /// The config passes [`LlmConfig::from_raw`] validation so that
-    /// `resolve_active()` succeeds.
-    pub fn test_valid() -> Self {
-        let config = LlmConfig {
-            base_url: "https://test.example.com/v1".to_string(),
-            api_key: "test-key".to_string(),
-            model: "test-model".to_string(),
-        };
-        let mut providers = BTreeMap::new();
-        providers.insert(DEFAULT_PROVIDER_NAME.to_string(), config);
-        Self { active: DEFAULT_PROVIDER_NAME.to_string(), providers }
     }
 }
 
@@ -1167,6 +1194,23 @@ struct ReduceResponsePayload {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    impl LlmProviders {
+        /// Create a provider set with a single valid config for testing.
+        ///
+        /// The config passes [`LlmConfig::from_raw`] validation so that
+        /// `resolve_active()` succeeds.
+        pub fn test_valid() -> Self {
+            let config = LlmConfig {
+                base_url: "https://test.example.com/v1".to_string(),
+                api_key: "test-key".to_string(),
+                model: "test-model".to_string(),
+            };
+            let mut providers = BTreeMap::new();
+            providers.insert(DEFAULT_ACTIVE_PROVIDER.to_string(), config);
+            Self { active: DEFAULT_ACTIVE_PROVIDER.to_string(), providers }
+        }
+    }
 
     // ExpandSuggestion tests
     #[test]
