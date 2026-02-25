@@ -13,26 +13,26 @@
 //!
 //! Checklist for a new field:
 //!
-//! 1. **Declare** the field on [`BlockStore`] with `#[serde(default)]`.
+//! 1. Declare the field on [`BlockStore`] with `#[serde(default)]`.
 //!    Use `bool` rather than `()` as the value type for set-like maps;
 //!    `SparseSecondaryMap<_, ()>` fails to round-trip through serde.
-//! 2. **Thread** through [`BlockStore::new_with_drafts`] (the internal
+//! 2. Thread through [`BlockStore::new_with_drafts`] (the internal
 //!    constructor used by `new` and all projection paths).
-//! 3. **Accessor methods** -- at minimum a read accessor and a mutating
+//! 3. Accessor methods, at minimum a read accessor and a mutating
 //!    method. See `is_collapsed` / `toggle_collapsed` for the set-like
 //!    pattern.
-//! 4. **Remap in [`BlockStore::build_projected_store`]** -- iterate the old
+//! 4. Remap in [`BlockStore::build_projected_store`] which iterate the old
 //!    map, translate keys through `id_map`, insert into the new sub-map,
 //!    and pass it to `new_with_drafts`.
-//! 5. **Import in [`BlockStore::rekey_sub_store`]** -- same key translation
+//! 5. Import in [`BlockStore::rekey_sub_store`] with same key translation
 //!    but inserting into `self` rather than a fresh store.
-//! 6. **Clean up on removal** -- add `.remove(id)` calls in:
+//! 6. Clean up on removal. Add `.remove(id)` calls in:
 //!    - [`BlockStore::remove_block_subtree`]
 //!    - [`BlockStore::collapse_mount`] (two sites: own ids and nested mount ids)
 //!    - [`BlockStore::save_subtree_to_file`] (two sites: nested mount cleanup
 //!      and own-ids cleanup)
-//! 7. **Update [`PartialEq`]** -- add a length + element comparison clause.
-//! 8. **Tests** -- at minimum: serde round-trip, backward-compat (missing key
+//! 7. Update [`PartialEq`] by adding a length + element comparison clause.
+//! 8. Tests, at minimum: serde round-trip, backward-compat (missing key
 //!    defaults to empty), and cleanup-on-removal.
 
 use crate::llm;
