@@ -152,7 +152,8 @@ pub fn handle(
                 .persist_with_context("after consuming instruction and inquiry drafts for inquire");
             state.editor_buffers.set_instruction_text("");
             tracing::info!(block_id = ?target_block_id, "instruction inquiry started");
-            let request_task = iced::Task::perform(
+
+            iced::Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
                     AppState::resolve_llm_request(
@@ -170,8 +171,7 @@ pub fn handle(
                         result,
                     })
                 },
-            );
-            request_task
+            )
         }
         | InstructionPanelMessage::InquireDone { block_id, result } => {
             state.instruction_panel.is_inquiring = false;
@@ -362,7 +362,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 .style(theme::point_editor)
                 .height(INSTRUCTION_EDITOR_HEIGHT)
                 .on_action(move |action| {
-                    Message::InstructionPanel(InstructionPanelMessage::TextEdited(action)).into()
+                    Message::InstructionPanel(InstructionPanelMessage::TextEdited(action))
                 }),
         )
         .width(iced::Length::Fill)
@@ -378,7 +378,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
     )
     .style(theme::action_button)
     .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-    .on_press(Message::InstructionPanel(InstructionPanelMessage::Inquire).into());
+    .on_press(Message::InstructionPanel(InstructionPanelMessage::Inquire));
 
     button_row = button_row.push(inquire_btn);
 
@@ -387,9 +387,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         button(text("Expand").font(theme::INTER).size(13))
             .style(theme::action_button)
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(
-                Message::InstructionPanel(InstructionPanelMessage::ExpandWithInstruction).into(),
-            ),
+            .on_press(Message::InstructionPanel(InstructionPanelMessage::ExpandWithInstruction)),
     );
 
     // Reduce button
@@ -397,9 +395,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         button(text("Reduce").font(theme::INTER).size(13))
             .style(theme::action_button)
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(
-                Message::InstructionPanel(InstructionPanelMessage::ReduceWithInstruction).into(),
-            ),
+            .on_press(Message::InstructionPanel(InstructionPanelMessage::ReduceWithInstruction)),
     );
 
     panel = panel.push(button_row);
@@ -416,36 +412,31 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             button(text("Apply as Rewrite").font(theme::INTER).size(13))
                 .style(theme::action_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(
-                    Message::InstructionPanel(InstructionPanelMessage::ApplyInstructionRewrite)
-                        .into(),
-                ),
+                .on_press(Message::InstructionPanel(
+                    InstructionPanelMessage::ApplyInstructionRewrite,
+                )),
         );
         result_buttons = result_buttons.push(
             button(text("Append to Block").font(theme::INTER).size(13))
                 .style(theme::action_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(
-                    Message::InstructionPanel(InstructionPanelMessage::AppendInstructionResponse)
-                        .into(),
-                ),
+                .on_press(Message::InstructionPanel(
+                    InstructionPanelMessage::AppendInstructionResponse,
+                )),
         );
         result_buttons = result_buttons.push(
             button(text("Add as Child").font(theme::INTER).size(13))
                 .style(theme::action_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(
-                    Message::InstructionPanel(
-                        InstructionPanelMessage::AddInstructionResponseAsChild,
-                    )
-                    .into(),
-                ),
+                .on_press(Message::InstructionPanel(
+                    InstructionPanelMessage::AddInstructionResponseAsChild,
+                )),
         );
         result_buttons = result_buttons.push(
             button(text("Dismiss").font(theme::INTER).size(13))
                 .style(theme::destructive_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(InstructionPanelMessage::Dismiss).into()),
+                .on_press(Message::InstructionPanel(InstructionPanelMessage::Dismiss)),
         );
         result_col = result_col.push(result_buttons);
 
