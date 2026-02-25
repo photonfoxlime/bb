@@ -382,7 +382,13 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
     // Inquire button
     let inquire_btn = button(
-        text(if is_inquiring { t!("instruction_inquiring").to_string() } else { t!("instruction_inquire").to_string() }).font(theme::INTER).size(13),
+        text(if is_inquiring {
+            t!("instruction_inquiring").to_string()
+        } else {
+            t!("instruction_inquire").to_string()
+        })
+        .font(theme::INTER)
+        .size(13),
     )
     .style(theme::action_button)
     .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
@@ -415,7 +421,9 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
     // Show inquiry result if available
     if let Some(result) = inquiry_result {
         let mut result_col = column![].spacing(theme::PANEL_INNER_GAP);
-        result_col = result_col.push(container(text(t!("instruction_response").to_string()).width(iced::Length::Fill)));
+        result_col = result_col.push(container(
+            text(t!("instruction_response").to_string()).width(iced::Length::Fill),
+        ));
         result_col = result_col.push(container(text(result.as_str())).width(iced::Length::Fill));
 
         // Action buttons for the result
@@ -468,7 +476,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::{super::*, *};
     use crate::llm;
     use crate::store::BlockStore;
     use crate::undo::UndoHistory;
@@ -477,14 +485,15 @@ mod tests {
         let store = BlockStore::default();
         let root = *store.roots().first().expect("default store has a root");
         let providers = llm::LlmProviders::test_valid();
+        let config = AppConfig::default();
         let state = AppState {
-            editor_buffers: super::super::EditorBuffers::from_store(&store),
+            editor_buffers: EditorBuffers::from_store(&store),
             store,
             undo_history: UndoHistory::with_capacity(64),
-            settings: super::super::SettingsState::from_providers(&providers),
+            settings: SettingsState::from_providers(&providers, &config),
             providers,
             errors: vec![],
-            llm_requests: super::super::LlmRequests::new(),
+            llm_requests: LlmRequests::new(),
             overflow_open_for: None,
             instruction_panel: InstructionPanel::new(),
             friend_picker_for: None,
@@ -494,10 +503,8 @@ mod tests {
             persistence_blocked: false,
             persistence_write_disabled: true,
             is_dark: false,
-            active_view: super::super::ViewMode::default(),
-            config: crate::config::AppConfig {
-                locale: Some(crate::i18n::DEFAULT_LOCALE.to_string()),
-            },
+            active_view: ViewMode::default(),
+            config,
         };
         (state, root)
     }
@@ -576,7 +583,7 @@ mod tests {
             Message::InstructionPanel(InstructionPanelMessage::Toggle),
         );
 
-        assert_eq!(state.panel_bar_state, Some(super::super::PanelBarState::Instruction));
+        assert_eq!(state.panel_bar_state, Some(PanelBarState::Instruction));
         assert_eq!(state.editor_buffers.instruction_content().text(), "keep this instruction");
     }
 
@@ -601,7 +608,7 @@ mod tests {
     fn instruction_toggle_closes_panel_and_preserves_instruction_draft_state() {
         let (mut state, root) = test_state();
         state.focused_block_id = Some(root);
-        state.panel_bar_state = Some(super::super::PanelBarState::Instruction);
+        state.panel_bar_state = Some(PanelBarState::Instruction);
         state.instruction_panel.inquiry_result = Some("result".to_string());
         state.instruction_panel.inquiry_target_block_id = Some(root);
         state.instruction_panel.is_inquiring = true;

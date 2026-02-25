@@ -77,9 +77,7 @@ impl ErrorBanner {
 
 #[cfg(test)]
 mod tests {
-    use super::super::error::UiError;
-    use super::super::{EditorBuffers, InstructionPanel, LlmRequests, SettingsState, ViewMode};
-    use super::*;
+    use super::{super::*, *};
     use crate::llm;
     use crate::store::BlockStore;
     use crate::undo::UndoHistory;
@@ -87,11 +85,12 @@ mod tests {
     fn test_state() -> AppState {
         let store = BlockStore::default();
         let providers = llm::LlmProviders::test_valid();
+        let config = AppConfig::default();
         AppState {
             editor_buffers: EditorBuffers::from_store(&store),
             store,
             undo_history: UndoHistory::with_capacity(64),
-            settings: SettingsState::from_providers(&providers),
+            settings: SettingsState::from_providers(&providers, &config),
             providers,
             errors: vec![],
             llm_requests: LlmRequests::new(),
@@ -105,9 +104,7 @@ mod tests {
             persistence_write_disabled: true,
             is_dark: false,
             active_view: ViewMode::default(),
-            config: crate::config::AppConfig {
-                locale: Some(crate::i18n::DEFAULT_LOCALE.to_string()),
-            },
+            config,
         }
     }
 

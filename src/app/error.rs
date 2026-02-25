@@ -72,8 +72,7 @@ pub fn handle(state: &mut AppState, message: ErrorMessage) -> Task<Message> {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{AppState, Message};
-    use super::*;
+    use super::{super::*, *};
     use crate::llm;
     use crate::store::BlockStore;
     use crate::undo::UndoHistory;
@@ -82,16 +81,17 @@ mod tests {
         let store = BlockStore::default();
         let root = *store.roots().first().expect("default store has a root");
         let providers = llm::LlmProviders::test_valid();
+        let config = AppConfig::default();
         let state = AppState {
-            editor_buffers: super::super::EditorBuffers::from_store(&store),
+            editor_buffers: EditorBuffers::from_store(&store),
             store,
             undo_history: UndoHistory::with_capacity(64),
-            settings: super::super::SettingsState::from_providers(&providers),
+            settings: SettingsState::from_providers(&providers, &config),
             providers,
             errors: vec![],
-            llm_requests: super::super::LlmRequests::new(),
+            llm_requests: LlmRequests::new(),
             overflow_open_for: None,
-            instruction_panel: super::super::InstructionPanel::new(),
+            instruction_panel: InstructionPanel::new(),
             friend_picker_for: None,
             focused_block_id: None,
             panel_bar_state: None,
@@ -99,10 +99,8 @@ mod tests {
             persistence_blocked: false,
             persistence_write_disabled: true,
             is_dark: false,
-            active_view: super::super::ViewMode::default(),
-            config: crate::config::AppConfig {
-                locale: Some(crate::i18n::DEFAULT_LOCALE.to_string()),
-            },
+            active_view: ViewMode::default(),
+            config,
         };
         (state, root)
     }

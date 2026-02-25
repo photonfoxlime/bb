@@ -39,8 +39,7 @@ use self::{
 };
 use crate::{
     config::{self, AppConfig},
-    i18n,
-    llm,
+    i18n, llm,
     store::{BlockId, BlockStore, StoreLoadError},
     undo::UndoHistory,
 };
@@ -142,8 +141,8 @@ impl AppState {
 
         let is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
         tracing::info!(is_dark, "detected system appearance");
-        let settings = SettingsState::from_providers(&providers);
         let config = config::load();
+        let settings = SettingsState::from_providers(&providers, &config);
         Self {
             store,
             undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
@@ -631,7 +630,7 @@ mod shortcut {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppError, AppState};
+    use super::*;
     use crate::llm;
     use crate::store::{BlockStore, StoreLoadError};
     use crate::undo::UndoHistory;
@@ -640,16 +639,17 @@ mod tests {
         let store = BlockStore::default();
         let root = *store.roots().first().expect("default store has a root");
         let providers = llm::LlmProviders::test_valid();
+        let config = AppConfig::default();
         let state = AppState {
-            editor_buffers: super::EditorBuffers::from_store(&store),
+            editor_buffers: EditorBuffers::from_store(&store),
             store,
             undo_history: UndoHistory::with_capacity(64),
-            settings: super::SettingsState::from_providers(&providers),
+            settings: SettingsState::from_providers(&providers, &config),
             providers,
             errors: vec![],
-            llm_requests: super::LlmRequests::new(),
+            llm_requests: LlmRequests::new(),
             overflow_open_for: None,
-            instruction_panel: super::InstructionPanel::new(),
+            instruction_panel: InstructionPanel::new(),
             friend_picker_for: None,
             focused_block_id: None,
             panel_bar_state: None,
@@ -657,10 +657,8 @@ mod tests {
             persistence_blocked: false,
             persistence_write_disabled: true,
             is_dark: false,
-            active_view: super::ViewMode::default(),
-            config: crate::config::AppConfig {
-                locale: Some(crate::i18n::DEFAULT_LOCALE.to_string()),
-            },
+            active_view: ViewMode::default(),
+            config,
         };
         (state, root)
     }

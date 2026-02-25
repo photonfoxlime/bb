@@ -30,12 +30,14 @@
 //!   standard Elm-architecture `update` cycle.
 
 use super::{AppState, Message, ViewMode};
+use crate::config::{self, AppConfig};
+use crate::i18n;
 use crate::llm;
 use crate::paths::AppPaths;
 use crate::theme;
-use rust_i18n::t;
 use iced::widget::{button, column, container, pick_list, row, text, text_input, toggler};
 use iced::{Element, Fill, Length, Task};
+use rust_i18n::t;
 
 /// Draft form values for the settings screen.
 ///
@@ -67,6 +69,8 @@ pub struct SettingsState {
     /// Drives UI decisions: base URL read-only, delete hidden, save skips
     /// `from_raw` validation.
     pub selected_is_preset: bool,
+    /// Draft app configuration (e.g. locale override).
+    pub config: AppConfig,
 }
 
 /// Outcome of the last settings save attempt.
@@ -105,13 +109,15 @@ pub enum SettingsMessage {
     Save,
     /// Toggle between light and dark appearance.
     ToggleTheme(bool),
+    /// Change the locale override.
+    SetLocale(Option<String>),
 }
 
 impl SettingsState {
-    /// Initialize draft values from the current provider collection.
+    /// Initialize draft values from the current provider collection and app config.
     ///
     /// Selects the active provider's fields for initial editing.
-    pub fn from_providers(providers: &llm::LlmProviders) -> Self {
+    pub fn from_providers(providers: &llm::LlmProviders, config: &AppConfig) -> Self {
         let active = providers.active().to_string();
         let selected = active.clone();
         let (base_url, api_key, model) = providers.raw_fields(&selected).unwrap_or_default();
@@ -126,6 +132,7 @@ impl SettingsState {
             new_provider_name: String::new(),
             status: None,
             selected_is_preset,
+            config: config.clone(),
         }
     }
 
@@ -146,7 +153,7 @@ impl SettingsState {
 pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
     match message {
         | SettingsMessage::Open => {
-            state.settings = SettingsState::from_providers(&state.providers);
+            state.settings = SettingsState::from_providers(&state.providers, &state.config);
             state.active_view = ViewMode::Settings;
             tracing::info!("settings view opened");
             Task::none()
@@ -316,6 +323,21 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             tracing::info!(is_dark, "theme toggled from settings");
             Task::none()
         }
+        | SettingsMessage::SetLocale(locale) => {
+            state.settings.config.locale = locale.clone();
+            // Save config to disk.
+            if let Err(err) = config::save(&state.settings.config) {
+                state.settings.status =
+                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                tracing::error!(%err, "failed to save app config");
+            } else {
+                // Apply the new locale immediately for the current session.
+                let effective = i18n::resolved_locale_from_config(&state.settings.config);
+                i18n::set_app_locale(&effective);
+                tracing::info!(locale = %effective, "locale changed from settings");
+            }
+            Task::none()
+        }
     }
 }
 
@@ -343,9 +365,10 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     .style(theme::action_button)
     .padding(theme::BUTTON_PAD);
 
-    let header = row![back_button, text(t!("settings_title").to_string()).size(20).font(theme::INTER),]
-        .spacing(12)
-        .align_y(iced::Alignment::Center);
+    let header =
+        row![back_button, text(t!("settings_title").to_string()).size(20).font(theme::INTER),]
+            .spacing(12)
+            .align_y(iced::Alignment::Center);
 
     // ── Provider selector section ────────────────────────────────────
     let provider_picker = pick_list(
@@ -391,19 +414,21 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let can_delete =
         !settings.selected_is_preset && settings.selected_provider != settings.active_provider;
     if can_delete {
-        let delete_btn = button(text(t!("settings_delete_provider").to_string()).size(12).color(palette.danger))
-            .on_press(Message::Settings(SettingsMessage::DeleteProvider(
-                settings.selected_provider.clone(),
-            )))
-            .style(theme::action_button)
-            .padding(iced::Padding::new(4.0).left(10.0).right(10.0));
+        let delete_btn =
+            button(text(t!("settings_delete_provider").to_string()).size(12).color(palette.danger))
+                .on_press(Message::Settings(SettingsMessage::DeleteProvider(
+                    settings.selected_provider.clone(),
+                )))
+                .style(theme::action_button)
+                .padding(iced::Padding::new(4.0).left(10.0).right(10.0));
         provider_management = provider_management.push(delete_btn);
     }
 
     let provider_section = section("Providers", provider_management);
 
     // ── Provider config editing section ──────────────────────────────
-    let editing_title = t!("settings_configuration", name = settings.selected_provider.as_str()).to_string();
+    let editing_title =
+        t!("settings_configuration", name = settings.selected_provider.as_str()).to_string();
 
     // For preset providers, base URL is fixed and shown as read-only text.
     // For custom providers, base URL is an editable input field.
@@ -427,15 +452,18 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         Message::Settings(SettingsMessage::ModelChanged(v))
     });
 
-    let save_button = button(row![text(t!("settings_save").to_string()).font(theme::INTER).size(14),])
-        .on_press(Message::Settings(SettingsMessage::Save))
-        .style(theme::action_button)
-        .padding(iced::Padding::new(6.0).left(16.0).right(16.0));
+    let save_button =
+        button(row![text(t!("settings_save").to_string()).font(theme::INTER).size(14),])
+            .on_press(Message::Settings(SettingsMessage::Save))
+            .style(theme::action_button)
+            .padding(iced::Padding::new(6.0).left(16.0).right(16.0));
 
     let mut save_row = row![save_button].spacing(12).align_y(iced::Alignment::Center);
     if let Some(status) = &settings.status {
         let status_text = match status {
-            | SettingsStatus::Saved => text(t!("settings_saved").to_string()).size(13).color(palette.success),
+            | SettingsStatus::Saved => {
+                text(t!("settings_saved").to_string()).size(13).color(palette.success)
+            }
             | SettingsStatus::Error(msg) => text(msg.as_str()).size(13).color(palette.danger),
         };
         save_row = save_row.push(status_text);
@@ -460,7 +488,34 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         .label("Dark mode")
         .text_size(14);
 
-    let appearance_section = section("Appearance", column![theme_toggler].spacing(10));
+    // Locale picker: None = system default, Some("en-US") = override.
+    let locale_labels: Vec<String> = vec!["System default".to_string()]
+        .into_iter()
+        .chain(i18n::SUPPORTED_LOCALES.iter().map(|s| s.to_string()))
+        .collect();
+    let current_locale_idx = if state.settings.config.locale.is_none() {
+        0
+    } else {
+        i18n::SUPPORTED_LOCALES
+            .iter()
+            .position(|s| Some(s.to_string()) == state.settings.config.locale)
+            .map(|i| i + 1)
+            .unwrap_or(0)
+    };
+    let locale_picker = pick_list(
+        locale_labels.clone(),
+        Some(locale_labels[current_locale_idx].clone()),
+        move |label| {
+            let idx = locale_labels.iter().position(|l| *l == label).unwrap_or(0);
+            let locale = if idx == 0 { None } else { Some(locale_labels[idx].clone()) };
+            Message::Settings(SettingsMessage::SetLocale(locale))
+        },
+    )
+    .text_size(14)
+    .padding(8);
+
+    let appearance_section =
+        section("Appearance", column![locale_picker, theme_toggler].spacing(10));
 
     // ── Data Paths section ───────────────────────────────────────────
     let data_path = AppPaths::data_file()
@@ -503,10 +558,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 /// A labeled text input field.
 /// Takes owned strings so the returned element does not borrow from the view.
 fn labeled_input(
-    label: String,
-    value: &str,
-    placeholder: String,
-    on_input: impl Fn(String) -> Message + 'static,
+    label: String, value: &str, placeholder: String, on_input: impl Fn(String) -> Message + 'static,
 ) -> Element<'static, Message> {
     column![
         text(label).size(13).font(theme::INTER).color(theme::LIGHT.accent_muted),
