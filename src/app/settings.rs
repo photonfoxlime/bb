@@ -31,25 +31,12 @@
 //! - [`SettingsMessage`] variants drive all settings interactions through the
 //!   standard Elm-architecture `update` cycle.
 
-use super::{AppState, Message};
+use super::{AppState, Message, ViewMode};
 use crate::llm;
 use crate::paths::AppPaths;
 use crate::theme;
 use iced::widget::{button, column, container, pick_list, row, text, text_input, toggler};
 use iced::{Element, Fill, Length, Task};
-
-/// Which top-level screen is active.
-///
-/// The document view is the default; settings is reached via a gear icon button
-/// and dismissed with a back arrow or Escape.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum ViewMode {
-    /// The main tree-structured document editor.
-    #[default]
-    Document,
-    /// The settings configuration screen.
-    Settings,
-}
 
 /// Draft form values for the settings screen.
 ///

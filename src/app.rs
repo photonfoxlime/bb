@@ -20,7 +20,7 @@ use self::{
     editor_buffers::EditorBuffers,
     instruction_panel::{InstructionPanel, InstructionPanelMessage},
     llm_requests::{LlmRequests, RequestSignature},
-    settings::{SettingsMessage, SettingsState, ViewMode},
+    settings::{SettingsMessage, SettingsState},
 };
 use crate::{
     llm,
@@ -439,6 +439,19 @@ pub enum MountFileMessage {
     LoadFromFile(BlockId),
     LoadFromFilePicked { block_id: BlockId, path: Option<std::path::PathBuf> },
     SystemThemeChanged(Mode),
+}
+
+/// Which top-level screen is active.
+///
+/// The document view is the default; settings is reached via a gear icon button
+/// and dismissed with a back arrow or Escape.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum ViewMode {
+    /// The main tree-structured document editor.
+    #[default]
+    Document,
+    /// The settings configuration screen.
+    Settings,
 }
 
 /// Snapshot of undoable application state.
