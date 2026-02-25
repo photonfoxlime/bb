@@ -1,0 +1,182 @@
+//! Mount and file I/O handler: file-backed block management and system theme.
+//!
+//! Handles expanding/collapsing mount points (blocks backed by external files),
+//! save-to-file and load-from-file dialogs, and system theme change detection.
+
+use super::editor_buffers::EditorBuffers;
+use super::error::{AppError, UiError};
+use super::{AppState, Message};
+use crate::paths::AppPaths;
+use crate::store::{BlockId, MountFormat};
+use iced::Task;
+use iced::theme::Mode;
+
+/// Messages for mount, file I/O, and system theme operations.
+#[derive(Debug, Clone)]
+pub enum MountFileMessage {
+    ExpandMount(BlockId),
+    CollapseMount(BlockId),
+    SaveToFile(BlockId),
+    SaveToFilePicked { block_id: BlockId, path: Option<std::path::PathBuf> },
+    LoadFromFile(BlockId),
+    LoadFromFilePicked { block_id: BlockId, path: Option<std::path::PathBuf> },
+    SystemThemeChanged(Mode),
+}
+
+/// Process one mount/file message and return a follow-up task (if any).
+pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> {
+    match message {
+        | MountFileMessage::ExpandMount(block_id) => {
+            let base_dir = AppPaths::data_dir().unwrap_or_default();
+            state.mutate_with_undo_and_persist("after expanding mount", |state| {
+                    match state.store.expand_mount(&block_id, &base_dir) {
+                        | Ok(new_roots) => {
+                            tracing::info!(block_id = ?block_id, children = new_roots.len(), "expanded mount");
+                            for &id in &new_roots {
+                                state.editor_buffers.ensure_subtree(&state.store, &id);
+                            }
+                            true
+                        }
+                        | Err(err) => {
+                            tracing::error!(block_id = ?block_id, %err, "failed to expand mount");
+                            state.record_error(AppError::Mount(UiError::from_message(&err)));
+                            false
+                        }
+                    }
+                });
+            Task::none()
+        }
+        | MountFileMessage::CollapseMount(block_id) => {
+            state.mutate_with_undo_and_persist("after collapsing mount", |state| {
+                if let Some(()) = state.store.collapse_mount(&block_id) {
+                    tracing::info!(block_id = ?block_id, "collapsed mount");
+                    state.editor_buffers = EditorBuffers::from_store(&state.store);
+                    return true;
+                }
+                false
+            });
+            Task::none()
+        }
+        | MountFileMessage::SaveToFile(block_id) => {
+            state.overflow_open_for = None;
+            Task::perform(
+                async move {
+                    let dialog = rfd::AsyncFileDialog::new()
+                        .set_title("Save block to file")
+                        .add_filter("JSON", &["json"])
+                        .add_filter("Markdown", &["md", "markdown"])
+                        .save_file()
+                        .await;
+                    dialog.map(|handle| handle.path().to_path_buf())
+                },
+                move |path| {
+                    Message::MountFile(MountFileMessage::SaveToFilePicked { block_id, path })
+                },
+            )
+        }
+        | MountFileMessage::SaveToFilePicked { block_id, path } => {
+            if let Some(path) = path {
+                let base_dir = AppPaths::data_dir().unwrap_or_default();
+                state.mutate_with_undo_and_persist("after save-to-file", |state| {
+                        match state.store.save_subtree_to_file(&block_id, &path, &base_dir) {
+                            | Ok(()) => {
+                                let mount_format = state
+                                    .store
+                                    .node(&block_id)
+                                    .and_then(|node| node.mount_format())
+                                    .unwrap_or(MountFormat::Json);
+                                tracing::info!(block_id = ?block_id, path = %path.display(), ?mount_format, "saved subtree to file");
+                                match state.store.expand_mount(&block_id, &base_dir) {
+                                    | Ok(new_roots) => {
+                                        for &id in &new_roots {
+                                            state.editor_buffers.ensure_subtree(&state.store, &id);
+                                        }
+                                    }
+                                    | Err(err) => {
+                                        tracing::error!(block_id = ?block_id, %err, "failed to re-expand after save-to-file");
+                                        state.record_error(AppError::Mount(UiError::from_message(&err)));
+                                    }
+                                }
+                                true
+                            }
+                            | Err(err) => {
+                                tracing::error!(block_id = ?block_id, %err, "failed to save subtree to file");
+                                state.record_error(AppError::Mount(UiError::from_message(&err)));
+                                false
+                            }
+                        }
+                    });
+            }
+            Task::none()
+        }
+        | MountFileMessage::LoadFromFile(block_id) => {
+            state.overflow_open_for = None;
+            Task::perform(
+                async move {
+                    let dialog = rfd::AsyncFileDialog::new()
+                        .set_title("Load block from file")
+                        .add_filter("JSON", &["json"])
+                        .add_filter("Markdown", &["md", "markdown"])
+                        .pick_file()
+                        .await;
+                    dialog.map(|handle| handle.path().to_path_buf())
+                },
+                move |path| {
+                    Message::MountFile(MountFileMessage::LoadFromFilePicked { block_id, path })
+                },
+            )
+        }
+        | MountFileMessage::LoadFromFilePicked { block_id, path } => {
+            if let Some(path) = path {
+                let base_dir = AppPaths::data_dir().unwrap_or_default();
+                state.mutate_with_undo_and_persist("after load-from-file", |state| {
+                        let rel_path = path
+                            .strip_prefix(&base_dir)
+                            .map(|p| p.to_path_buf())
+                            .unwrap_or_else(|_| path.clone());
+                        let mount_format = match path
+                            .extension()
+                            .and_then(std::ffi::OsStr::to_str)
+                            .map(str::to_ascii_lowercase)
+                            .as_deref()
+                        {
+                            | Some("md") | Some("markdown") => MountFormat::Markdown,
+                            | _ => MountFormat::Json,
+                        };
+                        let mounted = match mount_format {
+                            | MountFormat::Json => state.store.set_mount_path(&block_id, rel_path),
+                            | MountFormat::Markdown => {
+                                state.store.set_mount_path_with_format(&block_id, rel_path, mount_format)
+                            }
+                        };
+                        if mounted.is_none() {
+                            tracing::error!(block_id = ?block_id, "block has children or does not exist; cannot load");
+                            return false;
+                        }
+                        match state.store.expand_mount(&block_id, &base_dir) {
+                            | Ok(new_roots) => {
+                                tracing::info!(block_id = ?block_id, path = %path.display(), children = new_roots.len(), "loaded file into block");
+                                for &id in &new_roots {
+                                    state.editor_buffers.ensure_subtree(&state.store, &id);
+                                }
+                            }
+                            | Err(err) => {
+                                tracing::error!(block_id = ?block_id, %err, "failed to expand after load-from-file");
+                                state.record_error(AppError::Mount(UiError::from_message(&err)));
+                            }
+                        }
+                        true
+                    });
+            }
+            Task::none()
+        }
+        | MountFileMessage::SystemThemeChanged(mode) => {
+            let dark = matches!(mode, Mode::Dark);
+            if state.is_dark != dark {
+                tracing::info!(is_dark = dark, "system theme changed");
+                state.is_dark = dark;
+            }
+            Task::none()
+        }
+    }
+}

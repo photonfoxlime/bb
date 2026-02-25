@@ -45,6 +45,31 @@ impl AppError {
     }
 }
 
+use super::{AppState, Message};
+use iced::Task;
+
+/// Messages for error banner interaction.
+#[derive(Debug, Clone)]
+pub enum ErrorMessage {
+    DismissAt(usize),
+}
+
+pub fn handle(state: &mut AppState, message: ErrorMessage) -> Task<Message> {
+    match message {
+        | ErrorMessage::DismissAt(index) => {
+            if index < state.errors.len() {
+                state.errors.remove(index);
+                tracing::info!(
+                    dismissed_index = index,
+                    remaining = state.errors.len(),
+                    "dismissed app error"
+                );
+            }
+            Task::none()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{AppError, UiError};

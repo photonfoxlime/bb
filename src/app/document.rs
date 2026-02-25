@@ -30,7 +30,9 @@ use crate::{
 };
 use iced::{
     Element, Fill, Length, Padding,
-    widget::{button, column, container, row, rule, scrollable, space, stack, text, text_editor, tooltip},
+    widget::{
+        button, column, container, row, rule, scrollable, space, stack, text, text_editor, tooltip,
+    },
 };
 use lucide_icons::iced as icons;
 

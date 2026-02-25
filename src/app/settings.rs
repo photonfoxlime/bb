@@ -7,7 +7,7 @@
 //!
 //! # Preset vs custom providers
 //!
-//! [`LlmProviders`] separates providers into two categories:
+//! [`llm::LlmProviders`] separates providers into two categories:
 //!
 //! - **Preset providers** (OpenAI, OpenRouter, etc.) are always present and
 //!   cannot be deleted. Their base URL is fixed; the user only supplies an
@@ -24,8 +24,6 @@
 //!
 //! # Architecture
 //!
-//! - [`ViewMode`] selects between the document tree view and the settings view.
-//!   `AppState` holds an `active_view: ViewMode` field that `view()` branches on.
 //! - [`SettingsState`] stores draft form values so edits are non-destructive
 //!   until the user explicitly saves.
 //! - [`SettingsMessage`] variants drive all settings interactions through the
