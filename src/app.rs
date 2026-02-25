@@ -15,7 +15,7 @@ mod settings;
 use self::{
     action_bar::{
         ActionAvailability, ActionId, RowContext, ViewportBucket, action_to_message_by_id,
-        build_action_bar_vm, project_for_viewport, shortcut_to_action,
+        build_action_bar_vm, project_for_viewport,
     },
     editor_buffers::EditorBuffers,
     instruction_panel::{InstructionPanel, InstructionPanelMessage},
@@ -38,6 +38,11 @@ use iced::{
     widget::{self, text_editor},
 };
 use std::time::Duration;
+
+/// Default capacity: 64 undo steps.
+const UNDO_CAPACITY: usize = 64;
+const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const ERROR_STACK_PREVIEW_LIMIT: usize = 2;
 
 /// All mutable application state for the iced Elm architecture.
 ///
@@ -283,34 +288,6 @@ impl AppState {
         self.block_context_signature(block_id)
             .is_none_or(|current_signature| current_signature != request_signature)
     }
-
-    fn dispatch_message(&mut self, message: Message) -> Task<Message> {
-        // When the settings view is active, Escape (arriving as CancelFriendPicker
-        // from the global event handler) should close settings instead.
-        if self.active_view == ViewMode::Settings {
-            if matches!(&message, Message::Overlay(OverlayMessage::CancelFriendPicker)) {
-                return settings::handle(self, SettingsMessage::Close);
-            }
-        }
-
-        match message {
-            | Message::UndoRedo(message) => self.handle_undo_redo(message),
-            | Message::Shortcut(message) => self.handle_shortcut_message(message),
-            | Message::Error(message) => self.handle_error_message(message),
-            | Message::Edit(EditMessage::PointEdited { block_id, action }) => {
-                self.handle_point_edited(block_id, action)
-            }
-            | Message::Reduce(message) => self.handle_reduce_message(message),
-            | Message::Expand(message) => self.handle_expand_message(message),
-            | Message::Overlay(message) => self.handle_overlay_message(message),
-            | Message::Structure(message) => self.handle_structure_message(message),
-            | Message::MountFile(message) => self.handle_mount_and_file_message(message),
-            | Message::InstructionPanel(message) => {
-                instruction_panel::handle(self, BlockId::default(), message)
-            }
-            | Message::Settings(message) => settings::handle(self, message),
-        }
-    }
 }
 
 /// Elm-architecture messages driving all state transitions.
@@ -441,6 +418,37 @@ pub enum MountFileMessage {
     SystemThemeChanged(Mode),
 }
 
+impl AppState {
+    /// Process one message and return a follow-up task (if any).
+    pub fn update(&mut self, message: Message) -> Task<Message> {
+        // When the settings view is active, Escape (arriving as CancelFriendPicker
+        // from the global event handler) should close settings instead.
+        if self.active_view == ViewMode::Settings {
+            if matches!(&message, Message::Overlay(OverlayMessage::CancelFriendPicker)) {
+                return settings::handle(self, SettingsMessage::Close);
+            }
+        }
+
+        match message {
+            | Message::UndoRedo(message) => self.handle_undo_redo(message),
+            | Message::Shortcut(message) => self.handle_shortcut_message(message),
+            | Message::Error(message) => self.handle_error_message(message),
+            | Message::Edit(EditMessage::PointEdited { block_id, action }) => {
+                self.handle_point_edited(block_id, action)
+            }
+            | Message::Reduce(message) => self.handle_reduce_message(message),
+            | Message::Expand(message) => self.handle_expand_message(message),
+            | Message::Overlay(message) => self.handle_overlay_message(message),
+            | Message::Structure(message) => self.handle_structure_message(message),
+            | Message::MountFile(message) => self.handle_mount_and_file_message(message),
+            | Message::InstructionPanel(message) => {
+                instruction_panel::handle(self, BlockId::default(), message)
+            }
+            | Message::Settings(message) => settings::handle(self, message),
+        }
+    }
+}
+
 /// Which top-level screen is active.
 ///
 /// The document view is the default; settings is reached via a gear icon button
@@ -463,11 +471,6 @@ pub enum ViewMode {
 struct UndoSnapshot {
     store: BlockStore,
 }
-
-/// Default capacity: 64 undo steps.
-const UNDO_CAPACITY: usize = 64;
-const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-const ERROR_STACK_PREVIEW_LIMIT: usize = 2;
 
 /// Direction tag for vertical cursor movement edge-detection.
 ///
@@ -1386,51 +1389,50 @@ impl AppState {
 }
 
 impl AppState {
-    /// Process one message and return a follow-up task (if any).
-    pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
-        state.dispatch_message(message)
-    }
-
     /// Global event subscription: keyboard shortcuts, mouse clicks, escape,
     /// and system theme changes.
     pub fn subscription(_state: &AppState) -> Subscription<Message> {
+        fn handle_event(
+            event: Event, status: event::Status, _window: iced::window::Id,
+        ) -> Option<Message> {
+            if status == event::Status::Captured {
+                return None;
+            }
+
+            match event {
+                | Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(keyboard::key::Named::Escape),
+                    ..
+                }) => Some(Message::Overlay(OverlayMessage::CancelFriendPicker)),
+                | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                    if modifiers.command() {
+                        match &key {
+                            | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
+                                return if modifiers.shift() {
+                                    Some(Message::UndoRedo(UndoRedoMessage::Redo))
+                                } else {
+                                    Some(Message::UndoRedo(UndoRedoMessage::Undo))
+                                };
+                            }
+                            | _ => {}
+                        }
+                    }
+                    action_bar::shortcut_to_action(key, modifiers)
+                        .map(ShortcutMessage::Trigger)
+                        .map(Message::Shortcut)
+                }
+                | Event::Mouse(mouse::Event::ButtonPressed(_)) => {
+                    Some(Message::Overlay(OverlayMessage::CloseOverflow))
+                }
+                | _ => None,
+            }
+        }
+
         Subscription::batch([
             event::listen_with(handle_event),
             system::theme_changes()
                 .map(|mode| Message::MountFile(MountFileMessage::SystemThemeChanged(mode))),
         ])
-    }
-}
-
-fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) -> Option<Message> {
-    if status == event::Status::Captured {
-        return None;
-    }
-
-    match event {
-        | Event::Keyboard(keyboard::Event::KeyPressed {
-            key: keyboard::Key::Named(keyboard::key::Named::Escape),
-            ..
-        }) => Some(Message::Overlay(OverlayMessage::CancelFriendPicker)),
-        | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-            if modifiers.command() {
-                match &key {
-                    | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
-                        return if modifiers.shift() {
-                            Some(Message::UndoRedo(UndoRedoMessage::Redo))
-                        } else {
-                            Some(Message::UndoRedo(UndoRedoMessage::Undo))
-                        };
-                    }
-                    | _ => {}
-                }
-            }
-            shortcut_to_action(key, modifiers).map(ShortcutMessage::Trigger).map(Message::Shortcut)
-        }
-        | Event::Mouse(mouse::Event::ButtonPressed(_)) => {
-            Some(Message::Overlay(OverlayMessage::CloseOverflow))
-        }
-        | _ => None,
     }
 }
 
