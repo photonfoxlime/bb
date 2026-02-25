@@ -255,3 +255,170 @@ pub fn handle(state: &mut AppState, message: ReduceMessage) -> Task<Message> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm;
+    use crate::store::{BlockStore, ReductionDraftRecord};
+    use crate::undo::UndoHistory;
+
+    fn test_state() -> (AppState, BlockId) {
+        let store = BlockStore::default();
+        let root = *store.roots().first().expect("default store has a root");
+        let providers = llm::LlmProviders::test_valid();
+        let state = AppState {
+            editor_buffers: super::super::EditorBuffers::from_store(&store),
+            store,
+            undo_history: UndoHistory::with_capacity(64),
+            settings: super::super::SettingsState::from_providers(&providers),
+            providers,
+            errors: vec![],
+            llm_requests: super::super::LlmRequests::new(),
+            overflow_open_for: None,
+            instruction_panel: super::super::InstructionPanel::new(),
+            friend_picker_for: None,
+            focused_block_id: None,
+            panel_bar_state: None,
+            editing_block_id: None,
+            persistence_blocked: false,
+            persistence_write_disabled: true,
+            is_dark: false,
+            active_view: super::super::ViewMode::default(),
+        };
+        (state, root)
+    }
+
+    #[test]
+    fn reduce_done_success_persists_draft_in_store() {
+        let (mut state, root) = test_state();
+        let signature = state.block_context_signature(&root).expect("root has lineage");
+        state.llm_requests.mark_reduce_loading(root, signature);
+        let _ = AppState::update(
+            &mut state,
+            Message::Reduce(ReduceMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Ok(llm::ReduceResult::new("reduced".to_string(), vec![])),
+                children_snapshot: vec![],
+            }),
+        );
+        let draft = state.store.reduction_draft(&root).expect("reduction draft is created");
+        assert_eq!(draft.reduction, "reduced".to_string());
+    }
+
+    #[test]
+    fn reduce_done_stale_response_is_ignored() {
+        let (mut state, root) = test_state();
+        let signature = state.block_context_signature(&root).expect("root has lineage");
+        state.llm_requests.mark_reduce_loading(root, signature);
+        state.store.update_point(&root, "edited while pending".to_string());
+        let _ = AppState::update(
+            &mut state,
+            Message::Reduce(ReduceMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Ok(llm::ReduceResult::new("stale reduction".to_string(), vec![])),
+                children_snapshot: vec![],
+            }),
+        );
+        assert!(state.store.reduction_draft(&root).is_none());
+    }
+
+    #[test]
+    fn cancel_reduce_clears_loading_state_and_pending_signature() {
+        let (mut state, root) = test_state();
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Start(root)));
+        assert!(state.llm_requests.is_reducing(root));
+        assert!(state.llm_requests.has_pending_reduce_signature(root));
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
+        assert!(!state.llm_requests.is_reducing(root));
+        assert!(!state.llm_requests.has_pending_reduce_signature(root));
+    }
+
+    #[test]
+    fn apply_reduction_updates_point_and_clears_draft() {
+        let (mut state, root) = test_state();
+        state.store.insert_reduction_draft(
+            root,
+            ReductionDraftRecord {
+                reduction: "reduced point".to_string(),
+                redundant_children: vec![],
+            },
+        );
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Apply(root)));
+        assert_eq!(state.store.point(&root).as_deref(), Some("reduced point"));
+        assert!(state.store.reduction_draft(&root).is_none());
+    }
+
+    #[test]
+    fn reject_reduction_clears_draft() {
+        let (mut state, root) = test_state();
+        state.store.insert_reduction_draft(
+            root,
+            ReductionDraftRecord {
+                reduction: "reduced point".to_string(),
+                redundant_children: vec![],
+            },
+        );
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Reject(root)));
+        assert!(state.store.reduction_draft(&root).is_none());
+    }
+
+    #[test]
+    fn reduce_done_error_sets_reduce_error_state() {
+        let (mut state, root) = test_state();
+        let signature = state.block_context_signature(&root).expect("root has lineage");
+        state.llm_requests.mark_reduce_loading(root, signature);
+        let _ = AppState::update(
+            &mut state,
+            Message::Reduce(ReduceMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Err(UiError::from_message("failed")),
+                children_snapshot: vec![],
+            }),
+        );
+        assert!(state.llm_requests.has_reduce_error(root));
+    }
+
+    #[test]
+    fn cancel_reduce_then_late_response_is_ignored() {
+        let (mut state, root) = test_state();
+        let signature = state.block_context_signature(&root).expect("root has lineage");
+        state.llm_requests.mark_reduce_loading(root, signature);
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
+        let _ = AppState::update(
+            &mut state,
+            Message::Reduce(ReduceMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Ok(llm::ReduceResult::new("late reduction".to_string(), vec![])),
+                children_snapshot: vec![],
+            }),
+        );
+        assert!(state.store.reduction_draft(&root).is_none());
+        assert!(!state.llm_requests.is_reducing(root));
+        assert!(!state.llm_requests.has_reduce_error(root));
+    }
+
+    #[test]
+    fn reduce_handles_are_isolated_per_block_on_cancel() {
+        let (mut state, root) = test_state();
+        let sibling = state
+            .store
+            .append_sibling(&root, "sibling".to_string())
+            .expect("append sibling succeeds");
+
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Start(root)));
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Start(sibling)));
+
+        assert!(state.llm_requests.has_reduce_handle(root));
+        assert!(state.llm_requests.has_reduce_handle(sibling));
+
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
+
+        assert!(!state.llm_requests.has_reduce_handle(root));
+        assert!(state.llm_requests.has_reduce_handle(sibling));
+    }
+}

@@ -3,8 +3,8 @@
 //! Converts the raw `AppState::errors` stack into a display-ready structure
 //! with a title, a preview of recent entries, and a hidden-count summary.
 
-use super::error::AppError;
 use super::AppState;
+use super::error::AppError;
 
 const ERROR_STACK_PREVIEW_LIMIT: usize = 2;
 
@@ -61,14 +61,12 @@ impl ErrorBanner {
 
 #[cfg(test)]
 mod tests {
+    use super::super::error::UiError;
+    use super::super::{EditorBuffers, InstructionPanel, LlmRequests, SettingsState, ViewMode};
     use super::*;
     use crate::llm;
     use crate::store::BlockStore;
     use crate::undo::UndoHistory;
-    use super::super::{
-        EditorBuffers, InstructionPanel, LlmRequests, SettingsState, ViewMode,
-    };
-    use super::super::error::UiError;
 
     fn test_state() -> AppState {
         let store = BlockStore::default();

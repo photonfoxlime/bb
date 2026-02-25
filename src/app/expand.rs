@@ -284,3 +284,290 @@ pub fn handle(state: &mut AppState, message: ExpandMessage) -> Task<Message> {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::llm;
+    use crate::store::{BlockStore, ExpansionDraftRecord};
+    use crate::undo::UndoHistory;
+
+    fn test_state() -> (AppState, BlockId) {
+        let store = BlockStore::default();
+        let root = *store.roots().first().expect("default store has a root");
+        let providers = llm::LlmProviders::test_valid();
+        let state = AppState {
+            editor_buffers: super::super::EditorBuffers::from_store(&store),
+            store,
+            undo_history: UndoHistory::with_capacity(64),
+            settings: super::super::SettingsState::from_providers(&providers),
+            providers,
+            errors: vec![],
+            llm_requests: super::super::LlmRequests::new(),
+            overflow_open_for: None,
+            instruction_panel: super::super::InstructionPanel::new(),
+            friend_picker_for: None,
+            focused_block_id: None,
+            panel_bar_state: None,
+            editing_block_id: None,
+            persistence_blocked: false,
+            persistence_write_disabled: true,
+            is_dark: false,
+            active_view: super::super::ViewMode::default(),
+        };
+        (state, root)
+    }
+
+    #[test]
+    fn expand_done_success_persists_draft_in_store() {
+        let (mut state, root) = test_state();
+        let signature = state.block_context_signature(&root).expect("root has lineage");
+        state.llm_requests.mark_expand_loading(root, signature);
+        let _ = AppState::update(
+            &mut state,
+            Message::Expand(ExpandMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Ok(llm::ExpandResult::new(
+                    Some("rewrite".to_string()),
+                    vec![llm::ExpandSuggestion::new("child".to_string())],
+                )),
+            }),
+        );
+        let draft = state.store.expansion_draft(&root).expect("draft is created");
+        assert_eq!(draft.rewrite.as_deref(), Some("rewrite"));
+        assert_eq!(draft.children, vec!["child".to_string()]);
+    }
+
+    #[test]
+    fn expand_done_stale_response_is_ignored() {
+        let (mut state, root) = test_state();
+        let signature = state.block_context_signature(&root).expect("root has lineage");
+        state.llm_requests.mark_expand_loading(root, signature);
+        state.store.update_point(&root, "edited while pending".to_string());
+        let _ = AppState::update(
+            &mut state,
+            Message::Expand(ExpandMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Ok(llm::ExpandResult::new(
+                    Some("stale rewrite".to_string()),
+                    vec![llm::ExpandSuggestion::new("stale child".to_string())],
+                )),
+            }),
+        );
+        assert!(state.store.expansion_draft(&root).is_none());
+    }
+
+    #[test]
+    fn cancel_expand_clears_loading_state_and_pending_signature() {
+        let (mut state, root) = test_state();
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::Start(root)));
+        assert!(state.llm_requests.is_expanding(root));
+        assert!(state.llm_requests.has_pending_expand_signature(root));
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
+        assert!(!state.llm_requests.is_expanding(root));
+        assert!(!state.llm_requests.has_pending_expand_signature(root));
+    }
+
+    #[test]
+    fn apply_expanded_rewrite_updates_point_and_clears_empty_draft() {
+        let (mut state, root) = test_state();
+        state.store.insert_expansion_draft(
+            root,
+            ExpansionDraftRecord { rewrite: Some("rewritten point".to_string()), children: vec![] },
+        );
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::ApplyRewrite(root)));
+        assert_eq!(state.store.point(&root).as_deref(), Some("rewritten point"));
+        assert!(state.store.expansion_draft(&root).is_none());
+    }
+
+    #[test]
+    fn reject_expanded_rewrite_keeps_child_suggestions() {
+        let (mut state, root) = test_state();
+        state.store.insert_expansion_draft(
+            root,
+            ExpansionDraftRecord {
+                rewrite: Some("rewrite".to_string()),
+                children: vec!["child a".to_string()],
+            },
+        );
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::RejectRewrite(root)));
+        let draft = state.store.expansion_draft(&root).expect("draft remains with children");
+        assert!(draft.rewrite.is_none());
+        assert_eq!(draft.children, vec!["child a".to_string()]);
+    }
+
+    #[test]
+    fn accept_expanded_child_appends_child_and_updates_draft() {
+        let (mut state, root) = test_state();
+        let before_children_len = state.store.children(&root).len();
+        state.store.insert_expansion_draft(
+            root,
+            ExpansionDraftRecord {
+                rewrite: None,
+                children: vec!["child a".to_string(), "child b".to_string()],
+            },
+        );
+        let _ = AppState::update(
+            &mut state,
+            Message::Expand(ExpandMessage::AcceptChild { block_id: root, child_index: 0 }),
+        );
+        let children = state.store.children(&root);
+        assert_eq!(children.len(), before_children_len + 1);
+        let child_id = *children.last().expect("new child is appended");
+        assert_eq!(state.store.point(&child_id).as_deref(), Some("child a"));
+        let draft = state.store.expansion_draft(&root).expect("draft remains with one child");
+        assert_eq!(draft.children, vec!["child b".to_string()]);
+    }
+
+    #[test]
+    fn accept_all_expanded_children_keeps_rewrite_and_clears_children() {
+        let (mut state, root) = test_state();
+        let before_children_len = state.store.children(&root).len();
+        state.store.insert_expansion_draft(
+            root,
+            ExpansionDraftRecord {
+                rewrite: Some("rewrite".to_string()),
+                children: vec!["child a".to_string(), "child b".to_string()],
+            },
+        );
+        let _ =
+            AppState::update(&mut state, Message::Expand(ExpandMessage::AcceptAllChildren(root)));
+        let children = state.store.children(&root);
+        assert_eq!(children.len(), before_children_len + 2);
+        let first = children[before_children_len];
+        let second = children[before_children_len + 1];
+        assert_eq!(state.store.point(&first).as_deref(), Some("child a"));
+        assert_eq!(state.store.point(&second).as_deref(), Some("child b"));
+        let draft = state.store.expansion_draft(&root).expect("rewrite-only draft remains");
+        assert_eq!(draft.rewrite.as_deref(), Some("rewrite"));
+        assert!(draft.children.is_empty());
+    }
+
+    #[test]
+    fn discard_all_expanded_children_removes_empty_draft() {
+        let (mut state, root) = test_state();
+        state.store.insert_expansion_draft(
+            root,
+            ExpansionDraftRecord { rewrite: None, children: vec!["child a".to_string()] },
+        );
+        let _ =
+            AppState::update(&mut state, Message::Expand(ExpandMessage::DiscardAllChildren(root)));
+        assert!(state.store.expansion_draft(&root).is_none());
+    }
+
+    #[test]
+    fn discard_all_expanded_children_after_reexpand_preserves_rewrite() {
+        let (mut state, root) = test_state();
+
+        let first_signature = state.block_context_signature(&root).expect("root has lineage");
+        state.llm_requests.mark_expand_loading(root, first_signature);
+        let _ = AppState::update(
+            &mut state,
+            Message::Expand(ExpandMessage::Done {
+                block_id: root,
+                request_signature: first_signature,
+                result: Ok(llm::ExpandResult::new(
+                    Some("first rewrite".to_string()),
+                    vec![llm::ExpandSuggestion::new("first child".to_string())],
+                )),
+            }),
+        );
+        let _ =
+            AppState::update(&mut state, Message::Expand(ExpandMessage::AcceptAllChildren(root)));
+
+        let second_signature = state.block_context_signature(&root).expect("root has lineage");
+        state.llm_requests.mark_expand_loading(root, second_signature);
+        let _ = AppState::update(
+            &mut state,
+            Message::Expand(ExpandMessage::Done {
+                block_id: root,
+                request_signature: second_signature,
+                result: Ok(llm::ExpandResult::new(
+                    Some("second rewrite".to_string()),
+                    vec![llm::ExpandSuggestion::new("second child".to_string())],
+                )),
+            }),
+        );
+
+        let _ =
+            AppState::update(&mut state, Message::Expand(ExpandMessage::DiscardAllChildren(root)));
+
+        let draft = state.store.expansion_draft(&root).expect("rewrite draft remains");
+        assert_eq!(draft.rewrite.as_deref(), Some("second rewrite"));
+        assert!(draft.children.is_empty());
+    }
+
+    #[test]
+    fn reject_expanded_child_removes_draft_when_last_child() {
+        let (mut state, root) = test_state();
+        state.store.insert_expansion_draft(
+            root,
+            ExpansionDraftRecord { rewrite: None, children: vec!["only child".to_string()] },
+        );
+        let _ = AppState::update(
+            &mut state,
+            Message::Expand(ExpandMessage::RejectChild { block_id: root, child_index: 0 }),
+        );
+        assert!(state.store.expansion_draft(&root).is_none());
+    }
+
+    #[test]
+    fn expand_done_error_sets_expand_error_state() {
+        let (mut state, root) = test_state();
+        let signature = state.block_context_signature(&root).expect("root has lineage");
+        state.llm_requests.mark_expand_loading(root, signature);
+        let _ = AppState::update(
+            &mut state,
+            Message::Expand(ExpandMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Err(UiError::from_message("failed")),
+            }),
+        );
+        assert!(state.llm_requests.has_expand_error(root));
+    }
+
+    #[test]
+    fn cancel_expand_then_late_response_is_ignored() {
+        let (mut state, root) = test_state();
+        let signature = state.block_context_signature(&root).expect("root has lineage");
+        state.llm_requests.mark_expand_loading(root, signature);
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
+        let _ = AppState::update(
+            &mut state,
+            Message::Expand(ExpandMessage::Done {
+                block_id: root,
+                request_signature: signature,
+                result: Ok(llm::ExpandResult::new(
+                    Some("late rewrite".to_string()),
+                    vec![llm::ExpandSuggestion::new("late child".to_string())],
+                )),
+            }),
+        );
+        assert!(state.store.expansion_draft(&root).is_none());
+        assert!(!state.llm_requests.is_expanding(root));
+        assert!(!state.llm_requests.has_expand_error(root));
+    }
+
+    #[test]
+    fn expand_handles_are_isolated_per_block_on_cancel() {
+        let (mut state, root) = test_state();
+        let sibling = state
+            .store
+            .append_sibling(&root, "sibling".to_string())
+            .expect("append sibling succeeds");
+
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::Start(root)));
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::Start(sibling)));
+
+        assert!(state.llm_requests.has_expand_handle(root));
+        assert!(state.llm_requests.has_expand_handle(sibling));
+
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
+
+        assert!(!state.llm_requests.has_expand_handle(root));
+        assert!(state.llm_requests.has_expand_handle(sibling));
+    }
+}

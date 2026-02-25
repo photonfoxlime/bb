@@ -72,7 +72,37 @@ pub fn handle(state: &mut AppState, message: ErrorMessage) -> Task<Message> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppError, UiError};
+    use super::super::{AppState, Message};
+    use super::*;
+    use crate::llm;
+    use crate::store::BlockStore;
+    use crate::undo::UndoHistory;
+
+    fn test_state() -> (AppState, crate::store::BlockId) {
+        let store = BlockStore::default();
+        let root = *store.roots().first().expect("default store has a root");
+        let providers = llm::LlmProviders::test_valid();
+        let state = AppState {
+            editor_buffers: super::super::EditorBuffers::from_store(&store),
+            store,
+            undo_history: UndoHistory::with_capacity(64),
+            settings: super::super::SettingsState::from_providers(&providers),
+            providers,
+            errors: vec![],
+            llm_requests: super::super::LlmRequests::new(),
+            overflow_open_for: None,
+            instruction_panel: super::super::InstructionPanel::new(),
+            friend_picker_for: None,
+            focused_block_id: None,
+            panel_bar_state: None,
+            editing_block_id: None,
+            persistence_blocked: false,
+            persistence_write_disabled: true,
+            is_dark: false,
+            active_view: super::super::ViewMode::default(),
+        };
+        (state, root)
+    }
 
     #[test]
     fn ui_error_from_message_stores_text() {
@@ -114,5 +144,30 @@ mod tests {
     fn app_error_mount_message() {
         let err = AppError::Mount(UiError::from_message("mnt"));
         assert_eq!(err.message(), "mnt");
+    }
+
+    #[test]
+    fn dismiss_error_message_removes_selected_entry() {
+        let (mut state, _) = test_state();
+        state.errors.push(AppError::Mount(UiError::from_message("m1")));
+        state.errors.push(AppError::Expand(UiError::from_message("e2")));
+        state.errors.push(AppError::Reduce(UiError::from_message("r3")));
+
+        let _ = AppState::update(&mut state, Message::Error(ErrorMessage::DismissAt(1)));
+
+        assert_eq!(state.errors.len(), 2);
+        assert_eq!(state.errors[0].message(), "m1");
+        assert_eq!(state.errors[1].message(), "r3");
+    }
+
+    #[test]
+    fn dismiss_error_message_out_of_bounds_is_noop() {
+        let (mut state, _) = test_state();
+        state.errors.push(AppError::Mount(UiError::from_message("m1")));
+
+        let _ = AppState::update(&mut state, Message::Error(ErrorMessage::DismissAt(99)));
+
+        assert_eq!(state.errors.len(), 1);
+        assert_eq!(state.errors[0].message(), "m1");
     }
 }
