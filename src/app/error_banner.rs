@@ -28,7 +28,8 @@ pub(super) struct ErrorBanner {
 impl ErrorBanner {
     pub fn from_state(state: &AppState) -> Option<Self> {
         let (latest_index, latest) = state.errors.iter().enumerate().last()?;
-        let prefix_key = if state.persistence_blocked && matches!(latest, AppError::Persistence(_)) {
+        let prefix_key = if state.persistence_blocked && matches!(latest, AppError::Persistence(_))
+        {
             "error_recovery_mode"
         } else {
             "error"
@@ -56,14 +57,20 @@ impl ErrorBanner {
     pub fn title(&self) -> String {
         let prefix = rust_i18n::t!(self.prefix_key).to_string();
         if self.total_count == 1 {
-            rust_i18n::t!("error_title_single", prefix = prefix.as_str(), message = self.latest.message.as_str()).to_string()
+            rust_i18n::t!(
+                "error_title_single",
+                prefix = prefix.as_str(),
+                message = self.latest.message.as_str()
+            )
+            .to_string()
         } else {
             rust_i18n::t!(
                 "error_title_multi",
                 prefix = prefix.as_str(),
                 total = self.total_count,
                 message = self.latest.message.as_str()
-            ).to_string()
+            )
+            .to_string()
         }
     }
 }
@@ -98,7 +105,9 @@ mod tests {
             persistence_write_disabled: true,
             is_dark: false,
             active_view: ViewMode::default(),
-            locale: crate::i18n::DEFAULT_LOCALE.to_string(),
+            config: crate::config::AppConfig {
+                locale: Some(crate::i18n::DEFAULT_LOCALE.to_string()),
+            },
         }
     }
 

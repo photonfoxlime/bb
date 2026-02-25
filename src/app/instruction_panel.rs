@@ -495,7 +495,9 @@ mod tests {
             persistence_write_disabled: true,
             is_dark: false,
             active_view: super::super::ViewMode::default(),
-            locale: crate::i18n::DEFAULT_LOCALE.to_string(),
+            config: crate::config::AppConfig {
+                locale: Some(crate::i18n::DEFAULT_LOCALE.to_string()),
+            },
         };
         (state, root)
     }

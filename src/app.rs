@@ -38,6 +38,7 @@ use self::{
     undo_redo::UndoRedoMessage,
 };
 use crate::{
+    config::{self, AppConfig},
     i18n,
     llm,
     store::{BlockId, BlockStore, StoreLoadError},
@@ -108,8 +109,9 @@ pub struct AppState {
     pub active_view: ViewMode,
     /// Draft form state for the settings screen.
     pub settings: SettingsState,
-    /// UI locale (e.g. "en-US", "zh-CN"). Resolved at load from persisted → env → default.
-    pub locale: String,
+    /// Persisted app preferences (e.g. optional locale). Loaded at startup from
+    /// `<config_dir>/app.toml`; effective locale is derived via [`i18n::resolved_locale_from_config`].
+    pub config: AppConfig,
 }
 
 impl AppState {
@@ -141,7 +143,7 @@ impl AppState {
         let is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
         tracing::info!(is_dark, "detected system appearance");
         let settings = SettingsState::from_providers(&providers);
-        let locale = i18n::resolved_locale();
+        let config = config::load();
         Self {
             store,
             undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
@@ -161,8 +163,18 @@ impl AppState {
             is_dark,
             active_view: ViewMode::default(),
             settings,
-            locale,
+            config,
         }
+    }
+
+    /// Persist app config to `<config_dir>/app.toml`. Call when config changes (e.g. locale from settings).
+    pub fn save_app_config(&self) -> Result<(), config::SaveError> {
+        config::save(&self.config)
+    }
+
+    /// Effective UI locale for this session (config → env → default, normalized).
+    pub fn effective_locale(&self) -> String {
+        i18n::resolved_locale_from_config(&self.config)
     }
 
     fn startup_store_from_load_result(
@@ -352,7 +364,7 @@ impl AppState {
 
 impl AppState {
     pub fn view(&self) -> Element<'_, Message> {
-        i18n::set_app_locale(&self.locale);
+        i18n::set_app_locale(&self.effective_locale());
         match self.active_view {
             | ViewMode::Document => document::DocumentView::new(self).view(),
             | ViewMode::Settings => settings::view(self),
@@ -646,7 +658,9 @@ mod tests {
             persistence_write_disabled: true,
             is_dark: false,
             active_view: super::ViewMode::default(),
-            locale: crate::i18n::DEFAULT_LOCALE.to_string(),
+            config: crate::config::AppConfig {
+                locale: Some(crate::i18n::DEFAULT_LOCALE.to_string()),
+            },
         };
         (state, root)
     }
