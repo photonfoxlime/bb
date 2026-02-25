@@ -5,12 +5,22 @@
 //! CRUD support (add, edit, delete, switch active), a light/dark theme toggle,
 //! and read-only display of resolved data and config paths.
 //!
-//! # Multi-provider model
+//! # Preset vs custom providers
 //!
-//! [`LlmProviders`] holds a named `BTreeMap<String, LlmConfig>` with one
-//! designated active provider. The settings view drafts edits against the
-//! currently *selected* provider (which may differ from the *active* provider).
-//! Changes are non-destructive until the user explicitly saves.
+//! [`LlmProviders`] separates providers into two categories:
+//!
+//! - **Preset providers** (OpenAI, OpenRouter, etc.) are always present and
+//!   cannot be deleted. Their base URL is fixed; the user only supplies an
+//!   API key and optionally overrides the model. Saving a preset skips
+//!   `from_raw` validation — an empty API key is allowed (the user just
+//!   hasn't configured this preset yet).
+//! - **Custom providers** are fully user-managed. All fields (name, base URL,
+//!   API key, model) are editable and validated via `from_raw` before save.
+//!   Users can add and delete custom providers.
+//!
+//! The settings view drafts edits against the currently *selected* provider
+//! (which may differ from the *active* provider). Changes are non-destructive
+//! until the user explicitly saves.
 //!
 //! # Architecture
 //!
@@ -51,6 +61,8 @@ pub struct SettingsState {
     /// Name of the provider currently being edited in the form.
     pub selected_provider: String,
     /// Draft base URL for the selected provider's LLM endpoint.
+    ///
+    /// Read-only in the UI for preset providers (derived from the variant).
     pub base_url: String,
     /// Draft API key for the selected provider.
     pub api_key: String,
@@ -60,10 +72,15 @@ pub struct SettingsState {
     pub provider_names: Vec<String>,
     /// Name of the provider designated as active for LLM requests.
     pub active_provider: String,
-    /// Draft name for a new provider being added.
+    /// Draft name for a new custom provider being added.
     pub new_provider_name: String,
     /// Transient status message shown after save attempts.
     pub status: Option<SettingsStatus>,
+    /// Whether the currently selected provider is a preset.
+    ///
+    /// Drives UI decisions: base URL read-only, delete hidden, save skips
+    /// `from_raw` validation.
+    pub selected_is_preset: bool,
 }
 
 /// Outcome of the last settings save attempt.
@@ -86,13 +103,13 @@ pub enum SettingsMessage {
     SelectProvider(String),
     /// Designate a provider as the active one for LLM requests.
     SetActiveProvider(String),
-    /// Add a new provider with the name from `new_provider_name`.
+    /// Add a new custom provider with the name from `new_provider_name`.
     AddProvider,
-    /// Delete a provider by name (must not be the active one).
+    /// Delete a custom provider by name (presets cannot be deleted).
     DeleteProvider(String),
     /// Draft new-provider name changed.
     NewProviderNameChanged(String),
-    /// Draft base URL changed.
+    /// Draft base URL changed (only effective for custom providers).
     BaseUrlChanged(String),
     /// Draft API key changed.
     ApiKeyChanged(String),
@@ -111,26 +128,29 @@ impl SettingsState {
     pub fn from_providers(providers: &llm::LlmProviders) -> Self {
         let active = providers.active().to_string();
         let selected = active.clone();
-        let config = providers.get(&selected).cloned().unwrap_or_default();
+        let (base_url, api_key, model) = providers.raw_fields(&selected).unwrap_or_default();
+        let selected_is_preset = providers.is_preset(&selected);
         Self {
             selected_provider: selected,
-            base_url: config.base_url().to_string(),
-            api_key: config.api_key().to_string(),
-            model: config.model().to_string(),
+            base_url,
+            api_key,
+            model,
             provider_names: providers.provider_names(),
             active_provider: active,
             new_provider_name: String::new(),
             status: None,
+            selected_is_preset,
         }
     }
 
     /// Reload draft fields from the provider collection for the currently selected provider.
     fn load_selected_fields(&mut self, providers: &llm::LlmProviders) {
-        if let Some(config) = providers.get(&self.selected_provider) {
-            self.base_url = config.base_url().to_string();
-            self.api_key = config.api_key().to_string();
-            self.model = config.model().to_string();
+        if let Some((base_url, api_key, model)) = providers.raw_fields(&self.selected_provider) {
+            self.base_url = base_url;
+            self.api_key = api_key;
+            self.model = model;
         }
+        self.selected_is_preset = providers.is_preset(&self.selected_provider);
         self.provider_names = providers.provider_names();
         self.active_provider = providers.active().to_string();
     }
@@ -187,17 +207,23 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                     Some(SettingsStatus::Error("provider name cannot be empty".to_string()));
                 return Task::none();
             }
-            if state.providers.get(&name).is_some() {
+            if state.providers.provider_exists(&name) {
                 state.settings.status =
                     Some(SettingsStatus::Error(format!("provider \"{name}\" already exists")));
                 return Task::none();
             }
-            state.providers.upsert_provider(name.clone(), llm::LlmConfig::default());
-            state.settings.new_provider_name.clear();
-            state.settings.selected_provider = name.clone();
-            state.settings.load_selected_fields(&state.providers);
-            state.settings.status = None;
-            tracing::info!(provider = %name, "added new provider");
+            match state.providers.upsert_custom(name.clone(), llm::CustomProvider::default()) {
+                | Ok(()) => {
+                    state.settings.new_provider_name.clear();
+                    state.settings.selected_provider = name.clone();
+                    state.settings.load_selected_fields(&state.providers);
+                    state.settings.status = None;
+                    tracing::info!(provider = %name, "added new custom provider");
+                }
+                | Err(err) => {
+                    state.settings.status = Some(SettingsStatus::Error(format!("{err}")));
+                }
+            }
             Task::none()
         }
         | SettingsMessage::DeleteProvider(name) => {
@@ -213,7 +239,7 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                             Some(SettingsStatus::Error(format!("save failed: {err}")));
                         tracing::error!(%err, "failed to save provider deletion");
                     } else {
-                        tracing::info!(provider = %name, "deleted provider");
+                        tracing::info!(provider = %name, "deleted custom provider");
                     }
                 }
                 | Err(err) => {
@@ -242,36 +268,59 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             Task::none()
         }
         | SettingsMessage::Save => {
-            let draft = llm::LlmConfig::from_raw(
-                state.settings.base_url.clone(),
-                state.settings.api_key.clone(),
-                state.settings.model.clone(),
-            );
-            match draft {
-                | Ok(config) => {
-                    let provider_name = state.settings.selected_provider.clone();
-                    state.providers.upsert_provider(provider_name.clone(), config);
-                    match state.providers.save_to_file() {
-                        | Ok(()) => {
-                            state.settings.status = Some(SettingsStatus::Saved);
-                            state
-                                .errors
-                                .retain(|e| !matches!(e, super::error::AppError::Configuration(_)));
-                            tracing::info!(
-                                provider = %provider_name,
-                                "provider config saved to file"
-                            );
-                        }
-                        | Err(err) => {
-                            state.settings.status =
-                                Some(SettingsStatus::Error(format!("save failed: {err}")));
-                            tracing::error!(%err, "failed to save provider config");
+            let provider_name = state.settings.selected_provider.clone();
+            if state.providers.is_preset(&provider_name) {
+                // Preset: save api_key and model directly, no from_raw validation.
+                // The user may save an empty api_key (not yet configured).
+                let preset = llm::PresetProvider::from_name(&provider_name)
+                    .expect("is_preset returned true");
+                let config = llm::PresetConfig {
+                    api_key: state.settings.api_key.clone(),
+                    model: state.settings.model.clone(),
+                };
+                state.providers.update_preset(preset, config);
+            } else {
+                // Custom: validate all fields before saving.
+                let draft = llm::LlmConfig::from_raw(
+                    state.settings.base_url.clone(),
+                    state.settings.api_key.clone(),
+                    state.settings.model.clone(),
+                );
+                match draft {
+                    | Ok(_config) => {
+                        let custom = llm::CustomProvider {
+                            base_url: state.settings.base_url.clone(),
+                            api_key: state.settings.api_key.clone(),
+                            model: state.settings.model.clone(),
+                        };
+                        if let Err(err) =
+                            state.providers.upsert_custom(provider_name.clone(), custom)
+                        {
+                            state.settings.status = Some(SettingsStatus::Error(format!("{err}")));
+                            return Task::none();
                         }
                     }
+                    | Err(err) => {
+                        state.settings.status =
+                            Some(SettingsStatus::Error(format!("invalid config: {err}")));
+                        return Task::none();
+                    }
+                }
+            }
+            // Persist to disk.
+            match state.providers.save_to_file() {
+                | Ok(()) => {
+                    state.settings.status = Some(SettingsStatus::Saved);
+                    state.errors.retain(|e| !matches!(e, super::error::AppError::Configuration(_)));
+                    tracing::info!(
+                        provider = %provider_name,
+                        "provider config saved to file"
+                    );
                 }
                 | Err(err) => {
                     state.settings.status =
-                        Some(SettingsStatus::Error(format!("invalid config: {err}")));
+                        Some(SettingsStatus::Error(format!("save failed: {err}")));
+                    tracing::error!(%err, "failed to save provider config");
                 }
             }
             Task::none()
@@ -291,6 +340,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
 /// Layout: back button + title, then sections for provider management,
 /// provider config editing, appearance, and data paths, all within a
 /// centered scrollable container matching the document canvas width.
+///
+/// Preset providers show a read-only base URL and hide the delete button.
+/// Custom providers have all fields editable and can be deleted.
 pub fn view(state: &AppState) -> Element<'_, Message> {
     let settings = &state.settings;
     let palette = if state.is_dark { &theme::DARK } else { &theme::LIGHT };
@@ -334,7 +386,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let selector_row =
         row![provider_picker, active_indicator].spacing(12).align_y(iced::Alignment::Center);
 
-    let new_provider_input = text_input("New provider name...", &settings.new_provider_name)
+    let new_provider_input = text_input("New custom provider name...", &settings.new_provider_name)
         .on_input(|v| Message::Settings(SettingsMessage::NewProviderNameChanged(v)))
         .size(14)
         .padding(8);
@@ -348,8 +400,9 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 
     let mut provider_management = column![selector_row, add_row].spacing(10);
 
+    // Only custom providers can be deleted (presets are always available).
     let can_delete =
-        settings.provider_names.len() > 1 && settings.selected_provider != settings.active_provider;
+        !settings.selected_is_preset && settings.selected_provider != settings.active_provider;
     if can_delete {
         let delete_btn = button(text("Delete this provider").size(12).color(palette.danger))
             .on_press(Message::Settings(SettingsMessage::DeleteProvider(
@@ -365,10 +418,15 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     // ── Provider config editing section ──────────────────────────────
     let editing_title = format!("Configuration: {}", settings.selected_provider);
 
-    let base_url_input =
+    // For preset providers, base URL is fixed and shown as read-only text.
+    // For custom providers, base URL is an editable input field.
+    let base_url_field: Element<'_, Message> = if settings.selected_is_preset {
+        labeled_readonly("Base URL", &settings.base_url)
+    } else {
         labeled_input("Base URL", &settings.base_url, "https://api.example.com/v1", |v| {
             Message::Settings(SettingsMessage::BaseUrlChanged(v))
-        });
+        })
+    };
     let api_key_input = labeled_input("API Key", &settings.api_key, "sk-...", |v| {
         Message::Settings(SettingsMessage::ApiKeyChanged(v))
     });
@@ -393,7 +451,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let config_section = container(
         column![
             text(editing_title).size(16).font(theme::INTER),
-            column![base_url_input, api_key_input, model_input, save_row,].spacing(10),
+            column![base_url_field, api_key_input, model_input, save_row,].spacing(10),
         ]
         .spacing(12),
     )
@@ -456,6 +514,16 @@ fn labeled_input<'a>(
     column![
         text(label).size(13).font(theme::INTER).color(theme::LIGHT.accent_muted),
         text_input(placeholder, value).on_input(on_input).size(14).padding(8),
+    ]
+    .spacing(4)
+    .into()
+}
+
+/// A labeled read-only text display (used for preset base URLs).
+fn labeled_readonly<'a>(label: &'a str, value: &'a str) -> Element<'a, Message> {
+    column![
+        text(label).size(13).font(theme::INTER).color(theme::LIGHT.accent_muted),
+        text(value).size(14),
     ]
     .spacing(4)
     .into()

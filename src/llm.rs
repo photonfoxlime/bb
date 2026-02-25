@@ -4,30 +4,37 @@
 //!
 //! # Provider model
 //!
-//! [`LlmProviders`] holds a named set of [`LlmConfig`] entries plus an
-//! `active` key that selects the current provider. New config files are
-//! seeded with [`PROVIDER_PRESETS`] so users only need to fill in API keys.
-//! The on-disk format is a single TOML file at [`AppPaths::llm_config()`]:
+//! Providers come in two flavours:
+//!
+//! - **Preset providers** ([`PresetProvider`]) are well-known OpenAI-compatible
+//!   services whose base URLs are fixed at compile time. Users only supply an
+//!   API key (and optionally override the default model).
+//! - **Custom providers** ([`CustomProvider`]) are fully user-defined with
+//!   editable name, base URL, API key, and model.
+//!
+//! [`LlmProviders`] stores both sets and selects one as `active`. The on-disk
+//! format is a single TOML file at [`AppPaths::llm_config()`]:
 //!
 //! ```toml
 //! active = "openai"
 //!
-//! [providers.openai]
-//! base_url = "https://api.openai.com/v1"
-//! api_key  = ""
-//! model    = "gpt-4o"
+//! [presets.openai]
+//! api_key = "sk-..."
+//! model   = "gpt-4o"
+//!
+//! [custom.my-local]
+//! base_url = "https://my-proxy.example.com/v1"
+//! api_key  = "sk-..."
+//! model    = "llama-3"
 //! ```
 //!
 //! Environment variables (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`)
-//! override fields on the **active** provider only at load time.
-//!
-//! Environment variables (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`)
-//! override fields on the **active** provider only at load time.
+//! override fields on the **active** provider during [`LlmProviders::resolve_active`].
 
 use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{collections::BTreeMap, env, fs, io, path::PathBuf};
+use std::{collections::BTreeMap, env, fmt, fs, io, path::PathBuf};
 use thiserror::Error;
 
 /// Validated LLM endpoint configuration.
@@ -53,21 +60,6 @@ impl Default for LlmConfig {
 }
 
 impl LlmConfig {
-    /// Read-only access to the base URL.
-    pub fn base_url(&self) -> &str {
-        &self.base_url
-    }
-
-    /// Read-only access to the API key.
-    pub fn api_key(&self) -> &str {
-        &self.api_key
-    }
-
-    /// Read-only access to the model name.
-    pub fn model(&self) -> &str {
-        &self.model
-    }
-
     /// Validate and construct a config from raw string fields.
     ///
     /// Trims whitespace from all fields and enforces invariants.
@@ -96,83 +88,154 @@ impl LlmConfig {
     }
 }
 
-/// Pre-filled provider template for a known OpenAI-compatible LLM service.
+/// Known OpenAI-compatible LLM service with a fixed API endpoint.
 ///
-/// Each preset seeds one entry in new config files. Users only need to
-/// supply their API key (and optionally change the model).
-struct ProviderPreset {
-    /// Display name used as the provider key in the TOML file.
-    name: &'static str,
-    /// Pre-filled base URL for the OpenAI-compatible chat completions endpoint.
-    base_url: &'static str,
-    /// Suggested model name (empty when the provider offers too many to pick one).
-    model: &'static str,
+/// Each variant carries its base URL and a suggested default model.
+/// The `serde` representation is a lowercase string so that TOML keys
+/// like `[presets.openai]` deserialise naturally.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PresetProvider {
+    /// <https://api.openai.com/v1>
+    OpenAI,
+    /// <https://openrouter.ai/api/v1>
+    OpenRouter,
+    /// <https://api.deepseek.com>
+    DeepSeek,
+    /// <https://generativelanguage.googleapis.com/v1beta/openai>
+    Gemini,
+    /// <https://api.groq.com/openai/v1>
+    Groq,
 }
 
-/// Built-in provider presets for common OpenAI-compatible LLM services.
-///
-/// The first entry (`"openai"`) is the default active provider.
-const PROVIDER_PRESETS: &[ProviderPreset] = &[
-    ProviderPreset { name: "openai", base_url: "https://api.openai.com/v1", model: "gpt-4o" },
-    ProviderPreset { name: "openrouter", base_url: "https://openrouter.ai/api/v1", model: "" },
-    ProviderPreset {
-        name: "deepseek",
-        base_url: "https://api.deepseek.com",
-        model: "deepseek-chat",
-    },
-    ProviderPreset {
-        name: "gemini",
-        base_url: "https://generativelanguage.googleapis.com/v1beta/openai",
-        model: "gemini-2.0-flash",
-    },
-    ProviderPreset { name: "groq", base_url: "https://api.groq.com/openai/v1", model: "" },
+/// All preset provider variants in display order.
+const ALL_PRESETS: &[PresetProvider] = &[
+    PresetProvider::OpenAI,
+    PresetProvider::OpenRouter,
+    PresetProvider::DeepSeek,
+    PresetProvider::Gemini,
+    PresetProvider::Groq,
 ];
 
-/// Default active provider name (must match a [`PROVIDER_PRESETS`] entry).
+/// Default active provider name (must match a [`PresetProvider`] variant).
 const DEFAULT_ACTIVE_PROVIDER: &str = "openai";
 
-/// Named collection of [`LlmConfig`] entries with one designated active provider.
+impl PresetProvider {
+    /// Compile-time base URL for this provider's chat completions endpoint.
+    pub fn base_url(self) -> &'static str {
+        match self {
+            | Self::OpenAI => "https://api.openai.com/v1",
+            | Self::OpenRouter => "https://openrouter.ai/api/v1",
+            | Self::DeepSeek => "https://api.deepseek.com",
+            | Self::Gemini => "https://generativelanguage.googleapis.com/v1beta/openai",
+            | Self::Groq => "https://api.groq.com/openai/v1",
+        }
+    }
+
+    /// Suggested model name for new configurations. Empty when the service
+    /// offers too many models to pick a sensible default.
+    pub fn default_model(self) -> &'static str {
+        match self {
+            | Self::OpenAI => "gpt-4o",
+            | Self::DeepSeek => "deepseek-chat",
+            | Self::Gemini => "gemini-2.0-flash",
+            | Self::OpenRouter | Self::Groq => "",
+        }
+    }
+
+    /// Lowercase name used as the provider key in config files and UI.
+    pub fn name(self) -> &'static str {
+        match self {
+            | Self::OpenAI => "openai",
+            | Self::OpenRouter => "openrouter",
+            | Self::DeepSeek => "deepseek",
+            | Self::Gemini => "gemini",
+            | Self::Groq => "groq",
+        }
+    }
+
+    /// Look up a preset by its lowercase name.
+    pub fn from_name(name: &str) -> Option<Self> {
+        ALL_PRESETS.iter().copied().find(|p| p.name() == name)
+    }
+}
+
+impl fmt::Display for PresetProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.name())
+    }
+}
+
+/// User configuration for a preset provider.
+///
+/// The base URL is fixed by the [`PresetProvider`] variant; only the API key
+/// and model override are stored. An empty `api_key` means the user has not
+/// configured this preset yet (validation happens at [`LlmProviders::resolve_active`]).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PresetConfig {
+    /// API key for authentication. May be empty if not yet configured.
+    #[serde(default)]
+    pub api_key: String,
+    /// Model override. If empty, [`PresetProvider::default_model`] is used.
+    #[serde(default)]
+    pub model: String,
+}
+
+/// Fully user-defined LLM provider with all fields editable.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CustomProvider {
+    /// OpenAI-compatible chat completions endpoint URL.
+    pub base_url: String,
+    /// API key for authentication.
+    pub api_key: String,
+    /// Model identifier.
+    pub model: String,
+}
+
+impl Default for CustomProvider {
+    fn default() -> Self {
+        Self {
+            base_url: "https://api.example.com/v1".to_string(),
+            api_key: String::new(),
+            model: String::new(),
+        }
+    }
+}
+
+/// Named collection of preset and custom LLM providers with one active selection.
 ///
 /// Invariants:
-/// - `providers` is never empty.
-/// - `active` always refers to a key present in `providers`.
+/// - Every [`PresetProvider`] variant has an entry in `presets`.
+/// - `active` always refers to either a preset name or a key in `custom`.
 ///
-/// The TOML representation uses `active = "name"` plus a
-/// `[providers.<name>]` table per entry.
+/// The TOML representation uses `active = "name"` plus `[presets.<name>]`
+/// and `[custom.<name>]` tables.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmProviders {
-    /// Key into `providers` selecting the current configuration.
+    /// Name of the currently active provider (preset or custom).
     active: String,
-    /// Named provider configurations.
-    providers: BTreeMap<String, LlmConfig>,
+    /// Preset provider configurations keyed by [`PresetProvider`] variant.
+    presets: BTreeMap<PresetProvider, PresetConfig>,
+    /// User-defined provider configurations keyed by display name.
+    #[serde(default)]
+    custom: BTreeMap<String, CustomProvider>,
 }
 
 impl Default for LlmProviders {
     fn default() -> Self {
-        let providers = PROVIDER_PRESETS
-            .iter()
-            .map(|p| {
-                let config = LlmConfig {
-                    base_url: p.base_url.to_string(),
-                    api_key: String::new(),
-                    model: p.model.to_string(),
-                };
-                (p.name.to_string(), config)
-            })
-            .collect();
-        Self { active: DEFAULT_ACTIVE_PROVIDER.to_string(), providers }
+        let presets = ALL_PRESETS.iter().map(|&p| (p, PresetConfig::default())).collect();
+        Self { active: DEFAULT_ACTIVE_PROVIDER.to_string(), presets, custom: BTreeMap::new() }
     }
 }
 
 impl LlmProviders {
-    /// Load providers from the TOML config file, applying env-var overrides
-    /// to the active provider's fields.
+    /// Load providers from the TOML config file, falling back to defaults
+    /// if no file exists.
     ///
-    /// If no config file exists, a default template is written and returned.
+    /// Environment variable overrides are applied lazily during
+    /// [`resolve_active`](Self::resolve_active), not at load time.
     pub fn load() -> Result<Self, LlmConfigError> {
-        let mut providers = Self::from_file()?;
-        providers.apply_env_overrides();
-        Ok(providers)
+        Self::from_file()
     }
 
     /// Name of the currently active provider.
@@ -180,53 +243,107 @@ impl LlmProviders {
         &self.active
     }
 
-    /// Resolve the active provider's [`LlmConfig`], returning an error
-    /// if the active config has missing or invalid fields.
+    /// Resolve the active provider into a validated [`LlmConfig`].
+    ///
+    /// Applies `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` env var overrides
+    /// on top of the stored fields before validation.
     pub fn resolve_active(&self) -> Result<LlmConfig, LlmConfigError> {
-        let config = self.providers.get(&self.active).cloned().unwrap_or_default();
-        LlmConfig::from_raw(config.base_url.clone(), config.api_key.clone(), config.model.clone())
+        let (mut base_url, mut api_key, mut model) =
+            self.raw_fields(&self.active).unwrap_or_else(|| {
+                // Active name doesn't match anything; use empty defaults.
+                (String::new(), String::new(), String::new())
+            });
+
+        // Apply env-var overrides.
+        fn env_non_empty(var: &str) -> Option<String> {
+            env::var(var).ok().filter(|v| !v.is_empty())
+        }
+        if let Some(url) = env_non_empty("LLM_BASE_URL") {
+            base_url = url;
+        }
+        if let Some(key) = env_non_empty("LLM_API_KEY") {
+            api_key = key;
+        }
+        if let Some(m) = env_non_empty("LLM_MODEL") {
+            model = m;
+        }
+
+        LlmConfig::from_raw(base_url, api_key, model)
     }
 
-    /// Iterate over provider names in sorted order.
+    /// Ordered list of all provider names (presets first, then custom).
     pub fn provider_names(&self) -> Vec<String> {
-        self.providers.keys().cloned().collect()
+        let mut names: Vec<String> = ALL_PRESETS.iter().map(|p| p.name().to_string()).collect();
+        names.extend(self.custom.keys().cloned());
+        names
     }
 
-    /// Get a provider config by name.
-    pub fn get(&self, name: &str) -> Option<&LlmConfig> {
-        self.providers.get(name)
+    /// Raw `(base_url, api_key, model)` tuple for a provider by name.
+    ///
+    /// For presets the base URL comes from [`PresetProvider::base_url`]
+    /// and the model falls back to [`PresetProvider::default_model`] when empty.
+    pub fn raw_fields(&self, name: &str) -> Option<(String, String, String)> {
+        if let Some(preset) = PresetProvider::from_name(name) {
+            let config = self.presets.get(&preset).cloned().unwrap_or_default();
+            let model = if config.model.is_empty() {
+                preset.default_model().to_string()
+            } else {
+                config.model
+            };
+            return Some((preset.base_url().to_string(), config.api_key, model));
+        }
+        self.custom.get(name).map(|c| (c.base_url.clone(), c.api_key.clone(), c.model.clone()))
+    }
+
+    /// Whether a provider with the given name exists (preset or custom).
+    pub fn provider_exists(&self, name: &str) -> bool {
+        PresetProvider::from_name(name).is_some() || self.custom.contains_key(name)
+    }
+
+    /// Whether the given provider name refers to a preset.
+    pub fn is_preset(&self, name: &str) -> bool {
+        PresetProvider::from_name(name).is_some()
     }
 
     /// Set the active provider, returning an error if the name does not exist.
     pub fn set_active(&mut self, name: &str) -> Result<(), LlmConfigError> {
-        if !self.providers.contains_key(name) {
+        if !self.provider_exists(name) {
             return Err(LlmConfigError::ProviderNotFound(name.to_string()));
         }
         self.active = name.to_string();
         Ok(())
     }
 
-    /// Insert or update a named provider configuration.
+    /// Update the stored configuration for a preset provider.
+    pub fn update_preset(&mut self, provider: PresetProvider, config: PresetConfig) {
+        self.presets.insert(provider, config);
+    }
+
+    /// Insert or update a custom provider configuration.
     ///
-    /// If the name is new, it is added. If it already exists, its config
-    /// is replaced.
-    pub fn upsert_provider(&mut self, name: String, config: LlmConfig) {
-        self.providers.insert(name, config);
+    /// The name must not collide with a preset provider name.
+    pub fn upsert_custom(
+        &mut self, name: String, provider: CustomProvider,
+    ) -> Result<(), LlmConfigError> {
+        if PresetProvider::from_name(&name).is_some() {
+            return Err(LlmConfigError::NameCollision(name));
+        }
+        self.custom.insert(name, provider);
+        Ok(())
     }
 
     /// Remove a provider by name.
     ///
-    /// Returns `Err` if the provider is the currently active one (switch
-    /// active first) or if the name does not exist. The last remaining
-    /// provider cannot be removed.
+    /// Preset providers cannot be removed. The currently active provider
+    /// cannot be removed (switch active first).
     pub fn remove_provider(&mut self, name: &str) -> Result<(), LlmConfigError> {
+        if PresetProvider::from_name(name).is_some() {
+            return Err(LlmConfigError::CannotRemovePreset);
+        }
         if self.active == name {
             return Err(LlmConfigError::CannotRemoveActive);
         }
-        if self.providers.len() <= 1 {
-            return Err(LlmConfigError::CannotRemoveLast);
-        }
-        if self.providers.remove(name).is_none() {
+        if self.custom.remove(name).is_none() {
             return Err(LlmConfigError::ProviderNotFound(name.to_string()));
         }
         Ok(())
@@ -247,16 +364,20 @@ impl LlmProviders {
             .map_err(|err| LlmConfigError::from(ConfigFileError::write(path, err)))
     }
 
-    /// Load from the TOML file, migrating legacy single-config format if needed.
+    /// Load from the TOML file, writing defaults when no file exists.
     fn from_file() -> Result<Self, LlmConfigError> {
         let Some(path) = LlmConfig::config_path() else {
             return Err(LlmConfigError::MissingConfig);
         };
         match fs::read_to_string(&path) {
-            | Ok(contents) => Self::parse_or_migrate(&contents, &path),
+            | Ok(contents) => {
+                let providers: Self = toml::from_str(&contents).map_err(|err| {
+                    LlmConfigError::from(ConfigFileError::parse(path.clone(), err))
+                })?;
+                Ok(providers.ensure_all_presets())
+            }
             | Err(err) if err.kind() == io::ErrorKind::NotFound => {
                 let defaults = Self::default();
-                // Write default template.
                 if let Some(parent) = path.parent() {
                     fs::create_dir_all(parent).map_err(|err| {
                         LlmConfigError::from(ConfigFileError::create_dir(parent.to_path_buf(), err))
@@ -273,44 +394,28 @@ impl LlmProviders {
         }
     }
 
-    /// Try parsing as `LlmProviders` first; fall back to legacy `LlmConfig`.
-    fn parse_or_migrate(contents: &str, path: &PathBuf) -> Result<Self, LlmConfigError> {
-        // Try multi-provider format first.
-        if let Ok(providers) = toml::from_str::<Self>(contents) {
-            if !providers.providers.is_empty()
-                && providers.providers.contains_key(&providers.active)
-            {
-                return Ok(providers);
-            }
+    /// Ensure every preset variant has an entry, filling missing ones with defaults.
+    fn ensure_all_presets(mut self) -> Self {
+        for &preset in ALL_PRESETS {
+            self.presets.entry(preset).or_default();
         }
-        // Fall back: legacy single-config (flat base_url/api_key/model).
-        if let Ok(legacy) = toml::from_str::<LlmConfig>(contents) {
-            let mut providers = BTreeMap::new();
-            providers.insert(DEFAULT_ACTIVE_PROVIDER.to_string(), legacy);
-            return Ok(Self { active: DEFAULT_ACTIVE_PROVIDER.to_string(), providers });
-        }
-        Err(ConfigFileError::parse(path.clone(), toml::from_str::<Self>(contents).unwrap_err())
-            .into())
+        self
     }
+}
 
-    /// Apply `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` env vars to the
-    /// active provider's fields, overriding file-based values.
-    fn apply_env_overrides(&mut self) {
-        fn env_non_empty(var: &str) -> Option<String> {
-            env::var(var).ok().filter(|v| !v.is_empty())
-        }
-        let Some(active_config) = self.providers.get_mut(&self.active) else {
-            return;
-        };
-        if let Some(url) = env_non_empty("LLM_BASE_URL") {
-            active_config.base_url = url;
-        }
-        if let Some(key) = env_non_empty("LLM_API_KEY") {
-            active_config.api_key = key;
-        }
-        if let Some(model) = env_non_empty("LLM_MODEL") {
-            active_config.model = model;
-        }
+#[cfg(test)]
+impl LlmProviders {
+    /// Create a provider set with a single valid preset config for testing.
+    ///
+    /// The active provider (openai) has a valid API key and model so that
+    /// `resolve_active()` succeeds.
+    pub fn test_valid() -> Self {
+        let mut providers = Self::default();
+        providers.update_preset(
+            PresetProvider::OpenAI,
+            PresetConfig { api_key: "test-key".to_string(), model: "test-model".to_string() },
+        );
+        providers
     }
 }
 
@@ -326,8 +431,10 @@ pub enum LlmConfigError {
     ProviderNotFound(String),
     #[error("cannot remove the active provider")]
     CannotRemoveActive,
-    #[error("cannot remove the last provider")]
-    CannotRemoveLast,
+    #[error("cannot remove a preset provider")]
+    CannotRemovePreset,
+    #[error("name collides with a preset provider: {0}")]
+    NameCollision(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
@@ -1195,23 +1302,6 @@ struct ReduceResponsePayload {
 mod tests {
     use super::*;
 
-    impl LlmProviders {
-        /// Create a provider set with a single valid config for testing.
-        ///
-        /// The config passes [`LlmConfig::from_raw`] validation so that
-        /// `resolve_active()` succeeds.
-        pub fn test_valid() -> Self {
-            let config = LlmConfig {
-                base_url: "https://test.example.com/v1".to_string(),
-                api_key: "test-key".to_string(),
-                model: "test-model".to_string(),
-            };
-            let mut providers = BTreeMap::new();
-            providers.insert(DEFAULT_ACTIVE_PROVIDER.to_string(), config);
-            Self { active: DEFAULT_ACTIVE_PROVIDER.to_string(), providers }
-        }
-    }
-
     // ExpandSuggestion tests
     #[test]
     fn expand_suggestion_into_point() {
@@ -1559,5 +1649,274 @@ mod tests {
         assert!(extract_completion_content_from_chat_value(&value).is_none());
         assert_eq!(completion_tokens(&value), Some(500));
         assert_eq!(first_choice_finish_reason(&value), Some("length"));
+    }
+
+    // ── LlmProviders preset/custom logic ─────────────────────────────
+
+    #[test]
+    fn default_has_all_presets() {
+        let providers = LlmProviders::default();
+        for preset in ALL_PRESETS {
+            assert!(providers.provider_exists(preset.name()), "missing preset: {}", preset.name());
+        }
+    }
+
+    #[test]
+    fn default_active_is_openai() {
+        let providers = LlmProviders::default();
+        assert_eq!(providers.active(), "openai");
+    }
+
+    #[test]
+    fn provider_names_presets_before_custom() {
+        let mut providers = LlmProviders::default();
+        providers.upsert_custom("my-local".to_string(), CustomProvider::default()).unwrap();
+        let names = providers.provider_names();
+        let preset_count = ALL_PRESETS.len();
+        // All preset names come first.
+        for (i, preset) in ALL_PRESETS.iter().enumerate() {
+            assert_eq!(names[i], preset.name());
+        }
+        // Custom names follow.
+        assert_eq!(names[preset_count], "my-local");
+    }
+
+    #[test]
+    fn is_preset_true_for_known() {
+        let providers = LlmProviders::default();
+        assert!(providers.is_preset("openai"));
+        assert!(providers.is_preset("groq"));
+    }
+
+    #[test]
+    fn is_preset_false_for_custom() {
+        let mut providers = LlmProviders::default();
+        providers.upsert_custom("my-local".to_string(), CustomProvider::default()).unwrap();
+        assert!(!providers.is_preset("my-local"));
+    }
+
+    #[test]
+    fn raw_fields_preset_uses_fixed_base_url() {
+        let providers = LlmProviders::default();
+        let (base_url, _, _) = providers.raw_fields("openai").unwrap();
+        assert_eq!(base_url, PresetProvider::OpenAI.base_url());
+    }
+
+    #[test]
+    fn raw_fields_preset_falls_back_to_default_model() {
+        let providers = LlmProviders::default();
+        let (_, _, model) = providers.raw_fields("openai").unwrap();
+        assert_eq!(model, "gpt-4o");
+    }
+
+    #[test]
+    fn raw_fields_preset_uses_override_model() {
+        let mut providers = LlmProviders::default();
+        providers.update_preset(
+            PresetProvider::OpenAI,
+            PresetConfig { api_key: String::new(), model: "gpt-4-turbo".to_string() },
+        );
+        let (_, _, model) = providers.raw_fields("openai").unwrap();
+        assert_eq!(model, "gpt-4-turbo");
+    }
+
+    #[test]
+    fn raw_fields_custom_returns_stored_values() {
+        let mut providers = LlmProviders::default();
+        let custom = CustomProvider {
+            base_url: "https://my.api.com/v1".to_string(),
+            api_key: "sk-custom".to_string(),
+            model: "llama-3".to_string(),
+        };
+        providers.upsert_custom("my-local".to_string(), custom).unwrap();
+        let (base_url, api_key, model) = providers.raw_fields("my-local").unwrap();
+        assert_eq!(base_url, "https://my.api.com/v1");
+        assert_eq!(api_key, "sk-custom");
+        assert_eq!(model, "llama-3");
+    }
+
+    #[test]
+    fn raw_fields_unknown_returns_none() {
+        let providers = LlmProviders::default();
+        assert!(providers.raw_fields("nonexistent").is_none());
+    }
+
+    #[test]
+    fn upsert_custom_succeeds() {
+        let mut providers = LlmProviders::default();
+        let result = providers.upsert_custom("my-local".to_string(), CustomProvider::default());
+        assert!(result.is_ok());
+        assert!(providers.provider_exists("my-local"));
+    }
+
+    #[test]
+    fn upsert_custom_name_collision_rejected() {
+        let mut providers = LlmProviders::default();
+        let result = providers.upsert_custom("openai".to_string(), CustomProvider::default());
+        assert_eq!(result, Err(LlmConfigError::NameCollision("openai".to_string())));
+    }
+
+    #[test]
+    fn remove_preset_rejected() {
+        let mut providers = LlmProviders::default();
+        let result = providers.remove_provider("openai");
+        assert_eq!(result, Err(LlmConfigError::CannotRemovePreset));
+    }
+
+    #[test]
+    fn remove_active_rejected() {
+        let mut providers = LlmProviders::default();
+        providers.upsert_custom("my-local".to_string(), CustomProvider::default()).unwrap();
+        providers.set_active("my-local").unwrap();
+        let result = providers.remove_provider("my-local");
+        assert_eq!(result, Err(LlmConfigError::CannotRemoveActive));
+    }
+
+    #[test]
+    fn remove_custom_succeeds() {
+        let mut providers = LlmProviders::default();
+        providers.upsert_custom("my-local".to_string(), CustomProvider::default()).unwrap();
+        let result = providers.remove_provider("my-local");
+        assert!(result.is_ok());
+        assert!(!providers.provider_exists("my-local"));
+    }
+
+    #[test]
+    fn remove_unknown_rejected() {
+        let mut providers = LlmProviders::default();
+        let result = providers.remove_provider("nonexistent");
+        assert_eq!(result, Err(LlmConfigError::ProviderNotFound("nonexistent".to_string())));
+    }
+
+    #[test]
+    fn set_active_to_preset_succeeds() {
+        let mut providers = LlmProviders::default();
+        assert!(providers.set_active("deepseek").is_ok());
+        assert_eq!(providers.active(), "deepseek");
+    }
+
+    #[test]
+    fn set_active_to_custom_succeeds() {
+        let mut providers = LlmProviders::default();
+        providers.upsert_custom("my-local".to_string(), CustomProvider::default()).unwrap();
+        assert!(providers.set_active("my-local").is_ok());
+        assert_eq!(providers.active(), "my-local");
+    }
+
+    #[test]
+    fn set_active_to_unknown_rejected() {
+        let mut providers = LlmProviders::default();
+        let result = providers.set_active("nonexistent");
+        assert_eq!(result, Err(LlmConfigError::ProviderNotFound("nonexistent".to_string())));
+    }
+
+    #[test]
+    fn update_preset_overwrites() {
+        let mut providers = LlmProviders::default();
+        let config =
+            PresetConfig { api_key: "new-key".to_string(), model: "new-model".to_string() };
+        providers.update_preset(PresetProvider::Gemini, config);
+        let (_, api_key, model) = providers.raw_fields("gemini").unwrap();
+        assert_eq!(api_key, "new-key");
+        assert_eq!(model, "new-model");
+    }
+
+    #[test]
+    fn ensure_all_presets_fills_missing() {
+        let mut providers = LlmProviders::default();
+        // Remove a preset entry from the inner map to simulate a stale config file.
+        providers.presets.remove(&PresetProvider::Groq);
+        assert!(providers.presets.get(&PresetProvider::Groq).is_none());
+        let providers = providers.ensure_all_presets();
+        assert!(providers.presets.get(&PresetProvider::Groq).is_some());
+    }
+
+    #[test]
+    fn resolve_active_with_valid_preset() {
+        let providers = LlmProviders::test_valid();
+        let config = providers.resolve_active().unwrap();
+        assert_eq!(config.base_url, PresetProvider::OpenAI.base_url());
+        assert_eq!(config.api_key, "test-key");
+        assert_eq!(config.model, "test-model");
+    }
+
+    #[test]
+    fn resolve_active_with_empty_api_key_fails() {
+        let providers = LlmProviders::default();
+        let result = providers.resolve_active();
+        assert!(matches!(
+            result,
+            Err(LlmConfigError::InvalidConfig(InvalidConfigReason::ApiKeyEmpty))
+        ));
+    }
+
+    #[test]
+    fn toml_round_trip() {
+        let mut providers = LlmProviders::default();
+        providers.update_preset(
+            PresetProvider::OpenAI,
+            PresetConfig { api_key: "sk-test".to_string(), model: "gpt-4o".to_string() },
+        );
+        providers
+            .upsert_custom(
+                "my-local".to_string(),
+                CustomProvider {
+                    base_url: "https://proxy.example.com/v1".to_string(),
+                    api_key: "sk-proxy".to_string(),
+                    model: "llama-3".to_string(),
+                },
+            )
+            .unwrap();
+        providers.set_active("my-local").unwrap();
+
+        let toml_str = toml::to_string_pretty(&providers).unwrap();
+        let restored: LlmProviders = toml::from_str(&toml_str).unwrap();
+
+        assert_eq!(restored.active(), "my-local");
+        assert_eq!(restored.raw_fields("openai").unwrap(), providers.raw_fields("openai").unwrap());
+        assert_eq!(
+            restored.raw_fields("my-local").unwrap(),
+            providers.raw_fields("my-local").unwrap()
+        );
+    }
+
+    #[test]
+    fn preset_from_name_round_trip() {
+        for preset in ALL_PRESETS {
+            assert_eq!(PresetProvider::from_name(preset.name()), Some(*preset));
+        }
+        assert_eq!(PresetProvider::from_name("nonexistent"), None);
+    }
+
+    #[test]
+    fn preset_display_matches_name() {
+        for preset in ALL_PRESETS {
+            assert_eq!(preset.to_string(), preset.name());
+        }
+    }
+
+    #[test]
+    fn provider_exists_covers_both_kinds() {
+        let mut providers = LlmProviders::default();
+        providers.upsert_custom("my-local".to_string(), CustomProvider::default()).unwrap();
+        assert!(providers.provider_exists("openai"));
+        assert!(providers.provider_exists("my-local"));
+        assert!(!providers.provider_exists("nonexistent"));
+    }
+
+    #[test]
+    fn upsert_custom_update_existing() {
+        let mut providers = LlmProviders::default();
+        providers.upsert_custom("my-local".to_string(), CustomProvider::default()).unwrap();
+        let updated = CustomProvider {
+            base_url: "https://updated.example.com/v1".to_string(),
+            api_key: "new-key".to_string(),
+            model: "new-model".to_string(),
+        };
+        providers.upsert_custom("my-local".to_string(), updated).unwrap();
+        let (base_url, api_key, model) = providers.raw_fields("my-local").unwrap();
+        assert_eq!(base_url, "https://updated.example.com/v1");
+        assert_eq!(api_key, "new-key");
+        assert_eq!(model, "new-model");
     }
 }
