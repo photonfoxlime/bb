@@ -10,16 +10,31 @@ use serde_json::Value;
 use std::{env, fs, io, path::PathBuf};
 use thiserror::Error;
 
+/// Classification of LLM task types, each with configurable model.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LlmTask {
+    /// Reduce a block's point to be more concise.
+    Reduce,
+    /// Expand a block into rewrite + child point suggestions.
+    Expand,
+    /// One-time instruction inquiry.
+    Inquire,
+}
+
 /// Validated LLM endpoint configuration.
 ///
 /// Invariants (enforced by [`LlmConfig::load`]):
 /// - `base_url` starts with `https://`
-/// - `api_key` and `model` are non-empty after trimming
+/// - `api_key` and `default_model` are non-empty after trimming
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConfig {
     base_url: String,
     api_key: String,
-    model: String,
+    /// Model used when task-specific model is not configured.
+    default_model: String,
+    /// Per-task model overrides. If a task type is not present, uses `default_model`.
+    task_models: std::collections::HashMap<LlmTask, String>,
 }
 
 impl Default for LlmConfig {
@@ -27,7 +42,8 @@ impl Default for LlmConfig {
         Self {
             base_url: "https://api.example.com/v1".to_string(),
             api_key: String::new(),
-            model: String::new(),
+            default_model: String::new(),
+            task_models: std::collections::HashMap::new(),
         }
     }
 }
@@ -74,7 +90,19 @@ impl LlmConfig {
 
         let mut base_url = retrieve_non_empty_env_var("LLM_BASE_URL");
         let mut api_key = retrieve_non_empty_env_var("LLM_API_KEY");
-        let mut model = retrieve_non_empty_env_var("LLM_MODEL");
+        let mut default_model = retrieve_non_empty_env_var("LLM_MODEL");
+
+        // Load per-task model overrides from env vars
+        let mut task_models = std::collections::HashMap::new();
+        if let Some(model) = retrieve_non_empty_env_var("LLM_MODEL_REDUCE") {
+            task_models.insert(LlmTask::Reduce, model);
+        }
+        if let Some(model) = retrieve_non_empty_env_var("LLM_MODEL_EXPAND") {
+            task_models.insert(LlmTask::Expand, model);
+        }
+        if let Some(model) = retrieve_non_empty_env_var("LLM_MODEL_INQUIRE") {
+            task_models.insert(LlmTask::Inquire, model);
+        }
 
         if let Some(file_config) = Self::from_file()? {
             if base_url.is_none() {
@@ -83,8 +111,12 @@ impl LlmConfig {
             if api_key.is_none() {
                 api_key = Some(file_config.api_key);
             }
-            if model.is_none() {
-                model = Some(file_config.model);
+            if default_model.is_none() {
+                default_model = Some(file_config.default_model);
+            }
+            // Merge file task models with env var task models (env takes precedence)
+            for (task, model) in file_config.task_models {
+                task_models.entry(task).or_insert(model);
             }
         }
 
@@ -94,13 +126,13 @@ impl LlmConfig {
         let Some(api_key) = api_key else {
             return Err(LlmConfigError::MissingConfig);
         };
-        let Some(model) = model else {
+        let Some(default_model) = default_model else {
             return Err(LlmConfigError::MissingConfig);
         };
 
         let base_url = base_url.trim().to_string();
         let api_key = api_key.trim().to_string();
-        let model = model.trim().to_string();
+        let default_model = default_model.trim().to_string();
 
         if !base_url.starts_with("https://") {
             return Err(LlmConfigError::InvalidConfig(InvalidConfigReason::BaseUrlNotHttps));
@@ -108,11 +140,16 @@ impl LlmConfig {
         if api_key.is_empty() {
             return Err(LlmConfigError::InvalidConfig(InvalidConfigReason::ApiKeyEmpty));
         }
-        if model.is_empty() {
+        if default_model.is_empty() {
             return Err(LlmConfigError::InvalidConfig(InvalidConfigReason::ModelEmpty));
         }
 
-        Ok(Self { base_url, api_key, model })
+        // Trim task models
+        for (_, model) in &mut task_models {
+            *model = model.trim().to_string();
+        }
+
+        Ok(Self { base_url, api_key, default_model, task_models })
     }
 
     fn config_path() -> Option<PathBuf> {
@@ -128,6 +165,13 @@ impl LlmConfig {
             rendered.push('\n');
         }
         rendered
+    }
+
+    /// Get the model to use for a specific task.
+    ///
+    /// Returns the task-specific model if configured, otherwise falls back to `default_model`.
+    pub fn model_for_task(&self, task: LlmTask) -> &str {
+        self.task_models.get(&task).map(|s| s.as_str()).unwrap_or(&self.default_model)
     }
 }
 
@@ -428,7 +472,7 @@ impl LlmClient {
             !context.existing_children.is_empty() || !context.friend_blocks.is_empty();
         let prompt = Prompt::reduce_from_context(context, instruction);
         let max_tokens = if has_children { 400 } else { 200 };
-        let content = self.request_completion("reduce", prompt, 0.2, max_tokens).await?;
+        let content = self.request_completion(LlmTask::Reduce, prompt, 0.2, max_tokens).await?;
 
         if has_children {
             // Try structured JSON first; fall back to plain-text reduction.
@@ -475,7 +519,7 @@ impl LlmClient {
         }
 
         let prompt = Prompt::expand_from_context(context, instruction);
-        let content = self.request_completion("expand", prompt, 0.7, 500).await?;
+        let content = self.request_completion(LlmTask::Expand, prompt, 0.7, 500).await?;
         let payload: ExpandResponsePayload =
             serde_json::from_str(&content).map_err(|_| LlmError::InvalidExpandResponse)?;
 
@@ -516,22 +560,24 @@ impl LlmClient {
         }
 
         let prompt = Prompt::inquire_from_context(context, instruction);
-        let content = self.request_completion("inquire", prompt, 0.7, 700).await?;
+        let content = self.request_completion(LlmTask::Inquire, prompt, 0.7, 700).await?;
 
         tracing::info!(chars = content.len(), "llm inquire response");
         Ok(content.trim().to_string())
     }
 
     async fn request_completion(
-        &self, purpose: &'static str, prompt: Prompt, temperature: f32, max_completion_tokens: u32,
+        &self, task: LlmTask, prompt: Prompt, temperature: f32, max_completion_tokens: u32,
     ) -> Result<String, LlmError> {
+        let model = self.config.model_for_task(task);
         let url = self.chat_url();
-        tracing::info!(model = %self.config.model, url = %url, purpose, max_completion_tokens, "llm request");
-        let (value, body) =
-            self.send_completion_request(&url, &prompt, temperature, max_completion_tokens).await?;
+        tracing::info!(model, url = %url, task = ?task, max_completion_tokens, "llm request");
+        let (value, body) = self
+            .send_completion_request(&url, model, &prompt, temperature, max_completion_tokens)
+            .await?;
 
         if let Some(content) = extract_completion_content_from_chat_value(&value) {
-            tracing::info!(purpose, chars = content.len(), "llm completion response");
+            tracing::info!(task = ?task, chars = content.len(), "llm completion response");
             return Ok(content);
         }
 
@@ -539,17 +585,17 @@ impl LlmClient {
             let retry_max_tokens = (max_completion_tokens.saturating_mul(2)).min(2_000);
             if retry_max_tokens > max_completion_tokens {
                 tracing::warn!(
-                    purpose,
+                    task = ?task,
                     first_max_completion_tokens = max_completion_tokens,
                     retry_max_completion_tokens = retry_max_tokens,
                     "llm response reached token limit with no extractable text; retrying once"
                 );
                 let (retry_value, retry_body) = self
-                    .send_completion_request(&url, &prompt, temperature, retry_max_tokens)
+                    .send_completion_request(&url, model, &prompt, temperature, retry_max_tokens)
                     .await?;
                 if let Some(content) = extract_completion_content_from_chat_value(&retry_value) {
                     tracing::info!(
-                        purpose,
+                        task = ?task,
                         chars = content.len(),
                         max_completion_tokens = retry_max_tokens,
                         "llm completion response after token-limit retry"
@@ -557,7 +603,7 @@ impl LlmClient {
                     return Ok(content);
                 }
                 tracing::error!(
-                    purpose,
+                    task = ?task,
                     body_preview = %preview_body(&retry_body),
                     finish_reason = ?first_choice_finish_reason(&retry_value),
                     completion_tokens = ?completion_tokens(&retry_value),
@@ -568,7 +614,7 @@ impl LlmClient {
         }
 
         tracing::error!(
-            purpose,
+            task = ?task,
             body_preview = %preview_body(&body),
             finish_reason = ?first_choice_finish_reason(&value),
             completion_tokens = ?completion_tokens(&value),
@@ -578,10 +624,11 @@ impl LlmClient {
     }
 
     async fn send_completion_request(
-        &self, url: &str, prompt: &Prompt, temperature: f32, max_completion_tokens: u32,
+        &self, url: &str, model: &str, prompt: &Prompt, temperature: f32,
+        max_completion_tokens: u32,
     ) -> Result<(Value, String), LlmError> {
         let request = ChatRequest {
-            model: self.config.model.clone(),
+            model: model.to_string(),
             messages: vec![
                 Message { role: Role::System, content: prompt.system.clone() },
                 Message { role: Role::User, content: prompt.user.clone() },
