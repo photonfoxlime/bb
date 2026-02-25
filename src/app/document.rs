@@ -30,7 +30,7 @@ use crate::{
 };
 use iced::{
     Element, Fill, Length, Padding,
-    widget::{button, column, container, row, rule, scrollable, space, text, text_editor, tooltip},
+    widget::{button, column, container, row, rule, scrollable, space, stack, text, text_editor, tooltip},
 };
 use lucide_icons::iced as icons;
 
@@ -50,7 +50,7 @@ impl<'a> DocumentView<'a> {
         let Self { state } = self;
         let mut layout = column![].spacing(theme::LAYOUT_GAP);
 
-        // Settings gear button in the top-right corner.
+        // Settings gear button – rendered as a floating overlay at the bottom-right.
         let gear_button = button(
             lucide_icons::iced::icon_settings()
                 .size(16)
@@ -59,13 +59,6 @@ impl<'a> DocumentView<'a> {
         .on_press(Message::Settings(SettingsMessage::Open))
         .style(theme::action_button)
         .padding(theme::BUTTON_PAD);
-
-        let top_bar = container(
-            row![iced::widget::Space::new().width(Fill), gear_button]
-                .align_y(iced::Alignment::Center),
-        )
-        .padding(iced::Padding::new(4.0).left(theme::CANVAS_PAD).right(theme::CANVAS_PAD));
-        layout = layout.push(top_bar);
 
         if let Some(error_banner) = ErrorBanner::from_state(state) {
             let mut banner_content = column![
@@ -111,7 +104,19 @@ impl<'a> DocumentView<'a> {
             .height(Fill),
         );
 
-        container(layout).style(theme::canvas).width(Fill).height(Fill).into()
+        let main_content = container(layout).style(theme::canvas).width(Fill).height(Fill);
+
+        let floating_gear = container(
+            container(gear_button)
+                .width(Fill)
+                .align_y(iced::alignment::Vertical::Top)
+                .align_x(iced::alignment::Horizontal::Right)
+                .padding(iced::Padding::new(16.0).right(theme::CANVAS_PAD).bottom(16.0)),
+        )
+        .width(Fill)
+        .height(Fill);
+
+        stack![main_content, floating_gear].width(Fill).height(Fill).into()
     }
 }
 
