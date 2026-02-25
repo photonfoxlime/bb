@@ -2,7 +2,6 @@
 rust_i18n::i18n!("locales", fallback = "en-US");
 
 mod app;
-mod config;
 mod i18n;
 mod store;
 mod llm;
@@ -12,4 +11,3 @@ mod undo;
 
 /// Re-exports.
 pub use app::AppState;
-// pub use config::AppConfig;

@@ -3,6 +3,7 @@
 //! Domain semantics are documented next to the owning handlers and state types.
 
 mod action_bar;
+mod config;
 mod diff;
 mod document;
 mod editor_buffers;
@@ -38,7 +39,6 @@ use self::{
     undo_redo::UndoRedoMessage,
 };
 use crate::{
-    config::{self, AppConfig},
     i18n, llm,
     store::{BlockId, BlockStore, StoreLoadError},
     undo::UndoHistory,
@@ -48,6 +48,8 @@ use iced::{
     widget::{self, text_editor},
 };
 use std::time::Duration;
+
+pub use config::AppConfig;
 
 /// Default capacity: 64 undo steps.
 const UNDO_CAPACITY: usize = 64;
@@ -141,7 +143,7 @@ impl AppState {
 
         let is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
         tracing::info!(is_dark, "detected system appearance");
-        let config = config::load();
+        let config = crate::app::config::load();
         let settings = SettingsState::from_providers(&providers, &config);
         Self {
             store,
@@ -167,8 +169,8 @@ impl AppState {
     }
 
     /// Persist app config to `<config_dir>/app.toml`. Call when config changes (e.g. locale from settings).
-    pub fn save_app_config(&self) -> Result<(), config::SaveError> {
-        config::save(&self.config)
+    pub fn save_app_config(&self) -> Result<(), crate::app::config::SaveError> {
+        crate::app::config::save(&self.config)
     }
 
     /// Effective UI locale for this session (config → env → default, normalized).

@@ -2,7 +2,7 @@
 //!
 //! Stores optional UI locale and other app-level preferences in
 //! `<config_dir>/app.toml`. Loaded at startup; changes are saved via
-//! [`save`] or [`AppState::save_app_config`][crate::AppState::save_app_config].
+//! [`save`] or [`AppState::save_app_config`](crate::app::AppState::save_app_config).
 
 use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
@@ -22,12 +22,12 @@ pub struct AppConfig {
 /// Load app config from `<config_dir>/app.toml`. Returns default on missing or parse error.
 pub fn load() -> AppConfig {
     let path = match AppPaths::app_config() {
-        Some(p) => p,
-        None => return AppConfig::default(),
+        | Some(p) => p,
+        | None => return AppConfig::default(),
     };
     let contents = match fs::read_to_string(&path) {
-        Ok(c) => c,
-        Err(e) => {
+        | Ok(c) => c,
+        | Err(e) => {
             if e.kind() != io::ErrorKind::NotFound {
                 tracing::warn!(path = %path.display(), error = %e, "failed to read app config");
             }

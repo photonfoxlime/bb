@@ -16,7 +16,7 @@
 //! macro is in `lib.rs` so the whole crate shares one loader and `t!(...)`
 //! resolves in all UI modules.
 
-use crate::config::AppConfig;
+use crate::app::AppConfig;
 
 /// Default UI locale when no config locale and no env are available.
 pub const DEFAULT_LOCALE: &str = "en-US";

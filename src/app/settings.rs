@@ -30,7 +30,7 @@
 //!   standard Elm-architecture `update` cycle.
 
 use super::{AppState, Message, ViewMode};
-use crate::config::{self, AppConfig};
+use super::config::{self, AppConfig};
 use crate::i18n;
 use crate::llm;
 use crate::paths::AppPaths;
