@@ -1,4 +1,4 @@
-//! Immutable tree renderer from `AppState` to Iced elements.
+//! Immutable document and tree renderer from `AppState` to Iced elements.
 //!
 //! Rendering semantics:
 //! - mount and fold state are represented through disclosure marker behavior,
@@ -12,52 +12,107 @@
 //!   expansion/reduction draft panels), listing each friend's point text and
 //!   optional perspective, with a remove button per friend.
 
-use super::action_bar::{
-    ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
-    ViewportBucket, action_to_message, build_action_bar_vm, project_for_viewport,
-    shortcut_to_action,
-};
-use super::diff::{WordChange, word_diff};
-use super::instruction_panel;
 use super::{
-    AppState, EditMessage, ExpandMessage, Message, MountFileMessage, OverlayMessage, ReduceMessage,
-    ShortcutMessage, StructureMessage,
+    AppState, EditMessage, ErrorBanner, ErrorMessage, ExpandMessage, Message, MountFileMessage,
+    OverlayMessage, ReduceMessage, ShortcutMessage, StructureMessage,
+    action_bar::{
+        ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
+        ViewportBucket, action_to_message, build_action_bar_vm, project_for_viewport,
+        shortcut_to_action,
+    },
+    diff::{WordChange, word_diff},
+    instruction_panel,
+    settings::SettingsMessage,
 };
-use crate::store::{BlockId, ExpansionDraftRecord, FriendBlock, ReductionDraftRecord};
-use crate::theme;
-use iced::widget::{button, column, container, row, rule, space, text, text_editor, tooltip};
-use iced::{Element, Fill, Length, Padding};
+use crate::{
+    store::{BlockId, ExpansionDraftRecord, FriendBlock, ReductionDraftRecord},
+    theme,
+};
+use iced::{
+    Element, Fill, Length, Padding,
+    widget::{button, column, container, row, rule, scrollable, space, text, text_editor, tooltip},
+};
 use lucide_icons::iced as icons;
 
-fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
-    let icon = match id {
-        | ActionId::Expand => icons::icon_maximize_2(),
-        | ActionId::Reduce => icons::icon_minimize_2(),
-        | ActionId::Cancel => icons::icon_circle_x(),
-        | ActionId::AddChild => icons::icon_corner_down_right(),
-        | ActionId::AddParent => icons::icon_corner_up_left(),
-        | ActionId::AcceptAll => icons::icon_check_check(),
-        | ActionId::Retry => icons::icon_refresh_cw(),
-        | ActionId::DismissDraft => icons::icon_x(),
-        | ActionId::CollapseBranch => icons::icon_chevron_down(),
-        | ActionId::ExpandBranch => icons::icon_chevron_right(),
-        | ActionId::AddSibling => icons::icon_plus(),
-        | ActionId::DuplicateBlock => icons::icon_copy(),
-        | ActionId::ArchiveBlock => icons::icon_archive(),
-        | ActionId::SaveToFile => icons::icon_hard_drive_download(),
-        | ActionId::LoadFromFile => icons::icon_hard_drive_upload(),
-    };
-    icon.size(16).line_height(iced::widget::text::LineHeight::Relative(1.0)).into()
+/// Stateless view that borrows `AppState` to render the document.
+///
+/// All rendering methods return iced `Element`s; no mutation of state occurs.
+pub(super) struct DocumentView<'a> {
+    state: &'a AppState,
 }
 
-fn centered_icon<'a>(icon: Element<'a, Message>) -> Element<'a, Message> {
-    container(icon)
-        .padding(theme::BUTTON_PAD)
-        .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-        .align_x(iced::alignment::Horizontal::Center)
-        .align_y(iced::alignment::Vertical::Center)
-        .into()
+impl<'a> DocumentView<'a> {
+    pub(super) fn new(state: &'a AppState) -> Self {
+        Self { state }
+    }
+
+    pub(super) fn view(&self) -> Element<'a, Message> {
+        let Self { state } = self;
+        let mut layout = column![].spacing(theme::LAYOUT_GAP);
+
+        // Settings gear button in the top-right corner.
+        let gear_button = button(
+            lucide_icons::iced::icon_settings()
+                .size(16)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
+        )
+        .on_press(Message::Settings(SettingsMessage::Open))
+        .style(theme::action_button)
+        .padding(theme::BUTTON_PAD);
+
+        let top_bar = container(
+            row![iced::widget::Space::new().width(Fill), gear_button]
+                .align_y(iced::Alignment::Center),
+        )
+        .padding(iced::Padding::new(4.0).left(theme::CANVAS_PAD).right(theme::CANVAS_PAD));
+        layout = layout.push(top_bar);
+
+        if let Some(error_banner) = ErrorBanner::from_state(state) {
+            let mut banner_content = column![
+                row![
+                    text(error_banner.title()),
+                    button("Dismiss").on_press(Message::Error(ErrorMessage::DismissAt(
+                        error_banner.latest.index
+                    ))),
+                ]
+                .spacing(8)
+            ]
+            .spacing(4);
+            for entry in &error_banner.previous_entries {
+                banner_content = banner_content.push(
+                    row![
+                        text(format!("Earlier: {}", entry.message)),
+                        button("Dismiss")
+                            .on_press(Message::Error(ErrorMessage::DismissAt(entry.index))),
+                    ]
+                    .spacing(8),
+                );
+            }
+            if error_banner.hidden_previous_count > 0 {
+                banner_content = banner_content.push(text(format!(
+                    "...and {} older error(s)",
+                    error_banner.hidden_previous_count
+                )));
+            }
+            layout = layout.push(
+                container(banner_content).style(theme::error_banner).padding(theme::BANNER_PAD),
+            );
+        }
+
+        let tree = TreeView::new(state).render_roots();
+        let content = container(tree).padding(theme::CANVAS_PAD).max_width(theme::CANVAS_MAX_WIDTH);
+        layout = layout.push(
+            scrollable(
+                container(content)
+                    .width(Fill)
+                    .center_x(Fill)
+                    .padding(iced::Padding::ZERO.top(theme::CANVAS_TOP)),
+            )
+            .height(Fill),
+        );
+
+        container(layout).style(theme::canvas).width(Fill).height(Fill).into()
+    }
 }
 
 /// Stateless view that borrows `AppState` to render the block tree.
@@ -808,4 +863,35 @@ fn editor_key_binding(
     }
 
     text_editor::Binding::from_key_press(key_press)
+}
+
+fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
+    let icon = match id {
+        | ActionId::Expand => icons::icon_maximize_2(),
+        | ActionId::Reduce => icons::icon_minimize_2(),
+        | ActionId::Cancel => icons::icon_circle_x(),
+        | ActionId::AddChild => icons::icon_corner_down_right(),
+        | ActionId::AddParent => icons::icon_corner_up_left(),
+        | ActionId::AcceptAll => icons::icon_check_check(),
+        | ActionId::Retry => icons::icon_refresh_cw(),
+        | ActionId::DismissDraft => icons::icon_x(),
+        | ActionId::CollapseBranch => icons::icon_chevron_down(),
+        | ActionId::ExpandBranch => icons::icon_chevron_right(),
+        | ActionId::AddSibling => icons::icon_plus(),
+        | ActionId::DuplicateBlock => icons::icon_copy(),
+        | ActionId::ArchiveBlock => icons::icon_archive(),
+        | ActionId::SaveToFile => icons::icon_hard_drive_download(),
+        | ActionId::LoadFromFile => icons::icon_hard_drive_upload(),
+    };
+    icon.size(16).line_height(iced::widget::text::LineHeight::Relative(1.0)).into()
+}
+
+fn centered_icon<'a>(icon: Element<'a, Message>) -> Element<'a, Message> {
+    container(icon)
+        .padding(theme::BUTTON_PAD)
+        .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .align_x(iced::alignment::Horizontal::Center)
+        .align_y(iced::alignment::Vertical::Center)
+        .into()
 }

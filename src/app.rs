@@ -1,54 +1,43 @@
 //! Application orchestration layer for the Iced UI.
 //!
-//! Top-level routing is `update -> AppState::dispatch_message`. Domain semantics
-//! are documented next to the owning handlers and state types.
+//! Top-level routing is [`AppState::update`] -> [`AppState::dispatch_message`].
+//! Domain semantics are documented next to the owning handlers and state types.
 
 mod action_bar;
 mod diff;
+mod document;
 mod editor_buffers;
 mod error;
 mod instruction_panel;
 mod llm_requests;
-mod view;
-pub(crate) mod settings;
+mod settings;
 
-use crate::llm;
-use crate::paths::AppPaths;
-use crate::store::{
-    BlockId, BlockStore, ExpansionDraftRecord, FriendBlock, MountFormat, ReductionDraftRecord,
-    StoreLoadError,
+use self::{
+    action_bar::{
+        ActionAvailability, ActionId, RowContext, ViewportBucket, action_to_message_by_id,
+        build_action_bar_vm, project_for_viewport, shortcut_to_action,
+    },
+    editor_buffers::EditorBuffers,
+    instruction_panel::{InstructionPanel, InstructionPanelMessage},
+    llm_requests::{LlmRequests, RequestSignature},
+    settings::{SettingsMessage, SettingsState, ViewMode},
 };
-use crate::theme;
-use crate::undo::UndoHistory;
-use action_bar::{
-    ActionAvailability, ActionId, RowContext, ViewportBucket, action_to_message_by_id,
-    build_action_bar_vm, project_for_viewport, shortcut_to_action,
+use crate::{
+    llm,
+    paths::AppPaths,
+    store::{
+        BlockId, BlockStore, ExpansionDraftRecord, FriendBlock, MountFormat, ReductionDraftRecord,
+        StoreLoadError,
+    },
+    undo::UndoHistory,
 };
-use editor_buffers::EditorBuffers;
 use error::{AppError, UiError};
-use iced::theme::Mode;
-use iced::widget::{button, column, container, row, scrollable, text, text_editor};
-use iced::{Element, Event, Fill, Subscription, Task, event, keyboard, mouse, system, widget};
-use instruction_panel::InstructionPanel;
-use instruction_panel::InstructionPanelMessage;
-use llm_requests::{LlmRequests, RequestSignature};
-use settings::{SettingsMessage, SettingsState, ViewMode};
+use iced::{
+    Element, Event, Subscription, Task, event, keyboard, mouse, system,
+    theme::Mode,
+    widget::{self, text_editor},
+};
 use std::time::Duration;
-
-/// Snapshot of undoable application state.
-///
-/// Contains only the store. Editor buffers are
-/// rebuilt from the store on restore since `text_editor::Content` is
-/// not cheaply cloneable with full cursor state.
-#[derive(Clone)]
-struct UndoSnapshot {
-    store: BlockStore,
-}
-
-/// Default capacity: 64 undo steps.
-const UNDO_CAPACITY: usize = 64;
-const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-const ERROR_STACK_PREVIEW_LIMIT: usize = 2;
 
 /// All mutable application state for the iced Elm architecture.
 ///
@@ -322,53 +311,6 @@ impl AppState {
             | Message::Settings(message) => settings::handle(self, message),
         }
     }
-
-    fn handle_undo_redo(&mut self, message: UndoRedoMessage) -> Task<Message> {
-        handle_undo_redo(self, message)
-    }
-
-    fn handle_shortcut_message(&mut self, message: ShortcutMessage) -> Task<Message> {
-        handle_shortcut_message(self, message)
-    }
-
-    fn handle_error_message(&mut self, message: ErrorMessage) -> Task<Message> {
-        handle_error_message(self, message)
-    }
-
-    fn handle_point_edited(
-        &mut self, block_id: BlockId, action: text_editor::Action,
-    ) -> Task<Message> {
-        handle_point_edited(self, block_id, action)
-    }
-
-    fn handle_reduce_message(&mut self, message: ReduceMessage) -> Task<Message> {
-        handle_reduce_message(self, message)
-    }
-
-    fn handle_expand_message(&mut self, message: ExpandMessage) -> Task<Message> {
-        handle_expand_message(self, message)
-    }
-
-    fn handle_overlay_message(&mut self, message: OverlayMessage) -> Task<Message> {
-        handle_overlay_message(self, message)
-    }
-
-    fn handle_structure_message(&mut self, message: StructureMessage) -> Task<Message> {
-        handle_structure_message(self, message)
-    }
-
-    fn handle_mount_and_file_message(&mut self, message: MountFileMessage) -> Task<Message> {
-        handle_mount_and_file_message(self, message)
-    }
-}
-
-/// Direction tag for vertical cursor movement edge-detection.
-///
-/// Used to defer block traversal until *after* the editor processes
-/// the motion, so wrapped (visual) lines are handled correctly.
-enum VerticalDir {
-    Up,
-    Down,
 }
 
 /// Elm-architecture messages driving all state transitions.
@@ -476,18 +418,6 @@ pub enum StructureMessage {
     },
 }
 
-/// Panel bar state - tracks which panel is open in the panel bar.
-///
-/// The panel bar sits below each block's editor and contains toggle buttons
-/// for inline panels. Only one panel can be open at a time per block.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PanelBarState {
-    /// Friends panel - shows user-selected friend blocks for LLM context.
-    Friends,
-    /// Instruction panel - text editor for LLM instructions.
-    Instruction,
-}
-
 #[derive(Debug, Clone)]
 pub enum OverlayMessage {
     ToggleOverflow(BlockId),
@@ -511,19 +441,952 @@ pub enum MountFileMessage {
     SystemThemeChanged(Mode),
 }
 
-/// Process one message and return a follow-up task (if any).
-pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
-    state.dispatch_message(message)
+/// Snapshot of undoable application state.
+///
+/// Contains only the store. Editor buffers are
+/// rebuilt from the store on restore since `text_editor::Content` is
+/// not cheaply cloneable with full cursor state.
+#[derive(Clone)]
+struct UndoSnapshot {
+    store: BlockStore,
 }
 
-/// Global event subscription: keyboard shortcuts, mouse clicks, escape,
-/// and system theme changes.
-pub fn subscription(_state: &AppState) -> Subscription<Message> {
-    Subscription::batch([
-        event::listen_with(handle_event),
-        system::theme_changes()
-            .map(|mode| Message::MountFile(MountFileMessage::SystemThemeChanged(mode))),
-    ])
+/// Default capacity: 64 undo steps.
+const UNDO_CAPACITY: usize = 64;
+const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+const ERROR_STACK_PREVIEW_LIMIT: usize = 2;
+
+/// Direction tag for vertical cursor movement edge-detection.
+///
+/// Used to defer block traversal until *after* the editor processes
+/// the motion, so wrapped (visual) lines are handled correctly.
+enum VerticalDir {
+    Up,
+    Down,
+}
+
+/// Panel bar state - tracks which panel is open in the panel bar.
+///
+/// The panel bar sits below each block's editor and contains toggle buttons
+/// for inline panels. Only one panel can be open at a time per block.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PanelBarState {
+    /// Friends panel - shows user-selected friend blocks for LLM context.
+    Friends,
+    /// Instruction panel - text editor for LLM instructions.
+    Instruction,
+}
+
+impl AppState {
+    fn handle_undo_redo(&mut self, message: UndoRedoMessage) -> Task<Message> {
+        match message {
+            | UndoRedoMessage::Undo => {
+                let current = UndoSnapshot { store: self.store.clone() };
+                if let Some(previous) = self.undo_history.undo(current) {
+                    tracing::info!("undo applied");
+                    self.restore_snapshot(previous);
+                }
+                Task::none()
+            }
+            | UndoRedoMessage::Redo => {
+                let current = UndoSnapshot { store: self.store.clone() };
+                if let Some(next) = self.undo_history.redo(current) {
+                    tracing::info!("redo applied");
+                    self.restore_snapshot(next);
+                }
+                Task::none()
+            }
+        }
+    }
+
+    fn handle_shortcut_message(&mut self, message: ShortcutMessage) -> Task<Message> {
+        match message {
+            | ShortcutMessage::Trigger(action_id) => {
+                let Some(block_id) = self.current_block_for_shortcuts() else {
+                    return Task::none();
+                };
+                self.run_shortcut_for_block(block_id, action_id)
+            }
+            | ShortcutMessage::ForBlock { block_id, action_id } => {
+                self.focused_block_id = Some(block_id);
+                self.panel_bar_state = None;
+                self.run_shortcut_for_block(block_id, action_id)
+            }
+        }
+    }
+
+    fn handle_error_message(&mut self, message: ErrorMessage) -> Task<Message> {
+        {
+            let state: &mut AppState = self;
+            match message {
+                | ErrorMessage::DismissAt(index) => {
+                    if index < state.errors.len() {
+                        state.errors.remove(index);
+                        tracing::info!(
+                            dismissed_index = index,
+                            remaining = state.errors.len(),
+                            "dismissed app error"
+                        );
+                    }
+                    Task::none()
+                }
+            }
+        }
+    }
+
+    fn handle_point_edited(
+        &mut self, block_id: BlockId, action: text_editor::Action,
+    ) -> Task<Message> {
+        {
+            let block_id = block_id;
+            self.focused_block_id = Some(block_id);
+            self.panel_bar_state = None;
+            if self.editing_block_id.as_ref() != Some(&block_id) {
+                self.snapshot_for_undo();
+                self.editing_block_id = Some(block_id);
+            }
+            self.editor_buffers.ensure_block(&self.store, &block_id);
+
+            let vertical_direction = match &action {
+                | text_editor::Action::Move(text_editor::Motion::Up) => Some(VerticalDir::Up),
+                | text_editor::Action::Move(text_editor::Motion::Down) => Some(VerticalDir::Down),
+                | _ => None,
+            };
+
+            let mut navigate_to: Option<BlockId> = None;
+            if let Some(content) = self.editor_buffers.get_mut(&block_id) {
+                let cursor_before = content.cursor().position;
+                content.perform(action);
+                let cursor_after = content.cursor().position;
+
+                if let Some(dir) = vertical_direction
+                    && cursor_before == cursor_after
+                {
+                    navigate_to = match dir {
+                        | VerticalDir::Up => self.store.prev_visible_in_dfs(&block_id),
+                        | VerticalDir::Down => self.store.next_visible_in_dfs(&block_id),
+                    };
+                }
+
+                if navigate_to.is_none() {
+                    let next_text = content.text();
+                    tracing::debug!(block_id = ?block_id, chars = next_text.len(), "point edited");
+                    self.store.update_point(&block_id, next_text);
+                    self.persist_with_context("after edit");
+                }
+            }
+
+            if let Some(target_id) = navigate_to
+                && let Some(wid) = self.editor_buffers.widget_id(&target_id)
+            {
+                self.focused_block_id = Some(target_id);
+                self.panel_bar_state = None;
+                tracing::debug!(
+                    from = ?block_id,
+                    to = ?target_id,
+                    "keyboard traversal"
+                );
+                return widget::operation::focus(wid.clone());
+            }
+            Task::none()
+        }
+    }
+
+    fn handle_reduce_message(&mut self, message: ReduceMessage) -> Task<Message> {
+        match message {
+            | ReduceMessage::Start(block_id) => {
+                self.overflow_open_for = None;
+                if self.llm_requests.is_reducing(block_id) {
+                    return Task::none();
+                }
+                let context = self.store.block_context_for_id(&block_id);
+                let Some(config) = self.llm_config_for_reduce(block_id) else {
+                    return Task::none();
+                };
+                tracing::info!(block_id = ?block_id, "reduce request started");
+                let Some(request_signature) = RequestSignature::from_block_context(&context) else {
+                    return Task::none();
+                };
+                let children_snapshot: Vec<BlockId> = self.store.children(&block_id).to_vec();
+                self.llm_requests.mark_reduce_loading(block_id, request_signature);
+                let instruction = self.instruction_panel.prompt.take();
+                let request_task = Task::perform(
+                    async move {
+                        let client = llm::LlmClient::new(config);
+                        AppState::resolve_llm_request(
+                            tokio::time::timeout(
+                                LLM_REQUEST_TIMEOUT,
+                                client.reduce_block(&context, instruction.as_deref()),
+                            )
+                            .await,
+                            "reduce request timed out after 30 seconds",
+                        )
+                    },
+                    move |result| {
+                        Message::Reduce(ReduceMessage::Done {
+                            block_id,
+                            request_signature,
+                            result,
+                            children_snapshot,
+                        })
+                    },
+                );
+                let (request_task, handle) = Task::abortable(request_task);
+                self.llm_requests.replace_reduce_handle(block_id, handle);
+                request_task
+            }
+            | ReduceMessage::Cancel(block_id) => {
+                if self.llm_requests.cancel_reduce(block_id) {
+                    tracing::info!(block_id = ?block_id, "reduce request cancelled");
+                }
+                Task::none()
+            }
+            | ReduceMessage::Done { block_id, request_signature, result, children_snapshot } => {
+                let pending_signature = self.llm_requests.finish_reduce_request(block_id);
+                if self.store.node(&block_id).is_none() {
+                    return Task::none();
+                }
+                if pending_signature != Some(request_signature)
+                    || self.is_stale_response(&block_id, request_signature)
+                {
+                    tracing::info!(
+                        block_id = ?block_id,
+                        "discarded stale reduce response after context changed"
+                    );
+                    return Task::none();
+                }
+                match result {
+                    | Ok(reduce_result) => {
+                        let (reduction, redundant_indices) = reduce_result.into_parts();
+                        let redundant_children: Vec<BlockId> = redundant_indices
+                            .iter()
+                            .filter_map(|&idx| children_snapshot.get(idx).copied())
+                            .collect();
+                        tracing::info!(
+                            block_id = ?block_id,
+                            chars = reduction.len(),
+                            redundant_children = redundant_children.len(),
+                            "reduce request succeeded"
+                        );
+                        self.mutate_with_undo_and_persist(
+                            "after creating reduction draft",
+                            |state| {
+                                state.store.insert_reduction_draft(
+                                    block_id,
+                                    ReductionDraftRecord { reduction, redundant_children },
+                                );
+                                state.errors.retain(|err| !matches!(err, AppError::Reduce(_)));
+                                true
+                            },
+                        );
+                    }
+                    | Err(reason) => {
+                        tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "reduce request failed");
+                        self.llm_requests.set_reduce_error(block_id, reason.clone());
+                        self.record_error(AppError::Reduce(reason));
+                    }
+                }
+                // Clear instruction prompt after reduce completes
+                self.instruction_panel.prompt = None;
+                Task::none()
+            }
+            | ReduceMessage::Apply(block_id) => {
+                self.mutate_with_undo_and_persist("after applying reduction", |state| {
+                    if let Some(draft) = state.store.remove_reduction_draft(&block_id) {
+                        tracing::info!(
+                            block_id = ?block_id,
+                            chars = draft.reduction.len(),
+                            deletions = draft.redundant_children.len(),
+                            "applied reduction with child deletions"
+                        );
+                        state.store.update_point(&block_id, draft.reduction.clone());
+                        state.editor_buffers.set_text(&block_id, &draft.reduction);
+                        for child_id in &draft.redundant_children {
+                            if state.store.node(child_id).is_some()
+                                && let Some(removed_ids) =
+                                    state.store.remove_block_subtree(child_id)
+                            {
+                                state.editor_buffers.remove_blocks(&removed_ids);
+                                for id in &removed_ids {
+                                    state.llm_requests.remove_block(*id);
+                                }
+                            }
+                        }
+                        return true;
+                    }
+                    false
+                });
+                Task::none()
+            }
+            | ReduceMessage::Reject(block_id) => {
+                tracing::info!(block_id = ?block_id, "rejected reduction");
+                self.store.remove_reduction_draft(&block_id);
+                self.persist_with_context("after rejecting reduction");
+                Task::none()
+            }
+            | ReduceMessage::AcceptChildDeletion { block_id, child_index } => {
+                self.mutate_with_undo_and_persist("after accepting child deletion", |state| {
+                    let child_id = state
+                        .store
+                        .reduction_draft(&block_id)
+                        .and_then(|d| d.redundant_children.get(child_index).copied())
+                        .filter(|id| state.store.node(id).is_some());
+                    if let Some(child_id) = child_id
+                        && let Some(removed_ids) = state.store.remove_block_subtree(&child_id)
+                    {
+                        state.editor_buffers.remove_blocks(&removed_ids);
+                        for id in &removed_ids {
+                            state.llm_requests.remove_block(*id);
+                        }
+                    }
+                    if let Some(draft) = state.store.reduction_draft(&block_id) {
+                        let mut updated = draft.clone();
+                        if child_index < updated.redundant_children.len() {
+                            updated.redundant_children.remove(child_index);
+                            state.store.insert_reduction_draft(block_id, updated);
+                        }
+                    }
+                    true
+                });
+                Task::none()
+            }
+            | ReduceMessage::RejectChildDeletion { block_id, child_index } => {
+                if let Some(draft) = self.store.reduction_draft(&block_id) {
+                    let mut updated = draft.clone();
+                    if child_index < updated.redundant_children.len() {
+                        updated.redundant_children.remove(child_index);
+                        self.store.insert_reduction_draft(block_id, updated);
+                    }
+                }
+                self.persist_with_context("after rejecting child deletion");
+                Task::none()
+            }
+            | ReduceMessage::AcceptAllDeletions(block_id) => {
+                self.mutate_with_undo_and_persist("after accepting all child deletions", |state| {
+                    let draft = state.store.reduction_draft(&block_id).cloned();
+                    if let Some(draft) = draft {
+                        for child_id in &draft.redundant_children {
+                            if state.store.node(child_id).is_some()
+                                && let Some(removed_ids) =
+                                    state.store.remove_block_subtree(child_id)
+                            {
+                                state.editor_buffers.remove_blocks(&removed_ids);
+                                for id in &removed_ids {
+                                    state.llm_requests.remove_block(*id);
+                                }
+                            }
+                        }
+                        state.store.insert_reduction_draft(
+                            block_id,
+                            ReductionDraftRecord {
+                                reduction: draft.reduction,
+                                redundant_children: vec![],
+                            },
+                        );
+                        return true;
+                    }
+                    false
+                });
+                Task::none()
+            }
+            | ReduceMessage::RejectAllDeletions(block_id) => {
+                if let Some(draft) = self.store.reduction_draft(&block_id) {
+                    self.store.insert_reduction_draft(
+                        block_id,
+                        ReductionDraftRecord {
+                            reduction: draft.reduction.clone(),
+                            redundant_children: vec![],
+                        },
+                    );
+                }
+                self.persist_with_context("after rejecting all child deletions");
+                Task::none()
+            }
+        }
+    }
+
+    fn handle_expand_message(&mut self, message: ExpandMessage) -> Task<Message> {
+        match message {
+            | ExpandMessage::Start(block_id) => {
+                self.overflow_open_for = None;
+                if self.llm_requests.is_expanding(block_id) {
+                    return Task::none();
+                }
+                let context = self.store.block_context_for_id(&block_id);
+                let Some(config) = self.llm_config_for_expand(block_id) else {
+                    return Task::none();
+                };
+
+                tracing::info!(block_id = ?block_id, "expand request started");
+                let Some(request_signature) = RequestSignature::from_block_context(&context) else {
+                    return Task::none();
+                };
+                self.llm_requests.mark_expand_loading(block_id, request_signature);
+                let instruction = self.instruction_panel.prompt.take();
+                let request_task = Task::perform(
+                    async move {
+                        let client = llm::LlmClient::new(config);
+                        AppState::resolve_llm_request(
+                            tokio::time::timeout(
+                                LLM_REQUEST_TIMEOUT,
+                                client.expand_block(&context, instruction.as_deref()),
+                            )
+                            .await,
+                            format!(
+                                "expand request timed out after {} seconds",
+                                LLM_REQUEST_TIMEOUT.as_secs()
+                            ),
+                        )
+                    },
+                    move |result| {
+                        Message::Expand(ExpandMessage::Done { block_id, request_signature, result })
+                    },
+                );
+                let (request_task, handle) = Task::abortable(request_task);
+                self.llm_requests.replace_expand_handle(block_id, handle);
+                request_task
+            }
+            | ExpandMessage::Cancel(block_id) => {
+                if self.llm_requests.cancel_expand(block_id) {
+                    tracing::info!(block_id = ?block_id, "expand request cancelled");
+                }
+                Task::none()
+            }
+            | ExpandMessage::Done { block_id, request_signature, result } => {
+                let pending_signature = self.llm_requests.finish_expand_request(block_id);
+                if self.store.node(&block_id).is_none() {
+                    return Task::none();
+                }
+                if pending_signature != Some(request_signature)
+                    || self.is_stale_response(&block_id, request_signature)
+                {
+                    tracing::info!(
+                        block_id = ?block_id,
+                        "discarded stale expand response after point changed"
+                    );
+                    return Task::none();
+                }
+                match result {
+                    | Ok(raw_result) => {
+                        let (rewrite, children) = raw_result.into_parts();
+                        let rewrite =
+                            rewrite.map(|value| value.trim().to_string()).filter(|v| !v.is_empty());
+                        let children = children
+                            .into_iter()
+                            .map(llm::ExpandSuggestion::into_point)
+                            .map(|value| value.trim().to_string())
+                            .filter(|v| !v.is_empty())
+                            .collect::<Vec<_>>();
+                        tracing::info!(
+                            block_id = ?block_id,
+                            has_rewrite = rewrite.is_some(),
+                            child_count = children.len(),
+                            "expand request succeeded"
+                        );
+                        if rewrite.is_none() && children.is_empty() {
+                            let reason =
+                                UiError::from_message("expand returned no usable suggestions");
+                            self.llm_requests.set_expand_error(block_id, reason.clone());
+                            self.record_error(AppError::Expand(reason));
+                            return Task::none();
+                        }
+                        self.mutate_with_undo_and_persist(
+                            "after creating expansion draft",
+                            |state| {
+                                state.store.insert_expansion_draft(
+                                    block_id,
+                                    ExpansionDraftRecord { rewrite, children },
+                                );
+                                state.errors.retain(|err| !matches!(err, AppError::Expand(_)));
+                                true
+                            },
+                        );
+                    }
+                    | Err(reason) => {
+                        tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "expand request failed");
+                        self.llm_requests.set_expand_error(block_id, reason.clone());
+                        self.record_error(AppError::Expand(reason));
+                    }
+                }
+                // Clear instruction prompt after expand completes
+                self.instruction_panel.prompt = None;
+                Task::none()
+            }
+            | ExpandMessage::ApplyRewrite(block_id) => {
+                self.mutate_with_undo_and_persist("after applying rewrite", |state| {
+                        let mut should_save = false;
+                        let mut should_remove_draft = false;
+                        let mut applied_rewrite: Option<String> = None;
+                        if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
+                            applied_rewrite = draft.rewrite.take();
+                            should_remove_draft = draft.rewrite.is_none() && draft.children.is_empty();
+                        }
+                        if let Some(rewrite) = applied_rewrite {
+                            tracing::info!(block_id = ?block_id, chars = rewrite.len(), "applied expanded rewrite");
+                            state.store.update_point(&block_id, rewrite.clone());
+                            state.editor_buffers.set_text(&block_id, &rewrite);
+                            should_save = true;
+                        }
+                        if should_remove_draft {
+                            state.store.remove_expansion_draft(&block_id);
+                        }
+                        should_save
+                    });
+                Task::none()
+            }
+            | ExpandMessage::RejectRewrite(block_id) => {
+                let mut changed = false;
+                let mut should_remove_draft = false;
+                if let Some(draft) = self.store.expansion_draft_mut(&block_id) {
+                    draft.rewrite = None;
+                    tracing::info!(block_id = ?block_id, "rejected expanded rewrite");
+                    should_remove_draft = draft.rewrite.is_none() && draft.children.is_empty();
+                    changed = true;
+                }
+                if should_remove_draft {
+                    self.store.remove_expansion_draft(&block_id);
+                }
+                if changed {
+                    self.persist_with_context("after rejecting rewrite");
+                }
+                Task::none()
+            }
+            | ExpandMessage::AcceptChild { block_id, child_index } => {
+                self.mutate_with_undo_and_persist("after accepting expanded child", |state| {
+                    let mut should_save = false;
+                    let mut should_remove_draft = false;
+                    let mut accepted_child_point: Option<String> = None;
+                    if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
+                        if child_index < draft.children.len() {
+                            accepted_child_point = Some(draft.children.remove(child_index));
+                        }
+                        if draft.rewrite.is_none() && draft.children.is_empty() {
+                            should_remove_draft = true;
+                        }
+                    }
+                    if let Some(point) = accepted_child_point
+                        && let Some(child_id) = state.store.append_child(&block_id, point.clone())
+                    {
+                        tracing::info!(
+                            parent_block_id = ?block_id,
+                            child_block_id = ?child_id,
+                            chars = point.len(),
+                            "accepted expanded child"
+                        );
+                        state.editor_buffers.set_text(&child_id, &point);
+                        should_save = true;
+                    }
+                    if should_remove_draft {
+                        state.store.remove_expansion_draft(&block_id);
+                    }
+                    should_save
+                });
+                Task::none()
+            }
+            | ExpandMessage::RejectChild { block_id, child_index } => {
+                let mut changed = false;
+                let mut should_remove_draft = false;
+                if let Some(draft) = self.store.expansion_draft_mut(&block_id) {
+                    if child_index < draft.children.len() {
+                        draft.children.remove(child_index);
+                        tracing::info!(block_id = ?block_id, child_index, "rejected expanded child");
+                        changed = true;
+                    }
+                    should_remove_draft = draft.rewrite.is_none() && draft.children.is_empty();
+                }
+                if should_remove_draft {
+                    self.store.remove_expansion_draft(&block_id);
+                }
+                if changed {
+                    self.persist_with_context("after rejecting expanded child");
+                }
+                Task::none()
+            }
+            | ExpandMessage::AcceptAllChildren(block_id) => {
+                self.mutate_with_undo_and_persist("after accepting expanded children", |state| {
+                    if let Some(mut draft) = state.store.remove_expansion_draft(&block_id) {
+                        for point in draft.children.drain(..) {
+                            if let Some(child_id) =
+                                state.store.append_child(&block_id, point.clone())
+                            {
+                                tracing::info!(
+                                    parent_block_id = ?block_id,
+                                    child_block_id = ?child_id,
+                                    chars = point.len(),
+                                    "accepted expanded child (bulk)"
+                                );
+                                state.editor_buffers.set_text(&child_id, &point);
+                            }
+                        }
+                        if draft.rewrite.is_some() {
+                            state.store.insert_expansion_draft(block_id, draft);
+                        }
+                        return true;
+                    }
+                    false
+                });
+                Task::none()
+            }
+            | ExpandMessage::DiscardAllChildren(block_id) => {
+                let mut changed = false;
+                let mut should_remove_draft = false;
+                if let Some(draft) = self.store.expansion_draft_mut(&block_id) {
+                    if !draft.children.is_empty() {
+                        draft.children.clear();
+                        tracing::info!(block_id = ?block_id, "discarded all expanded children");
+                        changed = true;
+                    }
+                    should_remove_draft = draft.rewrite.is_none() && draft.children.is_empty();
+                }
+                if should_remove_draft {
+                    self.store.remove_expansion_draft(&block_id);
+                }
+                if changed {
+                    self.persist_with_context("after discarding expanded children");
+                }
+                Task::none()
+            }
+        }
+    }
+
+    fn handle_overlay_message(&mut self, message: OverlayMessage) -> Task<Message> {
+        match message {
+            | OverlayMessage::ToggleOverflow(block_id) => {
+                if self.overflow_open_for == Some(block_id) {
+                    self.overflow_open_for = None;
+                } else {
+                    self.overflow_open_for = Some(block_id);
+                }
+                Task::none()
+            }
+            | OverlayMessage::CloseOverflow => {
+                self.overflow_open_for = None;
+                self.panel_bar_state = None;
+                self.focused_block_id = None;
+                Task::none()
+            }
+            | OverlayMessage::ToggleFriendsPanel(block_id) => {
+                // Only toggle if this is the focused block
+                if self.focused_block_id == Some(block_id) {
+                    match &self.panel_bar_state {
+                        | Some(PanelBarState::Friends) => {
+                            self.panel_bar_state = None;
+                        }
+                        | _ => {
+                            self.panel_bar_state = Some(PanelBarState::Friends);
+                        }
+                    }
+                } else {
+                    self.panel_bar_state = Some(PanelBarState::Friends);
+                }
+                Task::none()
+            }
+            | OverlayMessage::StartFriendPicker(block_id) => {
+                self.friend_picker_for = Some(block_id);
+                self.overflow_open_for = None;
+                Task::none()
+            }
+            | OverlayMessage::CancelFriendPicker => {
+                self.friend_picker_for = None;
+                Task::none()
+            }
+        }
+    }
+
+    fn handle_structure_message(&mut self, message: StructureMessage) -> Task<Message> {
+        match message {
+            | StructureMessage::AddChild(block_id) => {
+                self.overflow_open_for = None;
+                self.mutate_with_undo_and_persist("after adding child", |state| {
+                        if let Some(child_id) = state.store.append_child(&block_id, String::new()) {
+                            tracing::info!(parent_block_id = ?block_id, child_block_id = ?child_id, "added child block");
+                            state.editor_buffers.set_text(&child_id, "");
+                            return true;
+                        }
+                        false
+                    });
+                Task::none()
+            }
+            | StructureMessage::AddParent(block_id) => {
+                self.mutate_with_undo_and_persist("after adding parent", |state| {
+                    if let Some(parent_id) = state.store.insert_parent(&block_id, String::new()) {
+                        tracing::info!(
+                            block_id = ?block_id,
+                            parent_block_id = ?parent_id,
+                            "added parent block"
+                        );
+                        state.editor_buffers.set_text(&parent_id, "");
+                        state.overflow_open_for = None;
+                        return true;
+                    }
+                    false
+                });
+                Task::none()
+            }
+            | StructureMessage::AddSibling(block_id) => {
+                self.mutate_with_undo_and_persist("after adding sibling", |state| {
+                        if let Some(sibling_id) = state.store.append_sibling(&block_id, String::new()) {
+                            tracing::info!(block_id = ?block_id, sibling_block_id = ?sibling_id, "added sibling block");
+                            state.editor_buffers.set_text(&sibling_id, "");
+                            state.overflow_open_for = None;
+                            return true;
+                        }
+                        false
+                    });
+                Task::none()
+            }
+            | StructureMessage::DuplicateBlock(block_id) => {
+                self.mutate_with_undo_and_persist("after duplicating subtree", |state| {
+                        if let Some(duplicate_id) = state.store.duplicate_subtree_after(&block_id) {
+                            tracing::info!(block_id = ?block_id, duplicate_block_id = ?duplicate_id, "duplicated block subtree");
+                            state.editor_buffers.ensure_subtree(&state.store, &duplicate_id);
+                            state.overflow_open_for = None;
+                            return true;
+                        }
+                        false
+                    });
+                Task::none()
+            }
+            | StructureMessage::ArchiveBlock(block_id) => {
+                self.snapshot_for_undo();
+                if let Some(removed_ids) = self.store.remove_block_subtree(&block_id) {
+                    tracing::info!(block_id = ?block_id, removed = removed_ids.len(), "archived block subtree");
+                    self.editor_buffers.remove_blocks(&removed_ids);
+                    for id in &removed_ids {
+                        self.llm_requests.remove_block(*id);
+                    }
+                    if removed_ids.iter().any(|id| Some(*id) == self.focused_block_id) {
+                        self.focused_block_id = None;
+                        self.panel_bar_state = None;
+                    }
+                    for root_id in self.store.roots() {
+                        self.editor_buffers.ensure_block(&self.store, root_id);
+                    }
+                    self.overflow_open_for = None;
+                    self.persist_with_context("after archiving subtree");
+                }
+                Task::none()
+            }
+            | StructureMessage::ToggleFold(block_id) => {
+                self.store.toggle_collapsed(&block_id);
+                self.persist_with_context("after toggling fold");
+                Task::none()
+            }
+            | StructureMessage::AddFriendBlock { target, friend_id } => {
+                self.overflow_open_for = None;
+                self.mutate_with_undo_and_persist("after adding friend block", |state| {
+                    if friend_id == target {
+                        return false;
+                    }
+                    if state.store.node(&target).is_none() || state.store.node(&friend_id).is_none()
+                    {
+                        return false;
+                    }
+                    let mut friends = state.store.friend_blocks_for(&target).to_vec();
+                    if friends.iter().any(|f| f.block_id == friend_id) {
+                        return false;
+                    }
+                    friends.push(FriendBlock { block_id: friend_id, perspective: None });
+                    state.store.set_friend_blocks_for(&target, friends);
+                    tracing::info!(target = ?target, friend_id = ?friend_id, "added friend block");
+                    true
+                });
+                Task::none()
+            }
+            | StructureMessage::RemoveFriendBlock { target, friend_id } => {
+                self.mutate_with_undo_and_persist("after removing friend block", |state| {
+                        let mut friends = state.store.friend_blocks_for(&target).to_vec();
+                        let prev = friends.len();
+                        friends.retain(|f| f.block_id != friend_id);
+                        if friends.len() == prev {
+                            return false;
+                        }
+                        if friends.is_empty() {
+                            state.store.set_friend_blocks_for(&target, vec![]);
+                        } else {
+                            state.store.set_friend_blocks_for(&target, friends);
+                        }
+                        tracing::info!(target = ?target, friend_id = ?friend_id, "removed friend block");
+                        true
+                    });
+                Task::none()
+            }
+        }
+    }
+
+    fn handle_mount_and_file_message(&mut self, message: MountFileMessage) -> Task<Message> {
+        match message {
+            | MountFileMessage::ExpandMount(block_id) => {
+                let base_dir = AppPaths::data_dir().unwrap_or_default();
+                self.mutate_with_undo_and_persist("after expanding mount", |state| {
+                        match state.store.expand_mount(&block_id, &base_dir) {
+                            | Ok(new_roots) => {
+                                tracing::info!(block_id = ?block_id, children = new_roots.len(), "expanded mount");
+                                for &id in &new_roots {
+                                    state.editor_buffers.ensure_subtree(&state.store, &id);
+                                }
+                                true
+                            }
+                            | Err(err) => {
+                                tracing::error!(block_id = ?block_id, %err, "failed to expand mount");
+                    state.record_error(AppError::Mount(UiError::from_message(&err)));
+                                false
+                            }
+                        }
+                    });
+                Task::none()
+            }
+            | MountFileMessage::CollapseMount(block_id) => {
+                self.mutate_with_undo_and_persist("after collapsing mount", |state| {
+                    if let Some(()) = state.store.collapse_mount(&block_id) {
+                        tracing::info!(block_id = ?block_id, "collapsed mount");
+                        state.editor_buffers = EditorBuffers::from_store(&state.store);
+                        return true;
+                    }
+                    false
+                });
+                Task::none()
+            }
+            | MountFileMessage::SaveToFile(block_id) => {
+                self.overflow_open_for = None;
+                Task::perform(
+                    async move {
+                        let dialog = rfd::AsyncFileDialog::new()
+                            .set_title("Save block to file")
+                            .add_filter("JSON", &["json"])
+                            .add_filter("Markdown", &["md", "markdown"])
+                            .save_file()
+                            .await;
+                        dialog.map(|handle| handle.path().to_path_buf())
+                    },
+                    move |path| {
+                        Message::MountFile(MountFileMessage::SaveToFilePicked { block_id, path })
+                    },
+                )
+            }
+            | MountFileMessage::SaveToFilePicked { block_id, path } => {
+                if let Some(path) = path {
+                    let base_dir = AppPaths::data_dir().unwrap_or_default();
+                    self.mutate_with_undo_and_persist("after save-to-file", |state| {
+                            match state.store.save_subtree_to_file(&block_id, &path, &base_dir) {
+                                | Ok(()) => {
+                                    let mount_format = state
+                                        .store
+                                        .node(&block_id)
+                                        .and_then(|node| node.mount_format())
+                                        .unwrap_or(MountFormat::Json);
+                                    tracing::info!(block_id = ?block_id, path = %path.display(), ?mount_format, "saved subtree to file");
+                                    match state.store.expand_mount(&block_id, &base_dir) {
+                                        | Ok(new_roots) => {
+                                            for &id in &new_roots {
+                                                state.editor_buffers.ensure_subtree(&state.store, &id);
+                                            }
+                                        }
+                                        | Err(err) => {
+                                            tracing::error!(block_id = ?block_id, %err, "failed to re-expand after save-to-file");
+                                            state.record_error(AppError::Mount(UiError::from_message(&err)));
+                                        }
+                                    }
+                                    true
+                                }
+                                | Err(err) => {
+                                    tracing::error!(block_id = ?block_id, %err, "failed to save subtree to file");
+                            state.record_error(AppError::Mount(UiError::from_message(&err)));
+                                    false
+                                }
+                            }
+                        });
+                }
+                Task::none()
+            }
+            | MountFileMessage::LoadFromFile(block_id) => {
+                self.overflow_open_for = None;
+                Task::perform(
+                    async move {
+                        let dialog = rfd::AsyncFileDialog::new()
+                            .set_title("Load block from file")
+                            .add_filter("JSON", &["json"])
+                            .add_filter("Markdown", &["md", "markdown"])
+                            .pick_file()
+                            .await;
+                        dialog.map(|handle| handle.path().to_path_buf())
+                    },
+                    move |path| {
+                        Message::MountFile(MountFileMessage::LoadFromFilePicked { block_id, path })
+                    },
+                )
+            }
+            | MountFileMessage::LoadFromFilePicked { block_id, path } => {
+                if let Some(path) = path {
+                    let base_dir = AppPaths::data_dir().unwrap_or_default();
+                    self.mutate_with_undo_and_persist("after load-from-file", |state| {
+                            let rel_path = path
+                                .strip_prefix(&base_dir)
+                                .map(|p| p.to_path_buf())
+                                .unwrap_or_else(|_| path.clone());
+                            let mount_format = match path
+                                .extension()
+                                .and_then(std::ffi::OsStr::to_str)
+                                .map(str::to_ascii_lowercase)
+                                .as_deref()
+                            {
+                                | Some("md") | Some("markdown") => MountFormat::Markdown,
+                                | _ => MountFormat::Json,
+                            };
+                            let mounted = match mount_format {
+                                | MountFormat::Json => state.store.set_mount_path(&block_id, rel_path),
+                                | MountFormat::Markdown => {
+                                    state.store.set_mount_path_with_format(&block_id, rel_path, mount_format)
+                                }
+                            };
+                            if mounted.is_none() {
+                                tracing::error!(block_id = ?block_id, "block has children or does not exist; cannot load");
+                                return false;
+                            }
+                            match state.store.expand_mount(&block_id, &base_dir) {
+                                | Ok(new_roots) => {
+                                    tracing::info!(block_id = ?block_id, path = %path.display(), children = new_roots.len(), "loaded file into block");
+                                    for &id in &new_roots {
+                                        state.editor_buffers.ensure_subtree(&state.store, &id);
+                                    }
+                                }
+                                | Err(err) => {
+                                    tracing::error!(block_id = ?block_id, %err, "failed to expand after load-from-file");
+                    state.record_error(AppError::Mount(UiError::from_message(&err)));
+                                }
+                            }
+                            true
+                        });
+                }
+                Task::none()
+            }
+            | MountFileMessage::SystemThemeChanged(mode) => {
+                let dark = matches!(mode, Mode::Dark);
+                if self.is_dark != dark {
+                    tracing::info!(is_dark = dark, "system theme changed");
+                    self.is_dark = dark;
+                }
+                Task::none()
+            }
+        }
+    }
+}
+
+impl AppState {
+    /// Process one message and return a follow-up task (if any).
+    pub fn update(state: &mut AppState, message: Message) -> Task<Message> {
+        state.dispatch_message(message)
+    }
+
+    /// Global event subscription: keyboard shortcuts, mouse clicks, escape,
+    /// and system theme changes.
+    pub fn subscription(_state: &AppState) -> Subscription<Message> {
+        Subscription::batch([
+            event::listen_with(handle_event),
+            system::theme_changes()
+                .map(|mode| Message::MountFile(MountFileMessage::SystemThemeChanged(mode))),
+        ])
+    }
 }
 
 fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) -> Option<Message> {
@@ -558,917 +1421,45 @@ fn handle_event(event: Event, status: event::Status, _window: iced::window::Id) 
     }
 }
 
-fn run_shortcut_for_block(
-    state: &mut AppState, block_id: BlockId, action_id: ActionId,
-) -> Task<Message> {
-    let point_text =
-        state.editor_buffers.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
-    let expansion_draft = state.store.expansion_draft(&block_id);
-    let reduction_draft = state.store.reduction_draft(&block_id);
-    let row_context = RowContext {
-        block_id,
-        point_text,
-        has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
-        draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0)
-            + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
-        has_expand_error: state.llm_requests.has_expand_error(block_id),
-        has_reduce_error: state.llm_requests.has_reduce_error(block_id),
-        is_expanding: state.llm_requests.is_expanding(block_id),
-        is_reducing: state.llm_requests.is_reducing(block_id),
-        is_mounted: state.store.mount_table().entry(block_id).is_some(),
-        has_children: !state.store.children(&block_id).is_empty(),
-        is_unexpanded_mount: state.store.node(&block_id).is_some_and(|n| n.mount_path().is_some()),
-    };
-    let vm = project_for_viewport(build_action_bar_vm(&row_context), ViewportBucket::Wide);
+impl AppState {
+    fn run_shortcut_for_block(&mut self, block_id: BlockId, action_id: ActionId) -> Task<Message> {
+        let point_text =
+            self.editor_buffers.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
+        let expansion_draft = self.store.expansion_draft(&block_id);
+        let reduction_draft = self.store.reduction_draft(&block_id);
+        let row_context = RowContext {
+            block_id,
+            point_text,
+            has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
+            draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0)
+                + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
+            has_expand_error: self.llm_requests.has_expand_error(block_id),
+            has_reduce_error: self.llm_requests.has_reduce_error(block_id),
+            is_expanding: self.llm_requests.is_expanding(block_id),
+            is_reducing: self.llm_requests.is_reducing(block_id),
+            is_mounted: self.store.mount_table().entry(block_id).is_some(),
+            has_children: !self.store.children(&block_id).is_empty(),
+            is_unexpanded_mount: self
+                .store
+                .node(&block_id)
+                .is_some_and(|n| n.mount_path().is_some()),
+        };
+        let vm = project_for_viewport(build_action_bar_vm(&row_context), ViewportBucket::Wide);
 
-    let is_enabled = vm
-        .primary
-        .iter()
-        .chain(vm.contextual.iter())
-        .chain(vm.overflow.iter())
-        .find(|item| item.id == action_id)
-        .is_some_and(|descriptor| descriptor.availability == ActionAvailability::Enabled);
+        let is_enabled = vm
+            .primary
+            .iter()
+            .chain(vm.contextual.iter())
+            .chain(vm.overflow.iter())
+            .find(|item| item.id == action_id)
+            .is_some_and(|descriptor| descriptor.availability == ActionAvailability::Enabled);
 
-    if is_enabled && let Some(next) = action_to_message_by_id(state, &block_id, action_id) {
-        return update(state, next);
+        if is_enabled && let Some(next) = action_to_message_by_id(self, &block_id, action_id) {
+            return AppState::update(self, next);
+        }
+
+        Task::none()
     }
-
-    Task::none()
-}
-
-fn handle_undo_redo(state: &mut AppState, message: UndoRedoMessage) -> Task<Message> {
-    match message {
-        | UndoRedoMessage::Undo => {
-            let current = UndoSnapshot { store: state.store.clone() };
-            if let Some(previous) = state.undo_history.undo(current) {
-                tracing::info!("undo applied");
-                state.restore_snapshot(previous);
-            }
-            Task::none()
-        }
-        | UndoRedoMessage::Redo => {
-            let current = UndoSnapshot { store: state.store.clone() };
-            if let Some(next) = state.undo_history.redo(current) {
-                tracing::info!("redo applied");
-                state.restore_snapshot(next);
-            }
-            Task::none()
-        }
-    }
-}
-
-fn handle_shortcut_message(state: &mut AppState, message: ShortcutMessage) -> Task<Message> {
-    match message {
-        | ShortcutMessage::Trigger(action_id) => {
-            let Some(block_id) = state.current_block_for_shortcuts() else {
-                return Task::none();
-            };
-            run_shortcut_for_block(state, block_id, action_id)
-        }
-        | ShortcutMessage::ForBlock { block_id, action_id } => {
-            state.focused_block_id = Some(block_id);
-            state.panel_bar_state = None;
-            run_shortcut_for_block(state, block_id, action_id)
-        }
-    }
-}
-
-fn handle_error_message(state: &mut AppState, message: ErrorMessage) -> Task<Message> {
-    match message {
-        | ErrorMessage::DismissAt(index) => {
-            if index < state.errors.len() {
-                state.errors.remove(index);
-                tracing::info!(
-                    dismissed_index = index,
-                    remaining = state.errors.len(),
-                    "dismissed app error"
-                );
-            }
-            Task::none()
-        }
-    }
-}
-
-fn handle_reduce_message(state: &mut AppState, message: ReduceMessage) -> Task<Message> {
-    match message {
-        | ReduceMessage::Start(block_id) => {
-            state.overflow_open_for = None;
-            if state.llm_requests.is_reducing(block_id) {
-                return Task::none();
-            }
-            let context = state.store.block_context_for_id(&block_id);
-            let Some(config) = state.llm_config_for_reduce(block_id) else {
-                return Task::none();
-            };
-            tracing::info!(block_id = ?block_id, "reduce request started");
-            let Some(request_signature) = RequestSignature::from_block_context(&context) else {
-                return Task::none();
-            };
-            let children_snapshot: Vec<BlockId> = state.store.children(&block_id).to_vec();
-            state.llm_requests.mark_reduce_loading(block_id, request_signature);
-            let instruction = state.instruction_panel.prompt.take();
-            let request_task = Task::perform(
-                async move {
-                    let client = llm::LlmClient::new(config);
-                    AppState::resolve_llm_request(
-                        tokio::time::timeout(
-                            LLM_REQUEST_TIMEOUT,
-                            client.reduce_block(&context, instruction.as_deref()),
-                        )
-                        .await,
-                        "reduce request timed out after 30 seconds",
-                    )
-                },
-                move |result| {
-                    Message::Reduce(ReduceMessage::Done {
-                        block_id,
-                        request_signature,
-                        result,
-                        children_snapshot,
-                    })
-                },
-            );
-            let (request_task, handle) = Task::abortable(request_task);
-            state.llm_requests.replace_reduce_handle(block_id, handle);
-            request_task
-        }
-        | ReduceMessage::Cancel(block_id) => {
-            if state.llm_requests.cancel_reduce(block_id) {
-                tracing::info!(block_id = ?block_id, "reduce request cancelled");
-            }
-            Task::none()
-        }
-        | ReduceMessage::Done { block_id, request_signature, result, children_snapshot } => {
-            let pending_signature = state.llm_requests.finish_reduce_request(block_id);
-            if state.store.node(&block_id).is_none() {
-                return Task::none();
-            }
-            if pending_signature != Some(request_signature)
-                || state.is_stale_response(&block_id, request_signature)
-            {
-                tracing::info!(
-                    block_id = ?block_id,
-                    "discarded stale reduce response after context changed"
-                );
-                return Task::none();
-            }
-            match result {
-                | Ok(reduce_result) => {
-                    let (reduction, redundant_indices) = reduce_result.into_parts();
-                    let redundant_children: Vec<BlockId> = redundant_indices
-                        .iter()
-                        .filter_map(|&idx| children_snapshot.get(idx).copied())
-                        .collect();
-                    tracing::info!(
-                        block_id = ?block_id,
-                        chars = reduction.len(),
-                        redundant_children = redundant_children.len(),
-                        "reduce request succeeded"
-                    );
-                    state.mutate_with_undo_and_persist("after creating reduction draft", |state| {
-                        state.store.insert_reduction_draft(
-                            block_id,
-                            ReductionDraftRecord { reduction, redundant_children },
-                        );
-                        state.errors.retain(|err| !matches!(err, AppError::Reduce(_)));
-                        true
-                    });
-                }
-                | Err(reason) => {
-                    tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "reduce request failed");
-                    state.llm_requests.set_reduce_error(block_id, reason.clone());
-                    state.record_error(AppError::Reduce(reason));
-                }
-            }
-            // Clear instruction prompt after reduce completes
-            state.instruction_panel.prompt = None;
-            Task::none()
-        }
-        | ReduceMessage::Apply(block_id) => {
-            state.mutate_with_undo_and_persist("after applying reduction", |state| {
-                if let Some(draft) = state.store.remove_reduction_draft(&block_id) {
-                    tracing::info!(
-                        block_id = ?block_id,
-                        chars = draft.reduction.len(),
-                        deletions = draft.redundant_children.len(),
-                        "applied reduction with child deletions"
-                    );
-                    state.store.update_point(&block_id, draft.reduction.clone());
-                    state.editor_buffers.set_text(&block_id, &draft.reduction);
-                    for child_id in &draft.redundant_children {
-                        if state.store.node(child_id).is_some()
-                            && let Some(removed_ids) = state.store.remove_block_subtree(child_id)
-                        {
-                            state.editor_buffers.remove_blocks(&removed_ids);
-                            for id in &removed_ids {
-                                state.llm_requests.remove_block(*id);
-                            }
-                        }
-                    }
-                    return true;
-                }
-                false
-            });
-            Task::none()
-        }
-        | ReduceMessage::Reject(block_id) => {
-            tracing::info!(block_id = ?block_id, "rejected reduction");
-            state.store.remove_reduction_draft(&block_id);
-            state.persist_with_context("after rejecting reduction");
-            Task::none()
-        }
-        | ReduceMessage::AcceptChildDeletion { block_id, child_index } => {
-            state.mutate_with_undo_and_persist("after accepting child deletion", |state| {
-                let child_id = state
-                    .store
-                    .reduction_draft(&block_id)
-                    .and_then(|d| d.redundant_children.get(child_index).copied())
-                    .filter(|id| state.store.node(id).is_some());
-                if let Some(child_id) = child_id
-                    && let Some(removed_ids) = state.store.remove_block_subtree(&child_id)
-                {
-                    state.editor_buffers.remove_blocks(&removed_ids);
-                    for id in &removed_ids {
-                        state.llm_requests.remove_block(*id);
-                    }
-                }
-                if let Some(draft) = state.store.reduction_draft(&block_id) {
-                    let mut updated = draft.clone();
-                    if child_index < updated.redundant_children.len() {
-                        updated.redundant_children.remove(child_index);
-                        state.store.insert_reduction_draft(block_id, updated);
-                    }
-                }
-                true
-            });
-            Task::none()
-        }
-        | ReduceMessage::RejectChildDeletion { block_id, child_index } => {
-            if let Some(draft) = state.store.reduction_draft(&block_id) {
-                let mut updated = draft.clone();
-                if child_index < updated.redundant_children.len() {
-                    updated.redundant_children.remove(child_index);
-                    state.store.insert_reduction_draft(block_id, updated);
-                }
-            }
-            state.persist_with_context("after rejecting child deletion");
-            Task::none()
-        }
-        | ReduceMessage::AcceptAllDeletions(block_id) => {
-            state.mutate_with_undo_and_persist("after accepting all child deletions", |state| {
-                let draft = state.store.reduction_draft(&block_id).cloned();
-                if let Some(draft) = draft {
-                    for child_id in &draft.redundant_children {
-                        if state.store.node(child_id).is_some()
-                            && let Some(removed_ids) = state.store.remove_block_subtree(child_id)
-                        {
-                            state.editor_buffers.remove_blocks(&removed_ids);
-                            for id in &removed_ids {
-                                state.llm_requests.remove_block(*id);
-                            }
-                        }
-                    }
-                    state.store.insert_reduction_draft(
-                        block_id,
-                        ReductionDraftRecord {
-                            reduction: draft.reduction,
-                            redundant_children: vec![],
-                        },
-                    );
-                    return true;
-                }
-                false
-            });
-            Task::none()
-        }
-        | ReduceMessage::RejectAllDeletions(block_id) => {
-            if let Some(draft) = state.store.reduction_draft(&block_id) {
-                state.store.insert_reduction_draft(
-                    block_id,
-                    ReductionDraftRecord {
-                        reduction: draft.reduction.clone(),
-                        redundant_children: vec![],
-                    },
-                );
-            }
-            state.persist_with_context("after rejecting all child deletions");
-            Task::none()
-        }
-    }
-}
-
-fn handle_expand_message(state: &mut AppState, message: ExpandMessage) -> Task<Message> {
-    match message {
-        | ExpandMessage::Start(block_id) => {
-            state.overflow_open_for = None;
-            if state.llm_requests.is_expanding(block_id) {
-                return Task::none();
-            }
-            let context = state.store.block_context_for_id(&block_id);
-            let Some(config) = state.llm_config_for_expand(block_id) else {
-                return Task::none();
-            };
-
-            tracing::info!(block_id = ?block_id, "expand request started");
-            let Some(request_signature) = RequestSignature::from_block_context(&context) else {
-                return Task::none();
-            };
-            state.llm_requests.mark_expand_loading(block_id, request_signature);
-            let instruction = state.instruction_panel.prompt.take();
-            let request_task = Task::perform(
-                async move {
-                    let client = llm::LlmClient::new(config);
-                    AppState::resolve_llm_request(
-                        tokio::time::timeout(
-                            LLM_REQUEST_TIMEOUT,
-                            client.expand_block(&context, instruction.as_deref()),
-                        )
-                        .await,
-                        format!(
-                            "expand request timed out after {} seconds",
-                            LLM_REQUEST_TIMEOUT.as_secs()
-                        ),
-                    )
-                },
-                move |result| {
-                    Message::Expand(ExpandMessage::Done { block_id, request_signature, result })
-                },
-            );
-            let (request_task, handle) = Task::abortable(request_task);
-            state.llm_requests.replace_expand_handle(block_id, handle);
-            request_task
-        }
-        | ExpandMessage::Cancel(block_id) => {
-            if state.llm_requests.cancel_expand(block_id) {
-                tracing::info!(block_id = ?block_id, "expand request cancelled");
-            }
-            Task::none()
-        }
-        | ExpandMessage::Done { block_id, request_signature, result } => {
-            let pending_signature = state.llm_requests.finish_expand_request(block_id);
-            if state.store.node(&block_id).is_none() {
-                return Task::none();
-            }
-            if pending_signature != Some(request_signature)
-                || state.is_stale_response(&block_id, request_signature)
-            {
-                tracing::info!(
-                    block_id = ?block_id,
-                    "discarded stale expand response after point changed"
-                );
-                return Task::none();
-            }
-            match result {
-                | Ok(raw_result) => {
-                    let (rewrite, children) = raw_result.into_parts();
-                    let rewrite =
-                        rewrite.map(|value| value.trim().to_string()).filter(|v| !v.is_empty());
-                    let children = children
-                        .into_iter()
-                        .map(llm::ExpandSuggestion::into_point)
-                        .map(|value| value.trim().to_string())
-                        .filter(|v| !v.is_empty())
-                        .collect::<Vec<_>>();
-                    tracing::info!(
-                        block_id = ?block_id,
-                        has_rewrite = rewrite.is_some(),
-                        child_count = children.len(),
-                        "expand request succeeded"
-                    );
-                    if rewrite.is_none() && children.is_empty() {
-                        let reason = UiError::from_message("expand returned no usable suggestions");
-                        state.llm_requests.set_expand_error(block_id, reason.clone());
-                        state.record_error(AppError::Expand(reason));
-                        return Task::none();
-                    }
-                    state.mutate_with_undo_and_persist("after creating expansion draft", |state| {
-                        state.store.insert_expansion_draft(
-                            block_id,
-                            ExpansionDraftRecord { rewrite, children },
-                        );
-                        state.errors.retain(|err| !matches!(err, AppError::Expand(_)));
-                        true
-                    });
-                }
-                | Err(reason) => {
-                    tracing::error!(block_id = ?block_id, reason = %reason.as_str(), "expand request failed");
-                    state.llm_requests.set_expand_error(block_id, reason.clone());
-                    state.record_error(AppError::Expand(reason));
-                }
-            }
-            // Clear instruction prompt after expand completes
-            state.instruction_panel.prompt = None;
-            Task::none()
-        }
-        | ExpandMessage::ApplyRewrite(block_id) => {
-            state.mutate_with_undo_and_persist("after applying rewrite", |state| {
-                let mut should_save = false;
-                let mut should_remove_draft = false;
-                let mut applied_rewrite: Option<String> = None;
-                if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
-                    applied_rewrite = draft.rewrite.take();
-                    should_remove_draft = draft.rewrite.is_none() && draft.children.is_empty();
-                }
-                if let Some(rewrite) = applied_rewrite {
-                    tracing::info!(block_id = ?block_id, chars = rewrite.len(), "applied expanded rewrite");
-                    state.store.update_point(&block_id, rewrite.clone());
-                    state.editor_buffers.set_text(&block_id, &rewrite);
-                    should_save = true;
-                }
-                if should_remove_draft {
-                    state.store.remove_expansion_draft(&block_id);
-                }
-                should_save
-            });
-            Task::none()
-        }
-        | ExpandMessage::RejectRewrite(block_id) => {
-            let mut changed = false;
-            let mut should_remove_draft = false;
-            if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
-                draft.rewrite = None;
-                tracing::info!(block_id = ?block_id, "rejected expanded rewrite");
-                should_remove_draft = draft.rewrite.is_none() && draft.children.is_empty();
-                changed = true;
-            }
-            if should_remove_draft {
-                state.store.remove_expansion_draft(&block_id);
-            }
-            if changed {
-                state.persist_with_context("after rejecting rewrite");
-            }
-            Task::none()
-        }
-        | ExpandMessage::AcceptChild { block_id, child_index } => {
-            state.mutate_with_undo_and_persist("after accepting expanded child", |state| {
-                let mut should_save = false;
-                let mut should_remove_draft = false;
-                let mut accepted_child_point: Option<String> = None;
-                if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
-                    if child_index < draft.children.len() {
-                        accepted_child_point = Some(draft.children.remove(child_index));
-                    }
-                    if draft.rewrite.is_none() && draft.children.is_empty() {
-                        should_remove_draft = true;
-                    }
-                }
-                if let Some(point) = accepted_child_point
-                    && let Some(child_id) = state.store.append_child(&block_id, point.clone())
-                {
-                    tracing::info!(
-                        parent_block_id = ?block_id,
-                        child_block_id = ?child_id,
-                        chars = point.len(),
-                        "accepted expanded child"
-                    );
-                    state.editor_buffers.set_text(&child_id, &point);
-                    should_save = true;
-                }
-                if should_remove_draft {
-                    state.store.remove_expansion_draft(&block_id);
-                }
-                should_save
-            });
-            Task::none()
-        }
-        | ExpandMessage::RejectChild { block_id, child_index } => {
-            let mut changed = false;
-            let mut should_remove_draft = false;
-            if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
-                if child_index < draft.children.len() {
-                    draft.children.remove(child_index);
-                    tracing::info!(block_id = ?block_id, child_index, "rejected expanded child");
-                    changed = true;
-                }
-                should_remove_draft = draft.rewrite.is_none() && draft.children.is_empty();
-            }
-            if should_remove_draft {
-                state.store.remove_expansion_draft(&block_id);
-            }
-            if changed {
-                state.persist_with_context("after rejecting expanded child");
-            }
-            Task::none()
-        }
-        | ExpandMessage::AcceptAllChildren(block_id) => {
-            state.mutate_with_undo_and_persist("after accepting expanded children", |state| {
-                if let Some(mut draft) = state.store.remove_expansion_draft(&block_id) {
-                    for point in draft.children.drain(..) {
-                        if let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
-                            tracing::info!(
-                                parent_block_id = ?block_id,
-                                child_block_id = ?child_id,
-                                chars = point.len(),
-                                "accepted expanded child (bulk)"
-                            );
-                            state.editor_buffers.set_text(&child_id, &point);
-                        }
-                    }
-                    if draft.rewrite.is_some() {
-                        state.store.insert_expansion_draft(block_id, draft);
-                    }
-                    return true;
-                }
-                false
-            });
-            Task::none()
-        }
-        | ExpandMessage::DiscardAllChildren(block_id) => {
-            let mut changed = false;
-            let mut should_remove_draft = false;
-            if let Some(draft) = state.store.expansion_draft_mut(&block_id) {
-                if !draft.children.is_empty() {
-                    draft.children.clear();
-                    tracing::info!(block_id = ?block_id, "discarded all expanded children");
-                    changed = true;
-                }
-                should_remove_draft = draft.rewrite.is_none() && draft.children.is_empty();
-            }
-            if should_remove_draft {
-                state.store.remove_expansion_draft(&block_id);
-            }
-            if changed {
-                state.persist_with_context("after discarding expanded children");
-            }
-            Task::none()
-        }
-    }
-}
-
-fn handle_structure_message(state: &mut AppState, message: StructureMessage) -> Task<Message> {
-    match message {
-        | StructureMessage::AddChild(block_id) => {
-            state.overflow_open_for = None;
-            state.mutate_with_undo_and_persist("after adding child", |state| {
-                if let Some(child_id) = state.store.append_child(&block_id, String::new()) {
-                    tracing::info!(parent_block_id = ?block_id, child_block_id = ?child_id, "added child block");
-                    state.editor_buffers.set_text(&child_id, "");
-                    return true;
-                }
-                false
-            });
-            Task::none()
-        }
-        | StructureMessage::AddParent(block_id) => {
-            state.mutate_with_undo_and_persist("after adding parent", |state| {
-                if let Some(parent_id) = state.store.insert_parent(&block_id, String::new()) {
-                    tracing::info!(
-                        block_id = ?block_id,
-                        parent_block_id = ?parent_id,
-                        "added parent block"
-                    );
-                    state.editor_buffers.set_text(&parent_id, "");
-                    state.overflow_open_for = None;
-                    return true;
-                }
-                false
-            });
-            Task::none()
-        }
-        | StructureMessage::AddSibling(block_id) => {
-            state.mutate_with_undo_and_persist("after adding sibling", |state| {
-                if let Some(sibling_id) = state.store.append_sibling(&block_id, String::new()) {
-                    tracing::info!(block_id = ?block_id, sibling_block_id = ?sibling_id, "added sibling block");
-                    state.editor_buffers.set_text(&sibling_id, "");
-                    state.overflow_open_for = None;
-                    return true;
-                }
-                false
-            });
-            Task::none()
-        }
-        | StructureMessage::DuplicateBlock(block_id) => {
-            state.mutate_with_undo_and_persist("after duplicating subtree", |state| {
-                if let Some(duplicate_id) = state.store.duplicate_subtree_after(&block_id) {
-                    tracing::info!(block_id = ?block_id, duplicate_block_id = ?duplicate_id, "duplicated block subtree");
-                    state.editor_buffers.ensure_subtree(&state.store, &duplicate_id);
-                    state.overflow_open_for = None;
-                    return true;
-                }
-                false
-            });
-            Task::none()
-        }
-        | StructureMessage::ArchiveBlock(block_id) => {
-            state.snapshot_for_undo();
-            if let Some(removed_ids) = state.store.remove_block_subtree(&block_id) {
-                tracing::info!(block_id = ?block_id, removed = removed_ids.len(), "archived block subtree");
-                state.editor_buffers.remove_blocks(&removed_ids);
-                for id in &removed_ids {
-                    state.llm_requests.remove_block(*id);
-                }
-                if removed_ids.iter().any(|id| Some(*id) == state.focused_block_id) {
-                    state.focused_block_id = None;
-                    state.panel_bar_state = None;
-                }
-                for root_id in state.store.roots() {
-                    state.editor_buffers.ensure_block(&state.store, root_id);
-                }
-                state.overflow_open_for = None;
-                state.persist_with_context("after archiving subtree");
-            }
-            Task::none()
-        }
-        | StructureMessage::ToggleFold(block_id) => {
-            state.store.toggle_collapsed(&block_id);
-            state.persist_with_context("after toggling fold");
-            Task::none()
-        }
-        | StructureMessage::AddFriendBlock { target, friend_id } => {
-            state.overflow_open_for = None;
-            state.mutate_with_undo_and_persist("after adding friend block", |state| {
-                if friend_id == target {
-                    return false;
-                }
-                if state.store.node(&target).is_none() || state.store.node(&friend_id).is_none() {
-                    return false;
-                }
-                let mut friends = state.store.friend_blocks_for(&target).to_vec();
-                if friends.iter().any(|f| f.block_id == friend_id) {
-                    return false;
-                }
-                friends.push(FriendBlock { block_id: friend_id, perspective: None });
-                state.store.set_friend_blocks_for(&target, friends);
-                tracing::info!(target = ?target, friend_id = ?friend_id, "added friend block");
-                true
-            });
-            Task::none()
-        }
-        | StructureMessage::RemoveFriendBlock { target, friend_id } => {
-            state.mutate_with_undo_and_persist("after removing friend block", |state| {
-                let mut friends = state.store.friend_blocks_for(&target).to_vec();
-                let prev = friends.len();
-                friends.retain(|f| f.block_id != friend_id);
-                if friends.len() == prev {
-                    return false;
-                }
-                if friends.is_empty() {
-                    state.store.set_friend_blocks_for(&target, vec![]);
-                } else {
-                    state.store.set_friend_blocks_for(&target, friends);
-                }
-                tracing::info!(target = ?target, friend_id = ?friend_id, "removed friend block");
-                true
-            });
-            Task::none()
-        }
-    }
-}
-
-fn handle_overlay_message(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
-    match message {
-        | OverlayMessage::ToggleOverflow(block_id) => {
-            if state.overflow_open_for == Some(block_id) {
-                state.overflow_open_for = None;
-            } else {
-                state.overflow_open_for = Some(block_id);
-            }
-            Task::none()
-        }
-        | OverlayMessage::CloseOverflow => {
-            state.overflow_open_for = None;
-            state.panel_bar_state = None;
-            state.focused_block_id = None;
-            Task::none()
-        }
-        | OverlayMessage::ToggleFriendsPanel(block_id) => {
-            // Only toggle if this is the focused block
-            if state.focused_block_id == Some(block_id) {
-                match &state.panel_bar_state {
-                    | Some(PanelBarState::Friends) => {
-                        state.panel_bar_state = None;
-                    }
-                    | _ => {
-                        state.panel_bar_state = Some(PanelBarState::Friends);
-                    }
-                }
-            } else {
-                state.panel_bar_state = Some(PanelBarState::Friends);
-            }
-            Task::none()
-        }
-        | OverlayMessage::StartFriendPicker(block_id) => {
-            state.friend_picker_for = Some(block_id);
-            state.overflow_open_for = None;
-            Task::none()
-        }
-        | OverlayMessage::CancelFriendPicker => {
-            state.friend_picker_for = None;
-            Task::none()
-        }
-    }
-}
-
-fn handle_mount_and_file_message(state: &mut AppState, message: MountFileMessage) -> Task<Message> {
-    match message {
-        | MountFileMessage::ExpandMount(block_id) => {
-            let base_dir = AppPaths::data_dir().unwrap_or_default();
-            state.mutate_with_undo_and_persist("after expanding mount", |state| {
-                match state.store.expand_mount(&block_id, &base_dir) {
-                    | Ok(new_roots) => {
-                        tracing::info!(block_id = ?block_id, children = new_roots.len(), "expanded mount");
-                        for &id in &new_roots {
-                            state.editor_buffers.ensure_subtree(&state.store, &id);
-                        }
-                        true
-                    }
-                    | Err(err) => {
-                        tracing::error!(block_id = ?block_id, %err, "failed to expand mount");
-            state.record_error(AppError::Mount(UiError::from_message(&err)));
-                        false
-                    }
-                }
-            });
-            Task::none()
-        }
-        | MountFileMessage::CollapseMount(block_id) => {
-            state.mutate_with_undo_and_persist("after collapsing mount", |state| {
-                if let Some(()) = state.store.collapse_mount(&block_id) {
-                    tracing::info!(block_id = ?block_id, "collapsed mount");
-                    state.editor_buffers = EditorBuffers::from_store(&state.store);
-                    return true;
-                }
-                false
-            });
-            Task::none()
-        }
-        | MountFileMessage::SaveToFile(block_id) => {
-            state.overflow_open_for = None;
-            Task::perform(
-                async move {
-                    let dialog = rfd::AsyncFileDialog::new()
-                        .set_title("Save block to file")
-                        .add_filter("JSON", &["json"])
-                        .add_filter("Markdown", &["md", "markdown"])
-                        .save_file()
-                        .await;
-                    dialog.map(|handle| handle.path().to_path_buf())
-                },
-                move |path| {
-                    Message::MountFile(MountFileMessage::SaveToFilePicked { block_id, path })
-                },
-            )
-        }
-        | MountFileMessage::SaveToFilePicked { block_id, path } => {
-            if let Some(path) = path {
-                let base_dir = AppPaths::data_dir().unwrap_or_default();
-                state.mutate_with_undo_and_persist("after save-to-file", |state| {
-                    match state.store.save_subtree_to_file(&block_id, &path, &base_dir) {
-                        | Ok(()) => {
-                            let mount_format = state
-                                .store
-                                .node(&block_id)
-                                .and_then(|node| node.mount_format())
-                                .unwrap_or(MountFormat::Json);
-                            tracing::info!(block_id = ?block_id, path = %path.display(), ?mount_format, "saved subtree to file");
-                            match state.store.expand_mount(&block_id, &base_dir) {
-                                | Ok(new_roots) => {
-                                    for &id in &new_roots {
-                                        state.editor_buffers.ensure_subtree(&state.store, &id);
-                                    }
-                                }
-                                | Err(err) => {
-                                    tracing::error!(block_id = ?block_id, %err, "failed to re-expand after save-to-file");
-                                    state.record_error(AppError::Mount(UiError::from_message(&err)));
-                                }
-                            }
-                            true
-                        }
-                        | Err(err) => {
-                            tracing::error!(block_id = ?block_id, %err, "failed to save subtree to file");
-                    state.record_error(AppError::Mount(UiError::from_message(&err)));
-                            false
-                        }
-                    }
-                });
-            }
-            Task::none()
-        }
-        | MountFileMessage::LoadFromFile(block_id) => {
-            state.overflow_open_for = None;
-            Task::perform(
-                async move {
-                    let dialog = rfd::AsyncFileDialog::new()
-                        .set_title("Load block from file")
-                        .add_filter("JSON", &["json"])
-                        .add_filter("Markdown", &["md", "markdown"])
-                        .pick_file()
-                        .await;
-                    dialog.map(|handle| handle.path().to_path_buf())
-                },
-                move |path| {
-                    Message::MountFile(MountFileMessage::LoadFromFilePicked { block_id, path })
-                },
-            )
-        }
-        | MountFileMessage::LoadFromFilePicked { block_id, path } => {
-            if let Some(path) = path {
-                let base_dir = AppPaths::data_dir().unwrap_or_default();
-                state.mutate_with_undo_and_persist("after load-from-file", |state| {
-                    let rel_path = path
-                        .strip_prefix(&base_dir)
-                        .map(|p| p.to_path_buf())
-                        .unwrap_or_else(|_| path.clone());
-                    let mount_format = match path
-                        .extension()
-                        .and_then(std::ffi::OsStr::to_str)
-                        .map(str::to_ascii_lowercase)
-                        .as_deref()
-                    {
-                        | Some("md") | Some("markdown") => MountFormat::Markdown,
-                        | _ => MountFormat::Json,
-                    };
-                    let mounted = match mount_format {
-                        | MountFormat::Json => state.store.set_mount_path(&block_id, rel_path),
-                        | MountFormat::Markdown => {
-                            state.store.set_mount_path_with_format(&block_id, rel_path, mount_format)
-                        }
-                    };
-                    if mounted.is_none() {
-                        tracing::error!(block_id = ?block_id, "block has children or does not exist; cannot load");
-                        return false;
-                    }
-                    match state.store.expand_mount(&block_id, &base_dir) {
-                        | Ok(new_roots) => {
-                            tracing::info!(block_id = ?block_id, path = %path.display(), children = new_roots.len(), "loaded file into block");
-                            for &id in &new_roots {
-                                state.editor_buffers.ensure_subtree(&state.store, &id);
-                            }
-                        }
-                        | Err(err) => {
-                            tracing::error!(block_id = ?block_id, %err, "failed to expand after load-from-file");
-            state.record_error(AppError::Mount(UiError::from_message(&err)));
-                        }
-                    }
-                    true
-                });
-            }
-            Task::none()
-        }
-        | MountFileMessage::SystemThemeChanged(mode) => {
-            let dark = matches!(mode, Mode::Dark);
-            if state.is_dark != dark {
-                tracing::info!(is_dark = dark, "system theme changed");
-                state.is_dark = dark;
-            }
-            Task::none()
-        }
-    }
-}
-
-fn handle_point_edited(
-    state: &mut AppState, block_id: BlockId, action: text_editor::Action,
-) -> Task<Message> {
-    state.focused_block_id = Some(block_id);
-    state.panel_bar_state = None;
-    if state.editing_block_id.as_ref() != Some(&block_id) {
-        state.snapshot_for_undo();
-        state.editing_block_id = Some(block_id);
-    }
-    state.editor_buffers.ensure_block(&state.store, &block_id);
-
-    let vertical_direction = match &action {
-        | text_editor::Action::Move(text_editor::Motion::Up) => Some(VerticalDir::Up),
-        | text_editor::Action::Move(text_editor::Motion::Down) => Some(VerticalDir::Down),
-        | _ => None,
-    };
-
-    let mut navigate_to: Option<BlockId> = None;
-    if let Some(content) = state.editor_buffers.get_mut(&block_id) {
-        let cursor_before = content.cursor().position;
-        content.perform(action);
-        let cursor_after = content.cursor().position;
-
-        if let Some(dir) = vertical_direction
-            && cursor_before == cursor_after
-        {
-            navigate_to = match dir {
-                | VerticalDir::Up => state.store.prev_visible_in_dfs(&block_id),
-                | VerticalDir::Down => state.store.next_visible_in_dfs(&block_id),
-            };
-        }
-
-        if navigate_to.is_none() {
-            let next_text = content.text();
-            tracing::debug!(block_id = ?block_id, chars = next_text.len(), "point edited");
-            state.store.update_point(&block_id, next_text);
-            state.persist_with_context("after edit");
-        }
-    }
-
-    if let Some(target_id) = navigate_to
-        && let Some(wid) = state.editor_buffers.widget_id(&target_id)
-    {
-        state.focused_block_id = Some(target_id);
-        state.panel_bar_state = None;
-        tracing::debug!(
-            from = ?block_id,
-            to = ?target_id,
-            "keyboard traversal"
-        );
-        return widget::operation::focus(wid.clone());
-    }
-    Task::none()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1522,82 +1513,19 @@ impl ErrorBanner {
     }
 }
 
-pub fn view(state: &AppState) -> Element<'_, Message> {
-    match state.active_view {
-        | ViewMode::Document => document_view(state),
-        | ViewMode::Settings => settings::view(state),
-    }
-}
-
-/// Render the main document tree view with error banners and a settings entry button.
-fn document_view(state: &AppState) -> Element<'_, Message> {
-    let mut layout = column![].spacing(theme::LAYOUT_GAP);
-
-    // Settings gear button in the top-right corner.
-    let gear_button = button(
-        lucide_icons::iced::icon_settings()
-            .size(16)
-            .line_height(iced::widget::text::LineHeight::Relative(1.0)),
-    )
-    .on_press(Message::Settings(SettingsMessage::Open))
-    .style(theme::action_button)
-    .padding(theme::BUTTON_PAD);
-
-    let top_bar = container(
-        row![iced::widget::Space::new().width(Fill), gear_button].align_y(iced::Alignment::Center),
-    )
-    .padding(iced::Padding::new(4.0).left(theme::CANVAS_PAD).right(theme::CANVAS_PAD));
-    layout = layout.push(top_bar);
-
-    if let Some(error_banner) = ErrorBanner::from_state(state) {
-        let mut banner_content = column![
-            row![
-                text(error_banner.title()),
-                button("Dismiss")
-                    .on_press(Message::Error(ErrorMessage::DismissAt(error_banner.latest.index))),
-            ]
-            .spacing(8)
-        ]
-        .spacing(4);
-        for entry in &error_banner.previous_entries {
-            banner_content = banner_content.push(
-                row![
-                    text(format!("Earlier: {}", entry.message)),
-                    button("Dismiss")
-                        .on_press(Message::Error(ErrorMessage::DismissAt(entry.index))),
-                ]
-                .spacing(8),
-            );
+impl AppState {
+    pub fn view(&self) -> Element<'_, Message> {
+        match self.active_view {
+            | ViewMode::Document => document::DocumentView::new(self).view(),
+            | ViewMode::Settings => settings::view(self),
         }
-        if error_banner.hidden_previous_count > 0 {
-            banner_content = banner_content.push(text(format!(
-                "...and {} older error(s)",
-                error_banner.hidden_previous_count
-            )));
-        }
-        layout = layout
-            .push(container(banner_content).style(theme::error_banner).padding(theme::BANNER_PAD));
     }
-
-    let tree = view::TreeView::new(state).render_roots();
-    let content = container(tree).padding(theme::CANVAS_PAD).max_width(theme::CANVAS_MAX_WIDTH);
-    layout = layout.push(
-        scrollable(
-            container(content)
-                .width(Fill)
-                .center_x(Fill)
-                .padding(iced::Padding::ZERO.top(theme::CANVAS_TOP)),
-        )
-        .height(Fill),
-    );
-
-    container(layout).style(theme::canvas).width(Fill).height(Fill).into()
 }
 
 #[cfg(test)]
 mod tests {
     use super::instruction_panel::InstructionPanelMessage;
-    use super::{AppError, AppState, Message, UiError, update};
+    use super::{AppError, AppState, Message, UiError};
     use super::{ErrorMessage, ExpandMessage, ReduceMessage};
     use crate::llm;
     use crate::store::{BlockStore, ExpansionDraftRecord, ReductionDraftRecord, StoreLoadError};
@@ -1736,7 +1664,7 @@ mod tests {
         state.errors.push(AppError::Expand(UiError::from_message("e2")));
         state.errors.push(AppError::Reduce(UiError::from_message("r3")));
 
-        let _ = update(&mut state, Message::Error(ErrorMessage::DismissAt(1)));
+        let _ = AppState::update(&mut state, Message::Error(ErrorMessage::DismissAt(1)));
 
         assert_eq!(state.errors.len(), 2);
         assert_eq!(state.errors[0].message(), "m1");
@@ -1748,7 +1676,7 @@ mod tests {
         let (mut state, _) = test_state();
         state.errors.push(AppError::Mount(UiError::from_message("m1")));
 
-        let _ = update(&mut state, Message::Error(ErrorMessage::DismissAt(99)));
+        let _ = AppState::update(&mut state, Message::Error(ErrorMessage::DismissAt(99)));
 
         assert_eq!(state.errors.len(), 1);
         assert_eq!(state.errors[0].message(), "m1");
@@ -1759,7 +1687,7 @@ mod tests {
         let (mut state, root) = test_state();
         let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_expand_loading(root, signature);
-        let _ = update(
+        let _ = AppState::update(
             &mut state,
             Message::Expand(ExpandMessage::Done {
                 block_id: root,
@@ -1781,7 +1709,7 @@ mod tests {
         let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_expand_loading(root, signature);
         state.store.update_point(&root, "edited while pending".to_string());
-        let _ = update(
+        let _ = AppState::update(
             &mut state,
             Message::Expand(ExpandMessage::Done {
                 block_id: root,
@@ -1798,10 +1726,10 @@ mod tests {
     #[test]
     fn cancel_expand_clears_loading_state_and_pending_signature() {
         let (mut state, root) = test_state();
-        let _ = update(&mut state, Message::Expand(ExpandMessage::Start(root)));
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::Start(root)));
         assert!(state.llm_requests.is_expanding(root));
         assert!(state.llm_requests.has_pending_expand_signature(root));
-        let _ = update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
         assert!(!state.llm_requests.is_expanding(root));
         assert!(!state.llm_requests.has_pending_expand_signature(root));
     }
@@ -1813,7 +1741,7 @@ mod tests {
             root,
             ExpansionDraftRecord { rewrite: Some("rewritten point".to_string()), children: vec![] },
         );
-        let _ = update(&mut state, Message::Expand(ExpandMessage::ApplyRewrite(root)));
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::ApplyRewrite(root)));
         assert_eq!(state.store.point(&root).as_deref(), Some("rewritten point"));
         assert!(state.store.expansion_draft(&root).is_none());
     }
@@ -1828,7 +1756,7 @@ mod tests {
                 children: vec!["child a".to_string()],
             },
         );
-        let _ = update(&mut state, Message::Expand(ExpandMessage::RejectRewrite(root)));
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::RejectRewrite(root)));
         let draft = state.store.expansion_draft(&root).expect("draft remains with children");
         assert!(draft.rewrite.is_none());
         assert_eq!(draft.children, vec!["child a".to_string()]);
@@ -1845,7 +1773,7 @@ mod tests {
                 children: vec!["child a".to_string(), "child b".to_string()],
             },
         );
-        let _ = update(
+        let _ = AppState::update(
             &mut state,
             Message::Expand(ExpandMessage::AcceptChild { block_id: root, child_index: 0 }),
         );
@@ -1868,7 +1796,8 @@ mod tests {
                 children: vec!["child a".to_string(), "child b".to_string()],
             },
         );
-        let _ = update(&mut state, Message::Expand(ExpandMessage::AcceptAllChildren(root)));
+        let _ =
+            AppState::update(&mut state, Message::Expand(ExpandMessage::AcceptAllChildren(root)));
         let children = state.store.children(&root);
         assert_eq!(children.len(), before_children_len + 2);
         let first = children[before_children_len];
@@ -1887,7 +1816,8 @@ mod tests {
             root,
             ExpansionDraftRecord { rewrite: None, children: vec!["child a".to_string()] },
         );
-        let _ = update(&mut state, Message::Expand(ExpandMessage::DiscardAllChildren(root)));
+        let _ =
+            AppState::update(&mut state, Message::Expand(ExpandMessage::DiscardAllChildren(root)));
         assert!(state.store.expansion_draft(&root).is_none());
     }
 
@@ -1897,7 +1827,7 @@ mod tests {
 
         let first_signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_expand_loading(root, first_signature);
-        let _ = update(
+        let _ = AppState::update(
             &mut state,
             Message::Expand(ExpandMessage::Done {
                 block_id: root,
@@ -1908,11 +1838,12 @@ mod tests {
                 )),
             }),
         );
-        let _ = update(&mut state, Message::Expand(ExpandMessage::AcceptAllChildren(root)));
+        let _ =
+            AppState::update(&mut state, Message::Expand(ExpandMessage::AcceptAllChildren(root)));
 
         let second_signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_expand_loading(root, second_signature);
-        let _ = update(
+        let _ = AppState::update(
             &mut state,
             Message::Expand(ExpandMessage::Done {
                 block_id: root,
@@ -1924,7 +1855,8 @@ mod tests {
             }),
         );
 
-        let _ = update(&mut state, Message::Expand(ExpandMessage::DiscardAllChildren(root)));
+        let _ =
+            AppState::update(&mut state, Message::Expand(ExpandMessage::DiscardAllChildren(root)));
 
         let draft = state.store.expansion_draft(&root).expect("rewrite draft remains");
         assert_eq!(draft.rewrite.as_deref(), Some("second rewrite"));
@@ -1936,7 +1868,7 @@ mod tests {
         let (mut state, root) = test_state();
         let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_reduce_loading(root, signature);
-        let _ = update(
+        let _ = AppState::update(
             &mut state,
             Message::Reduce(ReduceMessage::Done {
                 block_id: root,
@@ -1955,7 +1887,7 @@ mod tests {
         let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_reduce_loading(root, signature);
         state.store.update_point(&root, "edited while pending".to_string());
-        let _ = update(
+        let _ = AppState::update(
             &mut state,
             Message::Reduce(ReduceMessage::Done {
                 block_id: root,
@@ -1970,10 +1902,10 @@ mod tests {
     #[test]
     fn cancel_reduce_clears_loading_state_and_pending_signature() {
         let (mut state, root) = test_state();
-        let _ = update(&mut state, Message::Reduce(ReduceMessage::Start(root)));
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Start(root)));
         assert!(state.llm_requests.is_reducing(root));
         assert!(state.llm_requests.has_pending_reduce_signature(root));
-        let _ = update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
         assert!(!state.llm_requests.is_reducing(root));
         assert!(!state.llm_requests.has_pending_reduce_signature(root));
     }
@@ -1988,7 +1920,7 @@ mod tests {
                 redundant_children: vec![],
             },
         );
-        let _ = update(&mut state, Message::Reduce(ReduceMessage::Apply(root)));
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Apply(root)));
         assert_eq!(state.store.point(&root).as_deref(), Some("reduced point"));
         assert!(state.store.reduction_draft(&root).is_none());
     }
@@ -2003,7 +1935,7 @@ mod tests {
                 redundant_children: vec![],
             },
         );
-        let _ = update(&mut state, Message::Reduce(ReduceMessage::Reject(root)));
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Reject(root)));
         assert!(state.store.reduction_draft(&root).is_none());
     }
 
@@ -2014,7 +1946,7 @@ mod tests {
             root,
             ExpansionDraftRecord { rewrite: None, children: vec!["only child".to_string()] },
         );
-        let _ = update(
+        let _ = AppState::update(
             &mut state,
             Message::Expand(ExpandMessage::RejectChild { block_id: root, child_index: 0 }),
         );
@@ -2026,7 +1958,7 @@ mod tests {
         let (mut state, root) = test_state();
         let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_expand_loading(root, signature);
-        let _ = update(
+        let _ = AppState::update(
             &mut state,
             Message::Expand(ExpandMessage::Done {
                 block_id: root,
@@ -2042,7 +1974,7 @@ mod tests {
         let (mut state, root) = test_state();
         let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_reduce_loading(root, signature);
-        let _ = update(
+        let _ = AppState::update(
             &mut state,
             Message::Reduce(ReduceMessage::Done {
                 block_id: root,
@@ -2059,8 +1991,8 @@ mod tests {
         let (mut state, root) = test_state();
         let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_expand_loading(root, signature);
-        let _ = update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
-        let _ = update(
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
+        let _ = AppState::update(
             &mut state,
             Message::Expand(ExpandMessage::Done {
                 block_id: root,
@@ -2081,8 +2013,8 @@ mod tests {
         let (mut state, root) = test_state();
         let signature = state.block_context_signature(&root).expect("root has lineage");
         state.llm_requests.mark_reduce_loading(root, signature);
-        let _ = update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
-        let _ = update(
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
+        let _ = AppState::update(
             &mut state,
             Message::Reduce(ReduceMessage::Done {
                 block_id: root,
@@ -2103,7 +2035,10 @@ mod tests {
         state.editor_buffers.set_instruction_text("keep this instruction");
         state.store.set_instruction_draft(root, "keep this instruction".to_string());
 
-        let _ = update(&mut state, Message::InstructionPanel(InstructionPanelMessage::Toggle));
+        let _ = AppState::update(
+            &mut state,
+            Message::InstructionPanel(InstructionPanelMessage::Toggle),
+        );
 
         assert_eq!(state.panel_bar_state, Some(super::PanelBarState::Instruction));
         assert_eq!(state.editor_buffers.instruction_content().text(), "keep this instruction");
@@ -2116,7 +2051,10 @@ mod tests {
         state.store.set_instruction_draft(root, "persisted instruction".to_string());
         state.store.set_inquiry_draft(root, "persisted inquiry".to_string());
 
-        let _ = update(&mut state, Message::InstructionPanel(InstructionPanelMessage::Toggle));
+        let _ = AppState::update(
+            &mut state,
+            Message::InstructionPanel(InstructionPanelMessage::Toggle),
+        );
 
         assert_eq!(state.editor_buffers.instruction_content().text(), "persisted instruction");
         assert_eq!(state.instruction_panel.inquiry_result.as_deref(), Some("persisted inquiry"));
@@ -2134,7 +2072,10 @@ mod tests {
         state.instruction_panel.prompt = Some("prompt".to_string());
         state.editor_buffers.set_instruction_text("keep me");
 
-        let _ = update(&mut state, Message::InstructionPanel(InstructionPanelMessage::Toggle));
+        let _ = AppState::update(
+            &mut state,
+            Message::InstructionPanel(InstructionPanelMessage::Toggle),
+        );
 
         assert_eq!(state.panel_bar_state, None);
         assert_eq!(state.instruction_panel.inquiry_result.as_deref(), Some("result"));
@@ -2157,7 +2098,7 @@ mod tests {
         state.instruction_panel.inquiry_result = Some("inquiry response".to_string());
         state.instruction_panel.inquiry_target_block_id = Some(root);
 
-        let _ = update(
+        let _ = AppState::update(
             &mut state,
             Message::InstructionPanel(InstructionPanelMessage::AppendInstructionResponse),
         );
@@ -2180,7 +2121,7 @@ mod tests {
         state.instruction_panel.inquiry_result = Some("child from inquiry".to_string());
         state.instruction_panel.inquiry_target_block_id = Some(root);
 
-        let _ = update(
+        let _ = AppState::update(
             &mut state,
             Message::InstructionPanel(InstructionPanelMessage::AddInstructionResponseAsChild),
         );
@@ -2200,7 +2141,10 @@ mod tests {
         state.editor_buffers.set_instruction_text("ask this");
         state.store.set_instruction_draft(root, "ask this".to_string());
 
-        let _ = update(&mut state, Message::InstructionPanel(InstructionPanelMessage::Inquire));
+        let _ = AppState::update(
+            &mut state,
+            Message::InstructionPanel(InstructionPanelMessage::Inquire),
+        );
 
         assert!(state.instruction_panel.is_inquiring);
         assert!(state.editor_buffers.instruction_content().text().is_empty());
@@ -2210,7 +2154,7 @@ mod tests {
     #[test]
     fn inquire_done_persists_inquiry_draft() {
         let (mut state, root) = test_state();
-        let _ = update(
+        let _ = AppState::update(
             &mut state,
             Message::InstructionPanel(InstructionPanelMessage::InquireDone {
                 block_id: root,
@@ -2231,7 +2175,7 @@ mod tests {
         state.store.set_instruction_draft(root, "expand this".to_string());
         state.editor_buffers.set_instruction_text("expand this");
 
-        let _ = update(
+        let _ = AppState::update(
             &mut state,
             Message::InstructionPanel(InstructionPanelMessage::ExpandWithInstruction),
         );
@@ -2247,7 +2191,10 @@ mod tests {
         state.instruction_panel.inquiry_result = Some("draft".to_string());
         state.instruction_panel.inquiry_target_block_id = Some(root);
 
-        let _ = update(&mut state, Message::InstructionPanel(InstructionPanelMessage::Dismiss));
+        let _ = AppState::update(
+            &mut state,
+            Message::InstructionPanel(InstructionPanelMessage::Dismiss),
+        );
 
         assert!(state.store.inquiry_draft(&root).is_none());
     }
@@ -2260,13 +2207,13 @@ mod tests {
             .append_sibling(&root, "sibling".to_string())
             .expect("append sibling succeeds");
 
-        let _ = update(&mut state, Message::Reduce(ReduceMessage::Start(root)));
-        let _ = update(&mut state, Message::Reduce(ReduceMessage::Start(sibling)));
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Start(root)));
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Start(sibling)));
 
         assert!(state.llm_requests.has_reduce_handle(root));
         assert!(state.llm_requests.has_reduce_handle(sibling));
 
-        let _ = update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
+        let _ = AppState::update(&mut state, Message::Reduce(ReduceMessage::Cancel(root)));
 
         assert!(!state.llm_requests.has_reduce_handle(root));
         assert!(state.llm_requests.has_reduce_handle(sibling));
@@ -2280,13 +2227,13 @@ mod tests {
             .append_sibling(&root, "sibling".to_string())
             .expect("append sibling succeeds");
 
-        let _ = update(&mut state, Message::Expand(ExpandMessage::Start(root)));
-        let _ = update(&mut state, Message::Expand(ExpandMessage::Start(sibling)));
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::Start(root)));
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::Start(sibling)));
 
         assert!(state.llm_requests.has_expand_handle(root));
         assert!(state.llm_requests.has_expand_handle(sibling));
 
-        let _ = update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
+        let _ = AppState::update(&mut state, Message::Expand(ExpandMessage::Cancel(root)));
 
         assert!(!state.llm_requests.has_expand_handle(root));
         assert!(state.llm_requests.has_expand_handle(sibling));

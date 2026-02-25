@@ -19,8 +19,8 @@ const DEFAULT_FONT: iced::Font = iced::Font::with_name("LXGW WenKai");
 fn main() -> iced::Result {
     #[cfg(feature = "log")]
     init_tracing();
-    iced::application(app::AppState::load, app::update, app::view)
-        .subscription(app::subscription)
+    iced::application(app::AppState::load, app::AppState::update, app::AppState::view)
+        .subscription(app::AppState::subscription)
         .font(include_bytes!("../assets/fonts/Inter-300.woff2").as_slice())
         .font(include_bytes!("../assets/fonts/Inter-400.woff2").as_slice())
         .font(include_bytes!("../assets/fonts/Inter-500.woff2").as_slice())

@@ -211,7 +211,10 @@ pub fn handle(
             state.editor_buffers.set_instruction_text("");
             // Close the instruction panel and trigger expand
             state.panel_bar_state = None;
-            crate::app::update(state, Message::Expand(ExpandMessage::Start(target_block_id)))
+            crate::app::AppState::update(
+                state,
+                Message::Expand(ExpandMessage::Start(target_block_id)),
+            )
         }
         | InstructionPanelMessage::ReduceWithInstruction => {
             let instruction = state.editor_buffers.instruction_content().text().trim().to_string();
@@ -225,7 +228,10 @@ pub fn handle(
             state.editor_buffers.set_instruction_text("");
             // Close the instruction panel and trigger reduce
             state.panel_bar_state = None;
-            crate::app::update(state, Message::Reduce(ReduceMessage::Start(target_block_id)))
+            crate::app::AppState::update(
+                state,
+                Message::Reduce(ReduceMessage::Start(target_block_id)),
+            )
         }
         | InstructionPanelMessage::ApplyInstructionRewrite => {
             let mut cleared_target = None;

@@ -1,7 +1,7 @@
 //! LLM runtime errors and API error types.
 
+use std::{io, path::PathBuf};
 use thiserror::Error;
-use std::{path::PathBuf, io};
 
 /// Runtime LLM errors during API calls.
 #[derive(Debug, Error)]
