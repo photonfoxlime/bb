@@ -1,0 +1,259 @@
+//! Tree mutation and subtree traversal helpers.
+//!
+//! Structural operations that add, remove, or rearrange blocks within the
+//! forest.  Also contains internal helpers for collecting subtree ids and
+//! walking the parent chain (lineage).
+
+use super::mount::BlockOrigin;
+
+use super::{BlockId, BlockNode, BlockStore};
+
+impl BlockStore {
+    /// Add one child block under the parent and return the new child id.
+    pub fn append_child(&mut self, parent_id: &BlockId, point: String) -> Option<BlockId> {
+        if !self.nodes.contains_key(*parent_id) {
+            return None;
+        }
+
+        let child_id = self.nodes.insert(BlockNode::with_children(vec![]));
+        self.points.insert(child_id, point);
+        if let Some(mount_point) = self.inherited_mount_point_for_anchor(parent_id) {
+            self.mount_table.set_origin(child_id, BlockOrigin::Mounted { mount_point });
+        }
+        if let Some(parent) = self.nodes.get_mut(*parent_id)
+            && let Some(children) = parent.children_mut()
+        {
+            children.push(child_id);
+        }
+        Some(child_id)
+    }
+
+    /// Wrap a block with a new parent inserted at the block's current position.
+    ///
+    /// Preserves sibling/root ordering by replacing the original slot with the
+    /// new parent and attaching the target block as its first child.
+    pub fn insert_parent(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
+        let (parent_id, index) = self.parent_and_index_of(block_id)?;
+
+        let parent_block_id = self.nodes.insert(BlockNode::with_children(vec![*block_id]));
+        self.points.insert(parent_block_id, point);
+
+        if let Some(mount_point) = self.inherited_mount_point_for_anchor(block_id) {
+            self.mount_table.set_origin(parent_block_id, BlockOrigin::Mounted { mount_point });
+        }
+
+        if let Some(parent_id) = parent_id {
+            let parent = self.nodes.get_mut(parent_id)?;
+            if let Some(children) = parent.children_mut() {
+                children[index] = parent_block_id;
+            }
+        } else {
+            self.roots[index] = parent_block_id;
+        }
+
+        Some(parent_block_id)
+    }
+
+    /// Insert a sibling block immediately after `block_id` in its parent's
+    /// child list (or in roots if `block_id` is a root). Returns the new id.
+    pub fn append_sibling(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
+        let (parent_id, index) = self.parent_and_index_of(block_id)?;
+        let sibling_id = self.nodes.insert(BlockNode::with_children(vec![]));
+        self.points.insert(sibling_id, point);
+        if let Some(mount_point) = self.inherited_mount_point_for_anchor(block_id) {
+            self.mount_table.set_origin(sibling_id, BlockOrigin::Mounted { mount_point });
+        }
+
+        if let Some(parent_id) = parent_id {
+            let parent = self.nodes.get_mut(parent_id)?;
+            if let Some(children) = parent.children_mut() {
+                children.insert(index + 1, sibling_id);
+            }
+        } else {
+            self.roots.insert(index + 1, sibling_id);
+        }
+        Some(sibling_id)
+    }
+
+    /// Deep-clone a block and its entire subtree with fresh ids, inserting the
+    /// copy immediately after the original. Returns the cloned root id.
+    pub fn duplicate_subtree_after(&mut self, block_id: &BlockId) -> Option<BlockId> {
+        let (parent_id, index) = self.parent_and_index_of(block_id)?;
+        let duplicate_id = self.clone_subtree_with_new_ids(block_id)?;
+
+        if let Some(parent_id) = parent_id {
+            let parent = self.nodes.get_mut(parent_id)?;
+            if let Some(children) = parent.children_mut() {
+                children.insert(index + 1, duplicate_id);
+            }
+        } else {
+            self.roots.insert(index + 1, duplicate_id);
+        }
+        Some(duplicate_id)
+    }
+
+    /// Remove a block and its entire subtree. Returns the removed ids.
+    ///
+    /// If removal empties the root list, a fresh empty root is inserted.
+    pub fn remove_block_subtree(&mut self, block_id: &BlockId) -> Option<Vec<BlockId>> {
+        let (parent_id, index) = self.parent_and_index_of(block_id)?;
+        if let Some(parent_id) = parent_id {
+            if let Some(parent) = self.nodes.get_mut(parent_id)
+                && let Some(children) = parent.children_mut()
+            {
+                children.remove(index);
+            }
+        } else {
+            self.roots.remove(index);
+        }
+
+        let mut removed_ids = Vec::new();
+        self.collect_subtree_ids(block_id, &mut removed_ids);
+        for id in &removed_ids {
+            self.nodes.remove(*id);
+            self.points.remove(*id);
+            self.expansion_drafts.remove(*id);
+            self.reduction_drafts.remove(*id);
+            self.instruction_drafts.remove(*id);
+            self.inquiry_drafts.remove(*id);
+            self.view_collapsed.remove(*id);
+            self.friend_blocks.remove(*id);
+            self.mount_table.remove_origin(*id);
+        }
+        self.remove_friend_block_references(&removed_ids);
+
+        if self.roots.is_empty() {
+            let root_id = self.nodes.insert(BlockNode::with_children(vec![]));
+            self.points.insert(root_id, String::new());
+            self.roots.push(root_id);
+        }
+
+        Some(removed_ids)
+    }
+
+    /// Find the parent id and position index of a block.
+    ///
+    /// Returns `(None, index)` if the block is a root, or
+    /// `(Some(parent_id), index)` if it is a child.
+    pub(crate) fn parent_and_index_of(&self, target: &BlockId) -> Option<(Option<BlockId>, usize)> {
+        if let Some(index) = self.roots.iter().position(|id| id == target) {
+            return Some((None, index));
+        }
+
+        for (parent_id, node) in &self.nodes {
+            if let Some(index) = node.children().iter().position(|id| id == target) {
+                return Some((Some(parent_id), index));
+            }
+        }
+        None
+    }
+
+    fn clone_subtree_with_new_ids(&mut self, source_id: &BlockId) -> Option<BlockId> {
+        let source_node = self.node(source_id)?.clone();
+        let source_point = self.point(source_id).unwrap_or_default();
+        let source_children: Vec<BlockId> = source_node.children().to_vec();
+        let mut child_ids = Vec::with_capacity(source_children.len());
+        for child in &source_children {
+            child_ids.push(self.clone_subtree_with_new_ids(child)?);
+        }
+
+        let next_id = self.nodes.insert(BlockNode::with_children(child_ids));
+        self.points.insert(next_id, source_point);
+        if let Some(mount_point) = self.inherited_mount_point_for_anchor(source_id) {
+            self.mount_table.set_origin(next_id, BlockOrigin::Mounted { mount_point });
+        }
+        Some(next_id)
+    }
+
+    pub(crate) fn inherited_mount_point_for_anchor(&self, anchor_id: &BlockId) -> Option<BlockId> {
+        if self.mount_table.entry(*anchor_id).is_some() {
+            return Some(*anchor_id);
+        }
+
+        match self.mount_table.origin(*anchor_id) {
+            | Some(BlockOrigin::Mounted { mount_point }) => Some(*mount_point),
+            | None => None,
+        }
+    }
+
+    pub(crate) fn collect_subtree_ids(&self, current: &BlockId, out: &mut Vec<BlockId>) {
+        let Some(node) = self.node(current) else {
+            return;
+        };
+        out.push(*current);
+        for child in node.children() {
+            self.collect_subtree_ids(child, out);
+        }
+    }
+
+    /// Collect subtree IDs owned by this store, stopping at expanded mount
+    /// boundaries.
+    ///
+    /// `own_ids` receives every block id in the subtree that is not from a
+    /// nested mounted file. `mount_points` receives ids of expanded mount
+    /// points encountered during traversal (they are also included in
+    /// `own_ids` since the mount-point node itself belongs to this store).
+    pub(crate) fn collect_own_subtree_ids(
+        &self, current: &BlockId, own_ids: &mut Vec<BlockId>, mount_points: &mut Vec<BlockId>,
+    ) {
+        let Some(node) = self.node(current) else {
+            return;
+        };
+        own_ids.push(*current);
+
+        // If this node is an expanded mount, its children belong to the
+        // mounted file. Record it and do not recurse.
+        if self.mount_table.entry(*current).is_some() {
+            mount_points.push(*current);
+            return;
+        }
+
+        for child in node.children() {
+            self.collect_own_subtree_ids(child, own_ids, mount_points);
+        }
+    }
+
+    pub(crate) fn collect_lineage_points(
+        &self, current: &BlockId, target: &BlockId, out: &mut Vec<String>,
+    ) -> bool {
+        if !self.nodes.contains_key(*current) {
+            return false;
+        }
+
+        let point = self.points.get(*current).cloned().unwrap_or_default();
+        out.push(point);
+        if current == target {
+            return true;
+        }
+
+        let children = self.node(current).map(|n| n.children().to_vec()).unwrap_or_default();
+        for child in &children {
+            if self.collect_lineage_points(child, target, out) {
+                return true;
+            }
+        }
+
+        out.pop();
+        false
+    }
+
+    pub(crate) fn remove_friend_block_references(&mut self, removed_ids: &[BlockId]) {
+        if removed_ids.is_empty() || self.friend_blocks.is_empty() {
+            return;
+        }
+        let removed = removed_ids.iter().copied().collect::<std::collections::HashSet<_>>();
+        let target_ids = self.friend_blocks.iter().map(|(id, _)| id).collect::<Vec<_>>();
+        let mut empty_targets = Vec::new();
+        for target_id in target_ids {
+            if let Some(friend_ids) = self.friend_blocks.get_mut(target_id) {
+                friend_ids.retain(|friend| !removed.contains(&friend.block_id));
+                if friend_ids.is_empty() {
+                    empty_targets.push(target_id);
+                }
+            }
+        }
+        for target_id in empty_targets {
+            self.friend_blocks.remove(target_id);
+        }
+    }
+}

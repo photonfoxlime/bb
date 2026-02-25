@@ -6,7 +6,6 @@
 //! - load fonts and theme from app state.
 
 mod app;
-mod mount;
 mod store;
 mod llm;
 mod paths;
