@@ -10,6 +10,7 @@ mod error;
 mod instruction_panel;
 mod llm_requests;
 mod view;
+pub(crate) mod settings;
 
 use crate::llm;
 use crate::paths::AppPaths;
@@ -31,6 +32,7 @@ use iced::{Element, Event, Fill, Subscription, Task, event, keyboard, mouse, sys
 use instruction_panel::InstructionPanel;
 use instruction_panel::InstructionPanelMessage;
 use llm_requests::{LlmRequests, RequestSignature};
+use settings::{SettingsMessage, SettingsState, ViewMode};
 use std::time::Duration;
 
 /// Snapshot of undoable application state.
@@ -99,6 +101,10 @@ pub struct AppState {
     /// Whether the current theme is dark. Detected from the system at startup
     /// and updated live via `iced::system::theme_changes()`.
     pub is_dark: bool,
+    /// Which top-level screen is currently shown.
+    pub active_view: ViewMode,
+    /// Draft form state for the settings screen.
+    pub settings: SettingsState,
 }
 
 impl AppState {
@@ -123,6 +129,7 @@ impl AppState {
 
         let is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
         tracing::info!(is_dark, "detected system appearance");
+        let settings = SettingsState::from_config(&llm_config);
         Self {
             store,
             undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
@@ -140,6 +147,8 @@ impl AppState {
             editing_block_id: None,
 
             is_dark,
+            active_view: ViewMode::default(),
+            settings,
         }
     }
 
@@ -281,6 +290,14 @@ impl AppState {
     }
 
     fn dispatch_message(&mut self, message: Message) -> Task<Message> {
+        // When the settings view is active, Escape (arriving as CancelFriendPicker
+        // from the global event handler) should close settings instead.
+        if self.active_view == ViewMode::Settings {
+            if matches!(&message, Message::Overlay(OverlayMessage::CancelFriendPicker)) {
+                return settings::handle(self, SettingsMessage::Close);
+            }
+        }
+
         match message {
             | Message::UndoRedo(message) => self.handle_undo_redo(message),
             | Message::Shortcut(message) => self.handle_shortcut_message(message),
@@ -296,6 +313,7 @@ impl AppState {
             | Message::InstructionPanel(message) => {
                 instruction_panel::handle(self, BlockId::default(), message)
             }
+            | Message::Settings(message) => settings::handle(self, message),
         }
     }
 
@@ -360,6 +378,7 @@ pub enum Message {
     Overlay(OverlayMessage),
     MountFile(MountFileMessage),
     InstructionPanel(InstructionPanelMessage),
+    Settings(SettingsMessage),
 }
 
 #[derive(Debug, Clone)]
@@ -1498,7 +1517,32 @@ impl ErrorBanner {
 }
 
 pub fn view(state: &AppState) -> Element<'_, Message> {
+    match state.active_view {
+        | ViewMode::Document => document_view(state),
+        | ViewMode::Settings => settings::view(state),
+    }
+}
+
+/// Render the main document tree view with error banners and a settings entry button.
+fn document_view(state: &AppState) -> Element<'_, Message> {
     let mut layout = column![].spacing(theme::LAYOUT_GAP);
+
+    // Settings gear button in the top-right corner.
+    let gear_button = button(
+        lucide_icons::iced::icon_settings()
+            .size(16)
+            .line_height(iced::widget::text::LineHeight::Relative(1.0)),
+    )
+    .on_press(Message::Settings(SettingsMessage::Open))
+    .style(theme::action_button)
+    .padding(theme::BUTTON_PAD);
+
+    let top_bar = container(
+        row![iced::widget::Space::new().width(Fill), gear_button].align_y(iced::Alignment::Center),
+    )
+    .padding(iced::Padding::new(4.0).left(theme::CANVAS_PAD).right(theme::CANVAS_PAD));
+    layout = layout.push(top_bar);
+
     if let Some(error_banner) = ErrorBanner::from_state(state) {
         let mut banner_content = column![
             row![
@@ -1572,6 +1616,8 @@ mod tests {
             persistence_write_disabled: true,
 
             is_dark: false,
+            active_view: super::ViewMode::default(),
+            settings: super::SettingsState::from_config(&Ok(llm::LlmConfig::default())),
         };
         (state, root)
     }
