@@ -356,7 +356,9 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
     // Get the focused block and check if instruction panel is open
     let _block_id = match state.focused_block_id {
-        | Some(id) if matches!(state.store.panel_state(&id), Some(PanelBarState::Instruction)) => id,
+        | Some(id) if matches!(state.store.panel_state(&id), Some(PanelBarState::Instruction)) => {
+            id
+        }
         | _ => return container(iced::widget::Text::new("")).into(),
     };
 

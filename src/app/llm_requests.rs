@@ -55,16 +55,12 @@ impl LlmRequests {
             .is_some_and(|state| matches!(state, ExpandState::Error { .. }))
     }
 
-    pub fn mark_reduce_loading(
-        &mut self, block_id: BlockId, request_signature: RequestSignature,
-    ) {
+    pub fn mark_reduce_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
         self.reduce_states.insert(block_id, ReduceState::Loading);
         self.pending_reduce_signatures.insert(block_id, request_signature);
     }
 
-    pub fn mark_expand_loading(
-        &mut self, block_id: BlockId, request_signature: RequestSignature,
-    ) {
+    pub fn mark_expand_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
         self.expand_states.insert(block_id, ExpandState::Loading);
         self.pending_expand_signatures.insert(block_id, request_signature);
     }

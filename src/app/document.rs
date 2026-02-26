@@ -45,14 +45,15 @@ use crate::{
     store::{BlockId, ExpansionDraftRecord, FriendBlock, PanelBarState, ReductionDraftRecord},
     theme,
 };
-use rust_i18n::t;
 use iced::{
     Element, Fill, Length, Padding,
     widget::{
-        button, column, container, row, rule, scrollable, space, stack, text, text_editor, text_input, tooltip,
+        button, column, container, row, rule, scrollable, space, stack, text, text_editor,
+        text_input, tooltip,
     },
 };
 use lucide_icons::iced as icons;
+use rust_i18n::t;
 
 /// Stateless view that borrows `AppState` to render the document.
 ///
@@ -84,9 +85,9 @@ impl<'a> DocumentView<'a> {
             let mut banner_content = column![
                 row![
                     text(error_banner.title()),
-                    button(text(t!("ui_dismiss").to_string())).on_press(Message::Error(ErrorMessage::DismissAt(
-                        error_banner.latest.index
-                    ))),
+                    button(text(t!("ui_dismiss").to_string())).on_press(Message::Error(
+                        ErrorMessage::DismissAt(error_banner.latest.index)
+                    )),
                 ]
                 .spacing(8)
             ]
@@ -102,10 +103,9 @@ impl<'a> DocumentView<'a> {
                 );
             }
             if error_banner.hidden_previous_count > 0 {
-                banner_content = banner_content.push(text(t!(
-                    "error_older_count",
-                    count = error_banner.hidden_previous_count
-                ).to_string()));
+                banner_content = banner_content.push(text(
+                    t!("error_older_count", count = error_banner.hidden_previous_count).to_string(),
+                ));
             }
             layout = layout.push(
                 container(banner_content).style(theme::error_banner).padding(theme::BANNER_PAD),
@@ -227,11 +227,6 @@ impl<'a> TreeView<'a> {
         };
 
         let is_focused = self.state.focused_block_id == Some(*block_id);
-        let friends_panel_open = is_focused
-            && matches!(
-                self.state.store.panel_state(block_id),
-                Some(PanelBarState::Friends)
-            );
 
         // Only render action bar when block is focused
         let action_buttons: Element<'a, Message> = if is_focused {
@@ -277,7 +272,7 @@ impl<'a> TreeView<'a> {
             });
 
         // Build the bottom row: inline panel bar on left, action bar on right
-        let left_col = self.render_overlay_panel_bar(block_id, is_focused, friends_panel_open);
+        let left_col = self.render_overlay_panel_bar(block_id, is_focused);
 
         // Right side: action bar
         let right_col = action_buttons;
@@ -363,20 +358,24 @@ impl<'a> TreeView<'a> {
                             .spacing(theme::PANEL_BUTTON_GAP)
                             .push(space::horizontal())
                             .push(
-                                button(text(t!("doc_apply_rewrite").to_string()).font(theme::INTER).size(13))
-                                    .style(theme::action_button)
-                                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                    .on_press(Message::Expand(ExpandMessage::ApplyRewrite(
-                                        *block_id,
-                                    ))),
+                                button(
+                                    text(t!("doc_apply_rewrite").to_string())
+                                        .font(theme::INTER)
+                                        .size(13),
+                                )
+                                .style(theme::action_button)
+                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                                .on_press(Message::Expand(ExpandMessage::ApplyRewrite(*block_id))),
                             )
                             .push(
-                                button(text(t!("doc_dismiss_rewrite").to_string()).font(theme::INTER).size(13))
-                                    .style(theme::destructive_button)
-                                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                    .on_press(Message::Expand(ExpandMessage::RejectRewrite(
-                                        *block_id,
-                                    ))),
+                                button(
+                                    text(t!("doc_dismiss_rewrite").to_string())
+                                        .font(theme::INTER)
+                                        .size(13),
+                                )
+                                .style(theme::destructive_button)
+                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                                .on_press(Message::Expand(ExpandMessage::RejectRewrite(*block_id))),
                             ),
                     ),
             );
@@ -386,7 +385,10 @@ impl<'a> TreeView<'a> {
             panel = panel.push(
                 row![]
                     .spacing(theme::PANEL_BUTTON_GAP)
-                    .push(container(text(t!("doc_child_suggestions").to_string())).width(Length::Fill))
+                    .push(
+                        container(text(t!("doc_child_suggestions").to_string()))
+                            .width(Length::Fill),
+                    )
                     .push(
                         button(text(t!("doc_accept_all").to_string()).font(theme::INTER).size(13))
                             .style(theme::action_button)
@@ -453,16 +455,22 @@ impl<'a> TreeView<'a> {
                     .spacing(theme::PANEL_BUTTON_GAP)
                     .push(space::horizontal())
                     .push(
-                        button(text(t!("doc_apply_reduction").to_string()).font(theme::INTER).size(13))
-                            .style(theme::action_button)
-                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                            .on_press(Message::Reduce(ReduceMessage::Apply(*block_id))),
+                        button(
+                            text(t!("doc_apply_reduction").to_string()).font(theme::INTER).size(13),
+                        )
+                        .style(theme::action_button)
+                        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                        .on_press(Message::Reduce(ReduceMessage::Apply(*block_id))),
                     )
                     .push(
-                        button(text(t!("doc_dismiss_reduction").to_string()).font(theme::INTER).size(13))
-                            .style(theme::destructive_button)
-                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                            .on_press(Message::Reduce(ReduceMessage::Reject(*block_id))),
+                        button(
+                            text(t!("doc_dismiss_reduction").to_string())
+                                .font(theme::INTER)
+                                .size(13),
+                        )
+                        .style(theme::destructive_button)
+                        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                        .on_press(Message::Reduce(ReduceMessage::Reject(*block_id))),
                     ),
             );
 
@@ -477,7 +485,10 @@ impl<'a> TreeView<'a> {
             panel = panel.push(
                 row![]
                     .spacing(theme::PANEL_BUTTON_GAP)
-                    .push(container(text(t!("doc_redundant_children").to_string())).width(Length::Fill))
+                    .push(
+                        container(text(t!("doc_redundant_children").to_string()))
+                            .width(Length::Fill),
+                    )
                     .push(
                         button(text(t!("doc_delete_all").to_string()).font(theme::INTER).size(13))
                             .style(theme::destructive_button)
@@ -535,15 +546,15 @@ impl<'a> TreeView<'a> {
         &self, block_id: &BlockId, friends: &'a [FriendBlock],
     ) -> Element<'a, Message> {
         let is_picker_mode = self.state.focused_block_id == Some(*block_id)
-            && matches!(
-                self.state.store.panel_state(block_id),
-                Some(PanelBarState::Friends)
-            );
+            && matches!(self.state.store.panel_state(block_id), Some(PanelBarState::Friends));
 
         // Header with "+" button to start friend picker
         let header = row![]
             .spacing(theme::PANEL_BUTTON_GAP)
-            .push(container(text(t!("ui_friends").to_string()).font(theme::INTER).size(13)).width(Length::Fill))
+            .push(
+                container(text(t!("ui_friends").to_string()).font(theme::INTER).size(13))
+                    .width(Length::Fill),
+            )
             .push(
                 button(text("+").font(theme::INTER).size(13))
                     .style(theme::action_button)
@@ -559,9 +570,7 @@ impl<'a> TreeView<'a> {
             // In picker mode - show instruction
             panel = panel.push(
                 container(
-                    text(t!("doc_friend_picker_hint").to_string())
-                        .font(theme::INTER)
-                        .size(12),
+                    text(t!("doc_friend_picker_hint").to_string()).font(theme::INTER).size(12),
                 )
                 .width(Length::Fill),
             );
@@ -583,27 +592,25 @@ impl<'a> TreeView<'a> {
             let perspective_label = friend.perspective.as_deref().unwrap_or("").trim();
             let friend_id = friend.block_id;
             let target = *block_id;
-            
+
             // Check if this friend perspective is being edited
-            let is_editing_this = self.state.editing_friend_perspective == Some((target, friend_id));
+            let is_editing_this =
+                self.state.editing_friend_perspective == Some((target, friend_id));
             let input_value = self.state.editing_friend_perspective_input.as_deref().unwrap_or("");
             let placeholder = t!("doc_friend_perspective_placeholder").to_string();
-            
+
             // Perspective column: either editable input or clickable display
             let perspective_column: Element<'a, Message> = if is_editing_this {
-                text_input(
-                    &placeholder,
-                    input_value,
-                )
-                .font(theme::INTER)
-                .size(12)
-                .on_input(|s| Message::Overlay(OverlayMessage::UpdateFriendPerspectiveInput(s)))
-                .on_submit(Message::Structure(StructureMessage::SetFriendPerspective {
-                    target,
-                    friend_id,
-                    perspective: Some(input_value.to_string()),
-                }))
-                .into()
+                text_input(&placeholder, input_value)
+                    .font(theme::INTER)
+                    .size(12)
+                    .on_input(|s| Message::Overlay(OverlayMessage::UpdateFriendPerspectiveInput(s)))
+                    .on_submit(Message::Structure(StructureMessage::SetFriendPerspective {
+                        target,
+                        friend_id,
+                        perspective: Some(input_value.to_string()),
+                    }))
+                    .into()
             } else if perspective_label.is_empty() {
                 // Empty state - clickable placeholder to add perspective
                 button(
@@ -613,7 +620,10 @@ impl<'a> TreeView<'a> {
                         .style(theme::spine_text),
                 )
                 .style(theme::action_button)
-                .on_press(Message::Overlay(OverlayMessage::StartEditingFriendPerspective { target, friend_id }))
+                .on_press(Message::Overlay(OverlayMessage::StartEditingFriendPerspective {
+                    target,
+                    friend_id,
+                }))
                 .into()
             } else {
                 // Has perspective - clickable to edit
@@ -624,10 +634,13 @@ impl<'a> TreeView<'a> {
                         .style(theme::spine_text),
                 )
                 .style(theme::action_button)
-                .on_press(Message::Overlay(OverlayMessage::StartEditingFriendPerspective { target, friend_id }))
+                .on_press(Message::Overlay(OverlayMessage::StartEditingFriendPerspective {
+                    target,
+                    friend_id,
+                }))
                 .into()
             };
-            
+
             let line = row![]
                 .spacing(theme::PANEL_BUTTON_GAP)
                 .push(
@@ -723,8 +736,12 @@ impl<'a> TreeView<'a> {
 
     fn render_status_chip(&self, vm: &ActionBarVm) -> Element<'a, Message> {
         let label = match &vm.status_chip {
-            | Some(StatusChipVm::Loading { op: ActionId::Expand }) => t!("doc_status_expanding").to_string(),
-            | Some(StatusChipVm::Loading { op: ActionId::Reduce }) => t!("doc_status_reducing").to_string(),
+            | Some(StatusChipVm::Loading { op: ActionId::Expand }) => {
+                t!("doc_status_expanding").to_string()
+            }
+            | Some(StatusChipVm::Loading { op: ActionId::Reduce }) => {
+                t!("doc_status_reducing").to_string()
+            }
             | Some(StatusChipVm::Loading { .. }) => t!("doc_status_working").to_string(),
             | Some(StatusChipVm::Error { op, .. }) => t!(status_error_i18n_key(*op)).to_string(),
             | Some(StatusChipVm::DraftActive { suggestion_count }) if *suggestion_count > 0 => {
@@ -749,13 +766,14 @@ impl<'a> TreeView<'a> {
     /// - `Friends` is highlighted only when `PanelBarState::Friends` is open.
     /// - `Instruction` is highlighted only when `PanelBarState::Instruction` is open.
     fn render_overlay_panel_bar(
-        &self, block_id: &BlockId, is_focused: bool, friends_panel_open: bool,
+        &self, block_id: &BlockId, is_focused: bool,
     ) -> Element<'a, Message> {
         if !is_focused {
             return column![].into();
         }
 
-        use crate::store::PanelBarState;
+        let friends_panel_open =
+            matches!(self.state.store.panel_state(block_id), Some(PanelBarState::Friends));
         let instruction_panel_open =
             matches!(self.state.store.panel_state(block_id), Some(PanelBarState::Instruction));
 

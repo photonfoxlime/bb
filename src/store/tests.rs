@@ -1,6 +1,6 @@
+use super::mount::MountError;
 use super::*;
 use crate::llm;
-use super::mount::MountError;
 use slotmap::{SecondaryMap, SlotMap};
 use std::fs;
 
@@ -586,8 +586,7 @@ fn expand_mount_errors_on_children_node() {
 fn expand_mount_errors_on_missing_file() {
     let mut nodes = SlotMap::with_key();
     let mut points = SecondaryMap::new();
-    let mount_id =
-        nodes.insert(BlockNode::with_path(std::path::PathBuf::from("nonexistent.json")));
+    let mount_id = nodes.insert(BlockNode::with_path(std::path::PathBuf::from("nonexistent.json")));
     points.insert(mount_id, String::new());
     let mut store = BlockStore::new(vec![mount_id], nodes, points);
 
@@ -919,10 +918,7 @@ fn save_mounts_preserves_nested_mount_nodes() {
 
     let inner_json = fs::read_to_string(nested_dir.join("inner.json")).unwrap();
     let saved_inner: BlockStore = serde_json::from_str(&inner_json).unwrap();
-    assert_eq!(
-        saved_inner.point(&saved_inner.roots()[0]),
-        Some("edited nested root".to_string())
-    );
+    assert_eq!(saved_inner.point(&saved_inner.roots()[0]), Some("edited nested root".to_string()));
 }
 
 // -- integration: round-trip persistence --
@@ -1112,8 +1108,7 @@ fn nested_mount_save_persists_new_descendants_in_inner_file() {
         .iter()
         .find(|id| store.node(id).unwrap().mount_path().is_some())
         .unwrap();
-    let reloaded_inner_children =
-        store.expand_mount(&reloaded_nested_mount, tmp.path()).unwrap();
+    let reloaded_inner_children = store.expand_mount(&reloaded_nested_mount, tmp.path()).unwrap();
     let reloaded_inner_root = reloaded_inner_children[0];
     let reloaded_added = *store
         .children(&reloaded_inner_root)
@@ -1165,8 +1160,7 @@ fn nested_self_reference_can_expand_lazily() {
 
     let mut main_nodes = SlotMap::with_key();
     let mut main_points = SecondaryMap::new();
-    let main_mount =
-        main_nodes.insert(BlockNode::with_path(std::path::PathBuf::from("self.json")));
+    let main_mount = main_nodes.insert(BlockNode::with_path(std::path::PathBuf::from("self.json")));
     main_points.insert(main_mount, String::new());
     let mut store = BlockStore::new(vec![main_mount], main_nodes, main_points);
 

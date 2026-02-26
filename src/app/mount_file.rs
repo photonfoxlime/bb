@@ -8,9 +8,9 @@ use super::error::{AppError, UiError};
 use super::{AppState, Message};
 use crate::paths::AppPaths;
 use crate::store::{BlockId, MountFormat};
-use rust_i18n::t;
 use iced::Task;
 use iced::theme::Mode;
+use rust_i18n::t;
 
 /// Messages for mount, file I/O, and system theme operations.
 #[derive(Debug, Clone)]

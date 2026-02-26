@@ -52,7 +52,6 @@ pub struct InquiryDraftRecord {
     pub response: String,
 }
 
-
 impl BlockStore {
     pub fn expansion_draft(&self, id: &BlockId) -> Option<&ExpansionDraftRecord> {
         self.expansion_drafts.get(*id)
@@ -152,8 +151,12 @@ impl BlockStore {
     /// Set (or clear) panel state for a target.
     pub fn set_panel_state(&mut self, target: &BlockId, state: Option<PanelBarState>) {
         match state {
-            | None => { self.panel_state.remove(*target); }
-            | Some(s) => { self.panel_state.insert(*target, s); }
+            | None => {
+                self.panel_state.remove(*target);
+            }
+            | Some(s) => {
+                self.panel_state.insert(*target, s);
+            }
         }
     }
 }

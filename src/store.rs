@@ -68,8 +68,7 @@ mod persist;
 mod tree;
 
 pub use drafts::{
-    ExpansionDraftRecord, InquiryDraftRecord, InstructionDraftRecord,
-    ReductionDraftRecord,
+    ExpansionDraftRecord, InquiryDraftRecord, InstructionDraftRecord, ReductionDraftRecord,
 };
 pub use mount::MountFormat;
 pub use persist::StoreLoadError;
@@ -394,10 +393,7 @@ impl PartialEq for BlockStore {
                 .iter()
                 .all(|(id, blocks)| other.friend_blocks.get(id) == Some(blocks))
             && self.panel_state.len() == other.panel_state.len()
-            && self
-                .panel_state
-                .iter()
-                .all(|(id, state)| other.panel_state.get(id) == Some(state))
+            && self.panel_state.iter().all(|(id, state)| other.panel_state.get(id) == Some(state))
     }
 }
 

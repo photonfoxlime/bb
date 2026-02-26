@@ -29,8 +29,8 @@
 //! - [`SettingsMessage`] variants drive all settings interactions through the
 //!   standard Elm-architecture `update` cycle.
 
-use super::{AppState, Message, ViewMode};
 use super::config::{self, AppConfig};
+use super::{AppState, Message, ViewMode};
 use crate::i18n;
 use crate::llm;
 use crate::paths::AppPaths;
@@ -531,7 +531,8 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let llm_config_label = t!("settings_llm_config").to_string();
     let paths_section = section(
         paths_title,
-        column![path_row(data_file_label, data_path), path_row(llm_config_label, config_path),].spacing(6),
+        column![path_row(data_file_label, data_path), path_row(llm_config_label, config_path),]
+            .spacing(6),
     );
 
     // ── Assemble ─────────────────────────────────────────────────────
@@ -583,7 +584,9 @@ fn labeled_readonly(label: String, value: &str) -> Element<'static, Message> {
 }
 
 /// A section with a title and content.
-fn section(title: String, content: impl Into<Element<'static, Message>>) -> Element<'static, Message> {
+fn section(
+    title: String, content: impl Into<Element<'static, Message>>,
+) -> Element<'static, Message> {
     container(column![text(title).size(16).font(theme::INTER), content.into(),].spacing(12))
         .style(theme::draft_panel)
         .padding(

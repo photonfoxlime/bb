@@ -4,8 +4,8 @@
 //! view. None of them mutate the block tree or trigger persistence.
 
 use super::{AppState, Message};
-use crate::store::PanelBarState;
 use crate::store::BlockId;
+use crate::store::PanelBarState;
 use iced::Task;
 
 /// Messages for overlay and popup management.
@@ -81,7 +81,9 @@ pub fn handle(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
         }
         | OverlayMessage::StartEditingFriendPerspective { target, friend_id } => {
             // Initialize input buffer with current perspective value
-            let current_perspective = state.store.friend_blocks_for(&target)
+            let current_perspective = state
+                .store
+                .friend_blocks_for(&target)
                 .iter()
                 .find(|f| f.block_id == friend_id)
                 .and_then(|f| f.perspective.clone())

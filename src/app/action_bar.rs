@@ -68,9 +68,7 @@ pub struct ActionDescriptor {
 
 impl ActionDescriptor {
     /// Create a non-destructive action descriptor.
-    pub fn new(
-        id: ActionId, availability: ActionAvailability, priority: ActionPriority,
-    ) -> Self {
+    pub fn new(id: ActionId, availability: ActionAvailability, priority: ActionPriority) -> Self {
         Self { id, availability, priority, destructive: false }
     }
 
@@ -84,30 +82,30 @@ impl ActionDescriptor {
 /// Get the i18n translation key for an action.
 pub fn action_i18n_key(id: ActionId) -> &'static str {
     match id {
-        ActionId::Expand => "action_expand",
-        ActionId::Reduce => "action_reduce",
-        ActionId::AddChild => "action_add_child",
-        ActionId::AddParent => "action_add_parent",
-        ActionId::AcceptAll => "action_accept_all",
-        ActionId::Retry => "action_retry",
-        ActionId::DismissDraft => "action_dismiss",
-        ActionId::Cancel => "action_cancel",
-        ActionId::CollapseBranch => "action_expand",
-        ActionId::ExpandBranch => "action_expand",
-        ActionId::AddSibling => "action_add_sibling",
-        ActionId::DuplicateBlock => "action_duplicate",
-        ActionId::ArchiveBlock => "action_archive",
-        ActionId::SaveToFile => "action_save_to_file",
-        ActionId::LoadFromFile => "action_load_from_file",
+        | ActionId::Expand => "action_expand",
+        | ActionId::Reduce => "action_reduce",
+        | ActionId::AddChild => "action_add_child",
+        | ActionId::AddParent => "action_add_parent",
+        | ActionId::AcceptAll => "action_accept_all",
+        | ActionId::Retry => "action_retry",
+        | ActionId::DismissDraft => "action_dismiss",
+        | ActionId::Cancel => "action_cancel",
+        | ActionId::CollapseBranch => "action_expand",
+        | ActionId::ExpandBranch => "action_expand",
+        | ActionId::AddSibling => "action_add_sibling",
+        | ActionId::DuplicateBlock => "action_duplicate",
+        | ActionId::ArchiveBlock => "action_archive",
+        | ActionId::SaveToFile => "action_save_to_file",
+        | ActionId::LoadFromFile => "action_load_from_file",
     }
 }
 
 /// Get the i18n translation key for a status error message based on the action that failed.
 pub fn status_error_i18n_key(op: ActionId) -> &'static str {
     match op {
-        ActionId::Expand => "status_expand_failed",
-        ActionId::Reduce => "status_reduce_failed",
-        _ => "status_expand_failed",
+        | ActionId::Expand => "status_expand_failed",
+        | ActionId::Reduce => "status_reduce_failed",
+        | _ => "status_expand_failed",
     }
 }
 
@@ -331,14 +329,12 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     vm.status_chip = match row_state {
         | RowUiState::BusyExpand => Some(StatusChipVm::Loading { op: ActionId::Expand }),
         | RowUiState::BusyReduce => Some(StatusChipVm::Loading { op: ActionId::Reduce }),
-        | RowUiState::ErrorExpand => Some(StatusChipVm::Error {
-            op: ActionId::Expand,
-            retry_action: ActionId::Retry,
-        }),
-        | RowUiState::ErrorReduce => Some(StatusChipVm::Error {
-            op: ActionId::Reduce,
-            retry_action: ActionId::Retry,
-        }),
+        | RowUiState::ErrorExpand => {
+            Some(StatusChipVm::Error { op: ActionId::Expand, retry_action: ActionId::Retry })
+        }
+        | RowUiState::ErrorReduce => {
+            Some(StatusChipVm::Error { op: ActionId::Reduce, retry_action: ActionId::Retry })
+        }
         | RowUiState::DraftActive => {
             Some(StatusChipVm::DraftActive { suggestion_count: ctx.draft_suggestion_count })
         }
