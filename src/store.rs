@@ -339,7 +339,10 @@ impl BlockStore {
         let mut points = SecondaryMap::new();
 
         let root_id = nodes.insert(BlockNode::with_children(vec![]));
-        points.insert(root_id, "Tree of Thoughts: A Notebook for Designers and Developers".to_string());
+        points.insert(
+            root_id,
+            "Tree of Thoughts: A Notebook for Designers and Developers".to_string(),
+        );
 
         BlockStore::new(vec![root_id], nodes, points)
     }

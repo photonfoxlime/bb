@@ -46,8 +46,9 @@ use crate::{
     undo::UndoHistory,
 };
 use iced::{
-    Element, Event, Subscription, Task, event, keyboard, system, window,
+    Element, Event, Subscription, Task, event, keyboard, system,
     widget::{self, text_editor},
+    window,
 };
 use std::time::Duration;
 
