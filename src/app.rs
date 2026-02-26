@@ -44,7 +44,7 @@ use crate::{
     undo::UndoHistory,
 };
 use iced::{
-    Element, Event, Subscription, Task, event, keyboard, mouse, system,
+    Element, Event, Subscription, Task, event, keyboard, system,
     widget::{self, text_editor},
 };
 use std::time::Duration;
@@ -420,9 +420,6 @@ impl AppState {
                     action_bar::shortcut_to_action(key, modifiers)
                         .map(ShortcutMessage::Trigger)
                         .map(Message::Shortcut)
-                }
-                | Event::Mouse(mouse::Event::ButtonPressed(_)) => {
-                    Some(Message::Overlay(OverlayMessage::CloseOverflow))
                 }
                 | _ => None,
             }

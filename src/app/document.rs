@@ -317,23 +317,28 @@ impl<'a> TreeView<'a> {
             }
         }
 
-        let is_focused = self.state.focused_block_id == Some(*block_id);
-
-        // When in friend picker mode, make blocks clickable to select as friend
-        if self.state.document_mode == DocumentMode::PickFriend && !is_focused {
-            let target = self.state.focused_block_id.unwrap();
-            button(container(block).style(theme::friend_picker_hover))
-                .on_press(Message::Structure(StructureMessage::AddFriendBlock {
-                    target,
-                    friend_id: *block_id,
-                }))
-                .padding(0)
-                .style(theme::action_button)
-                .into()
-        } else if is_focused {
-            container(block).style(theme::focused_block).into()
-        } else {
-            block.into()
+        match (self.state.document_mode, self.state.focused_block_id) {
+            | (DocumentMode::Normal, Some(focused)) if focused == *block_id => {
+                // Render the block as the focused block
+                container(block).style(theme::focused_block).into()
+            }
+            | (DocumentMode::Normal, _) => block.into(),
+            | (DocumentMode::PickFriend, Some(focused)) if focused == *block_id => {
+                // Render the picker block itself as is
+                block.into()
+            }
+            | (DocumentMode::PickFriend, Some(target)) => {
+                // Render the block as a friend picker target
+                button(container(block).style(theme::friend_picker_hover))
+                    .on_press(Message::Structure(StructureMessage::AddFriendBlock {
+                        target,
+                        friend_id: *block_id,
+                    }))
+                    .padding(0)
+                    .style(theme::action_button)
+                    .into()
+            }
+            | (_, None) => block.into(),
         }
     }
 
@@ -792,8 +797,11 @@ impl<'a> TreeView<'a> {
                 })
                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .on_press(
-                    Message::InstructionPanel(*block_id, instruction_panel::InstructionPanelMessage::Toggle)
-                        .into(),
+                    Message::InstructionPanel(
+                        *block_id,
+                        instruction_panel::InstructionPanelMessage::Toggle,
+                    )
+                    .into(),
                 ),
         );
 
