@@ -338,15 +338,8 @@ impl BlockStore {
         let mut nodes = SlotMap::with_key();
         let mut points = SecondaryMap::new();
 
-        let c1 = nodes.insert(BlockNode::with_children(vec![]));
-        points.insert(c1, "马克思：《资本论》".to_string());
-        let c2 = nodes.insert(BlockNode::with_children(vec![]));
-        points.insert(c2, "马克思·韦伯：《新教伦理与资本主义精神》".to_string());
-        let c3 = nodes.insert(BlockNode::with_children(vec![]));
-        points.insert(c3, "Ivan Zhao: Steam, Steel, and Invisible Minds".to_string());
-
-        let root_id = nodes.insert(BlockNode::with_children(vec![c1, c2, c3]));
-        points.insert(root_id, "Notes on liberating productivity".to_string());
+        let root_id = nodes.insert(BlockNode::with_children(vec![]));
+        points.insert(root_id, "Tree of Thoughts: A Notebook for Designers and Developers".to_string());
 
         BlockStore::new(vec![root_id], nodes, points)
     }
