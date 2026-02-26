@@ -148,6 +148,8 @@ pub const FRIEND_POINT_SIZE: f32 = 12.0;
 pub const FRIEND_PERSPECTIVE_SIZE: f32 = 12.0;
 /// Height for friend perspective buttons and input.
 pub const FRIEND_PERSPECTIVE_HEIGHT: f32 = 16.0;
+/// Icon size for perspective accept/cancel buttons.
+pub const FRIEND_PERSPECTIVE_ICON_SIZE: f32 = 10.0;
 /// Spacing inside friend row in friends panel.
 pub const FRIEND_ROW_GAP: f32 = 4.0;
 

@@ -30,6 +30,7 @@ use iced::Element;
 use iced::Length;
 use iced::Task;
 use iced::widget::{button, column, container, row, text, text_input};
+use lucide_icons::iced as icons;
 
 /// Message types for friends panel interactions.
 #[derive(Debug, Clone)]
@@ -48,6 +49,10 @@ pub enum FriendPanelMessage {
     UpdateFriendPerspectiveInput(String),
     /// Commit the perspective input and save to store.
     CommitFriendPerspective,
+    /// Clear/remove the perspective for a friend.
+    ClearFriendPerspective { target: BlockId, friend_id: BlockId },
+    /// Accept the perspective and exit editing mode.
+    AcceptFriendPerspective { target: BlockId, friend_id: BlockId },
 }
 
 /// Handle friends panel messages.
@@ -106,6 +111,46 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
         }
         | FriendPanelMessage::CommitFriendPerspective => {
             // Handled in view - the view constructs the message directly
+            Task::none()
+        }
+        | FriendPanelMessage::ClearFriendPerspective { target, friend_id } => {
+            // Clear the perspective in the store
+            state.mutate_with_undo_and_persist("after clearing friend perspective", |state| {
+                let mut friends = state.store.friend_blocks_for(&target).to_vec();
+                let friend = friends.iter_mut().find(|f| f.block_id == friend_id);
+                if let Some(friend) = friend {
+                    friend.perspective = None;
+                    state.store.set_friend_blocks_for(&target, friends);
+                    tracing::info!(target = ?target, friend_id = ?friend_id, "cleared friend perspective");
+                    true
+                } else {
+                    false
+                }
+            });
+            // Also clear the editing state
+            state.editing_friend_perspective = None;
+            state.editing_friend_perspective_input = None;
+            Task::none()
+        }
+        | FriendPanelMessage::AcceptFriendPerspective { target, friend_id } => {
+            // Get current input value
+            let perspective = state.editing_friend_perspective_input.clone();
+            // Save to store
+            state.mutate_with_undo_and_persist("after setting friend perspective", |state| {
+                let mut friends = state.store.friend_blocks_for(&target).to_vec();
+                let friend = friends.iter_mut().find(|f| f.block_id == friend_id);
+                if let Some(friend) = friend {
+                    friend.perspective = perspective.clone();
+                    state.store.set_friend_blocks_for(&target, friends);
+                    tracing::info!(target = ?target, friend_id = ?friend_id, "set friend perspective");
+                    true
+                } else {
+                    false
+                }
+            });
+            // Exit editing state
+            state.editing_friend_perspective = None;
+            state.editing_friend_perspective_input = None;
             Task::none()
         }
     }
@@ -173,7 +218,6 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         let target = block_id;
 
         let is_editing_this = state.editing_friend_perspective == Some((target, friend_id));
-        let input_value = state.editing_friend_perspective_input.as_deref().unwrap_or("");
         let placeholder = rust_i18n::t!("doc_friend_perspective_placeholder").to_string();
 
         // Layout: "[start of point text] as [perspective]"
@@ -184,8 +228,9 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         };
 
         let content: Element<'a, Message> = if is_editing_this {
-            // Inline editing for perspective
-            text_input(&placeholder, input_value)
+            // Inline editing for perspective with accept/cancel buttons
+            let current_input = state.editing_friend_perspective_input.as_deref().unwrap_or("");
+            let input_field = text_input(&placeholder, current_input)
                 .font(theme::INTER)
                 .size(theme::FRIEND_PERSPECTIVE_SIZE)
                 .padding(0)
@@ -195,8 +240,38 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 .on_submit(Message::Structure(StructureMessage::SetFriendPerspective {
                     target,
                     friend_id,
-                    perspective: Some(input_value.to_string()),
-                }))
+                    perspective: Some(state.editing_friend_perspective_input.clone().unwrap_or_default()),
+                }));
+
+            let accept_btn = button(
+                icons::icon_check().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE)
+            )
+            .padding(2)
+            .style(theme::action_button)
+            .width(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+            .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+            .on_press(Message::FriendPanel(FriendPanelMessage::AcceptFriendPerspective {
+                target,
+                friend_id,
+            }));
+
+            let cancel_btn = button(
+                icons::icon_x().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE)
+            )
+            .padding(2)
+            .style(theme::destructive_button)
+            .width(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+            .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+            .on_press(Message::FriendPanel(FriendPanelMessage::ClearFriendPerspective {
+                target,
+                friend_id,
+            }));
+
+            row![]
+                .spacing(4)
+                .push(input_field)
+                .push(accept_btn)
+                .push(cancel_btn)
                 .into()
         } else if perspective_label.is_empty() {
             button(
