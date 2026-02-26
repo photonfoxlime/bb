@@ -6,7 +6,7 @@ Inline Rust documentation is the canonical documentation source for this reposit
 
 ## Documentation and Language
 
-Actively write documentation for the program. 
+Actively write documentation for the program. Make sure *all* public APIs are documented.
 All written documentation must be concise, clear, and accurate.
 No emojis unless strictly necessary.
 Add bold text only if it emphasizes truly valuable information.
