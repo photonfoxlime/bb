@@ -61,6 +61,8 @@ pub enum InstructionPanelMessage {
     Inquire,
     /// Inquiry request completed.
     InquireDone { block_id: BlockId, result: Result<String, crate::app::UiError> },
+    /// Cancel an in-flight inquiry request.
+    CancelInquire,
     /// Expand with instruction as system prompt.
     ExpandWithInstruction,
     /// Reduce with instruction as system prompt.
@@ -139,6 +141,8 @@ pub fn handle(
                     )
                 },
             );
+            let (request_task, handle) = iced::Task::abortable(request_task);
+            state.llm_requests.replace_inquiry_handle(target_block_id, handle);
             request_task
         }
         | InstructionPanelMessage::InquireDone { block_id, result } => {
@@ -161,6 +165,12 @@ pub fn handle(
                     );
                     state.record_error(crate::app::AppError::Inquire(reason));
                 }
+            }
+            iced::Task::none()
+        }
+        | InstructionPanelMessage::CancelInquire => {
+            if state.llm_requests.cancel_inquiry(target_block_id) {
+                tracing::info!(block_id = ?target_block_id, "instruction inquiry cancelled");
             }
             iced::Task::none()
         }
@@ -200,7 +210,7 @@ pub fn handle(
         }
         | InstructionPanelMessage::ApplyInstructionRewrite => {
             // Get inquiry draft: first check focused block, then search for any block with draft
-            if !state.store.inquiry_draft(&target_block_id).is_some() {
+            if state.store.inquiry_draft(&target_block_id).is_some() {
                 tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
                 return iced::Task::none();
             }
@@ -219,7 +229,7 @@ pub fn handle(
         }
         | InstructionPanelMessage::AppendInstructionResponse => {
             // Get inquiry draft: first check focused block, then search for any block with draft
-            if !state.store.inquiry_draft(&target_block_id).is_some() {
+            if state.store.inquiry_draft(&target_block_id).is_some() {
                 tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
                 return iced::Task::none();
             }
@@ -247,7 +257,7 @@ pub fn handle(
         }
         | InstructionPanelMessage::AddInstructionResponseAsChild => {
             // Get inquiry draft: first check focused block, then search for any block with draft
-            if !state.store.inquiry_draft(&target_block_id).is_some() {
+            if state.store.inquiry_draft(&target_block_id).is_some() {
                 tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
                 return iced::Task::none();
             }
@@ -330,43 +340,57 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
     // Action buttons row
     let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
 
-    // Inquire button
-    let inquire_btn = button(
-        text(if is_inquiring {
-            t!("instruction_inquiring").to_string()
-        } else {
-            t!("instruction_inquire").to_string()
-        })
-        .font(theme::INTER)
-        .size(13),
-    )
-    .style(theme::action_button)
-    .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-    .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Inquire).into());
+    if is_inquiring {
+        // Cancel button when inquiry is in progress
+        button_row = button_row.push(
+            button(text(t!("instruction_cancel").to_string()).font(theme::INTER).size(13))
+                .style(theme::destructive_button)
+                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(
+                    Message::InstructionPanel(block_id, InstructionPanelMessage::CancelInquire)
+                        .into(),
+                ),
+        );
+    } else {
+        // Inquire button
+        let inquire_btn =
+            button(text(t!("instruction_inquire").to_string()).font(theme::INTER).size(13))
+                .style(theme::action_button)
+                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(
+                    Message::InstructionPanel(block_id, InstructionPanelMessage::Inquire).into(),
+                );
 
-    button_row = button_row.push(inquire_btn);
+        button_row = button_row.push(inquire_btn);
 
-    // Expand button
-    button_row = button_row.push(
-        button(text(t!("instruction_expand").to_string()).font(theme::INTER).size(13))
-            .style(theme::action_button)
-            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(
-                Message::InstructionPanel(block_id, InstructionPanelMessage::ExpandWithInstruction)
+        // Expand button
+        button_row = button_row.push(
+            button(text(t!("instruction_expand").to_string()).font(theme::INTER).size(13))
+                .style(theme::action_button)
+                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(
+                    Message::InstructionPanel(
+                        block_id,
+                        InstructionPanelMessage::ExpandWithInstruction,
+                    )
                     .into(),
-            ),
-    );
+                ),
+        );
 
-    // Reduce button
-    button_row = button_row.push(
-        button(text(t!("instruction_reduce").to_string()).font(theme::INTER).size(13))
-            .style(theme::action_button)
-            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(
-                Message::InstructionPanel(block_id, InstructionPanelMessage::ReduceWithInstruction)
+        // Reduce button
+        button_row = button_row.push(
+            button(text(t!("instruction_reduce").to_string()).font(theme::INTER).size(13))
+                .style(theme::action_button)
+                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(
+                    Message::InstructionPanel(
+                        block_id,
+                        InstructionPanelMessage::ReduceWithInstruction,
+                    )
                     .into(),
-            ),
-    );
+                ),
+        );
+    }
 
     panel = panel.push(button_row);
 
