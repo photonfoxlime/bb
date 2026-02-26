@@ -71,6 +71,14 @@ Ensure that documentation is clear, concise, and accurate. No emojis unless stri
 
 When adding new features, record and observe details with the `tracing` crate.
 
+## UI Design
+
+Use or create constants in `theme.rs` for all UI numeric values
+(sizes, padding, gaps, colors). Avoid hardcoding magic numbers.
+
+All user-facing text must be internationalized via `rust_i18n::t!`.
+Never hardcode UI strings; add keys to the locale files instead.
+
 ## Version Control
 
 This project uses jujutsu, which is compatible to git.
