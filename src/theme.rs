@@ -77,7 +77,7 @@ pub const DARK: Palette = Palette {
 pub(crate) fn focused_palette(theme: &Theme) -> &'static Palette {
     match theme.mode() {
         | Mode::Dark => &DARK,
-        | _ => &LIGHT,
+        | Mode::Light | Mode::None => &LIGHT,
     }
 }
 
@@ -137,6 +137,19 @@ pub const PANEL_PAD_H: f32 = 16.0;
 pub const DIFF_HIGHLIGHT_PAD_H: f32 = 2.0;
 /// Padding inside the error banner.
 pub const BANNER_PAD: f32 = 8.0;
+
+/// Point text truncation length in friends panel.
+pub const FRIEND_POINT_TRUNCATE: usize = 30;
+/// Gap between point text and "as" label in friends panel.
+pub const FRIEND_AS_GAP: f32 = 6.0;
+/// Font size for friend point text in friends panel.
+pub const FRIEND_POINT_SIZE: f32 = 12.0;
+/// Font size for friend perspective text in friends panel.
+pub const FRIEND_PERSPECTIVE_SIZE: f32 = 12.0;
+/// Height for friend perspective buttons and input.
+pub const FRIEND_PERSPECTIVE_HEIGHT: f32 = 16.0;
+/// Spacing inside friend row in friends panel.
+pub const FRIEND_ROW_GAP: f32 = 4.0;
 
 // ── Theme constructor ────────────────────────────────────────────────
 
