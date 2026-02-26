@@ -97,6 +97,8 @@ pub struct AppState {
     /// Current text input value when editing friend perspective.
     editing_friend_perspective_input: Option<String>,
     /// Block whose point editor currently has keyboard focus.
+    ///
+    /// Panel bar state is derived from this via [`BlockStore::panel_state`].
     focused_block_id: Option<BlockId>,
     /// Block currently coalescing point edits into a single undo entry.
     editing_block_id: Option<BlockId>,

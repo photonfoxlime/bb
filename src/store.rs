@@ -27,9 +27,14 @@
 //! # Adding per-block persistent data
 //!
 //! The store uses [`SparseSecondaryMap<BlockId, T>`] for optional per-block
-//! metadata that must survive save/load cycles. Existing examples:
-//! `expansion_drafts`, `reduction_drafts`, `view_collapsed`, and
-//! `friend_blocks`.
+//! metadata that must survive save/load cycles. Two categories exist:
+//!
+//! **Per-block data** (user-authored content): `expansion_drafts`,
+//! `reduction_drafts`, `view_collapsed`, `friend_blocks`, `instruction_drafts`.
+//!
+//! **Per-block UI state** (ephemeral but worth persisting): `panel_state`.
+//! This is not user-authored content but persists because it's useful to
+//! remember which panel was open for each block.
 //!
 //! Checklist for a new field:
 //!
@@ -106,6 +111,9 @@ slotmap::new_key_type! {
 }
 
 /// Persisted panel bar state: which panel (if any) is open for a block.
+///
+/// This is stored per-block so each block remembers its own panel state
+/// across app restarts. Unlike runtime UI state, this survives save/load.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum PanelBarState {
     /// Friends panel - shows user-selected friend blocks for LLM context.
