@@ -78,24 +78,35 @@ impl<'a> DocumentView<'a> {
         // Floating overlay
         let mut layout = column![].spacing(theme::LAYOUT_GAP);
 
-        // Modebar buttons (select, move) - top-left corner
-        let select_button = button(
-            centered_icon(icons::icon_mouse_pointer_2().size(theme::TOOLBAR_ICON_SIZE).into())
-        )
-        .style(theme::action_button)
+        // Modebar buttons (normal, pick friend) - top-left corner
+        let is_normal_mode = state.document_mode == DocumentMode::Normal;
+        let is_pick_friend_mode = state.document_mode == DocumentMode::PickFriend;
+
+        let normal_mode_btn = button(centered_icon(
+            icons::icon_mouse_pointer_2()
+                .size(theme::TOOLBAR_ICON_SIZE)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into()
+        ))
+        .style(move |theme, status| theme::mode_button(theme, status, is_normal_mode))
         .padding(0)
         .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-        .height(Length::Fixed(theme::ICON_BUTTON_SIZE));
+        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .on_press(Message::DocumentMode(DocumentMode::Normal));
 
-        let move_button = button(
-            centered_icon(icons::icon_move().size(theme::TOOLBAR_ICON_SIZE).into())
-        )
-        .style(theme::action_button)
+        let pick_friend_btn = button(centered_icon(
+            icons::icon_user_plus()
+                .size(theme::TOOLBAR_ICON_SIZE)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into()
+        ))
+        .style(move |theme, status| theme::mode_button(theme, status, is_pick_friend_mode))
         .padding(0)
         .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-        .height(Length::Fixed(theme::ICON_BUTTON_SIZE));
+        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .on_press(Message::DocumentMode(DocumentMode::PickFriend));
 
-        let toolbar = row![select_button, move_button]
+        let toolbar = row![normal_mode_btn, pick_friend_btn]
             .spacing(theme::ACTION_GAP);
 
         let toolbar_container = container(

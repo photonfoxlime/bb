@@ -353,6 +353,7 @@ pub enum Message {
     InstructionPanel(BlockId, InstructionPanelMessage),
     Settings(SettingsMessage),
     WindowResized(WindowSize),
+    DocumentMode(DocumentMode),
 }
 
 impl AppState {
@@ -388,6 +389,10 @@ impl AppState {
             | Message::Settings(message) => settings::handle(self, message),
             | Message::WindowResized(size) => {
                 self.window_size = size;
+                Task::none()
+            }
+            | Message::DocumentMode(mode) => {
+                self.document_mode = mode;
                 Task::none()
             }
         }

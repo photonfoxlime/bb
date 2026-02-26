@@ -7,8 +7,7 @@
 //! `Theme::mode()` at render time, so all style functions adapt automatically
 //! when the system appearance changes.
 
-use iced::theme::Base;
-use iced::theme::Mode;
+use iced::theme::{Base, Mode};
 use iced::widget::{button, container, rule, text, text_editor};
 use iced::{Color, Font, Theme, border};
 
@@ -242,6 +241,41 @@ pub fn action_button(theme: &Theme, status: button::Status) -> button::Style {
 pub fn panel_toggle_button(
     theme: &Theme, status: button::Status, is_active: bool,
 ) -> button::Style {
+    let p = focused_palette(theme);
+    let base = button::Style {
+        background: if is_active { Some(p.tint.into()) } else { None },
+        text_color: if is_active { p.accent } else { p.accent_muted },
+        border: border::rounded(3).width(if is_active { 1 } else { 0 }).color(if is_active {
+            p.accent
+        } else {
+            Color::TRANSPARENT
+        }),
+        shadow: Default::default(),
+        snap: false,
+    };
+    match status {
+        | button::Status::Active => base,
+        | button::Status::Hovered => button::Style {
+            text_color: p.ink,
+            background: Some(p.tint.into()),
+            border: border::rounded(3).width(1).color(p.spine),
+            ..base
+        },
+        | button::Status::Pressed => button::Style {
+            text_color: p.ink,
+            background: Some(Color { a: 0.15, ..p.accent }.into()),
+            border: border::rounded(3).width(1).color(p.accent_muted),
+            ..base
+        },
+        | button::Status::Disabled => button::Style { text_color: p.spine, ..base },
+    }
+}
+
+/// Mode button style for the modebar (normal/pick friend).
+///
+/// When `is_active` is true, the button shows with accent color text and border,
+/// indicating that mode is currently active.
+pub fn mode_button(theme: &Theme, status: button::Status, is_active: bool) -> button::Style {
     let p = focused_palette(theme);
     let base = button::Style {
         background: if is_active { Some(p.tint.into()) } else { None },
