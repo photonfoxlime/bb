@@ -3,6 +3,9 @@
 //! Please use or create constants in `theme.rs` for all UI numeric values
 //! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
 //!
+//! All user-facing text must be internationalized via `rust_i18n::t!`. Never
+//! hardcode UI strings; add keys to the locale files instead.
+//!
 //! The settings view is an alternative screen accessible from the document view
 //! via a gear icon button. It exposes editable LLM provider configurations with
 //! CRUD support (add, edit, delete, switch active), a light/dark theme toggle,

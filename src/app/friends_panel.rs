@@ -3,6 +3,9 @@
 //! Please use or create constants in `theme.rs` for all UI numeric values
 //! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
 //!
+//! All user-facing text must be internationalized via `rust_i18n::t!`. Never
+//! hardcode UI strings; add keys to the locale files instead.
+//!
 //! Friend blocks are shown per block that has at least one friend:
 //! - A "Friends" panel is rendered below the block row (same pattern as
 //!   expansion/reduction draft panels), listing each friend's point text and

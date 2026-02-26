@@ -3,6 +3,9 @@
 //! Please use or create constants in `theme.rs` for all UI numeric values
 //! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
 //!
+//! All user-facing text must be internationalized via `rust_i18n::t!`. Never
+//! hardcode UI strings; add keys to the locale files instead.
+//!
 //! Expand takes a block's point text and context, sends them to the LLM, and
 //! receives back an optional rewrite of the point plus a list of child
 //! suggestions. The result is staged as an [`ExpansionDraftRecord`] for user

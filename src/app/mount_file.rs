@@ -3,6 +3,9 @@
 //! Please use or create constants in `theme.rs` for all UI numeric values
 //! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
 //!
+//! All user-facing text must be internationalized via `rust_i18n::t!`. Never
+//! hardcode UI strings; add keys to the locale files instead.
+//!
 //! Handles expanding/collapsing mount points (blocks backed by external files),
 //! save-to-file and load-from-file dialogs, and system theme change detection.
 

@@ -3,6 +3,9 @@
 //! Please use or create constants in `theme.rs` for all UI numeric values
 //! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
 //!
+//! All user-facing text must be internationalized via `rust_i18n::t!`. Never
+//! hardcode UI strings; add keys to the locale files instead.
+//!
 //! Rendering semantics:
 //! - mount and fold state are represented through disclosure marker behavior,
 //! - action bars are projected per-row via `action_bar` view-model pipeline,
