@@ -9,6 +9,7 @@ Inline Rust documentation is the canonical documentation source for this reposit
 Actively write documentation for the program. 
 All written documentation must be concise, clear, and accurate.
 No emojis unless strictly necessary.
+Add bold text only if it emphasizes truly valuable information.
 All documentation should be written in English unless explicitly stated.
 
 ### Canonical Documentation Location
@@ -18,6 +19,10 @@ All documentation should be written in English unless explicitly stated.
 - Do not rely on a standalone `docs/` tree as the canonical source.
 
 ## Rust Code Style Guideline
+
+Fail fast. If some edge case is not specified by design,
+just log the error and stop the current operation.
+Never attempt to recover from error path if it's not absolutely correct.
 
 Prefer declaration instead of manual implementation. For example,
 - Utilize `thiserror` crate for error messages instead of manual implementations.
