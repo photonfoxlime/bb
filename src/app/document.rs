@@ -113,7 +113,8 @@ impl<'a> DocumentView<'a> {
         }
 
         let tree = TreeView::new(state).render_roots();
-        let content = container(tree).padding(theme::CANVAS_PAD).max_width(theme::CANVAS_MAX_WIDTH);
+        let max_width = theme::canvas_max_width(state.window_size.width);
+        let content = container(tree).padding(theme::CANVAS_PAD).max_width(max_width);
         layout = layout.push(
             scrollable(
                 container(content)

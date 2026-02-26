@@ -46,7 +46,7 @@ use crate::{
     undo::UndoHistory,
 };
 use iced::{
-    Element, Event, Subscription, Task, event, keyboard, system,
+    Element, Event, Subscription, Task, event, keyboard, system, window,
     widget::{self, text_editor},
 };
 use std::time::Duration;
@@ -123,6 +123,8 @@ pub struct AppState {
     pub active_view: ViewMode,
     /// Draft form state for the settings screen.
     pub settings: SettingsState,
+    /// Current window dimensions for responsive layout.
+    pub window_size: WindowSize,
     /// Persisted app preferences (e.g. optional locale). Loaded at startup from
     /// `<config_dir>/app.toml`; effective locale is derived via [`i18n::resolved_locale_from_config`].
     pub config: AppConfig,
@@ -177,6 +179,7 @@ impl AppState {
             is_dark,
             active_view: ViewMode::default(),
             settings,
+            window_size: WindowSize::default(),
             config,
         }
     }
@@ -342,6 +345,7 @@ pub enum Message {
     FriendPanel(FriendPanelMessage),
     InstructionPanel(BlockId, InstructionPanelMessage),
     Settings(SettingsMessage),
+    WindowResized(WindowSize),
 }
 
 impl AppState {
@@ -375,6 +379,10 @@ impl AppState {
                 instruction_panel::handle(self, target, message)
             }
             | Message::Settings(message) => settings::handle(self, message),
+            | Message::WindowResized(size) => {
+                self.window_size = size;
+                Task::none()
+            }
         }
     }
 }
@@ -391,7 +399,7 @@ impl AppState {
 
 impl AppState {
     /// Global event subscription: keyboard shortcuts, mouse clicks, escape,
-    /// and system theme changes.
+    /// system theme changes, and window resize events.
     pub fn subscription(_state: &AppState) -> Subscription<Message> {
         Subscription::batch([
             event::listen_with(|event, status, _window| {
@@ -426,6 +434,12 @@ impl AppState {
                             .map(ShortcutMessage::Trigger)
                             .map(Message::Shortcut)
                     }
+                    | Event::Window(window::Event::Resized(size)) => {
+                        Some(Message::WindowResized(WindowSize {
+                            width: size.width as f32,
+                            height: size.height as f32,
+                        }))
+                    }
                     | _ => None,
                 }
             }),
@@ -446,6 +460,13 @@ pub enum ViewMode {
     Document,
     /// The settings configuration screen.
     Settings,
+}
+
+/// Current window dimensions for responsive layout.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct WindowSize {
+    pub width: f32,
+    pub height: f32,
 }
 
 /// Snapshot of undoable application state.
@@ -669,6 +690,7 @@ impl AppState {
             persistence_write_disabled: true,
             is_dark: false,
             active_view: ViewMode::default(),
+            window_size: WindowSize::default(),
             config,
         };
         (state, root)

@@ -85,10 +85,21 @@ pub(crate) fn focused_palette(theme: &Theme) -> &'static Palette {
 
 /// Outer padding around the document canvas.
 pub const CANVAS_PAD: f32 = 24.0;
-/// Maximum content width for readability.
-pub const CANVAS_MAX_WIDTH: f32 = 720.0;
+/// Maximum content width for readability on standard screens.
+pub const CANVAS_MAX_WIDTH_STANDARD: f32 = 720.0;
+/// Window width threshold for switching to wide layout.
+pub const CANVAS_WIDE_THRESHOLD: f32 = 1200.0;
 /// Top padding inside the scrollable viewport.
 pub const CANVAS_TOP: f32 = 12.0;
+
+/// Computes the effective canvas max width based on window width.
+pub fn canvas_max_width(window_width: f32) -> f32 {
+    if window_width <= CANVAS_WIDE_THRESHOLD {
+        CANVAS_MAX_WIDTH_STANDARD
+    } else {
+        window_width * 0.6
+    }
+}
 
 /// Vertical gap between error banner and content.
 pub const LAYOUT_GAP: f32 = 12.0;

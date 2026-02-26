@@ -539,10 +539,11 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     );
 
     // ── Assemble ─────────────────────────────────────────────────────
+    let max_width = theme::canvas_max_width(state.window_size.width);
     let content =
         column![header, provider_section, config_section, appearance_section, paths_section]
             .spacing(24)
-            .max_width(theme::CANVAS_MAX_WIDTH);
+            .max_width(max_width);
 
     let padded = container(content).padding(theme::CANVAS_PAD).width(Fill).center_x(Fill);
 
