@@ -17,8 +17,8 @@ use super::{
     OverlayMessage, ReduceMessage, ShortcutMessage, StructureMessage,
     action_bar::{
         ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
-        ViewportBucket, action_to_message, build_action_bar_vm, project_for_viewport,
-        shortcut_to_action,
+        ViewportBucket, action_i18n_key, action_to_message, build_action_bar_vm,
+        project_for_viewport, shortcut_to_action, status_error_i18n_key,
     },
     diff::{WordChange, word_diff},
     instruction_panel,
@@ -683,7 +683,7 @@ impl<'a> TreeView<'a> {
             | Some(StatusChipVm::Loading { op: ActionId::Expand }) => t!("doc_status_expanding").to_string(),
             | Some(StatusChipVm::Loading { op: ActionId::Reduce }) => t!("doc_status_reducing").to_string(),
             | Some(StatusChipVm::Loading { .. }) => t!("doc_status_working").to_string(),
-            | Some(StatusChipVm::Error { message, .. }) => message.clone(),
+            | Some(StatusChipVm::Error { op, .. }) => t!(status_error_i18n_key(*op)).to_string(),
             | Some(StatusChipVm::DraftActive { suggestion_count }) if *suggestion_count > 0 => {
                 t!("doc_status_draft_ready").to_string()
             }
@@ -837,7 +837,8 @@ impl<'a> TreeView<'a> {
         } else {
             base
         };
-        tooltip(btn, text(descriptor.label).size(12).font(theme::INTER), tooltip::Position::Bottom)
+        let label = t!(action_i18n_key(descriptor.id)).to_string();
+        tooltip(btn, text(label).size(12).font(theme::INTER), tooltip::Position::Bottom)
             .style(theme::tooltip)
             .padding(theme::TOOLTIP_PAD)
             .gap(theme::TOOLTIP_GAP)

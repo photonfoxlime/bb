@@ -63,6 +63,25 @@ settings_new_provider_placeholder: "New custom provider name..."
 settings_base_url_placeholder: "https://api.example.com/v1"
 settings_api_key_placeholder: "sk-..."
 settings_model_placeholder: "gpt-4o"
+# Action bar buttons
+action_expand: "Expand"
+action_reduce: "Reduce"
+action_add_child: "Add child"
+action_accept_all: "Accept all"
+action_cancel: "Cancel"
+action_retry: "Retry"
+action_dismiss: "Dismiss"
+action_add_sibling: "Add sibling"
+action_add_parent: "Add parent"
+action_duplicate: "Duplicate"
+action_save_to_file: "Save to file"
+action_load_from_file: "Load from file"
+action_archive: "Archive"
+
+# Status chip messages
+status_expand_failed: "Expand failed"
+status_reduce_failed: "Reduce failed"
+
 # Mount file dialogs
 save_block_to_file: "Save block to file"
 load_block_from_file: "Load block from file"

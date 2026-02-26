@@ -55,12 +55,11 @@ pub enum ActionPriority {
     OverflowOnly,
 }
 
-/// Complete description of one toolbar button: identity, display text,
-/// availability state, display tier, and whether it requires confirmation.
+/// Complete description of one toolbar button: identity, availability state,
+/// display tier, and whether it requires confirmation.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ActionDescriptor {
     pub id: ActionId,
-    pub label: &'static str,
     pub availability: ActionAvailability,
     pub priority: ActionPriority,
     /// Destructive actions are rendered with a warning style.
@@ -70,10 +69,9 @@ pub struct ActionDescriptor {
 impl ActionDescriptor {
     /// Create a non-destructive action descriptor.
     pub fn new(
-        id: ActionId, label: &'static str, availability: ActionAvailability,
-        priority: ActionPriority,
+        id: ActionId, availability: ActionAvailability, priority: ActionPriority,
     ) -> Self {
-        Self { id, label, availability, priority, destructive: false }
+        Self { id, availability, priority, destructive: false }
     }
 
     /// Builder method: mark this action as destructive.
@@ -83,13 +81,41 @@ impl ActionDescriptor {
     }
 }
 
-/// Status indicator rendered below the action bar row.
-///
+/// Get the i18n translation key for an action.
+pub fn action_i18n_key(id: ActionId) -> &'static str {
+    match id {
+        ActionId::Expand => "action_expand",
+        ActionId::Reduce => "action_reduce",
+        ActionId::AddChild => "action_add_child",
+        ActionId::AddParent => "action_add_parent",
+        ActionId::AcceptAll => "action_accept_all",
+        ActionId::Retry => "action_retry",
+        ActionId::DismissDraft => "action_dismiss",
+        ActionId::Cancel => "action_cancel",
+        ActionId::CollapseBranch => "action_expand",
+        ActionId::ExpandBranch => "action_expand",
+        ActionId::AddSibling => "action_add_sibling",
+        ActionId::DuplicateBlock => "action_duplicate",
+        ActionId::ArchiveBlock => "action_archive",
+        ActionId::SaveToFile => "action_save_to_file",
+        ActionId::LoadFromFile => "action_load_from_file",
+    }
+}
+
+/// Get the i18n translation key for a status error message based on the action that failed.
+pub fn status_error_i18n_key(op: ActionId) -> &'static str {
+    match op {
+        ActionId::Expand => "status_expand_failed",
+        ActionId::Reduce => "status_reduce_failed",
+        _ => "status_expand_failed",
+    }
+}
+
 /// Exactly one chip is shown per block, determined by [`RowContext::ui_state`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatusChipVm {
     Loading { op: ActionId },
-    Error { op: ActionId, message: String, retry_action: ActionId },
+    Error { op: ActionId, retry_action: ActionId },
     DraftActive { suggestion_count: usize },
 }
 
@@ -218,19 +244,16 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
 
     vm.primary.push(ActionDescriptor::new(
         ActionId::Expand,
-        "Expand",
         expand_availability,
         ActionPriority::Pinned,
     ));
     vm.primary.push(ActionDescriptor::new(
         ActionId::Reduce,
-        "Reduce",
         reduce_availability,
         ActionPriority::Pinned,
     ));
     vm.primary.push(ActionDescriptor::new(
         ActionId::AddChild,
-        "Add child",
         add_child_availability,
         ActionPriority::Pinned,
     ));
@@ -238,7 +261,6 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     if ctx.draft_suggestion_count > 0 {
         vm.contextual.push(ActionDescriptor::new(
             ActionId::AcceptAll,
-            "Accept all",
             ActionAvailability::Enabled,
             ActionPriority::Contextual,
         ));
@@ -247,7 +269,6 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     if matches!(row_state, RowUiState::ErrorExpand | RowUiState::ErrorReduce) {
         vm.contextual.push(ActionDescriptor::new(
             ActionId::Retry,
-            "Retry",
             ActionAvailability::Enabled,
             ActionPriority::Contextual,
         ));
@@ -256,7 +277,6 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     if matches!(row_state, RowUiState::BusyExpand | RowUiState::BusyReduce) {
         vm.contextual.push(ActionDescriptor::new(
             ActionId::Cancel,
-            "Cancel",
             ActionAvailability::Enabled,
             ActionPriority::Contextual,
         ));
@@ -265,7 +285,6 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     if ctx.has_draft {
         vm.contextual.push(ActionDescriptor::new(
             ActionId::DismissDraft,
-            "Dismiss",
             ActionAvailability::Enabled,
             ActionPriority::Contextual,
         ));
@@ -273,26 +292,22 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
 
     vm.overflow.push(ActionDescriptor::new(
         ActionId::AddSibling,
-        "Add sibling",
         ActionAvailability::Enabled,
         ActionPriority::OverflowOnly,
     ));
     vm.overflow.push(ActionDescriptor::new(
         ActionId::AddParent,
-        "Add parent",
         ActionAvailability::Enabled,
         ActionPriority::OverflowOnly,
     ));
     vm.overflow.push(ActionDescriptor::new(
         ActionId::DuplicateBlock,
-        "Duplicate",
         ActionAvailability::Enabled,
         ActionPriority::OverflowOnly,
     ));
     if !ctx.is_mounted && !ctx.is_unexpanded_mount {
         vm.overflow.push(ActionDescriptor::new(
             ActionId::SaveToFile,
-            "Save to file",
             ActionAvailability::Enabled,
             ActionPriority::OverflowOnly,
         ));
@@ -300,7 +315,6 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     if !ctx.has_children && !ctx.is_mounted && !ctx.is_unexpanded_mount {
         vm.overflow.push(ActionDescriptor::new(
             ActionId::LoadFromFile,
-            "Load from file",
             ActionAvailability::Enabled,
             ActionPriority::OverflowOnly,
         ));
@@ -308,7 +322,6 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     vm.overflow.push(
         ActionDescriptor::new(
             ActionId::ArchiveBlock,
-            "Archive",
             ActionAvailability::Enabled,
             ActionPriority::OverflowOnly,
         )
@@ -320,12 +333,10 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
         | RowUiState::BusyReduce => Some(StatusChipVm::Loading { op: ActionId::Reduce }),
         | RowUiState::ErrorExpand => Some(StatusChipVm::Error {
             op: ActionId::Expand,
-            message: "Expand failed".to_string(),
             retry_action: ActionId::Retry,
         }),
         | RowUiState::ErrorReduce => Some(StatusChipVm::Error {
             op: ActionId::Reduce,
-            message: "Reduce failed".to_string(),
             retry_action: ActionId::Retry,
         }),
         | RowUiState::DraftActive => {
@@ -633,7 +644,6 @@ mod tests {
     fn destructive_sets_flag() {
         let descriptor = ActionDescriptor::new(
             ActionId::ArchiveBlock,
-            "Archive",
             ActionAvailability::Enabled,
             ActionPriority::OverflowOnly,
         )
