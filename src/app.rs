@@ -28,7 +28,7 @@ use self::{
     error::{AppError, ErrorMessage, UiError},
     error_banner::ErrorBanner,
     expand::ExpandMessage,
-    instruction_panel::{InstructionPanel, InstructionPanelMessage},
+    instruction_panel::InstructionPanelMessage,
     llm_requests::{LlmRequests, RequestSignature},
     mount_file::MountFileMessage,
     overlay::OverlayMessage,
@@ -102,8 +102,6 @@ pub struct AppState {
     focused_block_id: Option<BlockId>,
     /// Block currently coalescing point edits into a single undo entry.
     editing_block_id: Option<BlockId>,
-    /// Instruction panel state.
-    instruction_panel: InstructionPanel,
     /// Whether the current theme is dark. Detected from the system at startup
     /// and updated live via `iced::system::theme_changes()`.
     pub is_dark: bool,
@@ -156,7 +154,6 @@ impl AppState {
             persistence_blocked,
             persistence_write_disabled: false,
             overflow_open_for: None,
-            instruction_panel: InstructionPanel::new(),
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,
             focused_block_id: None,
@@ -300,7 +297,6 @@ impl AppState {
         self.llm_requests.clear();
         self.focused_block_id = None;
         self.editing_block_id = None;
-        self.instruction_panel.reset();
 
         self.persist_with_context("after undo/redo");
     }
@@ -328,7 +324,7 @@ pub enum Message {
     Structure(StructureMessage),
     Overlay(OverlayMessage),
     MountFile(MountFileMessage),
-    InstructionPanel(InstructionPanelMessage),
+    InstructionPanel(BlockId, InstructionPanelMessage),
     Settings(SettingsMessage),
 }
 
@@ -358,8 +354,8 @@ impl AppState {
             | Message::Overlay(message) => overlay::handle(self, message),
             | Message::Structure(message) => structure::handle(self, message),
             | Message::MountFile(message) => mount_file::handle(self, message),
-            | Message::InstructionPanel(message) => {
-                instruction_panel::handle(self, BlockId::default(), message)
+            | Message::InstructionPanel(target, message) => {
+                instruction_panel::handle(self, target, message)
             }
             | Message::Settings(message) => settings::handle(self, message),
         }
@@ -642,7 +638,6 @@ impl AppState {
             errors: vec![],
             llm_requests: LlmRequests::new(),
             overflow_open_for: None,
-            instruction_panel: InstructionPanel::new(),
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,
             focused_block_id: None,

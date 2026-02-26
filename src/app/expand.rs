@@ -64,7 +64,8 @@ pub fn handle(state: &mut AppState, message: ExpandMessage) -> Task<Message> {
                 return Task::none();
             };
             state.llm_requests.mark_expand_loading(block_id, request_signature);
-            let instruction = state.instruction_panel.prompt.take();
+            // Get instruction draft from store and consume it
+            let instruction = state.store.remove_instruction_draft(&block_id).map(|d| d.instruction);
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
@@ -146,8 +147,8 @@ pub fn handle(state: &mut AppState, message: ExpandMessage) -> Task<Message> {
                     state.record_error(AppError::Expand(reason));
                 }
             }
-            // Clear instruction prompt after expand completes
-            state.instruction_panel.prompt = None;
+            // Clear instruction draft after expand completes
+            state.store.remove_instruction_draft(&block_id);
             Task::none()
         }
         | ExpandMessage::ApplyRewrite(block_id) => {

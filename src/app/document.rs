@@ -793,7 +793,7 @@ impl<'a> TreeView<'a> {
                 })
                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .on_press(
-                    Message::InstructionPanel(instruction_panel::InstructionPanelMessage::Toggle)
+                    Message::InstructionPanel(*block_id, instruction_panel::InstructionPanelMessage::Toggle)
                         .into(),
                 ),
         );

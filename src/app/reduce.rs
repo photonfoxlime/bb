@@ -65,7 +65,8 @@ pub fn handle(state: &mut AppState, message: ReduceMessage) -> Task<Message> {
             };
             let children_snapshot: Vec<BlockId> = state.store.children(&block_id).to_vec();
             state.llm_requests.mark_reduce_loading(block_id, request_signature);
-            let instruction = state.instruction_panel.prompt.take();
+            // Get instruction draft from store and consume it
+            let instruction = state.store.remove_instruction_draft(&block_id).map(|d| d.instruction);
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
@@ -139,8 +140,8 @@ pub fn handle(state: &mut AppState, message: ReduceMessage) -> Task<Message> {
                     state.record_error(AppError::Reduce(reason));
                 }
             }
-            // Clear instruction prompt after reduce completes
-            state.instruction_panel.prompt = None;
+            // Clear instruction draft after reduce completes
+            state.store.remove_instruction_draft(&block_id);
             Task::none()
         }
         | ReduceMessage::Apply(block_id) => {
