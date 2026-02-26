@@ -548,7 +548,10 @@ mod tests {
             Message::InstructionPanel(sibling, InstructionPanelMessage::AppendInstructionResponse),
         );
 
-        assert_eq!(state.store.point(&sibling).as_deref(), Some("sibling text\n\ninquiry response"));
+        assert_eq!(
+            state.store.point(&sibling).as_deref(),
+            Some("sibling text\n\ninquiry response")
+        );
         assert_eq!(state.store.point(&root).as_deref(), Some("root text"));
         // Inquiry draft should be cleared from store
         assert!(state.store.inquiry_draft(&root).is_none());

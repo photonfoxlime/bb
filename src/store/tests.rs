@@ -1365,10 +1365,7 @@ fn mount_table_remove_entry_clears_origins() {
 fn set_friend_perspective_updates_existing_friend() {
     let (mut store, root, child_a, _child_b) = simple_store();
     // Add friend
-    store.set_friend_blocks_for(
-        &root,
-        vec![FriendBlock { block_id: child_a, perspective: None }],
-    );
+    store.set_friend_blocks_for(&root, vec![FriendBlock { block_id: child_a, perspective: None }]);
     // Set perspective
     store.set_friend_blocks_for(
         &root,
@@ -1394,13 +1391,7 @@ fn set_friend_perspective_clears_existing_perspective() {
         }],
     );
     // Clear perspective by setting to None
-    store.set_friend_blocks_for(
-        &root,
-        vec![FriendBlock {
-            block_id: child_a,
-            perspective: None,
-        }],
-    );
+    store.set_friend_blocks_for(&root, vec![FriendBlock { block_id: child_a, perspective: None }]);
     let friends = store.friend_blocks_for(&root);
     assert_eq!(friends.len(), 1);
     assert_eq!(friends[0].perspective, None);
@@ -1412,10 +1403,7 @@ fn friend_perspective_empty_string_vs_none() {
     // Set perspective to empty string
     store.set_friend_blocks_for(
         &root,
-        vec![FriendBlock {
-            block_id: child_a,
-            perspective: Some("".to_string()),
-        }],
+        vec![FriendBlock { block_id: child_a, perspective: Some("".to_string()) }],
     );
     let friends = store.friend_blocks_for(&root);
     // Empty string is preserved (different from None)
@@ -1428,14 +1416,8 @@ fn friend_perspective_survives_serde_roundtrip() {
     store.set_friend_blocks_for(
         &root,
         vec![
-            FriendBlock {
-                block_id: child_a,
-                perspective: Some("historical lens".to_string()),
-            },
-            FriendBlock {
-                block_id: child_b,
-                perspective: None,
-            },
+            FriendBlock { block_id: child_a, perspective: Some("historical lens".to_string()) },
+            FriendBlock { block_id: child_b, perspective: None },
         ],
     );
     // Serialize and deserialize
@@ -1453,14 +1435,8 @@ fn remove_friend_block_also_removes_perspective() {
     store.set_friend_blocks_for(
         &root,
         vec![
-            FriendBlock {
-                block_id: child_a,
-                perspective: Some("primary".to_string()),
-            },
-            FriendBlock {
-                block_id: child_b,
-                perspective: Some("secondary".to_string()),
-            },
+            FriendBlock { block_id: child_a, perspective: Some("primary".to_string()) },
+            FriendBlock { block_id: child_b, perspective: Some("secondary".to_string()) },
         ],
     );
     // Remove one friend

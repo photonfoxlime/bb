@@ -48,7 +48,9 @@ impl LlmRequests {
     }
 
     pub fn is_inquiring(&self, block_id: BlockId) -> bool {
-        self.inquiry_states.get(block_id).is_some_and(|state| matches!(state, InquiryState::Loading))
+        self.inquiry_states
+            .get(block_id)
+            .is_some_and(|state| matches!(state, InquiryState::Loading))
     }
 
     pub fn has_reduce_error(&self, block_id: BlockId) -> bool {

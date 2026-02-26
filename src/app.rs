@@ -405,7 +405,9 @@ impl AppState {
                         ..
                     }) => {
                         // Cancel friend perspective editing - uses state internally
-                        Some(Message::FriendPanel(FriendPanelMessage::CancelEditingFriendPerspective))
+                        Some(Message::FriendPanel(
+                            FriendPanelMessage::CancelEditingFriendPerspective,
+                        ))
                     }
                     | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                         if modifiers.command() {

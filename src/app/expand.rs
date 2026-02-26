@@ -65,7 +65,8 @@ pub fn handle(state: &mut AppState, message: ExpandMessage) -> Task<Message> {
             };
             state.llm_requests.mark_expand_loading(block_id, request_signature);
             // Get instruction draft from store and consume it
-            let instruction = state.store.remove_instruction_draft(&block_id).map(|d| d.instruction);
+            let instruction =
+                state.store.remove_instruction_draft(&block_id).map(|d| d.instruction);
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);

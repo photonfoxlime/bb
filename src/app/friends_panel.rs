@@ -29,8 +29,8 @@ use crate::theme;
 use iced::Element;
 use iced::Length;
 use iced::Task;
-use iced::widget::{button, column, container, row, text, text_input, Id};
 use iced::widget::operation::focus;
+use iced::widget::{Id, button, column, container, row, text, text_input};
 use lucide_icons::iced as icons;
 
 /// Message types for friends panel interactions.
@@ -246,39 +246,32 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 .on_submit(Message::Structure(StructureMessage::SetFriendPerspective {
                     target,
                     friend_id,
-                    perspective: Some(state.editing_friend_perspective_input.clone().unwrap_or_default()),
+                    perspective: Some(
+                        state.editing_friend_perspective_input.clone().unwrap_or_default(),
+                    ),
                 }));
 
-            let accept_btn = button(
-                icons::icon_check().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE)
-            )
-            .padding(2)
-            .style(theme::action_button)
-            .width(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-            .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-            .on_press(Message::FriendPanel(FriendPanelMessage::AcceptFriendPerspective {
-                target,
-                friend_id,
-            }));
+            let accept_btn = button(icons::icon_check().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE))
+                .padding(2)
+                .style(theme::action_button)
+                .width(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+                .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+                .on_press(Message::FriendPanel(FriendPanelMessage::AcceptFriendPerspective {
+                    target,
+                    friend_id,
+                }));
 
-            let cancel_btn = button(
-                icons::icon_x().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE)
-            )
-            .padding(2)
-            .style(theme::destructive_button)
-            .width(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-            .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-            .on_press(Message::FriendPanel(FriendPanelMessage::ClearFriendPerspective {
-                target,
-                friend_id,
-            }));
+            let cancel_btn = button(icons::icon_x().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE))
+                .padding(2)
+                .style(theme::destructive_button)
+                .width(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+                .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+                .on_press(Message::FriendPanel(FriendPanelMessage::ClearFriendPerspective {
+                    target,
+                    friend_id,
+                }));
 
-            row![]
-                .spacing(4)
-                .push(input_field)
-                .push(accept_btn)
-                .push(cancel_btn)
-                .into()
+            row![].spacing(4).push(input_field).push(accept_btn).push(cancel_btn).into()
         } else if perspective_label.is_empty() {
             button(
                 text(rust_i18n::t!("doc_friend_perspective_placeholder").to_string())
