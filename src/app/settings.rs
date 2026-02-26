@@ -324,15 +324,18 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             Task::none()
         }
         | SettingsMessage::SetLocale(locale) => {
+            // Update both the main config and settings config so effective_locale()
+            // returns the new locale for immediate UI re-render.
+            state.config.locale = locale.clone();
             state.settings.config.locale = locale.clone();
             // Save config to disk.
-            if let Err(err) = config::save(&state.settings.config) {
+            if let Err(err) = config::save(&state.config) {
                 state.settings.status =
                     Some(SettingsStatus::Error(format!("failed to save config: {err}")));
                 tracing::error!(%err, "failed to save app config");
             } else {
                 // Apply the new locale immediately for the current session.
-                let effective = i18n::resolved_locale_from_config(&state.settings.config);
+                let effective = i18n::resolved_locale_from_config(&state.config);
                 i18n::set_app_locale(&effective);
                 tracing::info!(locale = %effective, "locale changed from settings");
             }
