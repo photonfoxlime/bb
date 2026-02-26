@@ -1,5 +1,8 @@
 //! Structure handler: tree manipulation operations.
 //!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
+//!
 //! Operations that mutate the block tree topology: adding children, parents,
 //! siblings, duplicating subtrees, archiving, folding, and managing friend
 //! blocks used as additional LLM context.

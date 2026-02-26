@@ -1,5 +1,8 @@
 //! Persisted application configuration.
 //!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
+//!
 //! Stores optional UI locale and other app-level preferences in
 //! `<config_dir>/app.toml`. Loaded at startup; changes are saved via
 //! [`save`] or [`AppState::save_app_config`](crate::app::AppState::save_app_config).

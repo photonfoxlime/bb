@@ -1,5 +1,8 @@
 //! Application orchestration layer for the Iced UI.
 //!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
+//!
 //! Domain semantics are documented next to the owning handlers and state types.
 
 mod action_bar;

@@ -1,6 +1,9 @@
 //! Calm paper-and-ink theme: palette, layout tokens, and per-widget style functions.
 //!
-//! Supports light and dark variants. The focused palette is determined by the
+//! **Add all UI numeric values here** (sizes, padding, gaps, colors) rather than
+//! hardcoding them in other modules. This ensures consistent theming across the app.
+//!
+//! Supports light and dark variants.
 //! `Theme::mode()` at render time, so all style functions adapt automatically
 //! when the system appearance changes.
 
@@ -135,6 +138,8 @@ pub const BUTTON_PAD: f32 = 4.0;
 ///
 /// Used by fold toggles, non-foldable ring markers, and overflow/action glyph buttons.
 pub const ICON_BUTTON_SIZE: f32 = 24.0;
+/// Icon size for toolbar buttons (select, move, etc).
+pub const TOOLBAR_ICON_SIZE: f32 = 16.0;
 /// Glyph size for non-foldable leaf ring markers.
 pub const LEAF_RING_ICON_SIZE: f32 = 10.0;
 /// Vertical nudge applied to row controls so their visual center matches

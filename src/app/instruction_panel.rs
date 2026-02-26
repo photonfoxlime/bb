@@ -1,5 +1,8 @@
 //! Instruction panel for LLM interactions.
 //!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
+//!
 //! This module defines the behavior contract for instruction-driven operations
 //! from one focused block. A block's visible context is the union of:
 //! - the block point itself,

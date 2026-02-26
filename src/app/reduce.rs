@@ -1,5 +1,8 @@
 //! Reduce handler: LLM-powered point reduction with redundant child management.
 //!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
+//!
 //! Reduce takes a block's point text and its children context, sends them to the
 //! LLM, and receives back a condensed version of the point plus a list of child
 //! indices deemed redundant. The result is staged as a [`ReductionDraftRecord`]

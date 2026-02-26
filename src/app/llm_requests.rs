@@ -1,4 +1,7 @@
 //! Application-local runtime state for LLM reduce/expand requests.
+//!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
 
 use super::error::UiError;
 use crate::llm;

@@ -1,5 +1,8 @@
 //! Settings view: multi-provider LLM configuration, appearance toggle, and data path display.
 //!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
+//!
 //! The settings view is an alternative screen accessible from the document view
 //! via a gear icon button. It exposes editable LLM provider configurations with
 //! CRUD support (add, edit, delete, switch active), a light/dark theme toggle,

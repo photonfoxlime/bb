@@ -1,5 +1,8 @@
 //! Word-wise diff computation for expansion draft rendering.
 //!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
+//!
 //! Scope:
 //! - used for rewrite/reduce text comparisons,
 //! - child suggestions are intentionally rendered as plain list entries.

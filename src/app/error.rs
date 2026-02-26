@@ -1,4 +1,7 @@
 //! Application-facing error types for UI and interaction flows.
+//!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
 
 /// Display-oriented error wrapper used across app modules.
 ///

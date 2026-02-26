@@ -1,5 +1,8 @@
 //! Friend blocks panel for displaying user-selected related blocks.
 //!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
+//!
 //! Friend blocks are shown per block that has at least one friend:
 //! - A "Friends" panel is rendered below the block row (same pattern as
 //!   expansion/reduction draft panels), listing each friend's point text and

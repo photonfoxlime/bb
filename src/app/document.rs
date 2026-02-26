@@ -1,5 +1,8 @@
 //! Immutable document and tree renderer from `AppState` to Iced elements.
 //!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
+//!
 //! Rendering semantics:
 //! - mount and fold state are represented through disclosure marker behavior,
 //! - action bars are projected per-row via `action_bar` view-model pipeline,
@@ -69,9 +72,39 @@ impl<'a> DocumentView<'a> {
 
     pub(super) fn view(&self) -> Element<'a, Message> {
         let Self { state } = self;
+        // Floating overlay
         let mut layout = column![].spacing(theme::LAYOUT_GAP);
 
-        // Settings gear button – rendered as a floating overlay at the bottom-right.
+        // Modebar buttons (select, move) - top-left corner
+        let select_button = button(
+            centered_icon(icons::icon_mouse_pointer_2().size(theme::TOOLBAR_ICON_SIZE).into())
+        )
+        .style(theme::action_button)
+        .padding(0)
+        .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .height(Length::Fixed(theme::ICON_BUTTON_SIZE));
+
+        let move_button = button(
+            centered_icon(icons::icon_move().size(theme::TOOLBAR_ICON_SIZE).into())
+        )
+        .style(theme::action_button)
+        .padding(0)
+        .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .height(Length::Fixed(theme::ICON_BUTTON_SIZE));
+
+        let toolbar = row![select_button, move_button]
+            .spacing(theme::ACTION_GAP);
+
+        let toolbar_container = container(
+            container(toolbar)
+                .align_y(iced::alignment::Vertical::Top)
+                .align_x(iced::alignment::Horizontal::Left)
+                .padding(iced::Padding::new(16.0).left(theme::CANVAS_PAD).top(theme::CANVAS_TOP)),
+        )
+        .width(Fill)
+        .height(Fill);
+
+        // Settings gear button – top-right corner
         let gear_button = button(
             lucide_icons::iced::icon_settings()
                 .size(16)
@@ -137,7 +170,7 @@ impl<'a> DocumentView<'a> {
         .width(Fill)
         .height(Fill);
 
-        stack![main_content, floating_gear].width(Fill).height(Fill).into()
+        stack![main_content, floating_gear, toolbar_container].width(Fill).height(Fill).into()
     }
 }
 

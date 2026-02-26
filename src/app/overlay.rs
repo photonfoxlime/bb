@@ -1,5 +1,8 @@
 //! Overlay handler: transient UI state for overflow menus.
 //!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
+//!
 //! These messages toggle ephemeral overlays that float above the main document
 //! view. None of them mutate the block tree or trigger persistence.
 

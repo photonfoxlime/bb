@@ -1,5 +1,8 @@
 //! Mount and file I/O handler: file-backed block management and system theme.
 //!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
+//!
 //! Handles expanding/collapsing mount points (blocks backed by external files),
 //! save-to-file and load-from-file dialogs, and system theme change detection.
 

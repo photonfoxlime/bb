@@ -1,5 +1,9 @@
 //! Action bar: types, view-model construction, responsive projection,
 //! keyboard shortcuts, and dispatch for the per-block toolbar.
+//!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
+//!
 //! Keep module docs broad; pipeline and interaction semantics are documented on
 //! owning VM types and builder/projection functions below.
 

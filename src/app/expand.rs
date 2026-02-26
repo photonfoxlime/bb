@@ -1,5 +1,8 @@
 //! Expand handler: LLM-powered block expansion with child suggestions and rewrites.
 //!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
+//!
 //! Expand takes a block's point text and context, sends them to the LLM, and
 //! receives back an optional rewrite of the point plus a list of child
 //! suggestions. The result is staged as an [`ExpansionDraftRecord`] for user

@@ -1,5 +1,8 @@
 //! Error banner view-model for surfacing application errors.
 //!
+//! Please use or create constants in `theme.rs` for all UI numeric values
+//! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
+//!
 //! Converts the raw `AppState::errors` stack into a display-ready structure
 //! with a title, a preview of recent entries, and a hidden-count summary.
 //! Assumes [`rust_i18n::set_locale`] has been set (e.g. at view start) before calling [`title`].
