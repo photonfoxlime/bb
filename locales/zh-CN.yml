@@ -76,3 +76,17 @@ action_load_from_file: "从文件加载"
 action_archive: "归档"
 status_expand_failed: "展开失败"
 status_reduce_failed: "精简失败"
+
+# Settings (additional)
+settings_dark_mode: "深色模式"
+settings_system_default: "系统默认"
+settings_data_file: "数据文件"
+settings_llm_config: "LLM配置"
+settings_not_available: "不可用"
+settings_appearance: "外观"
+settings_data_paths: "数据路径"
+settings_providers: "提供方"
+
+# Instruction panel (additional)
+instruction_additional: "附加指令: %{instruction}"
+

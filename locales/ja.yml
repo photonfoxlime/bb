@@ -76,3 +76,17 @@ action_load_from_file: "ファイルから読み込み"
 action_archive: "アーカイブ"
 status_expand_failed: "展開失敗"
 status_reduce_failed: "要約失敗"
+
+# Settings (additional)
+settings_dark_mode: "ダークモード"
+settings_system_default: "システム設定"
+settings_data_file: "データファイル"
+settings_llm_config: "LLM設定"
+settings_not_available: "利用不可"
+settings_appearance: "外観"
+settings_data_paths: "データパス"
+settings_providers: "提供元"
+
+# Instruction panel (additional)
+instruction_additional: "追加指令: %{instruction}"
+

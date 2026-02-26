@@ -78,6 +78,20 @@ action_save_to_file: "Save to file"
 action_load_from_file: "Load from file"
 action_archive: "Archive"
 
+# Settings (additional)
+settings_dark_mode: "Dark mode"
+settings_system_default: "System default"
+settings_data_file: "Data file"
+settings_llm_config: "LLM config"
+settings_not_available: "not available"
+settings_appearance: "Appearance"
+settings_data_paths: "Data Paths"
+settings_providers: "Providers"
+
+# Instruction panel (additional)
+instruction_additional: "Additional instruction: %{instruction}"
+
+
 # Status chip messages
 status_expand_failed: "Expand failed"
 status_reduce_failed: "Reduce failed"

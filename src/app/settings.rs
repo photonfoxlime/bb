@@ -424,7 +424,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         provider_management = provider_management.push(delete_btn);
     }
 
-    let provider_section = section("Providers", provider_management);
+    let provider_section = section(t!("settings_providers").to_string(), provider_management);
 
     // ── Provider config editing section ──────────────────────────────
     let editing_title =
@@ -485,11 +485,11 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     // ── Appearance section ───────────────────────────────────────────
     let theme_toggler = toggler(state.is_dark)
         .on_toggle(|v| Message::Settings(SettingsMessage::ToggleTheme(v)))
-        .label("Dark mode")
+        .label(t!("settings_dark_mode").to_string())
         .text_size(14);
 
     // Locale picker: None = system default, Some("en-US") = override.
-    let locale_labels: Vec<String> = vec!["System default".to_string()]
+    let locale_labels: Vec<String> = vec![t!("settings_system_default").to_string()]
         .into_iter()
         .chain(i18n::SUPPORTED_LOCALES.iter().map(|s| s.to_string()))
         .collect();
@@ -514,20 +514,24 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     .text_size(14)
     .padding(8);
 
+    let appearance_title = t!("settings_appearance").to_string();
     let appearance_section =
-        section("Appearance", column![locale_picker, theme_toggler].spacing(10));
+        section(appearance_title, column![locale_picker, theme_toggler].spacing(10));
 
     // ── Data Paths section ───────────────────────────────────────────
     let data_path = AppPaths::data_file()
         .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "(not available)".to_string());
+        .unwrap_or_else(|| t!("settings_not_available").to_string());
     let config_path = AppPaths::llm_config()
         .map(|p| p.display().to_string())
-        .unwrap_or_else(|| "(not available)".to_string());
+        .unwrap_or_else(|| t!("settings_not_available").to_string());
 
+    let paths_title = t!("settings_data_paths").to_string();
+    let data_file_label = t!("settings_data_file").to_string();
+    let llm_config_label = t!("settings_llm_config").to_string();
     let paths_section = section(
-        "Data Paths",
-        column![path_row("Data file", data_path), path_row("LLM config", config_path),].spacing(6),
+        paths_title,
+        column![path_row(data_file_label, data_path), path_row(llm_config_label, config_path),].spacing(6),
     );
 
     // ── Assemble ─────────────────────────────────────────────────────
@@ -579,7 +583,7 @@ fn labeled_readonly(label: String, value: &str) -> Element<'static, Message> {
 }
 
 /// A section with a title and content.
-fn section<'a>(title: &'a str, content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+fn section(title: String, content: impl Into<Element<'static, Message>>) -> Element<'static, Message> {
     container(column![text(title).size(16).font(theme::INTER), content.into(),].spacing(12))
         .style(theme::draft_panel)
         .padding(
@@ -594,7 +598,7 @@ fn section<'a>(title: &'a str, content: impl Into<Element<'a, Message>>) -> Elem
 /// A read-only key-value row for path display.
 ///
 /// Takes owned strings so the row can outlive any local temporaries.
-fn path_row(label: &'static str, path: String) -> Element<'static, Message> {
+fn path_row(label: String, path: String) -> Element<'static, Message> {
     row![
         text(label)
             .size(13)

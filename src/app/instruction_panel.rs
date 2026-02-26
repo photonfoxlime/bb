@@ -206,7 +206,7 @@ pub fn handle(
                 return iced::Task::none();
             }
             state.instruction_panel.prompt =
-                Some(format!("Additional instruction: {}", instruction));
+                Some(t!("instruction_additional", instruction = instruction.as_str()).to_string());
             state.store.remove_instruction_draft(&target_block_id);
             state.persist_with_context("after consuming instruction draft for expand");
             state.editor_buffers.set_instruction_text("");
@@ -223,7 +223,7 @@ pub fn handle(
                 return iced::Task::none();
             }
             state.instruction_panel.prompt =
-                Some(format!("Additional instruction: {}", instruction));
+                Some(t!("instruction_additional", instruction = instruction.as_str()).to_string());
             state.store.remove_instruction_draft(&target_block_id);
             state.persist_with_context("after consuming instruction draft for reduce");
             state.editor_buffers.set_instruction_text("");
