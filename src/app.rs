@@ -351,7 +351,7 @@ impl AppState {
 
         // When editing friend perspective, Escape (arriving as CancelEditingFriendPerspective)
         // should just clear the editing state (handled in overlay handler).
-        
+
         match message {
             | Message::UndoRedo(message) => undo_redo::handle(self, message),
             | Message::Shortcut(message) => shortcut::handle(self, message),
@@ -643,18 +643,17 @@ mod shortcut {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::llm;
-    use crate::store::{BlockStore, StoreLoadError};
-    use crate::undo::UndoHistory;
+impl AppState {
+    pub fn test_state() -> (Self, crate::store::BlockId) {
+        use crate::llm;
+        use crate::store::BlockStore;
+        use crate::undo::UndoHistory;
 
-    fn test_state() -> (AppState, crate::store::BlockId) {
         let store = BlockStore::default();
         let root = *store.roots().first().expect("default store has a root");
         let providers = llm::LlmProviders::test_valid();
         let config = AppConfig::default();
-        let state = AppState {
+        let state = Self {
             editor_buffers: EditorBuffers::from_store(&store),
             store,
             undo_history: UndoHistory::with_capacity(64),
@@ -677,6 +676,16 @@ mod tests {
             config,
         };
         (state, root)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::store::StoreLoadError;
+
+    fn test_state() -> (AppState, crate::store::BlockId) {
+        AppState::test_state()
     }
 
     #[test]

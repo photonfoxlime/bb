@@ -288,38 +288,9 @@ pub fn handle(state: &mut AppState, message: ExpandMessage) -> Task<Message> {
 #[cfg(test)]
 mod tests {
     use super::{super::*, *};
-    use crate::llm;
-    use crate::store::{BlockStore, ExpansionDraftRecord};
-    use crate::undo::UndoHistory;
 
     fn test_state() -> (AppState, BlockId) {
-        let store = BlockStore::default();
-        let root = *store.roots().first().expect("default store has a root");
-        let providers = llm::LlmProviders::test_valid();
-        let config = AppConfig::default();
-        let state = AppState {
-            editor_buffers: EditorBuffers::from_store(&store),
-            store,
-            undo_history: UndoHistory::with_capacity(64),
-            settings: SettingsState::from_providers(&providers, &config),
-            providers,
-            errors: vec![],
-            llm_requests: LlmRequests::new(),
-            overflow_open_for: None,
-            instruction_panel: InstructionPanel::new(),
-            friend_picker_for: None,
-            editing_friend_perspective: None,
-            editing_friend_perspective_input: None,
-            focused_block_id: None,
-            panel_bar_state: None,
-            editing_block_id: None,
-            persistence_blocked: false,
-            persistence_write_disabled: true,
-            is_dark: false,
-            active_view: ViewMode::default(),
-            config,
-        };
-        (state, root)
+        AppState::test_state()
     }
 
     #[test]
