@@ -349,10 +349,10 @@ impl AppState {
     pub fn update(&mut self, message: Message) -> Task<Message> {
         // When the settings view is active, Escape (arriving as CancelFriendPicker
         // from the global event handler) should close settings instead.
-        if self.active_view == ViewMode::Settings {
-            if matches!(&message, Message::FriendPanel(FriendPanelMessage::CancelFriendPicker)) {
-                return settings::handle(self, SettingsMessage::Close);
-            }
+        if self.active_view == ViewMode::Settings
+            && matches!(&message, Message::FriendPanel(FriendPanelMessage::CancelFriendPicker))
+        {
+            return settings::handle(self, SettingsMessage::Close);
         }
 
         // When editing friend perspective, Escape (arriving as CancelEditingFriendPerspective)

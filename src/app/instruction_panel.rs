@@ -330,7 +330,6 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 .height(INSTRUCTION_EDITOR_HEIGHT)
                 .on_action(move |action| {
                     Message::InstructionPanel(block_id, InstructionPanelMessage::TextEdited(action))
-                        .into()
                 }),
         )
         .width(iced::Length::Fill)
@@ -346,10 +345,10 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             button(text(t!("instruction_cancel").to_string()).font(theme::INTER).size(13))
                 .style(theme::destructive_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(
-                    Message::InstructionPanel(block_id, InstructionPanelMessage::CancelInquire)
-                        .into(),
-                ),
+                .on_press(Message::InstructionPanel(
+                    block_id,
+                    InstructionPanelMessage::CancelInquire,
+                )),
         );
     } else {
         // Inquire button
@@ -357,9 +356,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             button(text(t!("instruction_inquire").to_string()).font(theme::INTER).size(13))
                 .style(theme::action_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(
-                    Message::InstructionPanel(block_id, InstructionPanelMessage::Inquire).into(),
-                );
+                .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Inquire));
 
         button_row = button_row.push(inquire_btn);
 
@@ -368,13 +365,10 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             button(text(t!("instruction_expand").to_string()).font(theme::INTER).size(13))
                 .style(theme::action_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(
-                    Message::InstructionPanel(
-                        block_id,
-                        InstructionPanelMessage::ExpandWithInstruction,
-                    )
-                    .into(),
-                ),
+                .on_press(Message::InstructionPanel(
+                    block_id,
+                    InstructionPanelMessage::ExpandWithInstruction,
+                )),
         );
 
         // Reduce button
@@ -382,13 +376,10 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             button(text(t!("instruction_reduce").to_string()).font(theme::INTER).size(13))
                 .style(theme::action_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(
-                    Message::InstructionPanel(
-                        block_id,
-                        InstructionPanelMessage::ReduceWithInstruction,
-                    )
-                    .into(),
-                ),
+                .on_press(Message::InstructionPanel(
+                    block_id,
+                    InstructionPanelMessage::ReduceWithInstruction,
+                )),
         );
     }
 
@@ -408,45 +399,34 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             button(text(t!("instruction_apply_rewrite").to_string()).font(theme::INTER).size(13))
                 .style(theme::action_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(
-                    Message::InstructionPanel(
-                        block_id,
-                        InstructionPanelMessage::ApplyInstructionRewrite,
-                    )
-                    .into(),
-                ),
+                .on_press(Message::InstructionPanel(
+                    block_id,
+                    InstructionPanelMessage::ApplyInstructionRewrite,
+                )),
         );
         result_buttons = result_buttons.push(
             button(text(t!("instruction_append_block").to_string()).font(theme::INTER).size(13))
                 .style(theme::action_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(
-                    Message::InstructionPanel(
-                        block_id,
-                        InstructionPanelMessage::AppendInstructionResponse,
-                    )
-                    .into(),
-                ),
+                .on_press(Message::InstructionPanel(
+                    block_id,
+                    InstructionPanelMessage::AppendInstructionResponse,
+                )),
         );
         result_buttons = result_buttons.push(
             button(text(t!("instruction_add_child").to_string()).font(theme::INTER).size(13))
                 .style(theme::action_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(
-                    Message::InstructionPanel(
-                        block_id,
-                        InstructionPanelMessage::AddInstructionResponseAsChild,
-                    )
-                    .into(),
-                ),
+                .on_press(Message::InstructionPanel(
+                    block_id,
+                    InstructionPanelMessage::AddInstructionResponseAsChild,
+                )),
         );
         result_buttons = result_buttons.push(
             button(text(t!("ui_discard").to_string()).font(theme::INTER).size(13))
                 .style(theme::destructive_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(
-                    Message::InstructionPanel(block_id, InstructionPanelMessage::Dismiss).into(),
-                ),
+                .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Dismiss)),
         );
         result_col = result_col.push(result_buttons);
 

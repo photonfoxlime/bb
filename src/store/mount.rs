@@ -155,17 +155,13 @@ impl MountTable {
 /// that only stored `path`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
+#[derive(Default)]
 pub enum MountFormat {
     /// Canonical store JSON encoding used for full-fidelity mount round-trips.
+    #[default]
     Json,
     /// Markdown Mount v1 encoding produced by [`BlockStore::render_markdown_mount_store`].
     Markdown,
-}
-
-impl Default for MountFormat {
-    fn default() -> Self {
-        Self::Json
-    }
 }
 
 // ---------------------------------------------------------------------------

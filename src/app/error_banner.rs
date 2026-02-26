@@ -27,7 +27,7 @@ pub(super) struct ErrorBanner {
 
 impl ErrorBanner {
     pub fn from_state(state: &AppState) -> Option<Self> {
-        let (latest_index, latest) = state.errors.iter().enumerate().last()?;
+        let (latest_index, latest) = state.errors.iter().enumerate().next_back()?;
         let prefix_key = if state.persistence_blocked && matches!(latest, AppError::Persistence(_))
         {
             "error_recovery_mode"

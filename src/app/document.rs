@@ -670,9 +670,7 @@ impl<'a> TreeView<'a> {
                     theme::panel_toggle_button(theme, status, instruction_panel_open)
                 })
                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(
-                    Message::InstructionPanel(*block_id, InstructionPanelMessage::Toggle).into(),
-                ),
+                .on_press(Message::InstructionPanel(*block_id, InstructionPanelMessage::Toggle)),
         );
 
         let mut col =
@@ -680,10 +678,10 @@ impl<'a> TreeView<'a> {
 
         match self.state.store.panel_state(block_id) {
             | Some(PanelBarState::Friends) => {
-                col = col.push(container(friends_panel::view(&self.state)).width(Length::Fill));
+                col = col.push(container(friends_panel::view(self.state)).width(Length::Fill));
             }
             | Some(PanelBarState::Instruction) => {
-                col = col.push(container(instruction_panel::view(&self.state)).width(Length::Fill));
+                col = col.push(container(instruction_panel::view(self.state)).width(Length::Fill));
             }
             | None => {}
         }
