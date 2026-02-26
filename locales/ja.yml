@@ -1,5 +1,6 @@
 _version: 1
 ui_dismiss: "閉じる"
+ui_discard: "破棄"
 doc_placeholder_point: "要点"
 doc_rewrite: "書き換え"
 doc_apply_rewrite: "書き換えを適用"

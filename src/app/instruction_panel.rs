@@ -441,7 +441,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 ),
         );
         result_buttons = result_buttons.push(
-            button(text(t!("ui_dismiss").to_string()).font(theme::INTER).size(13))
+            button(text(t!("ui_discard").to_string()).font(theme::INTER).size(13))
                 .style(theme::destructive_button)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .on_press(

@@ -1,6 +1,7 @@
 _version: 1
 # Document & overlay
 ui_dismiss: "Dismiss"
+ui_discard: "Discard"
 doc_placeholder_point: "point"
 doc_rewrite: "Rewrite"
 doc_apply_rewrite: "Apply rewrite"

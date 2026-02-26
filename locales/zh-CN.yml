@@ -1,5 +1,6 @@
 _version: 1
-ui_dismiss: "关闭"
+ui_dismiss: "懂了"
+ui_discard: "弃置"
 doc_placeholder_point: "要点"
 doc_rewrite: "重写"
 doc_apply_rewrite: "应用重写"
