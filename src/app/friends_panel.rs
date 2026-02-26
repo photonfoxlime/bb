@@ -29,7 +29,8 @@ use crate::theme;
 use iced::Element;
 use iced::Length;
 use iced::Task;
-use iced::widget::{button, column, container, row, text, text_input};
+use iced::widget::{button, column, container, row, text, text_input, Id};
+use iced::widget::operation::focus;
 use lucide_icons::iced as icons;
 
 /// Message types for friends panel interactions.
@@ -94,7 +95,9 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
                 .unwrap_or_default();
             state.editing_friend_perspective = Some((target, friend_id));
             state.editing_friend_perspective_input = Some(current_perspective);
-            Task::none()
+            // Focus the text input
+            let input_id = Id::new("friend-perspective-input");
+            focus(input_id)
         }
         | FriendPanelMessage::CancelEditingFriendPerspective => {
             // Clear editing state regardless of what's being edited
@@ -230,7 +233,10 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         let content: Element<'a, Message> = if is_editing_this {
             // Inline editing for perspective with accept/cancel buttons
             let current_input = state.editing_friend_perspective_input.as_deref().unwrap_or("");
+            // Create a unique ID for this text input
+            let input_id = Id::new("friend-perspective-input");
             let input_field = text_input(&placeholder, current_input)
+                .id(input_id)
                 .font(theme::INTER)
                 .size(theme::FRIEND_PERSPECTIVE_SIZE)
                 .padding(0)
