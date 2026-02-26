@@ -11,6 +11,23 @@
 //! - A "Friends" panel is rendered below the block row (same pattern as
 //!   expansion/reduction draft panels), listing each friend's point text and
 //!   optional perspective, with a remove button per friend.
+//!
+//! ## Inline Perspective Editor
+//!
+//! Each friend in the panel has an editable "perspective" field. This is a
+//! user-authored framing string that describes how the source block should
+//! interpret that friend block. For example, a friend might be viewed from
+//! "historical lens", "skeptical counterpoint", or "supporting evidence" perspective.
+//!
+//! The perspective is rendered as a secondary line below the friend's point text.
+//! When empty, a localized placeholder invites the user to "add perspective...".
+//! Clicking the perspective area toggles an inline text input field. On blur
+//! (or Enter key), the new perspective is saved via `StructureMessage::SetFriendPerspective`.
+//!
+//! Design rationale:
+//! - Inline editing avoids navigating to a separate modal/dialog, keeping context visible.
+//! - Immediate save on blur provides instant feedback without requiring explicit save actions.
+//! - Empty state with placeholder makes the affordance discoverable without cluttering the UI.
 
 use super::{
     AppState, EditMessage, ErrorBanner, ErrorMessage, ExpandMessage, Message, MountFileMessage,
@@ -32,7 +49,7 @@ use rust_i18n::t;
 use iced::{
     Element, Fill, Length, Padding,
     widget::{
-        button, column, container, row, rule, scrollable, space, stack, text, text_editor, tooltip,
+        button, column, container, row, rule, scrollable, space, stack, text, text_editor, text_input, tooltip,
     },
 };
 use lucide_icons::iced as icons;
@@ -563,46 +580,69 @@ impl<'a> TreeView<'a> {
             let perspective_label = friend.perspective.as_deref().unwrap_or("").trim();
             let friend_id = friend.block_id;
             let target = *block_id;
-            let line = if perspective_label.is_empty() {
-                row![]
-                    .spacing(theme::PANEL_BUTTON_GAP)
-                    .push(
-                        container(text(point_text).font(theme::INTER).size(13)).width(Length::Fill),
-                    )
-                    .push(
-                        button(text(t!("ui_remove").to_string()).font(theme::INTER).size(13))
-                            .style(theme::destructive_button)
-                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                            .on_press(Message::Structure(StructureMessage::RemoveFriendBlock {
-                                target,
-                                friend_id,
-                            })),
-                    )
+            
+            // Check if this friend perspective is being edited
+            let is_editing_this = self.state.editing_friend_perspective == Some((target, friend_id));
+            let input_value = self.state.editing_friend_perspective_input.as_deref().unwrap_or("");
+            let placeholder = t!("doc_friend_perspective_placeholder").to_string();
+            
+            // Perspective column: either editable input or clickable display
+            let perspective_column: Element<'a, Message> = if is_editing_this {
+                text_input(
+                    &placeholder,
+                    input_value,
+                )
+                .font(theme::INTER)
+                .size(12)
+                .on_input(|s| Message::Overlay(OverlayMessage::UpdateFriendPerspectiveInput(s)))
+                .on_submit(Message::Structure(StructureMessage::SetFriendPerspective {
+                    target,
+                    friend_id,
+                    perspective: Some(input_value.to_string()),
+                }))
+                .into()
+            } else if perspective_label.is_empty() {
+                // Empty state - clickable placeholder to add perspective
+                button(
+                    text(t!("doc_friend_perspective_placeholder").to_string())
+                        .font(theme::INTER)
+                        .size(12)
+                        .style(theme::spine_text),
+                )
+                .style(theme::action_button)
+                .on_press(Message::Overlay(OverlayMessage::StartEditingFriendPerspective { target, friend_id }))
+                .into()
             } else {
-                row![]
-                    .spacing(theme::PANEL_BUTTON_GAP)
-                    .push(
-                        column![]
-                            .spacing(0)
-                            .push(text(point_text).font(theme::INTER).size(13))
-                            .push(
-                                text(t!("doc_perspective", label = perspective_label).to_string())
-                                    .font(theme::INTER)
-                                    .size(12)
-                                    .style(theme::spine_text),
-                            )
-                            .width(Length::Fill),
-                    )
-                    .push(
-                        button(text(t!("ui_remove").to_string()).font(theme::INTER).size(13))
-                            .style(theme::destructive_button)
-                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                            .on_press(Message::Structure(StructureMessage::RemoveFriendBlock {
-                                target,
-                                friend_id,
-                            })),
-                    )
+                // Has perspective - clickable to edit
+                button(
+                    text(t!("doc_perspective", label = perspective_label).to_string())
+                        .font(theme::INTER)
+                        .size(12)
+                        .style(theme::spine_text),
+                )
+                .style(theme::action_button)
+                .on_press(Message::Overlay(OverlayMessage::StartEditingFriendPerspective { target, friend_id }))
+                .into()
             };
+            
+            let line = row![]
+                .spacing(theme::PANEL_BUTTON_GAP)
+                .push(
+                    column![]
+                        .spacing(0)
+                        .push(text(point_text).font(theme::INTER).size(13))
+                        .push(perspective_column)
+                        .width(Length::Fill),
+                )
+                .push(
+                    button(text(t!("ui_remove").to_string()).font(theme::INTER).size(13))
+                        .style(theme::destructive_button)
+                        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                        .on_press(Message::Structure(StructureMessage::RemoveFriendBlock {
+                            target,
+                            friend_id,
+                        })),
+                );
             panel = panel.push(line);
         }
         container(panel)

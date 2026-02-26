@@ -279,6 +279,8 @@ mod tests {
             overflow_open_for: None,
             instruction_panel: InstructionPanel::new(),
             friend_picker_for: None,
+            editing_friend_perspective: None,
+            editing_friend_perspective_input: None,
             focused_block_id: None,
             panel_bar_state: None,
             editing_block_id: None,

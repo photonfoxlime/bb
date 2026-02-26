@@ -27,6 +27,12 @@ pub enum StructureMessage {
         target: BlockId,
         friend_id: BlockId,
     },
+    /// Set the perspective for a friend block.
+    SetFriendPerspective {
+        target: BlockId,
+        friend_id: BlockId,
+        perspective: Option<String>,
+    },
 }
 
 /// Process one structure message and return a follow-up task (if any).
@@ -144,6 +150,21 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
                 }
                 tracing::info!(target = ?target, friend_id = ?friend_id, "removed friend block");
                 true
+            });
+            Task::none()
+        }
+        | StructureMessage::SetFriendPerspective { target, friend_id, perspective } => {
+            state.mutate_with_undo_and_persist("after setting friend perspective", |state| {
+                let mut friends = state.store.friend_blocks_for(&target).to_vec();
+                let friend = friends.iter_mut().find(|f| f.block_id == friend_id);
+                if let Some(friend) = friend {
+                    friend.perspective = perspective;
+                    state.store.set_friend_blocks_for(&target, friends);
+                    tracing::info!(target = ?target, friend_id = ?friend_id, "set friend perspective");
+                    true
+                } else {
+                    false
+                }
             });
             Task::none()
         }

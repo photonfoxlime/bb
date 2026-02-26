@@ -94,6 +94,10 @@ pub struct AppState {
     overflow_open_for: Option<BlockId>,
     /// Block for which we're currently picking a friend. When Some, we're in friend picker mode.
     friend_picker_for: Option<BlockId>,
+    /// (target_block_id, friend_block_id) of friend perspective currently being edited inline.
+    editing_friend_perspective: Option<(BlockId, BlockId)>,
+    /// Current text input value when editing friend perspective.
+    editing_friend_perspective_input: Option<String>,
     /// Block whose point editor currently has keyboard focus.
     focused_block_id: Option<BlockId>,
     /// Which panel is open in the panel bar (Friends or Instruction).
@@ -157,6 +161,8 @@ impl AppState {
             overflow_open_for: None,
             instruction_panel: InstructionPanel::new(),
             friend_picker_for: None,
+            editing_friend_perspective: None,
+            editing_friend_perspective_input: None,
             focused_block_id: None,
             panel_bar_state: None,
             editing_block_id: None,
@@ -343,6 +349,9 @@ impl AppState {
             }
         }
 
+        // When editing friend perspective, Escape (arriving as CancelEditingFriendPerspective)
+        // should just clear the editing state (handled in overlay handler).
+        
         match message {
             | Message::UndoRedo(message) => undo_redo::handle(self, message),
             | Message::Shortcut(message) => shortcut::handle(self, message),
@@ -388,7 +397,10 @@ impl AppState {
                 | Event::Keyboard(keyboard::Event::KeyPressed {
                     key: keyboard::Key::Named(keyboard::key::Named::Escape),
                     ..
-                }) => Some(Message::Overlay(OverlayMessage::CancelFriendPicker)),
+                }) => {
+                    // Cancel friend perspective editing, then friend picker (both can be no-ops)
+                    Some(Message::Overlay(OverlayMessage::CancelEditingFriendPerspective))
+                }
                 | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                     if modifiers.command() {
                         match &key {
@@ -653,6 +665,8 @@ mod tests {
             overflow_open_for: None,
             instruction_panel: InstructionPanel::new(),
             friend_picker_for: None,
+            editing_friend_perspective: None,
+            editing_friend_perspective_input: None,
             focused_block_id: None,
             panel_bar_state: None,
             editing_block_id: None,
