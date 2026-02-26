@@ -8,6 +8,7 @@ mod diff;
 mod document;
 mod editor_buffers;
 mod error;
+mod friends_panel;
 mod instruction_panel;
 mod llm_requests;
 mod settings;
@@ -28,6 +29,7 @@ use self::{
     error::{AppError, ErrorMessage, UiError},
     error_banner::ErrorBanner,
     expand::ExpandMessage,
+    friends_panel::FriendPanelMessage,
     instruction_panel::InstructionPanelMessage,
     llm_requests::{LlmRequests, RequestSignature},
     mount_file::MountFileMessage,
@@ -337,6 +339,7 @@ pub enum Message {
     Structure(StructureMessage),
     Overlay(OverlayMessage),
     MountFile(MountFileMessage),
+    FriendPanel(FriendPanelMessage),
     InstructionPanel(BlockId, InstructionPanelMessage),
     Settings(SettingsMessage),
 }
@@ -347,13 +350,13 @@ impl AppState {
         // When the settings view is active, Escape (arriving as CancelFriendPicker
         // from the global event handler) should close settings instead.
         if self.active_view == ViewMode::Settings {
-            if matches!(&message, Message::Overlay(OverlayMessage::CancelFriendPicker)) {
+            if matches!(&message, Message::FriendPanel(FriendPanelMessage::CancelFriendPicker)) {
                 return settings::handle(self, SettingsMessage::Close);
             }
         }
 
         // When editing friend perspective, Escape (arriving as CancelEditingFriendPerspective)
-        // should just clear the editing state (handled in overlay handler).
+        // should just clear the editing state (handled in friends panel handler).
 
         match message {
             | Message::UndoRedo(message) => undo_redo::handle(self, message),
@@ -365,6 +368,7 @@ impl AppState {
             | Message::Reduce(message) => reduce::handle(self, message),
             | Message::Expand(message) => expand::handle(self, message),
             | Message::Overlay(message) => overlay::handle(self, message),
+            | Message::FriendPanel(message) => friends_panel::handle(self, message),
             | Message::Structure(message) => structure::handle(self, message),
             | Message::MountFile(message) => mount_file::handle(self, message),
             | Message::InstructionPanel(target, message) => {
@@ -389,44 +393,40 @@ impl AppState {
     /// Global event subscription: keyboard shortcuts, mouse clicks, escape,
     /// and system theme changes.
     pub fn subscription(_state: &AppState) -> Subscription<Message> {
-        fn handle_event(
-            event: Event, status: event::Status, _window: iced::window::Id,
-        ) -> Option<Message> {
-            if status == event::Status::Captured {
-                return None;
-            }
-
-            match event {
-                | Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Named(keyboard::key::Named::Escape),
-                    ..
-                }) => {
-                    // Cancel friend perspective editing first, then friend picker
-                    Some(Message::Overlay(OverlayMessage::CancelEditingFriendPerspective))
-                }
-                | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-                    if modifiers.command() {
-                        match &key {
-                            | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
-                                return if modifiers.shift() {
-                                    Some(Message::UndoRedo(UndoRedoMessage::Redo))
-                                } else {
-                                    Some(Message::UndoRedo(UndoRedoMessage::Undo))
-                                };
-                            }
-                            | _ => {}
-                        }
-                    }
-                    action_bar::shortcut_to_action(key, modifiers)
-                        .map(ShortcutMessage::Trigger)
-                        .map(Message::Shortcut)
-                }
-                | _ => None,
-            }
-        }
-
         Subscription::batch([
-            event::listen_with(handle_event),
+            event::listen_with(|event, status, _window| {
+                if status == event::Status::Captured {
+                    return None;
+                }
+
+                match event {
+                    | Event::Keyboard(keyboard::Event::KeyPressed {
+                        key: keyboard::Key::Named(keyboard::key::Named::Escape),
+                        ..
+                    }) => {
+                        // Cancel friend perspective editing - uses state internally
+                        Some(Message::FriendPanel(FriendPanelMessage::CancelEditingFriendPerspective))
+                    }
+                    | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                        if modifiers.command() {
+                            match &key {
+                                | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
+                                    return if modifiers.shift() {
+                                        Some(Message::UndoRedo(UndoRedoMessage::Redo))
+                                    } else {
+                                        Some(Message::UndoRedo(UndoRedoMessage::Undo))
+                                    };
+                                }
+                                | _ => {}
+                            }
+                        }
+                        action_bar::shortcut_to_action(key, modifiers)
+                            .map(ShortcutMessage::Trigger)
+                            .map(Message::Shortcut)
+                    }
+                    | _ => None,
+                }
+            }),
             system::theme_changes()
                 .map(|mode| Message::MountFile(MountFileMessage::SystemThemeChanged(mode))),
         ])

@@ -38,18 +38,18 @@ use super::{
         project_for_viewport, shortcut_to_action, status_error_i18n_key,
     },
     diff::{WordChange, word_diff},
-    instruction_panel,
+    friends_panel::{self, FriendPanelMessage},
+    instruction_panel::{self, InstructionPanelMessage},
     settings::SettingsMessage,
 };
 use crate::{
-    store::{BlockId, ExpansionDraftRecord, FriendBlock, PanelBarState, ReductionDraftRecord},
+    store::{BlockId, ExpansionDraftRecord, PanelBarState, ReductionDraftRecord},
     theme,
 };
 use iced::{
     Element, Fill, Length, Padding,
     widget::{
-        button, column, container, row, rule, scrollable, space, stack, text, text_editor,
-        text_input, tooltip,
+        button, column, container, row, rule, scrollable, space, stack, text, text_editor, tooltip,
     },
 };
 use lucide_icons::iced as icons;
@@ -545,132 +545,6 @@ impl<'a> TreeView<'a> {
             .into()
     }
 
-    /// Renders the friend blocks panel: list of friend point text, optional perspective, remove button.
-    fn render_friends_panel(
-        &self, block_id: &BlockId, friends: &'a [FriendBlock],
-    ) -> Element<'a, Message> {
-        let is_picker_mode = self.state.focused_block_id == Some(*block_id)
-            && matches!(self.state.store.panel_state(block_id), Some(PanelBarState::Friends));
-
-        // Header with "+" button to start friend picker
-        let header = row![]
-            .spacing(theme::PANEL_BUTTON_GAP)
-            .push(
-                container(text(t!("ui_friends").to_string()).font(theme::INTER).size(13))
-                    .width(Length::Fill),
-            )
-            .push(
-                button(text("+").font(theme::INTER).size(13))
-                    .style(theme::action_button)
-                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                    .on_press(Message::Overlay(OverlayMessage::StartFriendPicker(*block_id))),
-            );
-
-        let mut panel =
-            column![].spacing(theme::PANEL_INNER_GAP).push(container(header).width(Length::Fill));
-
-        // Show message based on state
-        if is_picker_mode {
-            // In picker mode - show instruction
-            panel = panel.push(
-                container(
-                    text(t!("doc_friend_picker_hint").to_string()).font(theme::INTER).size(12),
-                )
-                .width(Length::Fill),
-            );
-        } else if friends.is_empty() {
-            // Empty state - show instruction to start picker
-            panel = panel.push(
-                container(
-                    text(t!("doc_friend_empty_hint").to_string())
-                        .font(theme::INTER)
-                        .size(12)
-                        .style(theme::spine_text),
-                )
-                .width(Length::Fill),
-            );
-        }
-
-        for friend in friends {
-            let point_text = self.state.store.point(&friend.block_id).unwrap_or_default();
-            let perspective_label = friend.perspective.as_deref().unwrap_or("").trim();
-            let friend_id = friend.block_id;
-            let target = *block_id;
-
-            // Check if this friend perspective is being edited
-            let is_editing_this =
-                self.state.editing_friend_perspective == Some((target, friend_id));
-            let input_value = self.state.editing_friend_perspective_input.as_deref().unwrap_or("");
-            let placeholder = t!("doc_friend_perspective_placeholder").to_string();
-
-            // Perspective column: either editable input or clickable display
-            let perspective_column: Element<'a, Message> = if is_editing_this {
-                text_input(&placeholder, input_value)
-                    .font(theme::INTER)
-                    .size(12)
-                    .on_input(|s| Message::Overlay(OverlayMessage::UpdateFriendPerspectiveInput(s)))
-                    .on_submit(Message::Structure(StructureMessage::SetFriendPerspective {
-                        target,
-                        friend_id,
-                        perspective: Some(input_value.to_string()),
-                    }))
-                    .into()
-            } else if perspective_label.is_empty() {
-                // Empty state - clickable placeholder to add perspective
-                button(
-                    text(t!("doc_friend_perspective_placeholder").to_string())
-                        .font(theme::INTER)
-                        .size(12)
-                        .style(theme::spine_text),
-                )
-                .style(theme::action_button)
-                .on_press(Message::Overlay(OverlayMessage::StartEditingFriendPerspective {
-                    target,
-                    friend_id,
-                }))
-                .into()
-            } else {
-                // Has perspective - clickable to edit
-                button(
-                    text(t!("doc_perspective", label = perspective_label).to_string())
-                        .font(theme::INTER)
-                        .size(12)
-                        .style(theme::spine_text),
-                )
-                .style(theme::action_button)
-                .on_press(Message::Overlay(OverlayMessage::StartEditingFriendPerspective {
-                    target,
-                    friend_id,
-                }))
-                .into()
-            };
-
-            let line = row![]
-                .spacing(theme::PANEL_BUTTON_GAP)
-                .push(
-                    column![]
-                        .spacing(0)
-                        .push(text(point_text).font(theme::INTER).size(13))
-                        .push(perspective_column)
-                        .width(Length::Fill),
-                )
-                .push(
-                    button(text(t!("ui_remove").to_string()).font(theme::INTER).size(13))
-                        .style(theme::destructive_button)
-                        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                        .on_press(Message::Structure(StructureMessage::RemoveFriendBlock {
-                            target,
-                            friend_id,
-                        })),
-                );
-            panel = panel.push(line);
-        }
-        container(panel)
-            .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
-            .style(theme::draft_panel)
-            .into()
-    }
-
     fn action_row_context(&self, block_id: &BlockId, point_text: String) -> RowContext {
         let expansion_draft = self.state.store.expansion_draft(block_id);
         let reduction_draft = self.state.store.reduction_draft(block_id);
@@ -788,7 +662,7 @@ impl<'a> TreeView<'a> {
                     theme::panel_toggle_button(theme, status, friends_panel_open)
                 })
                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::Overlay(OverlayMessage::ToggleFriendsPanel(*block_id))),
+                .on_press(Message::FriendPanel(FriendPanelMessage::Toggle(*block_id))),
         );
         button_row = button_row.push(
             button(text(t!("ui_instruction").to_string()).font(theme::INTER).size(13))
@@ -797,11 +671,7 @@ impl<'a> TreeView<'a> {
                 })
                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .on_press(
-                    Message::InstructionPanel(
-                        *block_id,
-                        instruction_panel::InstructionPanelMessage::Toggle,
-                    )
-                    .into(),
+                    Message::InstructionPanel(*block_id, InstructionPanelMessage::Toggle).into(),
                 ),
         );
 
@@ -810,10 +680,7 @@ impl<'a> TreeView<'a> {
 
         match self.state.store.panel_state(block_id) {
             | Some(PanelBarState::Friends) => {
-                let friends = self.state.store.friend_blocks_for(block_id);
-                col = col.push(
-                    container(self.render_friends_panel(block_id, friends)).width(Length::Fill),
-                );
+                col = col.push(container(friends_panel::view(&self.state)).width(Length::Fill));
             }
             | Some(PanelBarState::Instruction) => {
                 col = col.push(container(instruction_panel::view(&self.state)).width(Length::Fill));
