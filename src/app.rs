@@ -40,7 +40,7 @@ use self::{
 };
 use crate::{
     i18n, llm,
-    store::{BlockId, BlockStore, StoreLoadError},
+    store::{BlockId, BlockStore, PanelBarState, StoreLoadError},
     undo::UndoHistory,
 };
 use iced::{
@@ -92,17 +92,12 @@ pub struct AppState {
     persistence_write_disabled: bool,
     /// Block currently holding open the overflow menu.
     overflow_open_for: Option<BlockId>,
-    /// Block for which we're currently picking a friend. When Some, we're in friend picker mode.
-    friend_picker_for: Option<BlockId>,
     /// (target_block_id, friend_block_id) of friend perspective currently being edited inline.
     editing_friend_perspective: Option<(BlockId, BlockId)>,
     /// Current text input value when editing friend perspective.
     editing_friend_perspective_input: Option<String>,
     /// Block whose point editor currently has keyboard focus.
     focused_block_id: Option<BlockId>,
-    /// Which panel is open in the panel bar (Friends or Instruction).
-    /// Derived from focused_block_id - no need to store separately.
-    panel_bar_state: Option<PanelBarState>,
     /// Block currently coalescing point edits into a single undo entry.
     editing_block_id: Option<BlockId>,
     /// Instruction panel state.
@@ -160,11 +155,9 @@ impl AppState {
             persistence_write_disabled: false,
             overflow_open_for: None,
             instruction_panel: InstructionPanel::new(),
-            friend_picker_for: None,
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,
             focused_block_id: None,
-            panel_bar_state: None,
             editing_block_id: None,
 
             is_dark,
@@ -305,7 +298,6 @@ impl AppState {
         self.llm_requests.clear();
         self.focused_block_id = None;
         self.editing_block_id = None;
-        self.panel_bar_state = None;
         self.instruction_panel.reset();
 
         self.persist_with_context("after undo/redo");
@@ -456,18 +448,6 @@ struct UndoSnapshot {
     store: BlockStore,
 }
 
-/// Panel bar state - tracks which panel is open in the panel bar.
-///
-/// The panel bar sits below each block's editor and contains toggle buttons
-/// for inline panels. Only one panel can be open at a time per block.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PanelBarState {
-    /// Friends panel - shows user-selected friend blocks for LLM context.
-    Friends,
-    /// Instruction panel - text editor for LLM instructions.
-    Instruction,
-}
-
 mod undo_redo {
     use super::*;
 
@@ -522,7 +502,6 @@ mod edit {
         state: &mut AppState, block_id: BlockId, action: text_editor::Action,
     ) -> Task<Message> {
         state.focused_block_id = Some(block_id);
-        state.panel_bar_state = None;
         if state.editing_block_id.as_ref() != Some(&block_id) {
             state.snapshot_for_undo();
             state.editing_block_id = Some(block_id);
@@ -562,13 +541,13 @@ mod edit {
             && let Some(wid) = state.editor_buffers.widget_id(&target_id)
         {
             state.focused_block_id = Some(target_id);
-            state.panel_bar_state = None;
+            let wid_clone = wid.clone();
             tracing::debug!(
                 from = ?block_id,
                 to = ?target_id,
                 "keyboard traversal"
             );
-            return widget::operation::focus(wid.clone());
+            return widget::operation::focus(wid_clone);
         }
         Task::none()
     }
@@ -594,7 +573,6 @@ mod shortcut {
             }
             | ShortcutMessage::ForBlock { block_id, action_id } => {
                 state.focused_block_id = Some(block_id);
-                state.panel_bar_state = None;
                 run_shortcut_for_block(state, block_id, action_id)
             }
         }
@@ -663,11 +641,9 @@ impl AppState {
             llm_requests: LlmRequests::new(),
             overflow_open_for: None,
             instruction_panel: InstructionPanel::new(),
-            friend_picker_for: None,
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,
             focused_block_id: None,
-            panel_bar_state: None,
             editing_block_id: None,
             persistence_blocked: false,
             persistence_write_disabled: true,

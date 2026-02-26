@@ -105,6 +105,15 @@ slotmap::new_key_type! {
     pub struct BlockId;
 }
 
+/// Persisted panel bar state: which panel (if any) is open for a block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum PanelBarState {
+    /// Friends panel - shows user-selected friend blocks for LLM context.
+    Friends,
+    /// Instruction panel - text editor for LLM instructions.
+    Instruction,
+}
+
 /// One node in the block tree.
 ///
 /// A node is either an inline list of child ids, or a mount point
@@ -220,6 +229,12 @@ pub struct BlockStore {
     pub(crate) view_collapsed: SparseSecondaryMap<BlockId, bool>,
     #[serde(default)]
     pub(crate) friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>>,
+    /// Persisted per-block panel bar state (which panel is open).
+    ///
+    /// Stores whether the Friends or Instruction panel is open for each block.
+    /// This survives reloads so the UI remembers which panel was last open.
+    #[serde(default)]
+    pub(crate) panel_state: SparseSecondaryMap<BlockId, PanelBarState>,
 }
 
 impl BlockStore {
@@ -241,6 +256,7 @@ impl BlockStore {
             SparseSecondaryMap::new(),
             SparseSecondaryMap::new(),
             SparseSecondaryMap::new(),
+            SparseSecondaryMap::new(),
         )
     }
 
@@ -253,6 +269,7 @@ impl BlockStore {
         inquiry_drafts: SparseSecondaryMap<BlockId, InquiryDraftRecord>,
         view_collapsed: SparseSecondaryMap<BlockId, bool>,
         friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>>,
+        panel_state: SparseSecondaryMap<BlockId, PanelBarState>,
     ) -> Self {
         Self {
             roots,
@@ -265,6 +282,7 @@ impl BlockStore {
             inquiry_drafts,
             view_collapsed,
             friend_blocks,
+            panel_state,
         }
     }
     /// The ordered root block ids.
@@ -367,6 +385,11 @@ impl PartialEq for BlockStore {
                 .friend_blocks
                 .iter()
                 .all(|(id, blocks)| other.friend_blocks.get(id) == Some(blocks))
+            && self.panel_state.len() == other.panel_state.len()
+            && self
+                .panel_state
+                .iter()
+                .all(|(id, state)| other.panel_state.get(id) == Some(state))
     }
 }
 

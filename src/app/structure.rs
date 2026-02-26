@@ -100,7 +100,6 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
                 }
                 if removed_ids.iter().any(|id| Some(*id) == state.focused_block_id) {
                     state.focused_block_id = None;
-                    state.panel_bar_state = None;
                 }
                 for root_id in state.store.roots() {
                     state.editor_buffers.ensure_block(&state.store, root_id);

@@ -118,12 +118,14 @@ pub fn handle(
 
     match msg {
         | InstructionPanelMessage::Toggle => {
-            if matches!(&state.panel_bar_state, Some(PanelBarState::Instruction)) {
-                state.panel_bar_state = None;
+            let current_state = state.store.panel_state(&target_block_id).copied();
+            if matches!(current_state, Some(PanelBarState::Instruction)) {
+                state.store.set_panel_state(&target_block_id, None);
             } else {
-                state.panel_bar_state = Some(PanelBarState::Instruction);
+                state.store.set_panel_state(&target_block_id, Some(PanelBarState::Instruction));
                 sync_instruction_panel_from_store(state, &target_block_id);
             }
+            state.persist_with_context("after toggling instruction panel");
             iced::Task::none()
         }
         | InstructionPanelMessage::TextEdited(action) => {
@@ -211,7 +213,8 @@ pub fn handle(
             state.persist_with_context("after consuming instruction draft for expand");
             state.editor_buffers.set_instruction_text("");
             // Close the instruction panel and trigger expand
-            state.panel_bar_state = None;
+            state.store.set_panel_state(&target_block_id, None);
+            state.persist_with_context("after closing instruction panel");
             crate::app::AppState::update(
                 state,
                 Message::Expand(ExpandMessage::Start(target_block_id)),
@@ -228,7 +231,8 @@ pub fn handle(
             state.persist_with_context("after consuming instruction draft for reduce");
             state.editor_buffers.set_instruction_text("");
             // Close the instruction panel and trigger reduce
-            state.panel_bar_state = None;
+            state.store.set_panel_state(&target_block_id, None);
+            state.persist_with_context("after closing instruction panel");
             crate::app::AppState::update(
                 state,
                 Message::Reduce(ReduceMessage::Start(target_block_id)),
@@ -346,13 +350,13 @@ fn sync_instruction_panel_from_store(state: &mut AppState, target_block_id: &Blo
 
 /// Render the instruction panel for the focused block.
 pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
-    use crate::app::PanelBarState;
+    use crate::store::PanelBarState;
     use iced::Padding;
     use iced::widget::{column, row};
 
-    // Get the focused block from panel_bar_state
-    let _block_id = match (state.focused_block_id, &state.panel_bar_state) {
-        | (Some(id), Some(PanelBarState::Instruction)) => id,
+    // Get the focused block and check if instruction panel is open
+    let _block_id = match state.focused_block_id {
+        | Some(id) if matches!(state.store.panel_state(&id), Some(PanelBarState::Instruction)) => id,
         | _ => return container(iced::widget::Text::new("")).into(),
     };
 
@@ -556,7 +560,7 @@ mod tests {
             Message::InstructionPanel(InstructionPanelMessage::Toggle),
         );
 
-        assert_eq!(state.panel_bar_state, Some(PanelBarState::Instruction));
+        assert_eq!(state.store.panel_state(&root).copied(), Some(PanelBarState::Instruction));
         assert_eq!(state.editor_buffers.instruction_content().text(), "keep this instruction");
     }
 
@@ -581,7 +585,7 @@ mod tests {
     fn instruction_toggle_closes_panel_and_preserves_instruction_draft_state() {
         let (mut state, root) = test_state();
         state.focused_block_id = Some(root);
-        state.panel_bar_state = Some(PanelBarState::Instruction);
+        state.store.set_panel_state(&root, Some(PanelBarState::Instruction));
         state.instruction_panel.inquiry_result = Some("result".to_string());
         state.instruction_panel.inquiry_target_block_id = Some(root);
         state.instruction_panel.is_inquiring = true;
@@ -593,7 +597,7 @@ mod tests {
             Message::InstructionPanel(InstructionPanelMessage::Toggle),
         );
 
-        assert_eq!(state.panel_bar_state, None);
+        assert_eq!(state.store.panel_state(&root).copied(), None);
         assert_eq!(state.instruction_panel.inquiry_result.as_deref(), Some("result"));
         assert_eq!(state.instruction_panel.inquiry_target_block_id, Some(root));
         assert!(state.instruction_panel.is_inquiring);

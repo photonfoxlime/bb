@@ -42,7 +42,7 @@ use super::{
     settings::SettingsMessage,
 };
 use crate::{
-    store::{BlockId, ExpansionDraftRecord, FriendBlock, ReductionDraftRecord},
+    store::{BlockId, ExpansionDraftRecord, FriendBlock, PanelBarState, ReductionDraftRecord},
     theme,
 };
 use rust_i18n::t;
@@ -228,11 +228,10 @@ impl<'a> TreeView<'a> {
 
         let is_focused = self.state.focused_block_id == Some(*block_id);
         let friends_panel_open = is_focused
-            && self
-                .state
-                .panel_bar_state
-                .as_ref()
-                .is_some_and(|state| *state == super::PanelBarState::Friends);
+            && matches!(
+                self.state.store.panel_state(block_id),
+                Some(PanelBarState::Friends)
+            );
 
         // Only render action bar when block is focused
         let action_buttons: Element<'a, Message> = if is_focused {
@@ -324,11 +323,11 @@ impl<'a> TreeView<'a> {
         }
 
         let is_focused = self.state.focused_block_id == Some(*block_id);
-        let is_picker_target = self.state.friend_picker_for == Some(*block_id);
+        let is_picker_target = self.state.focused_block_id == Some(*block_id);
 
         // When in friend picker mode, make blocks clickable to select as friend
-        if self.state.friend_picker_for.is_some() && !is_picker_target {
-            let target = self.state.friend_picker_for.unwrap();
+        if self.state.focused_block_id.is_some() && !is_picker_target {
+            let target = self.state.focused_block_id.unwrap();
             button(container(block).style(theme::friend_picker_hover))
                 .on_press(Message::Structure(StructureMessage::AddFriendBlock {
                     target,
@@ -535,7 +534,11 @@ impl<'a> TreeView<'a> {
     fn render_friends_panel(
         &self, block_id: &BlockId, friends: &'a [FriendBlock],
     ) -> Element<'a, Message> {
-        let is_picker_mode = self.state.friend_picker_for == Some(*block_id);
+        let is_picker_mode = self.state.focused_block_id == Some(*block_id)
+            && matches!(
+                self.state.store.panel_state(block_id),
+                Some(PanelBarState::Friends)
+            );
 
         // Header with "+" button to start friend picker
         let header = row![]
@@ -752,9 +755,9 @@ impl<'a> TreeView<'a> {
             return column![].into();
         }
 
-        use crate::app::PanelBarState;
+        use crate::store::PanelBarState;
         let instruction_panel_open =
-            matches!(self.state.panel_bar_state, Some(PanelBarState::Instruction));
+            matches!(self.state.store.panel_state(block_id), Some(PanelBarState::Instruction));
 
         let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
         button_row = button_row.push(
@@ -780,7 +783,7 @@ impl<'a> TreeView<'a> {
         let mut col =
             column![].push(container(button_row).padding(Padding::ZERO.right(theme::INDENT)));
 
-        match self.state.panel_bar_state {
+        match self.state.store.panel_state(block_id) {
             | Some(PanelBarState::Friends) => {
                 let friends = self.state.store.friend_blocks_for(block_id);
                 col = col.push(

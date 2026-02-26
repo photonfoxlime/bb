@@ -118,6 +118,7 @@ impl BlockStore {
             self.inquiry_drafts.remove(*id);
             self.view_collapsed.remove(*id);
             self.friend_blocks.remove(*id);
+            self.panel_state.remove(*id);
             self.mount_table.remove_origin(*id);
         }
         self.remove_friend_block_references(&removed_ids);

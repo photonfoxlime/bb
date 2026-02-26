@@ -4,7 +4,7 @@
 //! that must survive reloads and mount save/load round-trips.  The maps are
 //! sparse: only blocks with pending drafts carry entries.
 
-use super::{BlockId, BlockStore, FriendBlock};
+use super::{BlockId, BlockStore, FriendBlock, PanelBarState};
 use serde::{Deserialize, Serialize};
 
 /// Persisted expansion draft payload keyed by [`BlockId`].
@@ -141,6 +141,19 @@ impl BlockStore {
             self.friend_blocks.remove(*target);
         } else {
             self.friend_blocks.insert(*target, friend_block_ids);
+        }
+    }
+
+    /// Get the panel state for a block, if any.
+    pub fn panel_state(&self, id: &BlockId) -> Option<&PanelBarState> {
+        self.panel_state.get(*id)
+    }
+
+    /// Set (or clear) panel state for a target.
+    pub fn set_panel_state(&mut self, target: &BlockId, state: Option<PanelBarState>) {
+        match state {
+            | None => { self.panel_state.remove(*target); }
+            | Some(s) => { self.panel_state.insert(*target, s); }
         }
     }
 }

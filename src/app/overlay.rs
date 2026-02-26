@@ -3,7 +3,8 @@
 //! These messages toggle ephemeral overlays that float above the main document
 //! view. None of them mutate the block tree or trigger persistence.
 
-use super::{AppState, Message, PanelBarState};
+use super::{AppState, Message};
+use crate::store::PanelBarState;
 use crate::store::BlockId;
 use iced::Task;
 
@@ -44,33 +45,38 @@ pub fn handle(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
         }
         | OverlayMessage::CloseOverflow => {
             state.overflow_open_for = None;
-            state.panel_bar_state = None;
+            if let Some(block_id) = state.focused_block_id {
+                state.store.set_panel_state(&block_id, None);
+            }
             state.focused_block_id = None;
+            state.persist_with_context("after closing overflow");
             Task::none()
         }
         | OverlayMessage::ToggleFriendsPanel(block_id) => {
             // Only toggle if this is the focused block
+            let current_state = state.store.panel_state(&block_id).copied();
             if state.focused_block_id == Some(block_id) {
-                match &state.panel_bar_state {
+                match current_state {
                     | Some(PanelBarState::Friends) => {
-                        state.panel_bar_state = None;
+                        state.store.set_panel_state(&block_id, None);
                     }
                     | _ => {
-                        state.panel_bar_state = Some(PanelBarState::Friends);
+                        state.store.set_panel_state(&block_id, Some(PanelBarState::Friends));
                     }
                 }
             } else {
-                state.panel_bar_state = Some(PanelBarState::Friends);
+                state.store.set_panel_state(&block_id, Some(PanelBarState::Friends));
             }
+            state.persist_with_context("after toggling friends panel");
             Task::none()
         }
-        | OverlayMessage::StartFriendPicker(block_id) => {
-            state.friend_picker_for = Some(block_id);
+        | OverlayMessage::StartFriendPicker(_block_id) => {
+            // Friend picker is for the focused block - no need to store separately
             state.overflow_open_for = None;
             Task::none()
         }
         | OverlayMessage::CancelFriendPicker => {
-            state.friend_picker_for = None;
+            // No state to clear - friend picker is derived from focused_block_id
             Task::none()
         }
         | OverlayMessage::StartEditingFriendPerspective { target, friend_id } => {
