@@ -6,7 +6,7 @@
 use std::{path::PathBuf, sync::LazyLock};
 
 static PROJECT_DIRS: LazyLock<Option<directories::ProjectDirs>> =
-    LazyLock::new(|| directories::ProjectDirs::from("app", "miorin", "bb"));
+    LazyLock::new(|| directories::ProjectDirs::from("app", "miorin", "blooming-blockery"));
 
 /// Resolved application paths for data and configuration storage.
 ///

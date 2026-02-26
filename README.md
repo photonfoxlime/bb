@@ -1,4 +1,4 @@
-# bb
+# Blooming Blockery
 
 A tree-structured document editor that catalyzes text-based design and implementation.
 
