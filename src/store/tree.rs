@@ -10,6 +10,14 @@ use super::{BlockId, BlockNode, BlockStore};
 
 impl BlockStore {
     /// Add one child block under the parent and return the new child id.
+    ///
+    /// # Requires
+    /// - `parent_id` must exist in the store.
+    /// - The parent must not be a mount node.
+    ///
+    /// # Ensures
+    /// - The returned `Some(BlockId)` references the newly created child block.
+    /// - The child inherits the mount origin of its parent if applicable.
     pub fn append_child(&mut self, parent_id: &BlockId, point: String) -> Option<BlockId> {
         if !self.nodes.contains_key(*parent_id) {
             return None;
@@ -32,6 +40,13 @@ impl BlockStore {
     ///
     /// Preserves sibling/root ordering by replacing the original slot with the
     /// new parent and attaching the target block as its first child.
+    ///
+    /// # Requires
+    /// - `block_id` must exist in the store.
+    ///
+    /// # Ensures
+    /// - Returns `Some(BlockId)` of the new parent.
+    /// - The new parent inherits the mount origin of `block_id` if applicable.
     pub fn insert_parent(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
 
@@ -55,7 +70,14 @@ impl BlockStore {
     }
 
     /// Insert a sibling block immediately after `block_id` in its parent's
-    /// child list (or in roots if `block_id` is a root). Returns the new id.
+    /// child list (or in roots if `block_id` is a root).
+    ///
+    /// # Requires
+    /// - `block_id` must exist in the store.
+    ///
+    /// # Ensures
+    /// - Returns `Some(BlockId)` of the newly created sibling.
+    /// - The sibling inherits the mount origin of `block_id` if applicable.
     pub fn append_sibling(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
         let sibling_id = self.nodes.insert(BlockNode::with_children(vec![]));
@@ -76,7 +98,14 @@ impl BlockStore {
     }
 
     /// Deep-clone a block and its entire subtree with fresh ids, inserting the
-    /// copy immediately after the original. Returns the cloned root id.
+    /// copy immediately after the original.
+    ///
+    /// # Requires
+    /// - `block_id` must exist in the store.
+    ///
+    /// # Ensures
+    /// - Returns `Some(BlockId)` of the cloned root.
+    /// - The duplicate inherits the mount origin of the original if applicable.
     pub fn duplicate_subtree_after(&mut self, block_id: &BlockId) -> Option<BlockId> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
         let duplicate_id = self.clone_subtree_with_new_ids(block_id)?;
@@ -92,9 +121,15 @@ impl BlockStore {
         Some(duplicate_id)
     }
 
-    /// Remove a block and its entire subtree. Returns the removed ids.
+    /// Remove a block and its entire subtree.
     ///
-    /// If removal empties the root list, a fresh empty root is inserted.
+    /// # Requires
+    /// - `block_id` must exist in the store.
+    ///
+    /// # Ensures
+    /// - Returns `Some(Vec<BlockId>)` of all removed ids (including the target and all descendants).
+    /// - If removal empties the root list, a fresh empty root is inserted.
+    /// - All draft records, friend blocks, and panel state for the removed subtree are cleaned up.
     pub fn remove_block_subtree(&mut self, block_id: &BlockId) -> Option<Vec<BlockId>> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
         if let Some(parent_id) = parent_id {

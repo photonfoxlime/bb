@@ -9,6 +9,12 @@ use crate::llm;
 
 impl BlockStore {
     /// Return lineage points from one root to the target id (DFS).
+    ///
+    /// # Requires
+    /// - `target` must exist in the store.
+    ///
+    /// # Ensures
+    /// - Returns a `Lineage` containing all ancestor point texts from root to target.
     pub fn lineage_points_for_id(&self, target: &BlockId) -> llm::Lineage {
         for root in &self.roots {
             let mut collected = Vec::new();

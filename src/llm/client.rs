@@ -11,13 +11,23 @@ use crate::llm::prompt::Prompt;
 
 /// HTTP client for the OpenAI-compatible chat completions endpoint.
 ///
-/// Stateless aside from config; safe to construct per-request.
+/// # Invariants
+/// - The client is stateless aside from the config.
+/// - Safe to construct per-request or share across requests.
+///
+/// # Example
+/// ```ignore
+/// let config = LlmConfig::from_raw(base_url, api_key, model)?;
+/// let client = LlmClient::new(config);
+/// let result = client.expand_block(&context, None).await?;
+/// ```
 pub struct LlmClient {
     config: LlmConfig,
     http: reqwest::Client,
 }
 
 impl LlmClient {
+    /// Create a new LLM client with the given configuration.
     pub fn new(config: LlmConfig) -> Self {
         Self { config, http: reqwest::Client::new() }
     }
@@ -25,9 +35,14 @@ impl LlmClient {
     /// Reduce a block's point using ancestor lineage and existing children as context.
     ///
     /// When existing children are present, the LLM may identify some as
-    /// redundant (their content is subsumed by the reduction). Defensive
-    /// parsing: if the response is not valid JSON, it is treated as a
-    /// plain-text reduction with no redundant children.
+    /// redundant (their content is subsumed by the reduction).
+    ///
+    /// # Requires
+    /// - `context` must not be empty (must have a lineage).
+    ///
+    /// # Ensures
+    /// - Returns `Ok(ReduceResult)` with the condensed text and indices of redundant children.
+    /// - If response parsing fails, falls back to plain-text reduction with no redundant children.
     pub async fn reduce_block(
         &self, context: &BlockContext, instruction: Option<&str>,
     ) -> Result<ReduceResult, LlmError> {
@@ -78,6 +93,13 @@ impl LlmClient {
     ///
     /// When existing children are present, the prompt instructs the LLM to
     /// avoid suggesting children that overlap with them.
+    ///
+    /// # Requires
+    /// - `context` must not be empty (must have a lineage).
+    ///
+    /// # Ensures
+    /// - Returns `Ok(ExpandResult)` with optional rewrite and child suggestions.
+    /// - Returns `Err(LlmError::InvalidExpandResponse)` if the response cannot be parsed.
     pub async fn expand_block(
         &self, context: &BlockContext, instruction: Option<&str>,
     ) -> Result<ExpandResult, LlmError> {
@@ -116,6 +138,13 @@ impl LlmClient {
     ///
     /// The instruction is sent as a user message with the block context.
     /// Returns a one-time response that can be applied as a rewrite.
+    ///
+    /// # Requires
+    /// - `context` must not be empty (must have a lineage).
+    /// - `instruction` must not be empty.
+    ///
+    /// # Ensures
+    /// - Returns `Ok(String)` with the LLM's response.
     pub async fn inquire(
         &self, context: &BlockContext, instruction: &str,
     ) -> Result<String, LlmError> {

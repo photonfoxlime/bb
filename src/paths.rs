@@ -10,9 +10,10 @@ static PROJECT_DIRS: LazyLock<Option<directories::ProjectDirs>> =
 
 /// Resolved application paths for data and configuration storage.
 ///
-/// Invariant: all paths are derived from a single `ProjectDirs` instance.
-/// If `ProjectDirs` cannot be resolved (e.g. no home directory), all
-/// path methods return `None`.
+/// # Invariants
+/// - All paths are derived from a single `ProjectDirs` instance.
+/// - If `ProjectDirs` cannot be resolved (e.g. no home directory), all
+///   path methods return `None`.
 pub struct AppPaths;
 
 impl AppPaths {

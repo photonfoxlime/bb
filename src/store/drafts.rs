@@ -53,30 +53,48 @@ pub struct InquiryDraftRecord {
 }
 
 impl BlockStore {
+    /// Get the expansion draft for a block, if any.
+    ///
+    /// # Returns
+    /// - `Some(&ExpansionDraftRecord)` if the block has a pending expansion draft.
+    /// - `None` if no expansion draft exists for this block.
     pub fn expansion_draft(&self, id: &BlockId) -> Option<&ExpansionDraftRecord> {
         self.expansion_drafts.get(*id)
     }
 
+    /// Get a mutable reference to the expansion draft for a block, if any.
     pub fn expansion_draft_mut(&mut self, id: &BlockId) -> Option<&mut ExpansionDraftRecord> {
         self.expansion_drafts.get_mut(*id)
     }
 
+    /// Insert or replace the expansion draft for a block.
+    ///
+    /// # Ensures
+    /// - The draft is stored in the sparse map keyed by the block id.
     pub fn insert_expansion_draft(&mut self, id: BlockId, draft: ExpansionDraftRecord) {
         self.expansion_drafts.insert(id, draft);
     }
 
+    /// Remove the expansion draft for a block, returning the removed draft if any.
     pub fn remove_expansion_draft(&mut self, id: &BlockId) -> Option<ExpansionDraftRecord> {
         self.expansion_drafts.remove(*id)
     }
 
+    /// Get the reduction draft for a block, if any.
+    ///
+    /// # Returns
+    /// - `Some(&ReductionDraftRecord)` if the block has a pending reduction draft.
+    /// - `None` if no reduction draft exists for this block.
     pub fn reduction_draft(&self, id: &BlockId) -> Option<&ReductionDraftRecord> {
         self.reduction_drafts.get(*id)
     }
 
+    /// Insert or replace the reduction draft for a block.
     pub fn insert_reduction_draft(&mut self, id: BlockId, draft: ReductionDraftRecord) {
         self.reduction_drafts.insert(id, draft);
     }
 
+    /// Remove the reduction draft for a block, returning the removed draft if any.
     pub fn remove_reduction_draft(&mut self, id: &BlockId) -> Option<ReductionDraftRecord> {
         self.reduction_drafts.remove(*id)
     }
@@ -85,6 +103,11 @@ impl BlockStore {
         self.instruction_drafts.get(*id)
     }
 
+    /// Set the instruction draft for a block.
+    ///
+    /// # Ensures
+    /// - If `instruction` is empty, removes any existing draft.
+    /// - Otherwise, stores the instruction text.
     pub fn set_instruction_draft(&mut self, id: BlockId, instruction: String) {
         if instruction.is_empty() {
             self.instruction_drafts.remove(id);
@@ -97,10 +120,20 @@ impl BlockStore {
         self.instruction_drafts.remove(*id)
     }
 
+    /// Get the inquiry draft for a block, if any.
+    ///
+    /// # Returns
+    /// - `Some(&InquiryDraftRecord)` if the block has a pending inquiry draft.
+    /// - `None` if no inquiry draft exists for this block.
     pub fn inquiry_draft(&self, id: &BlockId) -> Option<&InquiryDraftRecord> {
         self.inquiry_drafts.get(*id)
     }
 
+    /// Set the inquiry draft for a block.
+    ///
+    /// # Ensures
+    /// - If `response` is empty (after trimming), removes any existing draft.
+    /// - Otherwise, stores the trimmed response text.
     pub fn set_inquiry_draft(&mut self, id: BlockId, response: String) {
         let trimmed = response.trim();
         if trimmed.is_empty() {
@@ -110,6 +143,7 @@ impl BlockStore {
         }
     }
 
+    /// Remove the inquiry draft for a block, returning the removed draft if any.
     pub fn remove_inquiry_draft(&mut self, id: &BlockId) -> Option<InquiryDraftRecord> {
         self.inquiry_drafts.remove(*id)
     }

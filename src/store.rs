@@ -247,8 +247,12 @@ pub struct BlockStore {
 impl BlockStore {
     /// Construct a store from pre-built roots, nodes, and points.
     ///
-    /// Caller must ensure every id in `roots` and in each node's `children`
-    /// exists as a key in both `nodes` and `points`.
+    /// # Requires
+    /// - Every id in `roots` must exist as a key in both `nodes` and `points`.
+    /// - Every id in each node's `children` must exist as a key in both `nodes` and `points`.
+    ///
+    /// # Ensures
+    /// - The store has at least one root.
     pub fn new(
         roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
         points: SecondaryMap<BlockId, String>,
@@ -293,16 +297,27 @@ impl BlockStore {
         }
     }
     /// The ordered root block ids.
+    ///
+    /// # Ensures
+    /// - The returned slice is non-empty.
     pub fn roots(&self) -> &[BlockId] {
         &self.roots
     }
 
     /// Look up a node by id.
+    ///
+    /// # Returns
+    /// - `Some(&BlockNode)` if the id exists in the store.
+    /// - `None` if the id is unknown.
     pub fn node(&self, id: &BlockId) -> Option<&BlockNode> {
         self.nodes.get(*id)
     }
 
     /// Return the children of a block, or an empty slice if unknown or a mount.
+    ///
+    /// # Returns
+    /// - The children block ids if the block exists and is an inline children node.
+    /// - An empty slice if the block is unknown or a mount node.
     pub fn children(&self, id: &BlockId) -> &[BlockId] {
         self.nodes.get(*id).map(|n| n.children()).unwrap_or(&[])
     }
@@ -312,7 +327,11 @@ impl BlockStore {
         self.points.get(*id).cloned()
     }
 
-    /// Overwrite the text point of an existing block. No-op if `id` is unknown.
+    /// Overwrite the text point of an existing block.
+    ///
+    /// # Ensures
+    /// - If the id exists, its point is updated to the new value.
+    /// - If the id is unknown, this is a no-op.
     pub fn update_point(&mut self, id: &BlockId, value: String) {
         if self.nodes.contains_key(*id) {
             self.points.insert(*id, value);

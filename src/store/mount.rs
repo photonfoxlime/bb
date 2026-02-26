@@ -101,10 +101,12 @@ pub struct MountTable {
 }
 
 impl MountTable {
+    /// Create a new empty mount table.
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// Set the block origin (used when blocks are loaded from mounted files).
     pub fn set_origin(&mut self, block_id: BlockId, origin: BlockOrigin) {
         self.origins.insert(block_id, origin);
     }

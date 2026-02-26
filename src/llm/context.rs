@@ -29,12 +29,17 @@ pub struct FriendContext {
 }
 
 impl BlockContext {
+    /// Create a new block context with the given lineage, existing children, and friend blocks.
+    ///
+    /// # Requires
+    /// - `lineage` should represent the path from root to the target block.
     pub fn new(
         lineage: Lineage, existing_children: Vec<String>, friend_blocks: Vec<FriendContext>,
     ) -> Self {
         Self { lineage, existing_children, friend_blocks }
     }
 
+    /// Get a reference to the lineage (ancestor chain).
     pub fn lineage(&self) -> &Lineage {
         &self.lineage
     }
@@ -53,6 +58,11 @@ impl BlockContext {
 }
 
 impl FriendContext {
+    /// Create a new friend context with the given point text and optional perspective.
+    ///
+    /// # Arguments
+    /// * `point` - The friend block text.
+    /// * `perspective` - Optional framing text describing how the target views this friend.
     pub fn new(point: String, perspective: Option<String>) -> Self {
         Self { point, perspective }
     }
@@ -76,10 +86,14 @@ pub struct Lineage {
 }
 
 impl Lineage {
+    /// Create a new lineage from a list of lineage items.
     pub fn new(items: Vec<LineageItem>) -> Self {
         Self { items }
     }
 
+    /// Create a lineage from a list of point texts.
+    ///
+    /// Each point is wrapped in a `LineageItem`.
     pub fn from_points(points: Vec<String>) -> Self {
         Self::new(points.into_iter().map(LineageItem::new).collect())
     }
@@ -92,6 +106,7 @@ impl Lineage {
         self.items.iter()
     }
 
+    /// Get an iterator over the lineage items.
     pub fn points(&self) -> impl Iterator<Item = &str> {
         self.items.iter().map(LineageItem::point)
     }
@@ -104,6 +119,7 @@ pub struct LineageItem {
 }
 
 impl LineageItem {
+    /// Create a new lineage item wrapping the given point text.
     pub fn new(point: String) -> Self {
         Self { point }
     }

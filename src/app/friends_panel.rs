@@ -25,12 +25,8 @@
 use crate::app::{AppState, DocumentMode, Message, StructureMessage};
 use crate::store::{BlockId, PanelBarState};
 use crate::theme;
-
-use iced::Element;
-use iced::Length;
-use iced::Task;
-use iced::widget::operation::focus;
-use iced::widget::{Id, button, column, container, row, text, text_input};
+use iced::widget::{Id, button, column, container, operation::focus, row, text, text_input};
+use iced::{Element, Length, Task};
 use lucide_icons::iced as icons;
 
 /// Message types for friends panel interactions.
