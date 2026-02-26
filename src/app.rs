@@ -51,6 +51,16 @@ use std::time::Duration;
 
 pub use config::AppConfig;
 
+/// Document interaction mode: normal editing vs picking a friend block.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DocumentMode {
+    /// Normal block editing mode.
+    #[default]
+    Normal,
+    /// Picking a friend block to add to the focused block.
+    PickFriend,
+}
+
 /// Default capacity: 64 undo steps.
 const UNDO_CAPACITY: usize = 64;
 const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -102,6 +112,8 @@ pub struct AppState {
     focused_block_id: Option<BlockId>,
     /// Block currently coalescing point edits into a single undo entry.
     editing_block_id: Option<BlockId>,
+    /// Current document interaction mode (normal vs picking a friend).
+    document_mode: DocumentMode,
     /// Whether the current theme is dark. Detected from the system at startup
     /// and updated live via `iced::system::theme_changes()`.
     pub is_dark: bool,
@@ -158,6 +170,7 @@ impl AppState {
             editing_friend_perspective_input: None,
             focused_block_id: None,
             editing_block_id: None,
+            document_mode: DocumentMode::default(),
 
             is_dark,
             active_view: ViewMode::default(),
@@ -388,7 +401,7 @@ impl AppState {
                     key: keyboard::Key::Named(keyboard::key::Named::Escape),
                     ..
                 }) => {
-                    // Cancel friend perspective editing, then friend picker (both can be no-ops)
+                    // Cancel friend perspective editing first, then friend picker
                     Some(Message::Overlay(OverlayMessage::CancelEditingFriendPerspective))
                 }
                 | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
@@ -499,6 +512,10 @@ mod edit {
     pub fn handle_point_edited(
         state: &mut AppState, block_id: BlockId, action: text_editor::Action,
     ) -> Task<Message> {
+        // Don't change focus in PickFriend mode
+        if state.document_mode == DocumentMode::PickFriend {
+            return Task::none();
+        }
         state.focused_block_id = Some(block_id);
         if state.editing_block_id.as_ref() != Some(&block_id) {
             state.snapshot_for_undo();
@@ -538,14 +555,17 @@ mod edit {
         if let Some(target_id) = navigate_to
             && let Some(wid) = state.editor_buffers.widget_id(&target_id)
         {
-            state.focused_block_id = Some(target_id);
-            let wid_clone = wid.clone();
-            tracing::debug!(
-                from = ?block_id,
-                to = ?target_id,
-                "keyboard traversal"
-            );
-            return widget::operation::focus(wid_clone);
+            // Only change focus in Normal mode
+            if state.document_mode == DocumentMode::Normal {
+                state.focused_block_id = Some(target_id);
+                let wid_clone = wid.clone();
+                tracing::debug!(
+                    from = ?block_id,
+                    to = ?target_id,
+                    "keyboard traversal"
+                );
+                return widget::operation::focus(wid_clone);
+            }
         }
         Task::none()
     }
@@ -570,7 +590,10 @@ mod shortcut {
                 run_shortcut_for_block(state, block_id, action_id)
             }
             | ShortcutMessage::ForBlock { block_id, action_id } => {
-                state.focused_block_id = Some(block_id);
+                // Don't change focus in PickFriend mode
+                if state.document_mode != DocumentMode::PickFriend {
+                    state.focused_block_id = Some(block_id);
+                }
                 run_shortcut_for_block(state, block_id, action_id)
             }
         }
@@ -642,6 +665,7 @@ impl AppState {
             editing_friend_perspective_input: None,
             focused_block_id: None,
             editing_block_id: None,
+            document_mode: DocumentMode::default(),
             persistence_blocked: false,
             persistence_write_disabled: true,
             is_dark: false,

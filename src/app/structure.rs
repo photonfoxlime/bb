@@ -4,7 +4,7 @@
 //! siblings, duplicating subtrees, archiving, folding, and managing friend
 //! blocks used as additional LLM context.
 
-use super::{AppState, Message};
+use super::{AppState, DocumentMode, Message};
 use crate::store::{BlockId, FriendBlock};
 use iced::Task;
 
@@ -116,6 +116,8 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
         }
         | StructureMessage::AddFriendBlock { target, friend_id } => {
             state.overflow_open_for = None;
+            // Need to check document_mode before mutation since it happens inside the closure
+            let was_pick_friend = state.document_mode == DocumentMode::PickFriend;
             state.mutate_with_undo_and_persist("after adding friend block", |state| {
                 if friend_id == target {
                     return false;
@@ -132,6 +134,10 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
                 tracing::info!(target = ?target, friend_id = ?friend_id, "added friend block");
                 true
             });
+            // Exit PickFriend mode after adding a friend
+            if was_pick_friend {
+                state.document_mode = DocumentMode::Normal;
+            }
             Task::none()
         }
         | StructureMessage::RemoveFriendBlock { target, friend_id } => {

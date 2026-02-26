@@ -30,8 +30,8 @@
 //! - Empty state with placeholder makes the affordance discoverable without cluttering the UI.
 
 use super::{
-    AppState, EditMessage, ErrorBanner, ErrorMessage, ExpandMessage, Message, MountFileMessage,
-    OverlayMessage, ReduceMessage, ShortcutMessage, StructureMessage,
+    AppState, DocumentMode, EditMessage, ErrorBanner, ErrorMessage, ExpandMessage, Message,
+    MountFileMessage, OverlayMessage, ReduceMessage, ShortcutMessage, StructureMessage,
     action_bar::{
         ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
         ViewportBucket, action_i18n_key, action_to_message, build_action_bar_vm,
@@ -318,10 +318,9 @@ impl<'a> TreeView<'a> {
         }
 
         let is_focused = self.state.focused_block_id == Some(*block_id);
-        let is_picker_target = self.state.focused_block_id == Some(*block_id);
 
         // When in friend picker mode, make blocks clickable to select as friend
-        if self.state.focused_block_id.is_some() && !is_picker_target {
+        if self.state.document_mode == DocumentMode::PickFriend && !is_focused {
             let target = self.state.focused_block_id.unwrap();
             button(container(block).style(theme::friend_picker_hover))
                 .on_press(Message::Structure(StructureMessage::AddFriendBlock {

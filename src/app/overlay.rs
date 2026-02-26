@@ -3,7 +3,7 @@
 //! These messages toggle ephemeral overlays that float above the main document
 //! view. None of them mutate the block tree or trigger persistence.
 
-use super::{AppState, Message};
+use super::{AppState, DocumentMode, Message};
 use crate::store::BlockId;
 use crate::store::PanelBarState;
 use iced::Task;
@@ -73,10 +73,12 @@ pub fn handle(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
         | OverlayMessage::StartFriendPicker(_block_id) => {
             // Friend picker is for the focused block - no need to store separately
             state.overflow_open_for = None;
+            state.document_mode = DocumentMode::PickFriend;
             Task::none()
         }
         | OverlayMessage::CancelFriendPicker => {
-            // No state to clear - friend picker is derived from focused_block_id
+            // Reset document mode to normal
+            state.document_mode = DocumentMode::Normal;
             Task::none()
         }
         | OverlayMessage::StartEditingFriendPerspective { target, friend_id } => {
@@ -95,6 +97,10 @@ pub fn handle(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
         | OverlayMessage::CancelEditingFriendPerspective => {
             state.editing_friend_perspective = None;
             state.editing_friend_perspective_input = None;
+            // Also exit PickFriend mode when canceling
+            if state.document_mode == DocumentMode::PickFriend {
+                state.document_mode = DocumentMode::Normal;
+            }
             Task::none()
         }
         | OverlayMessage::UpdateFriendPerspectiveInput(text) => {
