@@ -98,7 +98,7 @@ pub fn handle(
         }
         | InstructionPanelMessage::TextEdited(action) => {
             state.editor_buffers.instruction_content_mut().perform(action);
-            if state.store.node(&target_block_id).is_some() {
+            if state.store.node(&target_block_id).is_none() {
                 let updated_text = state.editor_buffers.instruction_content().text().to_string();
                 state.store.set_instruction_draft(target_block_id, updated_text);
                 state.persist_with_context("after editing instruction draft");
@@ -210,7 +210,7 @@ pub fn handle(
         }
         | InstructionPanelMessage::ApplyInstructionRewrite => {
             // Get inquiry draft: first check focused block, then search for any block with draft
-            if state.store.inquiry_draft(&target_block_id).is_some() {
+            if state.store.inquiry_draft(&target_block_id).is_none() {
                 tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
                 return iced::Task::none();
             }
@@ -229,7 +229,7 @@ pub fn handle(
         }
         | InstructionPanelMessage::AppendInstructionResponse => {
             // Get inquiry draft: first check focused block, then search for any block with draft
-            if state.store.inquiry_draft(&target_block_id).is_some() {
+            if state.store.inquiry_draft(&target_block_id).is_none() {
                 tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
                 return iced::Task::none();
             }
@@ -257,7 +257,7 @@ pub fn handle(
         }
         | InstructionPanelMessage::AddInstructionResponseAsChild => {
             // Get inquiry draft: first check focused block, then search for any block with draft
-            if state.store.inquiry_draft(&target_block_id).is_some() {
+            if state.store.inquiry_draft(&target_block_id).is_none() {
                 tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
                 return iced::Task::none();
             }
@@ -541,15 +541,15 @@ mod tests {
         state.editor_buffers.set_text(&root, "root text");
         state.focused_block_id = Some(sibling);
         // Put inquiry draft in store instead of instruction_panel
-        state.store.set_inquiry_draft(root, "inquiry response".to_string());
+        state.store.set_inquiry_draft(sibling, "inquiry response".to_string());
 
         let _ = AppState::update(
             &mut state,
             Message::InstructionPanel(sibling, InstructionPanelMessage::AppendInstructionResponse),
         );
 
-        assert_eq!(state.store.point(&root).as_deref(), Some("root text\n\ninquiry response"));
-        assert_eq!(state.store.point(&sibling).as_deref(), Some("sibling text"));
+        assert_eq!(state.store.point(&sibling).as_deref(), Some("sibling text\n\ninquiry response"));
+        assert_eq!(state.store.point(&root).as_deref(), Some("root text"));
         // Inquiry draft should be cleared from store
         assert!(state.store.inquiry_draft(&root).is_none());
     }
@@ -561,10 +561,10 @@ mod tests {
             .store
             .append_sibling(&root, "sibling text".to_string())
             .expect("append sibling succeeds");
-        let before_len = state.store.children(&root).len();
+        let before_len = state.store.children(&sibling).len();
         state.focused_block_id = Some(sibling);
         // Put inquiry draft in store instead of instruction_panel
-        state.store.set_inquiry_draft(root, "child from inquiry".to_string());
+        state.store.set_inquiry_draft(sibling, "child from inquiry".to_string());
 
         let _ = AppState::update(
             &mut state,
@@ -574,12 +574,12 @@ mod tests {
             ),
         );
 
-        let children = state.store.children(&root);
+        let children = state.store.children(&sibling);
         assert_eq!(children.len(), before_len + 1);
-        let child_id = *children.last().expect("new child added under root");
+        let child_id = *children.last().expect("new child added under sibling");
         assert_eq!(state.store.point(&child_id).as_deref(), Some("child from inquiry"));
         // Inquiry draft should be cleared from store
-        assert!(state.store.inquiry_draft(&root).is_none());
+        assert!(state.store.inquiry_draft(&sibling).is_none());
     }
 
     #[test]

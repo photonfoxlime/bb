@@ -1358,3 +1358,117 @@ fn mount_table_remove_entry_clears_origins() {
     assert_eq!(removed.block_ids.len(), 2);
     assert!(table.entry(ids[0]).is_none());
 }
+
+// ── Friend Perspective Tests ───────────────────────────────────────────────
+
+#[test]
+fn set_friend_perspective_updates_existing_friend() {
+    let (mut store, root, child_a, _child_b) = simple_store();
+    // Add friend
+    store.set_friend_blocks_for(
+        &root,
+        vec![FriendBlock { block_id: child_a, perspective: None }],
+    );
+    // Set perspective
+    store.set_friend_blocks_for(
+        &root,
+        vec![FriendBlock {
+            block_id: child_a,
+            perspective: Some("supporting evidence".to_string()),
+        }],
+    );
+    let friends = store.friend_blocks_for(&root);
+    assert_eq!(friends.len(), 1);
+    assert_eq!(friends[0].perspective, Some("supporting evidence".to_string()));
+}
+
+#[test]
+fn set_friend_perspective_clears_existing_perspective() {
+    let (mut store, root, child_a, _child_b) = simple_store();
+    // Add friend with existing perspective
+    store.set_friend_blocks_for(
+        &root,
+        vec![FriendBlock {
+            block_id: child_a,
+            perspective: Some("original perspective".to_string()),
+        }],
+    );
+    // Clear perspective by setting to None
+    store.set_friend_blocks_for(
+        &root,
+        vec![FriendBlock {
+            block_id: child_a,
+            perspective: None,
+        }],
+    );
+    let friends = store.friend_blocks_for(&root);
+    assert_eq!(friends.len(), 1);
+    assert_eq!(friends[0].perspective, None);
+}
+
+#[test]
+fn friend_perspective_empty_string_vs_none() {
+    let (mut store, root, child_a, _child_b) = simple_store();
+    // Set perspective to empty string
+    store.set_friend_blocks_for(
+        &root,
+        vec![FriendBlock {
+            block_id: child_a,
+            perspective: Some("".to_string()),
+        }],
+    );
+    let friends = store.friend_blocks_for(&root);
+    // Empty string is preserved (different from None)
+    assert_eq!(friends[0].perspective, Some("".to_string()));
+}
+
+#[test]
+fn friend_perspective_survives_serde_roundtrip() {
+    let (mut store, root, child_a, child_b) = simple_store();
+    store.set_friend_blocks_for(
+        &root,
+        vec![
+            FriendBlock {
+                block_id: child_a,
+                perspective: Some("historical lens".to_string()),
+            },
+            FriendBlock {
+                block_id: child_b,
+                perspective: None,
+            },
+        ],
+    );
+    // Serialize and deserialize
+    let serialized = serde_json::to_string(&store).unwrap();
+    let restored: super::BlockStore = serde_json::from_str(&serialized).unwrap();
+    let friends = restored.friend_blocks_for(&root);
+    assert_eq!(friends.len(), 2);
+    assert_eq!(friends[0].perspective, Some("historical lens".to_string()));
+    assert_eq!(friends[1].perspective, None);
+}
+
+#[test]
+fn remove_friend_block_also_removes_perspective() {
+    let (mut store, root, child_a, child_b) = simple_store();
+    store.set_friend_blocks_for(
+        &root,
+        vec![
+            FriendBlock {
+                block_id: child_a,
+                perspective: Some("primary".to_string()),
+            },
+            FriendBlock {
+                block_id: child_b,
+                perspective: Some("secondary".to_string()),
+            },
+        ],
+    );
+    // Remove one friend
+    let mut friends = store.friend_blocks_for(&root).to_vec();
+    friends.retain(|f| f.block_id != child_a);
+    store.set_friend_blocks_for(&root, friends);
+    let remaining = store.friend_blocks_for(&root);
+    assert_eq!(remaining.len(), 1);
+    assert_eq!(remaining[0].block_id, child_b);
+    assert_eq!(remaining[0].perspective, Some("secondary".to_string()));
+}
