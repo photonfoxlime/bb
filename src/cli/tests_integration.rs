@@ -11,7 +11,7 @@ use crate::cli::{
     },
     fold::{FoldCommands, StatusFoldCommand, ToggleFoldCommand},
     friend::{AddFriendCommand, FriendCommands, ListFriendCommand},
-    nav::{LineageCommand, NavCommands, NextCommand, PrevCommand},
+    nav::{LineageCommand, NavCommands, PrevCommand},
     query::{FindCommand, ShowCommand},
     results::CliResult,
     tree::{
@@ -132,7 +132,7 @@ fn test_add_sibling_position() {
     // Find indices
     let c1_idx = children.iter().position(|&c| c == child1).unwrap();
     let s_idx = children.iter().position(|&c| c == sibling_id).unwrap();
-    let c2_idx = children.iter().position(|&c| c == child2).unwrap();
+    let _c2_idx = children.iter().position(|&c| c == child2).unwrap();
 
     assert!(s_idx > c1_idx, "Sibling should be after child1");
 }
