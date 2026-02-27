@@ -199,10 +199,13 @@ impl<'a> DocumentView<'a> {
 
         // Breadcrumb navigation - bottom-left corner
         let breadcrumbs = self.render_breadcrumbs();
-        let breadcrumbs_container = container(breadcrumbs)
+        let breadcrumbs_container =
+            container(container(breadcrumbs).align_x(iced::alignment::Horizontal::Left).padding(
+                iced::Padding::new(16.0).left(theme::CANVAS_PAD).bottom(theme::CANVAS_PAD),
+            ))
             .align_y(iced::alignment::Vertical::Bottom)
-            .align_x(iced::alignment::Horizontal::Left)
-            .padding(iced::Padding::new(16.0).left(theme::CANVAS_PAD).bottom(theme::CANVAS_PAD));
+            .width(Fill)
+            .height(Fill);
 
         stack![main_content, floating_gear, toolbar_container, breadcrumbs_container]
             .width(Fill)
