@@ -31,7 +31,7 @@ fn fmt(id: crate::store::BlockId) -> String {
 // ============================================================================
 
 #[test]
-fn test_read_after_write_add_child() {
+fn read_after_write_add_child() {
     let store = BlockStore::default();
     let root_id = store.roots()[0];
 
@@ -61,7 +61,7 @@ fn test_read_after_write_add_child() {
 }
 
 #[test]
-fn test_read_after_write_chain() {
+fn read_after_write_chain() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let mut ids = vec![root_id];
@@ -107,7 +107,7 @@ fn test_read_after_write_chain() {
 }
 
 #[test]
-fn test_add_sibling_position() {
+fn add_sibling_position() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
@@ -142,7 +142,7 @@ fn test_add_sibling_position() {
 // ============================================================================
 
 #[test]
-fn test_wrap_preserves_subtree() {
+fn wrap_preserves_subtree() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
@@ -167,7 +167,7 @@ fn test_wrap_preserves_subtree() {
 }
 
 #[test]
-fn test_duplicate_preserves_subtree() {
+fn duplicate_preserves_subtree() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
@@ -192,7 +192,7 @@ fn test_duplicate_preserves_subtree() {
 }
 
 #[test]
-fn test_delete_cascades() {
+fn delete_cascades() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
@@ -217,7 +217,7 @@ fn test_delete_cascades() {
 }
 
 #[test]
-fn test_move_preserves_structure() {
+fn move_preserves_structure() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
@@ -243,7 +243,7 @@ fn test_move_preserves_structure() {
 }
 
 #[test]
-fn test_move_under() {
+fn move_under() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
@@ -269,7 +269,7 @@ fn test_move_under() {
 // ============================================================================
 
 #[test]
-fn test_ids_stable_after_operations() {
+fn ids_stable_after_operations() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
@@ -302,7 +302,7 @@ fn test_ids_stable_after_operations() {
 // ============================================================================
 
 #[test]
-fn test_nav_after_add() {
+fn nav_after_add() {
     let store = BlockStore::default();
     let root_id = store.roots()[0];
 
@@ -332,7 +332,7 @@ fn test_nav_after_add() {
 }
 
 #[test]
-fn test_lineage_after_wrap() {
+fn lineage_after_wrap() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
@@ -368,7 +368,7 @@ fn test_lineage_after_wrap() {
 // ============================================================================
 
 #[test]
-fn test_draft_persists_after_tree_mod() {
+fn draft_persists_after_tree_mod() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
 
@@ -404,7 +404,7 @@ fn test_draft_persists_after_tree_mod() {
 }
 
 #[test]
-fn test_draft_clear_selective() {
+fn draft_clear_selective() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
 
@@ -453,7 +453,7 @@ fn test_draft_clear_selective() {
 // ============================================================================
 
 #[test]
-fn test_friend_persists_after_move() {
+fn friend_persists_after_move() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
@@ -499,7 +499,7 @@ fn test_friend_persists_after_move() {
 // ============================================================================
 
 #[test]
-fn test_fold_toggle_repeated() {
+fn fold_toggle_repeated() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let mut state = store.is_collapsed(&root_id);
@@ -535,7 +535,7 @@ fn test_fold_toggle_repeated() {
 }
 
 #[test]
-fn test_find_case_insensitive() {
+fn find_case_insensitive() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     store.append_child(&root_id, "CHILD".to_string()).unwrap();
@@ -555,7 +555,7 @@ fn test_find_case_insensitive() {
 }
 
 #[test]
-fn test_move_to_self_fails() {
+fn move_to_self_fails() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
@@ -573,7 +573,7 @@ fn test_move_to_self_fails() {
 }
 
 #[test]
-fn test_duplicate_root() {
+fn duplicate_root() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     store.append_child(&root_id, "child1".to_string()).unwrap();
@@ -597,7 +597,7 @@ fn test_duplicate_root() {
 // ============================================================================
 
 #[test]
-fn test_build_deep_tree_then_navigate() {
+fn build_deep_tree_then_navigate() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
 
@@ -654,7 +654,7 @@ fn test_build_deep_tree_then_navigate() {
 }
 
 #[test]
-fn test_complex_restructure_move_wrap_duplicate() {
+fn complex_restructure_move_wrap_duplicate() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
 
@@ -764,7 +764,7 @@ fn test_complex_restructure_move_wrap_duplicate() {
 }
 
 #[test]
-fn test_draft_workflow_expand_then_reduce_then_clear() {
+fn draft_workflow_expand_then_reduce_then_clear() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
 
@@ -872,7 +872,7 @@ fn test_draft_workflow_expand_then_reduce_then_clear() {
 }
 
 #[test]
-fn test_multiple_friends_then_list_then_remove() {
+fn multiple_friends_then_list_then_remove() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
 
@@ -950,7 +950,7 @@ fn test_multiple_friends_then_list_then_remove() {
 }
 
 #[test]
-fn test_find_across_large_tree_with_limit() {
+fn find_across_large_tree_with_limit() {
     use crate::cli::query::FindCommand;
 
     let mut store = BlockStore::default();
@@ -1002,7 +1002,7 @@ fn test_find_across_large_tree_with_limit() {
 }
 
 #[test]
-fn test_fold_multiple_blocks_then_verify() {
+fn fold_multiple_blocks_then_verify() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
 
@@ -1059,7 +1059,7 @@ fn test_fold_multiple_blocks_then_verify() {
 }
 
 #[test]
-fn test_wrap_then_add_child_to_wrapper() {
+fn wrap_then_add_child_to_wrapper() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
 
@@ -1110,7 +1110,7 @@ fn test_wrap_then_add_child_to_wrapper() {
 }
 
 #[test]
-fn test_nav_lineage_for_deeply_nested_block() {
+fn nav_lineage_for_deeply_nested_block() {
     let mut store = BlockStore::default();
     let mut current_id = store.roots()[0];
     let mut ids = vec![current_id];
@@ -1150,7 +1150,7 @@ fn test_nav_lineage_for_deeply_nested_block() {
 // ============================================================================
 
 #[test]
-fn test_context_command_with_friends() {
+fn context_command_with_friends() {
     use crate::cli::context::ContextCommand;
 
     let mut store = BlockStore::default();
@@ -1184,7 +1184,7 @@ fn test_context_command_with_friends() {
 }
 
 #[test]
-fn test_context_for_root_block() {
+fn context_for_root_block() {
     use crate::cli::context::ContextCommand;
 
     let mut store = BlockStore::default();
@@ -1211,7 +1211,7 @@ fn test_context_for_root_block() {
 // ============================================================================
 
 #[test]
-fn test_nav_next_at_leaf_returns_none() {
+fn nav_next_at_leaf_returns_none() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child = store.append_child(&root_id, "child".to_string()).unwrap();
@@ -1227,7 +1227,7 @@ fn test_nav_next_at_leaf_returns_none() {
 }
 
 #[test]
-fn test_nav_prev_at_root_returns_none() {
+fn nav_prev_at_root_returns_none() {
     let store = BlockStore::default();
     let root_id = store.roots()[0];
 
@@ -1243,7 +1243,7 @@ fn test_nav_prev_at_root_returns_none() {
 }
 
 #[test]
-fn test_nav_next_visits_all_in_dfs_order() {
+fn nav_next_visits_all_in_dfs_order() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let c1 = store.append_child(&root_id, "c1".to_string()).unwrap();
@@ -1277,7 +1277,7 @@ fn test_nav_next_visits_all_in_dfs_order() {
 // ============================================================================
 
 #[test]
-fn test_multiple_roots_operations() {
+fn multiple_roots_operations() {
     let store = BlockStore::default();
     let root1 = store.roots()[0];
 
@@ -1312,7 +1312,7 @@ fn test_multiple_roots_operations() {
 }
 
 #[test]
-fn test_roots_command_lists_all() {
+fn roots_command_lists_all() {
     let store = BlockStore::default();
     let root1 = store.roots()[0];
 
@@ -1352,7 +1352,7 @@ fn test_roots_command_lists_all() {
 // ============================================================================
 
 #[test]
-fn test_friend_with_telescope_options() {
+fn friend_with_telescope_options() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
@@ -1391,7 +1391,7 @@ fn test_friend_with_telescope_options() {
 // ============================================================================
 
 #[test]
-fn test_unknown_block_errors_consistently() {
+fn unknown_block_errors_consistently() {
     let store = BlockStore::default();
 
     let unknown_id = "999v999";
@@ -1425,7 +1425,7 @@ fn test_unknown_block_errors_consistently() {
 }
 
 #[test]
-fn test_empty_query_find() {
+fn empty_query_find() {
     let store = BlockStore::default();
     let _root_id = store.roots()[0];
 
@@ -1446,7 +1446,7 @@ fn test_empty_query_find() {
 // ============================================================================
 
 #[test]
-fn test_duplicate_leaf_block() {
+fn duplicate_leaf_block() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let leaf = store.append_child(&root_id, "leaf".to_string()).unwrap();
@@ -1469,7 +1469,7 @@ fn test_duplicate_leaf_block() {
 }
 
 #[test]
-fn test_duplicate_with_collapsed_state() {
+fn duplicate_with_collapsed_state() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child = store.append_child(&root_id, "child".to_string()).unwrap();
@@ -1501,7 +1501,7 @@ fn test_duplicate_with_collapsed_state() {
 // ============================================================================
 
 #[test]
-fn test_delete_last_child() {
+fn delete_last_child() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let only_child = store.append_child(&root_id, "only".to_string()).unwrap();
@@ -1517,7 +1517,7 @@ fn test_delete_last_child() {
 }
 
 #[test]
-fn test_delete_root_fails() {
+fn delete_root_fails() {
     let store = BlockStore::default();
     let root_id = store.roots()[0];
 
@@ -1536,7 +1536,7 @@ fn test_delete_root_fails() {
 // ============================================================================
 
 #[test]
-fn test_move_before_first_sibling() {
+fn move_before_first_sibling() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let c1 = store.append_child(&root_id, "c1".to_string()).unwrap();
@@ -1560,7 +1560,7 @@ fn test_move_before_first_sibling() {
 }
 
 #[test]
-fn test_move_after_last_sibling() {
+fn move_after_last_sibling() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let c1 = store.append_child(&root_id, "c1".to_string()).unwrap();
@@ -1588,7 +1588,7 @@ fn test_move_after_last_sibling() {
 // ============================================================================
 
 #[test]
-fn test_rapid_sequential_operations() {
+fn rapid_sequential_operations() {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
 
@@ -1628,7 +1628,7 @@ fn test_rapid_sequential_operations() {
 // ============================================================================
 
 #[test]
-fn test_mount_set_on_leaf_succeeds() {
+fn mount_set_on_leaf_succeeds() {
     use crate::cli::mount::{MountCommands, SetMountCommand};
     
     let tmp = tempfile::tempdir().unwrap();
@@ -1651,7 +1651,7 @@ fn test_mount_set_on_leaf_succeeds() {
 }
 
 #[test]
-fn test_mount_set_fails_when_block_has_children() {
+fn mount_set_fails_when_block_has_children() {
     use crate::cli::mount::{MountCommands, SetMountCommand};
     
     let tmp = tempfile::tempdir().unwrap();
@@ -1674,7 +1674,7 @@ fn test_mount_set_fails_when_block_has_children() {
 }
 
 #[test]
-fn test_mount_collapse_on_non_mount_fails() {
+fn mount_collapse_on_non_mount_fails() {
     use crate::cli::mount::{CollapseMountCommand, MountCommands};
     
     let store = BlockStore::default();
@@ -1689,7 +1689,7 @@ fn test_mount_collapse_on_non_mount_fails() {
 }
 
 #[test]
-fn test_mount_extract_creates_file() {
+fn mount_extract_creates_file() {
     use crate::cli::mount::{ExtractMountCommand, MountCommands};
     
     let tmp = tempfile::tempdir().unwrap();
