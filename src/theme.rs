@@ -10,6 +10,7 @@
 use iced::theme::{Base, Mode};
 use iced::widget::{button, container, rule, text, text_editor};
 use iced::{Color, Font, Theme, border};
+use std::time::Duration;
 
 pub const INTER: Font = Font::with_name("Inter");
 pub const LXGW_WENKAI: Font = Font::with_name("LXGW WenKai");
@@ -160,6 +161,13 @@ pub const PANEL_PAD_H: f32 = 16.0;
 pub const DIFF_HIGHLIGHT_PAD_H: f32 = 2.0;
 /// Padding inside the error banner.
 pub const BANNER_PAD: f32 = 8.0;
+
+/// Font size for instruction panel button text.
+pub const INSTRUCTION_BUTTON_SIZE: f32 = 13.0;
+/// Height for instruction editor in the instruction panel.
+pub const INSTRUCTION_EDITOR_HEIGHT: f32 = 80.0;
+/// Timeout for LLM requests in instruction panel.
+pub const INSTRUCTION_LLM_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Point text truncation length in friends panel.
 pub const FRIEND_POINT_TRUNCATE: usize = 30;

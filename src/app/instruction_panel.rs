@@ -51,10 +51,10 @@ use rust_i18n::t;
 
 use iced::Element;
 use iced::widget::{button, container, text, text_editor};
+use lucide_icons::iced as icons;
 use std::time::Duration;
 
-const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
-const INSTRUCTION_EDITOR_HEIGHT: f32 = 80.0;
+const LLM_REQUEST_TIMEOUT: Duration = theme::INSTRUCTION_LLM_TIMEOUT;
 
 /// Message types for instruction panel interactions.
 #[derive(Debug, Clone)]
@@ -310,9 +310,8 @@ fn sync_instruction_panel_from_store(state: &mut AppState, target_block_id: &Blo
 pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
     use crate::store::PanelBarState;
     use iced::Padding;
-    use iced::widget::{column, row};
+    use iced::widget::{column, row, scrollable};
 
-    // Get the focused block and check if instruction panel is open
     let block_id = match state.focus().map(|s| s.block_id) {
         | Some(id) if matches!(state.store.panel_state(&id), Some(PanelBarState::Instruction)) => {
             id
@@ -321,122 +320,164 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
     };
 
     let instruction_content = state.editor_buffers.instruction_content();
-    // Derive inquiry state from store and llm_requests
     let inquiry_result = state.store.inquiry_draft(&block_id).map(|r| r.response.as_str());
     let is_inquiring = state.llm_requests.is_inquiring(block_id);
 
     let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
 
-    // Instruction text editor
-    panel = panel.push(
+    let mut instruction_section = column![].spacing(theme::PANEL_INNER_GAP);
+
+    instruction_section = instruction_section.push(
         container(
             text_editor(instruction_content)
                 .placeholder(t!("instruction_placeholder").to_string())
                 .style(theme::point_editor)
-                .height(INSTRUCTION_EDITOR_HEIGHT)
+                .height(theme::INSTRUCTION_EDITOR_HEIGHT)
                 .on_action(move |action| {
                     Message::InstructionPanel(block_id, InstructionPanelMessage::TextEdited(action))
                 }),
         )
-        .width(iced::Length::Fill)
-        .height(iced::Length::Fixed(INSTRUCTION_EDITOR_HEIGHT)),
+        .width(iced::Length::Fill),
     );
 
-    // Action buttons row
     let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
 
     if is_inquiring {
-        // Cancel button when inquiry is in progress
         button_row = button_row.push(
-            button(text(t!("instruction_cancel").to_string()).font(theme::INTER).size(13))
-                .style(theme::destructive_button)
-                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(
-                    block_id,
-                    InstructionPanelMessage::CancelInquire,
-                )),
+            button(
+                row![]
+                    .spacing(4)
+                    .align_y(iced::Alignment::Center)
+                    .push(icons::icon_loader().size(theme::INSTRUCTION_BUTTON_SIZE).center())
+                    .push(
+                        text(t!("instruction_inquiring").to_string())
+                            .font(theme::INTER)
+                            .size(theme::INSTRUCTION_BUTTON_SIZE),
+                    ),
+            )
+            .style(theme::destructive_button)
+            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::CancelInquire)),
         );
     } else {
-        // Inquire button
-        let inquire_btn =
-            button(text(t!("instruction_inquire").to_string()).font(theme::INTER).size(13))
-                .style(theme::action_button)
-                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Inquire));
-
-        button_row = button_row.push(inquire_btn);
-
-        // Expand button
         button_row = button_row.push(
-            button(text(t!("instruction_expand").to_string()).font(theme::INTER).size(13))
-                .style(theme::action_button)
-                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(
-                    block_id,
-                    InstructionPanelMessage::ExpandWithInstruction,
-                )),
+            button(
+                text(t!("instruction_inquire").to_string())
+                    .font(theme::INTER)
+                    .size(theme::INSTRUCTION_BUTTON_SIZE),
+            )
+            .style(theme::action_button)
+            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Inquire)),
         );
 
-        // Reduce button
         button_row = button_row.push(
-            button(text(t!("instruction_reduce").to_string()).font(theme::INTER).size(13))
-                .style(theme::action_button)
-                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(
-                    block_id,
-                    InstructionPanelMessage::ReduceWithInstruction,
-                )),
+            button(
+                text(t!("instruction_expand").to_string())
+                    .font(theme::INTER)
+                    .size(theme::INSTRUCTION_BUTTON_SIZE),
+            )
+            .style(theme::action_button)
+            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::InstructionPanel(
+                block_id,
+                InstructionPanelMessage::ExpandWithInstruction,
+            )),
+        );
+
+        button_row = button_row.push(
+            button(
+                text(t!("instruction_reduce").to_string())
+                    .font(theme::INTER)
+                    .size(theme::INSTRUCTION_BUTTON_SIZE),
+            )
+            .style(theme::action_button)
+            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::InstructionPanel(
+                block_id,
+                InstructionPanelMessage::ReduceWithInstruction,
+            )),
         );
     }
 
-    panel = panel.push(button_row);
+    instruction_section = instruction_section.push(button_row);
+    panel = panel.push(instruction_section);
 
-    // Show inquiry result if available
     if let Some(result) = inquiry_result {
-        let mut result_col = column![].spacing(theme::PANEL_INNER_GAP);
-        result_col = result_col.push(container(
-            text(t!("instruction_response").to_string()).width(iced::Length::Fill),
-        ));
-        result_col = result_col.push(container(text(result)).width(iced::Length::Fill));
+        let mut result_section = column![].spacing(theme::PANEL_INNER_GAP);
 
-        // Action buttons for the result
-        let mut result_buttons = row![].spacing(theme::PANEL_BUTTON_GAP);
-        result_buttons = result_buttons.push(
-            button(text(t!("instruction_apply_rewrite").to_string()).font(theme::INTER).size(13))
-                .style(theme::action_button)
-                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(
-                    block_id,
-                    InstructionPanelMessage::ApplyInstructionRewrite,
-                )),
+        result_section = result_section.push(
+            container(
+                text(t!("instruction_response").to_string())
+                    .font(theme::INTER)
+                    .size(theme::INSTRUCTION_BUTTON_SIZE),
+            )
+            .width(iced::Length::Fill),
         );
-        result_buttons = result_buttons.push(
-            button(text(t!("instruction_append_block").to_string()).font(theme::INTER).size(13))
-                .style(theme::action_button)
-                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(
-                    block_id,
-                    InstructionPanelMessage::AppendInstructionResponse,
-                )),
-        );
-        result_buttons = result_buttons.push(
-            button(text(t!("instruction_add_child").to_string()).font(theme::INTER).size(13))
-                .style(theme::action_button)
-                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(
-                    block_id,
-                    InstructionPanelMessage::AddInstructionResponseAsChild,
-                )),
-        );
-        result_buttons = result_buttons.push(
-            button(text(t!("ui_discard").to_string()).font(theme::INTER).size(13))
-                .style(theme::destructive_button)
-                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Dismiss)),
-        );
-        result_col = result_col.push(result_buttons);
 
-        panel = panel.push(result_col);
+        let result_content = container(
+            scrollable(text(result).font(theme::LXGW_WENKAI).size(14))
+                .height(iced::Length::Fixed(120.0)),
+        )
+        .padding(Padding::from([6.0, 8.0]))
+        .style(theme::draft_panel)
+        .width(iced::Length::Fill);
+
+        result_section = result_section.push(result_content);
+
+        let mut action_buttons = row![].spacing(theme::PANEL_BUTTON_GAP);
+        action_buttons = action_buttons.push(
+            button(
+                text(t!("instruction_apply_rewrite").to_string())
+                    .font(theme::INTER)
+                    .size(theme::INSTRUCTION_BUTTON_SIZE),
+            )
+            .style(theme::action_button)
+            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::InstructionPanel(
+                block_id,
+                InstructionPanelMessage::ApplyInstructionRewrite,
+            )),
+        );
+        action_buttons = action_buttons.push(
+            button(
+                text(t!("instruction_append_block").to_string())
+                    .font(theme::INTER)
+                    .size(theme::INSTRUCTION_BUTTON_SIZE),
+            )
+            .style(theme::action_button)
+            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::InstructionPanel(
+                block_id,
+                InstructionPanelMessage::AppendInstructionResponse,
+            )),
+        );
+        action_buttons = action_buttons.push(
+            button(
+                text(t!("instruction_add_child").to_string())
+                    .font(theme::INTER)
+                    .size(theme::INSTRUCTION_BUTTON_SIZE),
+            )
+            .style(theme::action_button)
+            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::InstructionPanel(
+                block_id,
+                InstructionPanelMessage::AddInstructionResponseAsChild,
+            )),
+        );
+        action_buttons = action_buttons.push(
+            button(
+                text(t!("ui_discard").to_string())
+                    .font(theme::INTER)
+                    .size(theme::INSTRUCTION_BUTTON_SIZE),
+            )
+            .style(theme::destructive_button)
+            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Dismiss)),
+        );
+
+        result_section = result_section.push(action_buttons);
+        panel = panel.push(result_section);
     }
 
     container(panel)
