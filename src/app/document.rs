@@ -423,20 +423,20 @@ impl<'a> TreeView<'a> {
             )
             .push(point_editor);
 
-        // Build the bottom row: inline panel bar on left, action bar on right
-        let left_col = self.render_overlay_panel_bar(block_id, is_focused);
-
-        // Right side: action bar
-        let right_col = action_buttons;
-
-        let bottom_row = row![]
+        // Panel bar (left) and action bar (right) in one row
+        let panel_bar = self.render_panel_bar_only(block_id, is_focused);
+        let bar_row = row![]
             .spacing(theme::ROW_GAP)
             .width(Fill)
-            .push(container(left_col).width(Length::Fill))
-            .push(right_col);
+            .push(container(panel_bar).width(Length::Fill))
+            .push(action_buttons);
+
+        // Panel row (shown only when a panel is open)
+        let panel_row = self.render_panel_row(block_id, is_focused);
 
         let mut block = column![].spacing(theme::BLOCK_INNER_GAP).push(row_content);
-        block = block.push(bottom_row);
+        block = block.push(bar_row);
+        block = block.push(panel_row);
         if action_bar.status_chip.is_some() {
             block = block.push(
                 container(self.render_status_chip(&action_bar))
@@ -787,6 +787,70 @@ impl<'a> TreeView<'a> {
             .into()
     }
 
+    /// Renders the panel bar containing toggle buttons for overlay panels.
+    ///
+    /// This component lives in the bar row and provides toggles for panels
+    /// that appear in the panel row below.
+    ///
+    /// The toggle buttons reflect panel-open state independently:
+    /// - `Friends` is highlighted only when `PanelBarState::Friends` is open.
+    /// - `Instruction` is highlighted only when `PanelBarState::Instruction` is open.
+    fn render_panel_bar_only(&self, block_id: &BlockId, is_focused: bool) -> Element<'a, Message> {
+        if !is_focused {
+            return column![].into();
+        }
+
+        let friends_panel_open =
+            matches!(self.state.store.panel_state(block_id), Some(PanelBarState::Friends));
+        let instruction_panel_open =
+            matches!(self.state.store.panel_state(block_id), Some(PanelBarState::Instruction));
+
+        let button_row = row![]
+            .spacing(theme::PANEL_BUTTON_GAP)
+            .push(
+                button(text(t!("ui_friends").to_string()).font(theme::INTER).size(13))
+                    .style(move |theme, status| {
+                        theme::panel_toggle_button(theme, status, friends_panel_open)
+                    })
+                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .on_press(Message::FriendPanel(FriendPanelMessage::Toggle(*block_id))),
+            )
+            .push(
+                button(text(t!("ui_instruction").to_string()).font(theme::INTER).size(13))
+                    .style(move |theme, status| {
+                        theme::panel_toggle_button(theme, status, instruction_panel_open)
+                    })
+                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .on_press(Message::InstructionPanel(
+                        *block_id,
+                        InstructionPanelMessage::Toggle,
+                    )),
+            );
+
+        container(button_row).padding(Padding::ZERO.right(theme::INDENT)).into()
+    }
+
+    /// Renders the overlay panel row containing the active panel content.
+    ///
+    /// This component lives in the panel row below the bar row.
+    /// Only renders content when a panel is open.
+    fn render_panel_row(&self, block_id: &BlockId, is_focused: bool) -> Element<'a, Message> {
+        if !is_focused {
+            return column![].into();
+        }
+
+        match self.state.store.panel_state(block_id) {
+            | Some(PanelBarState::Friends) => {
+                container(friends_panel::view(self.state)).width(Length::Fill).into()
+            }
+            | Some(PanelBarState::Instruction) => {
+                container(instruction_panel::view(self.state)).width(Length::Fill).into()
+            }
+            | None => column![].into(),
+        }
+    }
+
+    #[allow(dead_code)]
     /// Renders the overlay panel bar containing toggle buttons for overlay panels.
     ///
     /// This component lives below each block's editor and provides toggles for panels
