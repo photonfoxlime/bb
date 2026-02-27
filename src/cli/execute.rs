@@ -1,4 +1,35 @@
 //! BlockCommands execution implementation.
+//!
+//! This module implements the execution logic for all CLI commands defined
+//! in the `BlockCommands` enum. It serves as the bridge between parsed CLI
+//! arguments and the underlying `BlockStore` operations.
+//!
+//! # Architecture
+//!
+//! The `execute()` method follows a consistent pattern:
+//!
+//! 1. **Resolve BlockId**: Convert CLI string IDs to internal `store::BlockId`
+//! 2. **Validate**: Check that referenced blocks exist
+//! 3. **Execute**: Call the appropriate `BlockStore` method
+//! 4. **Return**: Package result as `CliResult` for formatting
+//!
+//! # Error Handling
+//!
+//! All errors are returned as `CliResult::Error` with descriptive messages.
+//! The execution never panics—unknown block IDs, invalid operations, and
+//! store failures all result in error variants.
+//!
+//! # Command Categories
+//!
+//! - **Query** (`roots`, `show`, `find`): Read-only, no store modification
+//! - **Tree** (`add-child`, `move`, `delete`, etc.): Structural edits
+//! - **Nav** (`next`, `prev`, `lineage`): DFS navigation helpers
+//! - **Draft** (`expand`, `reduce`, `instruction`, `inquiry`): LLM interaction
+//! - **Fold** (`toggle`, `status`): Visibility state management
+//! - **Friend** (`add`, `remove`, `list`): Cross-reference links
+//! - **Mount** (`set`, `expand`, `collapse`, `extract`): External file integration
+//! - **Panel** (`set`, `get`, `clear`): Sidebar UI state
+//! - **Context**: LLM context preparation
 
 use super::BlockId;
 use super::results::{CliResult, ExpansionDraftInfo, FriendInfo, Match, ReductionDraftInfo};
@@ -11,31 +42,45 @@ use crate::store as store_module;
 use crate::store::{BlockStore, Direction};
 
 impl BlockCommands {
-    /// Execute a block command with the given store.
+    // Execute a block command with the given store.
     ///
-    /// This method handles all block manipulation commands, operating on the
-    /// provided store and returning the modified store (or the same one if
-    /// no changes were made).
+    // This is the main entry point for CLI command execution. It pattern matches
+    // on the command variant, performs necessary validation, calls the appropriate
+    // `BlockStore` method, and returns both the (possibly modified) store and
+    // a result for output formatting.
     ///
-    /// # Arguments
+    // # Arguments
     ///
-    /// - `store`: The block store to operate on
-    /// - `base_dir`: Base directory for resolving relative mount paths
-    /// - `_output`: Output format for query results (used by caller for formatting)
+    // - `self`: The command to execute (consumed)
+    // - `store`: The block store to operate on (passed by value for ownership transfer)
+    // - `base_dir`: Base directory for resolving relative mount paths
     ///
-    /// # Returns
+    // # Returns
     ///
-    /// Modified store (or original if no changes) and command result.
+    // A tuple of `(BlockStore, CliResult)`:
+    // - The store is always returned (modified or unchanged) for potential saving
+    // - The `CliResult` indicates success, failure, or query results
+    ///
+    // # Design Notes
+    ///
+    // - Block ID resolution is case-insensitive for hex digits
+    // - All operations validate block existence before proceeding
+    // - Mount operations use `base_dir` to resolve relative paths
     pub fn execute(
         self, mut store: BlockStore, base_dir: &std::path::Path,
     ) -> (BlockStore, CliResult) {
         match self {
-            // Query commands - no store modification
+            // ========================================================================
+            // Query Commands
+            // ========================================================================
+            // Read-only operations that inspect the store without modification.
+            // List all root block IDs.
             | BlockCommands::Roots(RootCommand {}) => {
                 let roots: Vec<String> =
                     store.roots().iter().map(|id| format!("{:?}", id)).collect();
                 (store, CliResult::Roots(roots))
             }
+            // Show details of a specific block.
             | BlockCommands::Show(cmd) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -48,6 +93,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Search blocks by text content (case-insensitive substring match).
             | BlockCommands::Find(cmd) => {
                 let matches: Vec<Match> = store
                     .roots()
@@ -57,7 +103,11 @@ impl BlockCommands {
                     .collect();
                 (store, CliResult::Find(matches))
             }
-            // Tree commands
+            // ========================================================================
+            // Tree Commands
+            // ========================================================================
+            // Structural editing operations for modifying the block hierarchy.
+            // Add a child block to a parent.
             | BlockCommands::Tree(TreeCommands::AddChild(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.parent_id);
                 match id {
@@ -76,6 +126,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Add a sibling block after the target.
             | BlockCommands::Tree(TreeCommands::AddSibling(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -91,6 +142,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Wrap a block in a new parent.
             | BlockCommands::Tree(TreeCommands::Wrap(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -104,6 +156,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Duplicate a block and its entire subtree.
             | BlockCommands::Tree(TreeCommands::Duplicate(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -117,6 +170,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Delete a block and its entire subtree.
             | BlockCommands::Tree(TreeCommands::Delete(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -134,6 +188,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Move a block relative to a target.
             | BlockCommands::Tree(TreeCommands::Move(cmd)) => {
                 let source = Self::resolve_block_id(&store, &cmd.source_id);
                 let target = Self::resolve_block_id(&store, &cmd.target_id);
@@ -160,7 +215,11 @@ impl BlockCommands {
                     }
                 }
             }
-            // Navigation commands
+            // ========================================================================
+            // Navigation Commands
+            // ========================================================================
+            // DFS-based navigation helpers for traversing the block tree.
+            // Get the next visible block in DFS order.
             | BlockCommands::Nav(NavCommands::Next(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -171,6 +230,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Get the previous visible block in DFS order.
             | BlockCommands::Nav(NavCommands::Prev(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -181,6 +241,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Get the lineage (ancestor chain) of a block.
             | BlockCommands::Nav(NavCommands::Lineage(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -192,7 +253,11 @@ impl BlockCommands {
                     }
                 }
             }
-            // Draft commands
+            // ========================================================================
+            // Draft Commands
+            // ========================================================================
+            // LLM interaction drafts for managing AI-assisted editing.
+            // Create an expansion draft for block refinement.
             | BlockCommands::Draft(DraftCommands::Expand(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -207,6 +272,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Create a reduction draft for summarization.
             | BlockCommands::Draft(DraftCommands::Reduce(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -226,6 +292,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Set an instruction draft for LLM guidance.
             | BlockCommands::Draft(DraftCommands::Instruction(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -236,6 +303,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Set an inquiry draft (LLM response).
             | BlockCommands::Draft(DraftCommands::Inquiry(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -246,6 +314,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // List all drafts for a block.
             | BlockCommands::Draft(DraftCommands::List(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -272,6 +341,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Clear drafts from a block.
             | BlockCommands::Draft(DraftCommands::Clear(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -293,7 +363,11 @@ impl BlockCommands {
                     }
                 }
             }
-            // Fold commands
+            // ========================================================================
+            // Fold Commands
+            // ========================================================================
+            // Visibility state management for collapsing/expanding blocks.
+            // Toggle collapsed state of a block.
             | BlockCommands::Fold(FoldCommands::Toggle(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -304,6 +378,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Get collapsed state of a block.
             | BlockCommands::Fold(FoldCommands::Status(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -314,7 +389,11 @@ impl BlockCommands {
                     }
                 }
             }
-            // Friend commands
+            // ========================================================================
+            // Friend Commands
+            // ========================================================================
+            // Cross-reference link management between blocks.
+            // Add a friend (cross-reference) link.
             | BlockCommands::Friend(FriendCommands::Add(cmd)) => {
                 let target = Self::resolve_block_id(&store, &cmd.target_id);
                 let friend = Self::resolve_block_id(&store, &cmd.friend_id);
@@ -333,6 +412,7 @@ impl BlockCommands {
                     | _ => (store, CliResult::Error("Unknown block ID".to_string())),
                 }
             }
+            // Remove a friend (cross-reference) link.
             | BlockCommands::Friend(FriendCommands::Remove(cmd)) => {
                 let target = Self::resolve_block_id(&store, &cmd.target_id);
                 let friend = Self::resolve_block_id(&store, &cmd.friend_id);
@@ -346,6 +426,7 @@ impl BlockCommands {
                     | _ => (store, CliResult::Error("Unknown block ID".to_string())),
                 }
             }
+            // List all friends (cross-references) of a block.
             | BlockCommands::Friend(FriendCommands::List(cmd)) => {
                 let target = Self::resolve_block_id(&store, &cmd.target_id);
                 match target {
@@ -365,7 +446,11 @@ impl BlockCommands {
                     }
                 }
             }
-            // Mount commands
+            // ========================================================================
+            // Mount Commands
+            // ========================================================================
+            // External file integration for importing/exporting block trees.
+            // Set mount path and format for a block.
             | BlockCommands::Mount(MountCommands::Set(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -389,6 +474,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Expand a mount by loading external file contents.
             | BlockCommands::Mount(MountCommands::Expand(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -399,6 +485,7 @@ impl BlockCommands {
                     },
                 }
             }
+            // Collapse a mount, removing loaded children.
             | BlockCommands::Mount(MountCommands::Collapse(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -411,6 +498,7 @@ impl BlockCommands {
                     },
                 }
             }
+            // Extract block subtree to a file.
             | BlockCommands::Mount(MountCommands::Extract(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -423,6 +511,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Get mount information (path, format, expanded state).
             | BlockCommands::Mount(MountCommands::Info(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -449,7 +538,11 @@ impl BlockCommands {
                     }
                 }
             }
-            // Panel commands
+            // ========================================================================
+            // Panel Commands
+            // ========================================================================
+            // Sidebar UI state management.
+            // Set panel sidebar state.
             | BlockCommands::Panel(PanelCommands::Set(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -460,6 +553,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Get panel sidebar state.
             | BlockCommands::Panel(PanelCommands::Get(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -473,6 +567,7 @@ impl BlockCommands {
                     }
                 }
             }
+            // Clear panel sidebar state.
             | BlockCommands::Panel(PanelCommands::Clear(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -483,7 +578,11 @@ impl BlockCommands {
                     }
                 }
             }
-            // Context command
+            // ========================================================================
+            // Context Command
+            // ========================================================================
+            // LLM context preparation.
+            // Get block context for LLM requests.
             | BlockCommands::Context(cmd) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
@@ -501,7 +600,19 @@ impl BlockCommands {
         }
     }
 
-    /// Resolve a CLI BlockId to an actual store BlockId.
+    // Resolve a CLI BlockId string to an actual store BlockId.
+    ///
+    // Performs case-insensitive matching on the hex portion of block IDs.
+    // The "0x" prefix is optional for matching.
+    ///
+    // # Arguments
+    ///
+    // - `store`: The store to search
+    // - `cli_id`: The CLI-provided ID string (e.g., "0x1a2b3c4d5e")
+    ///
+    // # Returns
+    ///
+    // `Some(BlockId)` if a matching block exists, `None` otherwise.
     fn resolve_block_id(store: &BlockStore, cli_id: &BlockId) -> Option<crate::store::BlockId> {
         let cli_str = cli_id.0.strip_prefix("0x").unwrap_or(&cli_id.0);
         for (id, _) in &store.nodes {
@@ -514,7 +625,20 @@ impl BlockCommands {
         None
     }
 
-    /// Find all blocks matching a query in their text content.
+    // Find all blocks matching a query in their text content.
+    ///
+    // Performs a case-insensitive substring search starting from the given
+    // root and traversing all descendants in DFS order.
+    ///
+    // # Arguments
+    ///
+    // - `store`: The store to search
+    // - `root`: The root block to start from
+    // - `query`: The search query string
+    ///
+    // # Returns
+    ///
+    // A vector of matches containing block IDs and full text content.
     fn find_in_subtree(
         store: &BlockStore, root: &crate::store::BlockId, query: &str,
     ) -> Vec<Match> {
@@ -524,6 +648,10 @@ impl BlockCommands {
         results
     }
 
+    // Recursively search blocks in DFS order.
+    ///
+    // Helper function for `find_in_subtree` that accumulates results
+    // into the provided vector.
     fn find_recursive(
         store: &BlockStore, id: &crate::store::BlockId, query: &str, results: &mut Vec<Match>,
     ) {
