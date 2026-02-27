@@ -224,16 +224,13 @@ impl<'a> DocumentView<'a> {
         let mut crumbs = row![].spacing(theme::ACTION_GAP);
 
         // Home button
-        let home_btn = button(centered_icon(
+        let home_btn = button(
             icons::icon_house()
                 .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
-        ))
+                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
+        )
         .style(theme::action_button)
         .padding(theme::BUTTON_PAD)
-        .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
         .on_press(Message::Navigation(NavigationMessage::Home));
         crumbs = crumbs.push(home_btn);
 
