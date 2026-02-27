@@ -266,6 +266,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 .font(theme::INTER)
                 .size(theme::FRIEND_PERSPECTIVE_SIZE)
                 .padding(0)
+                .width(Length::Fill)
                 .on_input(|s| {
                     Message::FriendPanel(FriendPanelMessage::UpdateFriendPerspectiveInput(s))
                 })
@@ -307,6 +308,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             )
             .style(theme::action_button)
             .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+            .width(Length::Fill)
             .padding(0)
             .on_press(Message::FriendPanel(FriendPanelMessage::StartEditingFriendPerspective {
                 target,
@@ -322,6 +324,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             )
             .style(theme::action_button)
             .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+            .width(Length::Fill)
             .padding(0)
             .on_press(Message::FriendPanel(FriendPanelMessage::StartEditingFriendPerspective {
                 target,
