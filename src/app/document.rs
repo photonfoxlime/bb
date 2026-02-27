@@ -974,6 +974,7 @@ fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
         | ActionId::ArchiveBlock => icons::icon_archive(),
         | ActionId::SaveToFile => icons::icon_hard_drive_download(),
         | ActionId::LoadFromFile => icons::icon_hard_drive_upload(),
+        | ActionId::EnterBlock => icons::icon_log_in(),
     };
     icon.size(16).line_height(iced::widget::text::LineHeight::Relative(1.0)).into()
 }

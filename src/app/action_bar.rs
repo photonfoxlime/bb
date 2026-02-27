@@ -33,6 +33,7 @@ pub enum ActionId {
     ArchiveBlock,
     SaveToFile,
     LoadFromFile,
+    EnterBlock,
 }
 
 /// Whether an action can fire given the current row state.
@@ -104,6 +105,7 @@ pub fn action_i18n_key(id: ActionId) -> &'static str {
         | ActionId::ArchiveBlock => "action_archive",
         | ActionId::SaveToFile => "action_save_to_file",
         | ActionId::LoadFromFile => "action_load_from_file",
+        | ActionId::EnterBlock => "action_enter_block",
     }
 }
 
@@ -324,6 +326,13 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
             ActionPriority::OverflowOnly,
         ));
     }
+    if ctx.has_children {
+        vm.overflow.push(ActionDescriptor::new(
+            ActionId::EnterBlock,
+            ActionAvailability::Enabled,
+            ActionPriority::OverflowOnly,
+        ));
+    }
     vm.overflow.push(
         ActionDescriptor::new(
             ActionId::ArchiveBlock,
@@ -467,6 +476,9 @@ pub fn action_to_message_by_id(
         | ActionId::SaveToFile => Some(Message::MountFile(MountFileMessage::SaveToFile(*block_id))),
         | ActionId::LoadFromFile => {
             Some(Message::MountFile(MountFileMessage::LoadFromFile(*block_id)))
+        }
+        | ActionId::EnterBlock => {
+            Some(Message::Navigation(crate::app::navigation::NavigationMessage::Enter(*block_id)))
         }
         | ActionId::CollapseBranch | ActionId::ExpandBranch => None,
     }
