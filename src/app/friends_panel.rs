@@ -318,21 +318,34 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             }))
             .into()
         } else {
-            button(
-                text(perspective_label)
-                    .font(theme::INTER)
-                    .size(theme::FRIEND_PERSPECTIVE_SIZE)
-                    .style(theme::spine_text),
-            )
-            .style(theme::action_button)
-            .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-            .width(Length::Fill)
-            .padding(0)
-            .on_press(Message::FriendPanel(FriendPanelMessage::StartEditingFriendPerspective {
-                target,
-                friend_id,
-            }))
-            .into()
+            row![]
+                .spacing(theme::FRIEND_ROW_GAP)
+                .push(
+                    button(
+                        text(perspective_label)
+                            .font(theme::INTER)
+                            .size(theme::FRIEND_PERSPECTIVE_SIZE)
+                            .style(theme::spine_text),
+                    )
+                    .style(theme::action_button)
+                    .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+                    .width(Length::Fill)
+                    .padding(0)
+                    .on_press(Message::FriendPanel(
+                        FriendPanelMessage::StartEditingFriendPerspective { target, friend_id },
+                    )),
+                )
+                .push(
+                    button(icons::icon_x().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE))
+                        .padding(2)
+                        .style(theme::destructive_button)
+                        .width(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+                        .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+                        .on_press(Message::FriendPanel(
+                            FriendPanelMessage::ClearFriendPerspective { target, friend_id },
+                        )),
+                )
+                .into()
         };
 
         let line = row![]
@@ -352,8 +365,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     )
                     .push(iced::widget::Space::new().width(Length::Fixed(theme::FRIEND_AS_GAP)))
                     .push(container(content))
-                    .width(Length::Fill)
-                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE)),
+                    .width(Length::Fill),
             )
             // Visibility toggles: lineage and children
             .push(
