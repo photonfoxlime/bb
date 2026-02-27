@@ -12,6 +12,8 @@ use iced::widget::{button, container, rule, text, text_editor};
 use iced::{Color, Font, Theme, border};
 
 pub const INTER: Font = Font::with_name("Inter");
+pub const LXGW_WENKAI: Font = Font::with_name("LXGW WenKai");
+pub const DEFAULT_FONT: Font = LXGW_WENKAI;
 
 // ── Palette ──────────────────────────────────────────────────────────
 

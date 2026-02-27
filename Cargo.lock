@@ -514,6 +514,7 @@ dependencies = [
 name = "blooming-blockery"
 version = "0.0.2"
 dependencies = [
+ "anyhow",
  "clap",
  "clap_complete",
  "dark-light",
