@@ -125,6 +125,14 @@ pub struct AppState {
     /// `<config_dir>/app.toml`; effective locale is derived via [`i18n::resolved_locale_from_config`].
     pub config: AppConfig,
     /// Navigation stack: tracks drill-down path through block subtrees.
+    ///
+    /// Enables "drilling down" into a block's children, showing only that
+    /// subtree in the main view. The stack tracks the path from root to
+    /// current view, with breadcrumbs rendered for quick navigation.
+    ///
+    /// External documents opened via file dialog are merged into the main
+    /// store and appear as new navigation layers. The stack is part of the
+    /// undo snapshot for consistency.
     navigation: NavigationStack,
 }
 
@@ -522,6 +530,24 @@ pub struct FocusState {
 /// Contains the store and navigation stack. Editor buffers are
 /// rebuilt from the store on restore since `text_editor::Content` is
 /// not cheaply cloneable with full cursor state.
+///
+/// # Design Decisions
+///
+/// ## Navigation Stack Inclusion
+///
+/// The navigation stack is part of the undo snapshot to maintain consistency
+/// between document structure and view state. Without this, undoing a structural
+/// change (e.g., deleting a block) could leave the user viewing a non-existent
+/// block or an outdated view.
+///
+/// ## Editor Buffers Exclusion
+///
+/// Editor buffers (text editor content with cursor state) are intentionally
+/// excluded from the snapshot. They are rebuilt from the store on restore
+/// because:
+/// - Full cursor state is expensive to clone
+/// - Text content is derived from `BlockStore::points`
+/// - Cursor position reset is acceptable UX for undo operations
 #[derive(Clone)]
 struct UndoSnapshot {
     store: BlockStore,

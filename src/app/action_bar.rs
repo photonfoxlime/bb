@@ -16,6 +16,9 @@ use iced::keyboard::{Key, Modifiers, key::Named};
 
 /// Identifier for a user-visible action in the action bar.
 ///
+/// Each variant corresponds to one button in the per-block toolbar.
+/// Actions are categorized by priority (pinned, contextual, overflow-only)
+/// and availability (enabled, disabled-busy, disabled-empty-point).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActionId {
     Expand,
@@ -33,6 +36,11 @@ pub enum ActionId {
     ArchiveBlock,
     SaveToFile,
     LoadFromFile,
+    /// Navigate into a block's subtree.
+    ///
+    /// Shows the block's children as the new root view. Only available
+    /// when the block has children. The action is placed in overflow
+    /// to reduce toolbar clutter, as drill-down is a secondary workflow.
     EnterBlock,
 }
 
@@ -326,6 +334,8 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
             ActionPriority::OverflowOnly,
         ));
     }
+    // EnterBlock: only shown when block has children (drill-down available)
+    // Placed in overflow to keep primary toolbar minimal
     if ctx.has_children {
         vm.overflow.push(ActionDescriptor::new(
             ActionId::EnterBlock,
