@@ -258,6 +258,36 @@ pub enum OutputFormat {
 /// Available commands for block manipulation.
 #[derive(Debug, Parser)]
 pub enum Commands {
+    /// Launch the GUI (default).
+    ///
+    /// Opens the interactive document editor.
+    ///
+    /// # Example
+    /// ```bash
+    /// block gui
+    /// blooming-blockery
+    /// ```
+    Gui,
+
+    /// Generate shell completions.
+    ///
+    /// Outputs shell completion scripts for bash, zsh, fish, etc.
+    ///
+    /// # Arguments
+    ///
+    /// - `shell`: Target shell (bash, elvish, fish, powershell, zsh)
+    ///
+    /// # Example
+    /// ```bash
+    /// block generate-completion zsh
+    /// block generate-completion bash > /etc/bash_completion.d/bb
+    /// ```
+    GenerateCompletion {
+        /// The shell to generate completions for.
+        #[arg(value_name = "SHELL")]
+        shell: clap_complete::Shell,
+    },
+
     /// Query root block IDs.
     ///
     /// Returns all top-level blocks in the forest. The store always has at least

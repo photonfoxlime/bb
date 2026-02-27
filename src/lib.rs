@@ -12,7 +12,6 @@ mod undo;
 
 use app::AppState;
 use clap::{CommandFactory, Parser};
-use clap_complete::Shell;
 
 /// CLI arguments for blooming-blockery.
 #[derive(Parser, Debug)]
@@ -21,18 +20,7 @@ use clap_complete::Shell;
 pub struct BloomingBlockery {
     /// Launch the GUI (default behavior if no subcommand is provided).
     #[command(subcommand)]
-    command: Option<Commands>,
-}
-
-#[derive(Parser, Debug)]
-enum Commands {
-    /// Generate shell completions.
-    GenerateCompletion {
-        /// The shell to generate completions for.
-        shell: Shell,
-    },
-    /// Launch the GUI.
-    Gui,
+    command: Option<cli::Commands>,
 }
 
 impl BloomingBlockery {
@@ -43,7 +31,7 @@ impl BloomingBlockery {
         let args = Self::parse();
         // Handle CLI commands
         match args.command {
-            | Some(Commands::GenerateCompletion { shell }) => {
+            | Some(cli::Commands::GenerateCompletion { shell }) => {
                 clap_complete::generate(
                     shell,
                     &mut Self::command(),
@@ -51,9 +39,21 @@ impl BloomingBlockery {
                     &mut std::io::stdout(),
                 );
             }
-            | Some(Commands::Gui) | None => {
+            | Some(cli::Commands::Gui) | None => {
                 let () = Self::gui()?;
             }
+            // Block store manipulation commands
+            | Some(cli::Commands::Roots(_)) => unimplemented!("block roots not yet implemented"),
+            | Some(cli::Commands::Show(_)) => unimplemented!("block show not yet implemented"),
+            | Some(cli::Commands::Find(_)) => unimplemented!("block find not yet implemented"),
+            | Some(cli::Commands::Tree(_)) => unimplemented!("block tree not yet implemented"),
+            | Some(cli::Commands::Nav(_)) => unimplemented!("block nav not yet implemented"),
+            | Some(cli::Commands::Draft(_)) => unimplemented!("block draft not yet implemented"),
+            | Some(cli::Commands::Fold(_)) => unimplemented!("block fold not yet implemented"),
+            | Some(cli::Commands::Friend(_)) => unimplemented!("block friend not yet implemented"),
+            | Some(cli::Commands::Mount(_)) => unimplemented!("block mount not yet implemented"),
+            | Some(cli::Commands::Panel(_)) => unimplemented!("block panel not yet implemented"),
+            | Some(cli::Commands::Context(_)) => unimplemented!("block context not yet implemented"),
         }
         Ok(())
     }
@@ -87,3 +87,8 @@ impl BloomingBlockery {
         Ok(())
     }
 }
+
+/// CLI for block store manipulation (advanced operations).
+///
+/// Use `blooming-blockery block <subcommand>` for direct store access.
+pub use cli::BlockCli;
