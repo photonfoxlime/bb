@@ -6,11 +6,56 @@
 //! - load fonts and theme from app state.
 
 use blooming_blockery::AppState;
+use clap::{CommandFactory, Parser};
+use clap_complete::Shell;
 
 // const DEFAULT_FONT: iced::Font = iced::Font::with_name("Inter");
 const DEFAULT_FONT: iced::Font = iced::Font::with_name("LXGW WenKai");
 
-fn main() -> iced::Result {
+/// CLI arguments for blooming-blockery.
+#[derive(Parser, Debug)]
+#[command(name = "blooming-blockery")]
+#[command(version, about, long_about = None)]
+struct Args {
+    /// Launch the GUI (default behavior if no subcommand is provided).
+    #[command(subcommand)]
+    command: Option<Commands>,
+}
+
+#[derive(Parser, Debug)]
+enum Commands {
+    /// Generate shell completions.
+    GenerateCompletion {
+        /// The shell to generate completions for.
+        shell: Shell,
+    },
+    /// Launch the GUI.
+    Gui,
+}
+
+fn main() {
+    let args = Args::parse();
+
+    // Handle CLI commands
+    match args.command {
+        | Some(Commands::GenerateCompletion { shell }) => {
+            clap_complete::generate(
+                shell,
+                &mut Args::command(),
+                "blooming-blockery",
+                &mut std::io::stdout(),
+            );
+        }
+        | Some(Commands::Gui) | None => {
+            if let Err(e) = run_gui() {
+                eprintln!("Error running GUI: {}", e);
+                std::process::exit(1);
+            }
+        }
+    }
+}
+
+fn run_gui() -> iced::Result {
     #[cfg(feature = "log")]
     init_tracing();
     iced::application(AppState::load, AppState::update, AppState::view)
