@@ -74,8 +74,9 @@ const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// - `editor_buffers`: widget-local text buffers + focus ids.
 /// - persistence flags: recovery guard for unsafe-on-disk state plus a runtime
 ///   write gate for side-effect-free runs.
-/// - selectors (`focused_block_id`, `editing_block_id`) and
-///   overlay flags: view/controller state only.
+/// - `focus`: UI keyboard focus + overflow menu state.
+/// - `edit_session`: undo coalescing session tracker.
+/// - `document_mode`, `active_view`: view/controller state only.
 #[derive(Clone)]
 pub struct AppState {
     store: BlockStore,
@@ -99,25 +100,25 @@ pub struct AppState {
     /// `AppState::load()` initializes this to `false`; tests explicitly set it
     /// to `true` in `test_state` to avoid touching on-disk `blocks.json`.
     persistence_write_disabled: bool,
-    /// State for the currently focused block: its id and overflow menu state.
-    focused_block: Option<FocusedBlockState>,
+    /// UI focus state: keyboard focus + overflow menu state.
+    focus: Option<FocusState>,
     /// (target_block_id, friend_block_id) of friend perspective currently being edited inline.
     editing_friend_perspective: Option<(BlockId, BlockId)>,
     /// Current text input value when editing friend perspective.
     editing_friend_perspective_input: Option<String>,
-    /// Block currently coalescing point edits into a single undo entry.
-    editing_block_id: Option<BlockId>,
+    /// Edit session: block currently coalescing point edits into a single undo entry.
+    edit_session: Option<BlockId>,
     /// Current document interaction mode (normal vs picking a friend).
     document_mode: DocumentMode,
-    /// Whether the current theme is dark. Detected from the system at startup
-    /// and updated live via `iced::system::theme_changes()`.
-    pub is_dark: bool,
     /// Which top-level screen is currently shown.
-    pub active_view: ViewMode,
+    active_view: ViewMode,
     /// Draft form state for the settings screen.
     pub settings: SettingsState,
     /// Current window dimensions for responsive layout.
     pub window_size: WindowSize,
+    /// Whether the current theme is dark. Detected from the system at startup
+    /// and updated live via `iced::system::theme_changes()`.
+    pub is_dark: bool,
     /// Persisted app preferences (e.g. optional locale). Loaded at startup from
     /// `<config_dir>/app.toml`; effective locale is derived via [`i18n::resolved_locale_from_config`].
     pub config: AppConfig,
@@ -162,16 +163,16 @@ impl AppState {
             editor_buffers,
             persistence_blocked,
             persistence_write_disabled: false,
-            focused_block: None,
+            focus: None,
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,
-            editing_block_id: None,
+            edit_session: None,
             document_mode: DocumentMode::default(),
 
-            is_dark,
             active_view: ViewMode::default(),
             settings,
             window_size: WindowSize::default(),
+            is_dark,
             config,
         }
     }
@@ -282,37 +283,36 @@ impl AppState {
         }
     }
 
-    /// Get the currently focused block state.
-    fn focused_block(&self) -> Option<FocusedBlockState> {
-        self.focused_block
+    /// Get the current UI focus state.
+    fn focus(&self) -> Option<FocusState> {
+        self.focus
     }
 
     /// Set the focused block.
-    fn set_focused_block(&mut self, block_id: BlockId) {
-        if let Some(state) = &mut self.focused_block {
-            state.id = block_id;
+    fn set_focus(&mut self, block_id: BlockId) {
+        if let Some(state) = &mut self.focus {
+            state.block_id = block_id;
         } else {
-            self.focused_block =
-                Some(FocusedBlockState { id: block_id, action_bar_overflow: false });
+            self.focus = Some(FocusState { block_id, overflow_open: false });
         }
     }
 
-    /// Clear the focused block.
-    fn clear_focused_block(&mut self) {
-        self.focused_block = None;
+    /// Clear the focus.
+    fn clear_focus(&mut self) {
+        self.focus = None;
     }
 
     /// Set the overflow menu open/closed for the focused block.
     fn set_overflow_open(&mut self, open: bool) {
-        if let Some(state) = &mut self.focused_block {
-            state.action_bar_overflow = open;
+        if let Some(state) = &mut self.focus {
+            state.overflow_open = open;
         }
     }
 
     /// Snapshot the current store into undo history before a mutation.
     fn snapshot_for_undo(&mut self) {
         self.undo_history.push(UndoSnapshot { store: self.store.clone() });
-        self.editing_block_id = None;
+        self.edit_session = None;
     }
 
     fn mutate_with_undo_and_persist<F>(&mut self, context: &'static str, mutate: F)
@@ -329,8 +329,8 @@ impl AppState {
         self.editor_buffers = EditorBuffers::from_store(&snapshot.store);
         self.store = snapshot.store;
         self.llm_requests.clear();
-        self.clear_focused_block();
-        self.editing_block_id = None;
+        self.clear_focus();
+        self.edit_session = None;
 
         self.persist_with_context("after undo/redo");
     }
@@ -363,6 +363,7 @@ pub enum Message {
     Settings(SettingsMessage),
     WindowResized(WindowSize),
     DocumentMode(DocumentMode),
+    SystemThemeChanged(iced::theme::Mode),
 }
 
 impl AppState {
@@ -391,6 +392,14 @@ impl AppState {
             }
             | Message::DocumentMode(mode) => {
                 self.document_mode = mode;
+                Task::none()
+            }
+            | Message::SystemThemeChanged(mode) => {
+                let dark = matches!(mode, iced::theme::Mode::Dark);
+                if self.is_dark != dark {
+                    tracing::info!(is_dark = dark, "system theme changed");
+                    self.is_dark = dark;
+                }
                 Task::none()
             }
         }
@@ -453,8 +462,7 @@ impl AppState {
                     | _ => None,
                 }
             }),
-            system::theme_changes()
-                .map(|mode| Message::MountFile(MountFileMessage::SystemThemeChanged(mode))),
+            system::theme_changes().map(Message::SystemThemeChanged),
         ])
     }
 }
@@ -490,13 +498,13 @@ pub struct WindowSize {
     pub height: f32,
 }
 
-/// State for a focused block: its id and overflow menu state.
+/// UI focus state: keyboard focus + overflow menu state.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct FocusedBlockState {
-    /// The block that is currently focused.
-    pub id: BlockId,
-    /// Whether the action bar overflow menu is open for this block.
-    pub action_bar_overflow: bool,
+pub struct FocusState {
+    /// The block that currently has keyboard focus.
+    pub block_id: BlockId,
+    /// Whether the overflow menu is open for this block.
+    pub overflow_open: bool,
 }
 
 /// Snapshot of undoable application state.
@@ -566,10 +574,10 @@ mod edit {
         if state.document_mode == DocumentMode::PickFriend {
             return Task::none();
         }
-        state.set_focused_block(block_id);
-        if state.editing_block_id.as_ref() != Some(&block_id) {
+        state.set_focus(block_id);
+        if state.edit_session.as_ref() != Some(&block_id) {
             state.snapshot_for_undo();
-            state.editing_block_id = Some(block_id);
+            state.edit_session = Some(block_id);
         }
         state.editor_buffers.ensure_block(&state.store, &block_id);
 
@@ -608,7 +616,7 @@ mod edit {
             // Only change focus in Normal mode
             if state.document_mode == DocumentMode::Normal {
                 let wid_clone = wid.clone();
-                state.set_focused_block(target_id);
+                state.set_focus(target_id);
                 tracing::debug!(
                     from = ?block_id,
                     to = ?target_id,
@@ -634,7 +642,7 @@ mod shortcut {
     pub fn handle(state: &mut AppState, message: ShortcutMessage) -> Task<Message> {
         match message {
             | ShortcutMessage::Trigger(action_id) => {
-                let Some(block_id) = state.focused_block().map(|s| s.id) else {
+                let Some(block_id) = state.focus().map(|s| s.block_id) else {
                     return Task::none();
                 };
                 run_shortcut_for_block(state, block_id, action_id)
@@ -642,7 +650,7 @@ mod shortcut {
             | ShortcutMessage::ForBlock { block_id, action_id } => {
                 // Don't change focus in PickFriend mode
                 if state.document_mode != DocumentMode::PickFriend {
-                    state.set_focused_block(block_id);
+                    state.set_focus(block_id);
                 }
                 run_shortcut_for_block(state, block_id, action_id)
             }
@@ -710,16 +718,16 @@ impl AppState {
             providers,
             errors: vec![],
             llm_requests: LlmRequests::new(),
-            focused_block: None,
+            focus: None,
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,
-            editing_block_id: None,
+            edit_session: None,
             document_mode: DocumentMode::default(),
             persistence_blocked: false,
             persistence_write_disabled: true,
-            is_dark: false,
             active_view: ViewMode::default(),
             window_size: WindowSize::default(),
+            is_dark: false,
             config,
         };
         (state, root)

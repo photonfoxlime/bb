@@ -104,8 +104,8 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
                 for id in &removed_ids {
                     state.llm_requests.remove_block(*id);
                 }
-                if removed_ids.iter().any(|id| state.focused_block().is_some_and(|s| s.id == *id)) {
-                    state.clear_focused_block();
+                if removed_ids.iter().any(|id| state.focus().is_some_and(|s| s.block_id == *id)) {
+                    state.clear_focus();
                 }
                 for root_id in state.store.roots() {
                     state.editor_buffers.ensure_block(&state.store, root_id);

@@ -63,7 +63,7 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
     match msg {
         | FriendPanelMessage::Toggle(block_id) => {
             let current_state = state.store.panel_state(&block_id).copied();
-            if state.focused_block().is_some_and(|s| s.id == block_id) {
+            if state.focus().is_some_and(|s| s.block_id == block_id) {
                 match current_state {
                     | Some(PanelBarState::Friends) => {
                         state.store.set_panel_state(&block_id, None);
@@ -187,7 +187,7 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
 
 /// Render the friends panel for the focused block.
 pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
-    let block_id = match state.focused_block().map(|s| s.id) {
+    let block_id = match state.focus().map(|s| s.block_id) {
         | Some(id) => id,
         | None => return column![].into(),
     };

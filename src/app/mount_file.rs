@@ -1,4 +1,4 @@
-//! Mount and file I/O handler: file-backed block management and system theme.
+//! Mount and file I/O handler: file-backed block management.
 //!
 //! Please use or create constants in `theme.rs` for all UI numeric values
 //! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
@@ -7,7 +7,7 @@
 //! hardcode UI strings; add keys to the locale files instead.
 //!
 //! Handles expanding/collapsing mount points (blocks backed by external files),
-//! save-to-file and load-from-file dialogs, and system theme change detection.
+//! save-to-file and load-from-file dialogs.
 
 use super::editor_buffers::EditorBuffers;
 use super::error::{AppError, UiError};
@@ -15,7 +15,6 @@ use super::{AppState, Message};
 use crate::paths::AppPaths;
 use crate::store::{BlockId, MountFormat};
 use iced::Task;
-use iced::theme::Mode;
 use rust_i18n::t;
 
 /// Messages for mount, file I/O, and system theme operations.
@@ -27,7 +26,6 @@ pub enum MountFileMessage {
     SaveToFilePicked { block_id: BlockId, path: Option<std::path::PathBuf> },
     LoadFromFile(BlockId),
     LoadFromFilePicked { block_id: BlockId, path: Option<std::path::PathBuf> },
-    SystemThemeChanged(Mode),
 }
 
 /// Process one mount/file message and return a follow-up task (if any).
@@ -176,14 +174,6 @@ pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> 
                         }
                         true
                     });
-            }
-            Task::none()
-        }
-        | MountFileMessage::SystemThemeChanged(mode) => {
-            let dark = matches!(mode, Mode::Dark);
-            if state.is_dark != dark {
-                tracing::info!(is_dark = dark, "system theme changed");
-                state.is_dark = dark;
             }
             Task::none()
         }

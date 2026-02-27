@@ -24,11 +24,11 @@ pub fn handle(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
     match message {
         | OverlayMessage::ToggleOverflow(block_id) => {
             let is_currently_open =
-                state.focused_block().is_some_and(|s| s.id == block_id && s.action_bar_overflow);
+                state.focus().is_some_and(|s| s.block_id == block_id && s.overflow_open);
             if is_currently_open {
                 state.set_overflow_open(false);
             } else {
-                state.set_focused_block(block_id);
+                state.set_focus(block_id);
                 state.set_overflow_open(true);
             }
             Task::none()
