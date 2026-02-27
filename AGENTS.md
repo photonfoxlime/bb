@@ -81,7 +81,7 @@ Never hardcode UI strings; add keys to the locale files instead.
 
 ## Version Control
 
-This project uses jujutsu, which is compatible to git.
+This project uses jujutsu, which is compatible to git. Use mcp for jujutsu to operate.
 
 ### Commit Message Convention
 
