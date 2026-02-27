@@ -422,7 +422,8 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                         .size(theme::FRIEND_POINT_SIZE),
                 )
                 .style(theme::destructive_button)
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+                .padding(0)
                 .on_press(Message::Structure(
                     StructureMessage::RemoveFriendBlock { target, friend_id },
                 )),
