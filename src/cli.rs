@@ -53,9 +53,7 @@ use clap::{Parser, ValueEnum};
 
 /// Block ID type for CLI argument parsing.
 ///
-/// Accepts strings in the format `0x1a2b3c4d5e` (10 hex chars after 0x).
-/// In the actual implementation, this will parse the string and resolve
-/// against the store's slotmap.
+/// Parses the string and resolves it against the store's slotmap.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BlockId(pub String);
 
@@ -173,69 +171,23 @@ impl From<PanelBarStateCli> for StorePanelBarState {
 ///
 /// This CLI provides programmatic access to all block store operations including
 /// tree mutations, navigation, drafts, folds, friends, mounts, and panel state.
-///
-/// # Exit Codes
-///
-/// - `0`: Success
-/// - `1`: Usage error (invalid arguments)
-/// - `2`: Store error (block not found, invalid operation, I/O failure)
-/// - `3`: Internal error (assertion failure, panic)
-///
-/// # Environment
-///
-/// - `BLOCK_STORE_PATH`: Path to the block store file (default: `./blocks.json`)
-/// - `BLOCK_BASE_DIR`: Base directory for resolving relative mount paths
 #[derive(Debug, Parser)]
-#[command(name = "block")]
-#[command(version = "0.0.2")]
-#[command(about = "Block document store CLI", long_about = None)]
+#[command(name = "blooming-blockery", about, long_about = "")]
 pub struct BlockCli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 
     /// Path to the block store file.
-    ///
-    /// Defaults to `./blocks.json` in the current directory. The file is created
-    /// if it does not exist.
-    ///
-    /// # Example
-    /// ```bash
-    /// block --store /data/my-blocks.json roots
-    /// ```
+    /// Defaults to `./blocks.json` in the current directory.
     #[arg(long, global = true, value_name = "PATH")]
     pub store: Option<std::path::PathBuf>,
 
-    /// Base directory for resolving relative mount paths.
-    ///
-    /// Defaults to the directory containing the store file.
-    ///
-    /// # Example
-    /// ```bash
-    /// block --base-dir /projects/myapp mount expand 0x123 --base-dir /data
-    /// ```
-    #[arg(long, global = true, value_name = "DIR")]
-    pub base_dir: Option<std::path::PathBuf>,
-
     /// Enable verbose output.
-    ///
-    /// When present, commands print debug information including internal IDs,
-    /// operation timing, and detailed error context.
-    ///
-    /// # Example
-    /// ```bash
-    /// block -v tree add-child 0x123 "test"
-    /// block --verbose tree add-child 0x123 "test"
-    /// ```
     #[arg(short, long, global = true)]
     pub verbose: bool,
 
-    /// Output format for query commands.
-    ///
-    /// Affects commands that return structured data (show, find, list, context).
-    ///
-    /// - `json`: Machine-readable JSON output
-    /// - `table`: Human-readable table format (default)
-    /// - `plain`: Minimal text, one line per item
+    /// Output format for query commands that
+    /// return structured data (show, find, list, context).
     #[arg(long, global = true, value_name = "FORMAT", default_value = "table")]
     pub output: OutputFormat,
 }
@@ -244,18 +196,16 @@ pub struct BlockCli {
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub enum OutputFormat {
     /// JSON output for scripting.
-    json,
+    Json,
     /// Table format for human readability.
-    table,
-    /// Minimal plain text.
-    plain,
+    Table,
 }
 
 // ============================================================================
 // Command Groups
 // ============================================================================
 
-/// Available commands for block manipulation.
+/// Available commands.
 #[derive(Debug, Parser)]
 pub enum Commands {
     /// Launch the GUI (default).
@@ -288,151 +238,70 @@ pub enum Commands {
         shell: clap_complete::Shell,
     },
 
-    /// Query root block IDs.
+    /// Block store manipulation commands.
     ///
-    /// Returns all top-level blocks in the forest. The store always has at least
-    /// one root.
+    /// Query and modify the block document store directly.
     ///
     /// # Example
     /// ```bash
     /// block roots
-    /// # Output:
-    /// # [ "0x1a2b3c", "0x4d5e6f" ]
-    ///
-    /// block roots --output json
-    /// # Output:
-    /// # {"roots":["0x1a2b3c","0x4d5e6f"]}
+    /// block tree add-child 0x123 "New idea"
+    /// block find "query"
     /// ```
+    #[command(subcommand)]
+    Block(BlockCommands),
+}
+
+// ============================================================================
+// Block Commands Definition
+// ============================================================================
+
+/// Block store manipulation commands.
+///
+/// These commands provide direct access to the block store for scripting
+/// and automation.
+#[derive(Debug, Parser)]
+pub enum BlockCommands {
+    /// Query root block IDs.
+    ///
+    /// Returns all top-level blocks in the forest.
     Roots(RootCommand),
 
     /// Show detailed information about a block.
-    ///
-    /// Displays the block's text content, children, mount info, and metadata.
-    ///
-    /// # Errors
-    ///
-    /// - `UnknownBlock`: The provided ID does not exist in the store.
-    ///
-    /// # Example
-    /// ```bash
-    /// block show 0x1a2b3c
-    /// block show 0x1a2b3c --output json
-    /// ```
     Show(ShowCommand),
 
     /// Search blocks by text content.
-    ///
-    /// Performs a substring match across all block text content. Search is
-    /// case-insensitive.
-    ///
-    /// # Example
-    /// ```bash
-    /// block find "Notebook"
-    /// block find "design" --output json
-    /// ```
     Find(FindCommand),
 
-    /// Tree structure operations (add, move, delete, duplicate).
-    ///
-    /// Commands for modifying the block hierarchy.
-    ///
-    /// # Example
-    /// ```bash
-    /// block tree add-child 0x123 "New idea"
-    /// block tree move 0xsrc 0xtgt --after
-    /// block tree delete 0xleaf
-    /// ```
+    /// Tree structure operations.
     #[command(subcommand)]
     Tree(TreeCommands),
 
-    /// Navigation operations (DFS traversal respecting folds).
-    ///
-    /// Commands for traversing the visible block order.
-    ///
-    /// # Example
-    /// ```bash
-    /// block nav next 0x123
-    /// block nav prev 0x123
-    /// block nav lineage 0x123
-    /// ```
+    /// Navigation operations.
     #[command(subcommand)]
     Nav(NavCommands),
 
-    /// Draft operations (LLM in-progress suggestions).
-    ///
-    /// Commands for managing expansion, reduction, instruction, and inquiry drafts.
-    ///
-    /// # Example
-    /// ```bash
-    /// block draft expand 0x123 --rewrite "Refined" --children "a" "b"
-    /// block draft reduce 0x123 --reduction "Condensed"
-    /// block draft list 0x123
-    /// ```
+    /// Draft operations.
     #[command(subcommand)]
     Draft(DraftCommands),
 
-    /// Fold (collapse) state operations.
-    ///
-    /// Commands for toggling and querying block visibility.
-    ///
-    /// # Example
-    /// ```bash
-    /// block fold toggle 0x123
-    /// block fold status 0x123
-    /// ```
+    /// Fold state operations.
     #[command(subcommand)]
     Fold(FoldCommands),
 
     /// Friend block operations.
-    ///
-    /// Commands for managing related context blocks for LLM context building.
-    ///
-    /// # Example
-    /// ```bash
-    /// block friend add 0x123 0x456 --perspective "Related"
-    /// block friend list 0x123
-    /// block friend remove 0x123 0x456
-    /// ```
     #[command(subcommand)]
     Friend(FriendCommands),
 
-    /// Mount operations (external file integration).
-    ///
-    /// Commands for mounting external block store files.
-    ///
-    /// # Example
-    /// ```bash
-    /// block mount set 0x123 /path/to/file.json
-    /// block mount expand 0x123
-    /// block mount collapse 0x123
-    /// block mount extract 0x123 --output /backup.json
-    /// ```
+    /// Mount operations.
     #[command(subcommand)]
     Mount(MountCommands),
 
     /// Panel state operations.
-    ///
-    /// Commands for persisting UI panel visibility state.
-    ///
-    /// # Example
-    /// ```bash
-    /// block panel set 0x123 friends
-    /// block panel get 0x123
-    /// block panel clear 0x123
-    /// ```
     #[command(subcommand)]
     Panel(PanelCommands),
 
     /// Get LLM context for a block.
-    ///
-    /// Returns the full context envelope used by inquire/expand/reduce operations:
-    /// lineage, direct children, and friend blocks.
-    ///
-    /// # Example
-    /// ```bash
-    /// block context 0x123
-    /// block context 0x123 --output json
-    /// ```
     Context(ContextCommand),
 }
 
@@ -1557,4 +1426,321 @@ pub struct ContextCommand {
     /// - Friends: friend block info with perspectives
     #[arg(value_name = "BLOCK_ID")]
     pub block_id: BlockId,
+}
+
+// ============================================================================
+// BlockCommands Execution
+// ============================================================================
+
+impl BlockCommands {
+    /// Execute a block command with the given store.
+    ///
+    /// This method handles all block manipulation commands, operating on the
+    /// provided store and returning the modified store (or the same one if
+    /// no changes were made).
+    ///
+    /// # Arguments
+    ///
+    /// - `store`: The block store to operate on
+    /// - `base_dir`: Base directory for resolving relative mount paths
+    /// - `output`: Output format for query results
+    ///
+    /// # Returns
+    ///
+    /// Modified store (or original if no changes) and command result.
+    pub fn execute(
+        self,
+        mut store: crate::store::BlockStore,
+        base_dir: &std::path::Path,
+        output: OutputFormat,
+    ) -> (crate::store::BlockStore, CliResult) {
+        match self {
+            // Query commands - no store modification
+            BlockCommands::Roots(RootCommand {}) => {
+                let roots: Vec<String> = store
+                    .roots()
+                    .iter()
+                    .map(|id| format!("{:?}", id))
+                    .collect();
+                (store, CliResult::Roots(roots))
+            }
+            BlockCommands::Show(cmd) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(id) => {
+                        let text = store.point(&id).unwrap_or_default();
+                        let children: Vec<String> = store
+                            .children(&id)
+                            .iter()
+                            .map(|c| format!("{:?}", c))
+                            .collect();
+                        (store, CliResult::Show { id, text, children })
+                    }
+                }
+            }
+            BlockCommands::Find(cmd) => {
+                let matches: Vec<Match> = store
+                    .roots()
+                    .iter()
+                    .flat_map(|root| Self::find_in_subtree(&store, root, &cmd.query))
+                    .take(cmd.limit)
+                    .collect();
+                (store, CliResult::Find(matches))
+            }
+            // Tree commands
+            BlockCommands::Tree(TreeCommands::AddChild(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.parent_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown parent block ID".to_string())),
+                    Some(parent_id) => {
+                        let new_id = store.append_child(&parent_id, cmd.text.clone());
+                        match new_id {
+                            Some(new_id) => (store, CliResult::BlockId(new_id)),
+                            None => (store, CliResult::Error("Failed to add child (parent may be a mount)".to_string())),
+                        }
+                    }
+                }
+            }
+            BlockCommands::Tree(TreeCommands::AddSibling(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let new_id = store.append_sibling(&block_id, cmd.text.clone());
+                        match new_id {
+                            Some(new_id) => (store, CliResult::BlockId(new_id)),
+                            None => (store, CliResult::Error("Failed to add sibling".to_string())),
+                        }
+                    }
+                }
+            }
+            BlockCommands::Tree(TreeCommands::Wrap(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let new_id = store.insert_parent(&block_id, cmd.text.clone());
+                        match new_id {
+                            Some(new_id) => (store, CliResult::BlockId(new_id)),
+                            None => (store, CliResult::Error("Failed to wrap block".to_string())),
+                        }
+                    }
+                }
+            }
+            BlockCommands::Tree(TreeCommands::Duplicate(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let new_id = store.duplicate_subtree_after(&block_id);
+                        match new_id {
+                            Some(new_id) => (store, CliResult::BlockId(new_id)),
+                            None => (store, CliResult::Error("Failed to duplicate".to_string())),
+                        }
+                    }
+                }
+            }
+            BlockCommands::Tree(TreeCommands::Delete(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let removed = store.remove_block_subtree(&block_id);
+                        match removed {
+                            Some(ids) => {
+                                let ids_str: Vec<String> = ids.iter().map(|i| format!("{:?}", i)).collect();
+                                (store, CliResult::Removed(ids_str))
+                            }
+                            None => (store, CliResult::Error("Failed to delete".to_string())),
+                        }
+                    }
+                }
+            }
+            BlockCommands::Tree(TreeCommands::Move(cmd)) => {
+                let source = Self::resolve_block_id(&store, &cmd.source_id);
+                let target = Self::resolve_block_id(&store, &cmd.target_id);
+                match (source, target) {
+                    (Some(src), Some(tgt)) => {
+                        let dir = if cmd.before {
+                            crate::store::Direction::Before
+                        } else if cmd.after {
+                            crate::store::Direction::After
+                        } else {
+                            crate::store::Direction::Under
+                        };
+                        let result = store.move_block(&src, &tgt, dir);
+                        match result {
+                            Some(()) => (store, CliResult::Success),
+                            None => (store, CliResult::Error("Move failed (check constraints)".to_string())),
+                        }
+                    }
+                    _ => (store, CliResult::Error("Unknown source or target block ID".to_string())),
+                }
+            }
+            // Navigation commands
+            BlockCommands::Nav(NavCommands::Next(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let next = store.next_visible_in_dfs(&block_id);
+                        (store, CliResult::OptionalBlockId(next))
+                    }
+                }
+            }
+            BlockCommands::Nav(NavCommands::Prev(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let prev = store.prev_visible_in_dfs(&block_id);
+                        (store, CliResult::OptionalBlockId(prev))
+                    }
+                }
+            }
+            BlockCommands::Nav(NavCommands::Lineage(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let lineage = store.lineage_points_for_id(&block_id);
+                        let points: Vec<String> = lineage.points().map(String::from).collect();
+                        (store, CliResult::Lineage(points))
+                    }
+                }
+            }
+            // Draft commands (placeholder - would need more implementation)
+            BlockCommands::Draft(_) => (store, CliResult::Error("Draft commands not yet implemented".to_string())),
+            // Fold commands
+            BlockCommands::Fold(FoldCommands::Toggle(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let collapsed = store.toggle_collapsed(&block_id);
+                        (store, CliResult::Collapsed(collapsed))
+                    }
+                }
+            }
+            BlockCommands::Fold(FoldCommands::Status(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let collapsed = store.is_collapsed(&block_id);
+                        (store, CliResult::Collapsed(collapsed))
+                    }
+                }
+            }
+            // Friend commands (placeholder)
+            BlockCommands::Friend(_) => (store, CliResult::Error("Friend commands not yet implemented".to_string())),
+            // Mount commands (placeholder)
+            BlockCommands::Mount(_) => (store, CliResult::Error("Mount commands not yet implemented".to_string())),
+            // Panel commands (placeholder)
+            BlockCommands::Panel(_) => (store, CliResult::Error("Panel commands not yet implemented".to_string())),
+            // Context command
+            BlockCommands::Context(cmd) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let context = store.block_context_for_id(&block_id);
+                        let lineage: Vec<String> = context.lineage.points().map(String::from).collect();
+                        let children = context.existing_children;
+                        let friends = context.friend_blocks.len();
+                        (store, CliResult::Context { lineage, children, friends })
+                    }
+                }
+            }
+        }
+    }
+
+    /// Resolve a CLI BlockId to an actual store BlockId.
+    ///
+    /// This is a placeholder - in the real implementation, we'd need to
+    /// search the slotmap for the matching ID.
+    fn resolve_block_id(
+        store: &crate::store::BlockStore,
+        cli_id: &BlockId,
+    ) -> Option<crate::store::BlockId> {
+        // TODO: Implement proper ID resolution - for now, iterate and match
+        // This is inefficient but works for small stores
+        let cli_str = cli_id.0.strip_prefix("0x").unwrap_or(&cli_id.0);
+        for (id, _) in &store.nodes {
+            let id_str = format!("{:?}", id);
+            let id_str = id_str.strip_prefix("0x").unwrap_or(&id_str);
+            if id_str.eq_ignore_ascii_case(cli_str) {
+                return Some(id);
+            }
+        }
+        None
+    }
+
+    /// Find all blocks matching a query in their text content.
+    fn find_in_subtree(
+        store: &crate::store::BlockStore,
+        root: &crate::store::BlockId,
+        query: &str,
+    ) -> Vec<Match> {
+        let query_lower = query.to_lowercase();
+        let mut results = Vec::new();
+        Self::find_recursive(store, root, &query_lower, &mut results);
+        results
+    }
+
+    fn find_recursive(
+        store: &crate::store::BlockStore,
+        id: &crate::store::BlockId,
+        query: &str,
+        results: &mut Vec<Match>,
+    ) {
+        if let Some(text) = store.point(id) {
+            if text.to_lowercase().contains(query) {
+                results.push(Match {
+                    id: format!("{:?}", id),
+                    text,
+                });
+            }
+        }
+        for child in store.children(id) {
+            Self::find_recursive(store, child, query, results);
+        }
+    }
+}
+
+/// CLI command result.
+#[derive(Debug)]
+pub enum CliResult {
+    /// Command succeeded with no output.
+    Success,
+    /// Command failed with an error message.
+    Error(String),
+    /// List of root block IDs.
+    Roots(Vec<String>),
+    /// Show block details.
+    Show { id: crate::store::BlockId, text: String, children: Vec<String> },
+    /// Search results.
+    Find(Vec<Match>),
+    /// A single block ID (e.g., from create operations).
+    BlockId(crate::store::BlockId),
+    /// Optional block ID (e.g., from navigation).
+    OptionalBlockId(Option<crate::store::BlockId>),
+    /// Removed block IDs.
+    Removed(Vec<String>),
+    /// Collapsed state.
+    Collapsed(bool),
+    /// Lineage points.
+    Lineage(Vec<String>),
+    /// LLM context.
+    Context { lineage: Vec<String>, children: Vec<String>, friends: usize },
+}
+
+/// Search match result.
+#[derive(Debug, serde::Serialize)]
+pub struct Match {
+    /// Block ID.
+    pub id: String,
+    /// Block text content.
+    pub text: String,
 }
