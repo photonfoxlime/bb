@@ -13,30 +13,24 @@
 //! blocks flat in one tree, users can focus on a specific branch by navigating
 //! into it.
 //!
-//! # Design Decisions
+//! # Navigation Stack Design
 //!
-//! ## Stack-Based Navigation
+//! The navigation stack is initially **empty** at startup, representing the
+//! main document root view. When the user drills down into a block, a layer
+//! is pushed onto the stack.
 //!
-//! Navigation is modeled as a stack of [`NavigationLayer`]s. Each layer represents
-//! one level of drill-down, tracking:
+//! ## Stack States
+//!
+//! - **Empty stack**: Viewing the main document roots (default state)
+//! - **Non-empty stack**: Viewing the subtree of the top layer's block
+//!
+//! Each [`NavigationLayer`] tracks:
 //! - The block whose children are currently visible
 //! - The optional file path (for external documents or mount points)
-//!
-//! The stack approach was chosen over a tree or parent-pointer design because:
-//! - It naturally supports linear navigation (drill down, go back)
-//! - Breadcrumbs are trivial to render from the layer list
-//! - Undo/redo can snapshot the entire stack as a single value
-//!
-//! ## External File Integration
 //!
 //! External files (JSON format) are loaded into the main [`BlockStore`] via
 //! [`BlockStore::rekey_sub_store`], which assigns fresh block IDs to avoid
 //! collisions. The re-keyed blocks are then navigated to as a new layer.
-//!
-//! **Why merge instead of isolate?** Keeping all blocks in one store simplifies:
-//! - Editor buffer management (single source of truth)
-//! - Undo/redo (one store to snapshot)
-//! - Friend block relationships (can link across "documents")
 //!
 //! ## Path Tracking
 //!
@@ -53,7 +47,6 @@
 //!
 //! # Invariants
 //!
-//! - The navigation stack always has at least one layer (the root)
 //! - All block IDs in the stack must exist in the store
 //! - External file blocks are re-keyed to avoid ID collisions
 //! - Navigation state is part of the undo snapshot for consistency
@@ -154,9 +147,13 @@ pub struct NavigationLayer {
 /// represents drilling deeper into a block's subtree. The top layer
 /// (last element) is the current view.
 ///
+/// # Stack States
+///
+/// - **Empty**: Viewing the main document roots (default startup state)
+/// - **Non-empty**: Viewing the subtree of the top layer's block
+///
 /// # Invariants
 ///
-/// - Always contains at least one layer (the root)
 /// - All block IDs reference valid blocks in the store
 /// - External file paths are preserved for breadcrumb display
 ///
@@ -172,14 +169,6 @@ pub struct NavigationStack {
 }
 
 impl NavigationStack {
-    /// Start at main document root.
-    ///
-    /// Creates a new stack with a single layer pointing to the root block.
-    /// The root has no associated file path (`path = None`).
-    pub fn new_root(block_id: BlockId) -> Self {
-        Self { layers: vec![NavigationLayer { block_id, path: None }] }
-    }
-
     /// Push a new layer onto the stack.
     ///
     /// Called when navigating into a block's subtree. The new layer
@@ -210,6 +199,14 @@ impl NavigationStack {
         if depth < self.layers.len() {
             self.layers.truncate(depth + 1);
         }
+    }
+
+    /// Clear the navigation stack, returning to the root view.
+    ///
+    /// Removes all layers from the stack. When empty, the view shows
+    /// the main document roots.
+    pub fn clear(&mut self) {
+        self.layers.clear();
     }
 
     /// Get the current (top) layer.
@@ -277,10 +274,7 @@ pub fn handle(state: &mut AppState, message: NavigationMessage) -> Task<Message>
             Task::none()
         }
         | NavigationMessage::Home => {
-            state.navigation.pop_to(0);
-            if let Some(current_id) = state.navigation.current_block_id() {
-                state.editor_buffers.ensure_block(&state.store, &current_id);
-            }
+            state.navigation.clear();
             Task::none()
         }
         | NavigationMessage::OpenExternalDialog => {

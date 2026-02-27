@@ -237,7 +237,13 @@ impl<'a> DocumentView<'a> {
         .on_press(Message::Navigation(NavigationMessage::Home));
         crumbs = crumbs.push(home_btn);
 
-        // Separator
+        // At root, just show the home button
+        if layers.len() <= 1 {
+            return crumbs.into();
+        }
+
+        // Separator before breadcrumbs
+        // Separator before breadcrumbs
         crumbs = crumbs.push(text("›").style(theme::spine_text));
 
         // Each layer as a clickable breadcrumb
@@ -998,14 +1004,6 @@ fn centered_icon<'a>(icon: Element<'a, Message>) -> Element<'a, Message> {
 ///
 /// * `s` - The string to truncate
 /// * `max_chars` - Maximum number of characters (including ellipsis)
-///
-/// # Examples
-///
-/// ```
-/// assert_eq!(truncate_chars("hello", 10), "hello");
-/// assert_eq!(truncate_chars("hello world", 8), "hello...");
-/// assert_eq!(truncate_chars("こんにちは", 6), "こんに...");
-/// ```
 fn truncate_chars(s: &str, max_chars: usize) -> String {
     if s.chars().count() <= max_chars {
         s.to_string()

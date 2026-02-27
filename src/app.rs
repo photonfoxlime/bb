@@ -166,7 +166,6 @@ impl AppState {
         tracing::info!(is_dark, "detected system appearance");
         let config = crate::app::config::load();
         let settings = SettingsState::from_providers(&providers, &config);
-        let first_root = *store.roots().first().expect("store has at least one root");
         Self {
             store,
             undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
@@ -187,7 +186,7 @@ impl AppState {
             window_size: WindowSize::default(),
             is_dark,
             config,
-            navigation: NavigationStack::new_root(first_root),
+            navigation: NavigationStack::default(),
         }
     }
 
@@ -772,7 +771,7 @@ impl AppState {
             window_size: WindowSize::default(),
             is_dark: false,
             config,
-            navigation: NavigationStack::new_root(root),
+            navigation: NavigationStack::default(),
         };
         (state, root)
     }
