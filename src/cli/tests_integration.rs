@@ -1630,22 +1630,22 @@ fn rapid_sequential_operations() {
 #[test]
 fn mount_set_on_leaf_succeeds() {
     use crate::cli::mount::{MountCommands, SetMountCommand};
-    
+
     let tmp = tempfile::tempdir().unwrap();
     let store = BlockStore::default();
     let root_id = store.roots()[0];
-    
+
     // Set mount on leaf (root has no children by default after we check)
     let external_path = tmp.path().join("external.json");
     std::fs::write(&external_path, "{}").unwrap();
-    
+
     let cmd = BlockCommands::Mount(MountCommands::Set(SetMountCommand {
         block_id: BlockId(fmt(root_id)),
         path: external_path,
         format: crate::cli::MountFormatCli(crate::store::MountFormat::Json),
     }));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
-    
+
     // May succeed or fail depending on default store structure
     assert!(matches!(result, CliResult::Success | CliResult::Error(_)));
 }
@@ -1653,22 +1653,22 @@ fn mount_set_on_leaf_succeeds() {
 #[test]
 fn mount_set_fails_when_block_has_children() {
     use crate::cli::mount::{MountCommands, SetMountCommand};
-    
+
     let tmp = tempfile::tempdir().unwrap();
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     store.append_child(&root_id, "child".to_string());
-    
+
     let external_path = tmp.path().join("external.json");
     std::fs::write(&external_path, "{}").unwrap();
-    
+
     let cmd = BlockCommands::Mount(MountCommands::Set(SetMountCommand {
         block_id: BlockId(fmt(root_id)),
         path: external_path,
         format: crate::cli::MountFormatCli(crate::store::MountFormat::Json),
     }));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
-    
+
     // Should fail because block has children
     assert!(matches!(result, CliResult::Error(_)));
 }
@@ -1676,37 +1676,37 @@ fn mount_set_fails_when_block_has_children() {
 #[test]
 fn mount_collapse_on_non_mount_fails() {
     use crate::cli::mount::{CollapseMountCommand, MountCommands};
-    
+
     let store = BlockStore::default();
     let root_id = store.roots()[0];
-    
+
     let cmd = BlockCommands::Mount(MountCommands::Collapse(CollapseMountCommand {
         block_id: BlockId(fmt(root_id)),
     }));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
-    
+
     assert!(matches!(result, CliResult::Error(_)));
 }
 
 #[test]
 fn mount_extract_creates_file() {
     use crate::cli::mount::{ExtractMountCommand, MountCommands};
-    
+
     let tmp = tempfile::tempdir().unwrap();
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let c1 = store.append_child(&root_id, "child1".to_string()).unwrap();
     store.append_child(&c1, "grandchild".to_string());
-    
+
     let output_path = tmp.path().join("extracted.json");
-    
+
     let cmd = BlockCommands::Mount(MountCommands::Extract(ExtractMountCommand {
         block_id: BlockId(fmt(root_id)),
         output: output_path.clone(),
         format: None,
     }));
     let (_store, result) = cmd.execute(store, &tmp.path());
-    
+
     assert!(matches!(result, CliResult::Success));
     assert!(output_path.exists());
 }
