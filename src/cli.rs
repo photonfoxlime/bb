@@ -53,13 +53,15 @@ pub mod fold;
 pub mod friend;
 pub mod mount;
 pub mod nav;
+pub mod output;
 pub mod panel;
 pub mod query;
 pub mod results;
 pub mod tree;
 
 pub use commands::{BlockCli, BlockCommands, Commands};
-pub use results::{CliResult, ExpansionDraftInfo, FriendInfo, Match, ReductionDraftInfo};
+pub use output::print_result;
+pub use results::CliResult;
 
 // ============================================================================
 // CLI Custom Types
