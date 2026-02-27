@@ -119,6 +119,17 @@ slotmap::new_key_type! {
     pub struct BlockId;
 }
 
+/// Specifies the direction for moving a block relative to a target block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Direction {
+    /// Move the source block to immediately before the target.
+    Before,
+    /// Move the source block to immediately after the target.
+    After,
+    /// Move the source block to be the last child of the target.
+    Under,
+}
+
 /// Persisted panel bar state: which panel (if any) is open for a block.
 ///
 /// This is stored per-block so each block remembers its own panel state
@@ -321,6 +332,19 @@ impl BlockStore {
     /// - `None` if the id is unknown.
     pub fn node(&self, id: &BlockId) -> Option<&BlockNode> {
         self.nodes.get(*id)
+    }
+
+    /// Return the parent of a block, if any.
+    pub fn parent(&self, child: &BlockId) -> Option<BlockId> {
+        if self.roots.contains(child) {
+            return None;
+        }
+        for (parent_id, node) in &self.nodes {
+            if node.children().contains(child) {
+                return Some(parent_id);
+            }
+        }
+        None
     }
 
     /// Return the children of a block, or an empty slice if unknown or a mount.

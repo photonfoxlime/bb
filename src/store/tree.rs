@@ -4,9 +4,7 @@
 //! forest.  Also contains internal helpers for collecting subtree ids and
 //! walking the parent chain (lineage).
 
-use super::mount::BlockOrigin;
-
-use super::{BlockId, BlockNode, BlockStore};
+use super::{BlockId, BlockNode, BlockStore, Direction, mount::BlockOrigin};
 
 impl BlockStore {
     /// Add one child block under the parent and return the new child id.
@@ -165,6 +163,85 @@ impl BlockStore {
         }
 
         Some(removed_ids)
+    }
+
+    /// Move a block to before, after, or under a target block.
+    ///
+    /// # Requires
+    /// - `source_id` and `target_id` must both exist in the store.
+    /// - `source_id` must not equal `target_id`.
+    /// - `source_id` must not be an ancestor of `target_id` (cannot move parent into its own child).
+    /// - For `Direction::Under`, the target must not be a mount node.
+    ///
+    /// # Ensures
+    /// - Returns `Some(())` on success.
+    /// - The source block (and its subtree) is repositioned relative to the target.
+    pub fn move_block(
+        &mut self, source_id: &BlockId, target_id: &BlockId, dir: Direction,
+    ) -> Option<()> {
+        if source_id == target_id {
+            return None;
+        }
+
+        // Check that source is not an ancestor of target
+        if self.is_ancestor(source_id, target_id) {
+            return None;
+        }
+
+        // Find and remove source from its current position
+        let (source_parent_id, source_index) = self.parent_and_index_of(source_id)?;
+        if let Some(parent_id) = source_parent_id {
+            let parent = self.nodes.get_mut(parent_id)?;
+            if let Some(children) = parent.children_mut() {
+                children.remove(source_index);
+            }
+        } else {
+            self.roots.remove(source_index);
+        }
+
+        match dir {
+            | Direction::Before | Direction::After => {
+                // Find target position and insert source
+                let (target_parent_id, target_index) = self.parent_and_index_of(target_id)?;
+
+                // Adjust insertion index: if moving Before, insert at target_index; if After, insert at target_index + 1
+                let insert_index = match dir {
+                    | Direction::Before => target_index,
+                    | Direction::After => target_index + 1,
+                    | Direction::Under => unreachable!(),
+                };
+
+                if let Some(parent_id) = target_parent_id {
+                    let parent = self.nodes.get_mut(parent_id)?;
+                    if let Some(children) = parent.children_mut() {
+                        children.insert(insert_index, *source_id);
+                    }
+                } else {
+                    self.roots.insert(insert_index, *source_id);
+                }
+            }
+            | Direction::Under => {
+                // Add source as the last child of target
+                let target_node = self.nodes.get_mut(*target_id)?;
+                let children = target_node.children_mut()?;
+                children.push(*source_id);
+            }
+        }
+
+        Some(())
+    }
+
+    /// Check if `ancestor` is an ancestor of `descendant` in the block tree.
+    /// Searches bottom-up by walking from `descendant` to its parent chain.
+    fn is_ancestor(&self, ancestor: &BlockId, descendant: &BlockId) -> bool {
+        let mut current = Some(*descendant);
+        while let Some(id) = current {
+            if id == *ancestor {
+                return true;
+            }
+            current = self.parent(&id);
+        }
+        false
     }
 
     /// Find the parent id and position index of a block.
