@@ -124,16 +124,16 @@ fn print_show(id: store::BlockId, text: &str, children: &[String], output: Outpu
             println!(
                 "{}",
                 serde_json::json!({
-                    "id": format!("{:?}", id),
+                    "id": format!("{}", id),
                     "text": text,
                     "children": children
                 })
             );
         }
         | OutputFormat::Table => {
-            println!("ID:       {:?}", id);
+            println!("ID:       {}", id);
             println!("Text:     {}", text);
-            println!("Children: {:?}", children);
+            println!("Children: {}", children.join(", "));
         }
     }
 }
@@ -184,7 +184,7 @@ fn print_context(lineage: &[String], children: &[String], friends: usize, output
             for p in lineage {
                 println!("  - {}", p);
             }
-            println!("Children: {:?}", children);
+            println!("Children: {}", children.join(", "));
             println!("Friends: {}", friends);
         }
     }
@@ -214,14 +214,14 @@ fn print_draft_list(
                     println!("  Rewrite: {}", r);
                 }
                 if !e.children.is_empty() {
-                    println!("  Children: {:?}", e.children);
+                    println!("  Children: {}", e.children.join(", "));
                 }
             }
             if let Some(r) = reduction {
                 println!("Reduction draft:");
                 println!("  Reduction: {}", r.reduction);
                 if !r.redundant_children.is_empty() {
-                    println!("  Redundant children: {:?}", r.redundant_children);
+                    println!("  Redundant children: {}", r.redundant_children.join(", "));
                 }
             }
             if let Some(i) = instruction {
@@ -306,10 +306,10 @@ fn print_panel_state(state: Option<&str>, output: OutputFormat) {
 fn print_block_id(id: store::BlockId, output: OutputFormat) {
     match output {
         | OutputFormat::Json => {
-            println!("{}", serde_json::json!({ "id": format!("{:?}", id) }));
+            println!("{}", serde_json::json!({ "id": format!("{}", id) }));
         }
         | OutputFormat::Table => {
-            println!("{:?}", id);
+            println!("{}", id);
         }
     }
 }
@@ -318,11 +318,11 @@ fn print_block_id(id: store::BlockId, output: OutputFormat) {
 fn print_optional_block_id(id: Option<&store::BlockId>, output: OutputFormat) {
     match output {
         | OutputFormat::Json => {
-            println!("{}", serde_json::json!({ "id": id.map(|i| format!("{:?}", i)) }));
+            println!("{}", serde_json::json!({ "id": id.map(|i| format!("{}", i)) }));
         }
         | OutputFormat::Table => {
             if let Some(id) = id {
-                println!("{:?}", id);
+                println!("{}", id);
             }
         }
     }

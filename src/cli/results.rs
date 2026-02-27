@@ -132,7 +132,7 @@ pub struct ReductionDraftInfo {
 /// and full point text.
 #[derive(Debug, serde::Serialize)]
 pub struct Match {
-    /// Block ID in hex format (e.g., "1v1b3c4d5e").
+    /// Block ID in NvG format (e.g., "1v14d5e").
     pub id: String,
     /// Full point text content of the block.
     pub text: String,
@@ -144,7 +144,7 @@ pub struct Match {
 /// including telescope settings for context expansion.
 #[derive(Debug, serde::Serialize)]
 pub struct FriendInfo {
-    /// Friend block ID in hex format.
+    /// Friend block ID in NvG format.
     pub id: String,
     /// Perspective text (optional annotation for the link).
     pub perspective: Option<String>,

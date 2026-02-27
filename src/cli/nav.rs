@@ -21,8 +21,8 @@ pub enum NavCommands {
     ///
     /// # Example
     /// ```bash
-    /// block nav next 1v1b3c
-    /// # Output: 1v1e6f
+    /// block nav next 1v1
+    /// # Output: 2v1
     /// ```
     Next(NextCommand),
 
@@ -41,8 +41,8 @@ pub enum NavCommands {
     ///
     /// # Example
     /// ```bash
-    /// block nav prev 1v1e6f
-    /// # Output: 1v1b3c
+    /// block nav prev 2v1
+    /// # Output: 1v1
     /// ```
     Prev(PrevCommand),
 

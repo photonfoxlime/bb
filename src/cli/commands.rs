@@ -36,7 +36,7 @@
 //! block --output json roots
 //!
 //! # Tree operations
-//! block tree add-child 1v1b3c "New idea"
+//! block tree add-child 1v1 "New idea"
 //! block tree move 1v1 2v1 --after
 //!
 //! # Draft management

@@ -63,7 +63,7 @@ impl BlockCommands {
     ///
     // # Design Notes
     ///
-    // - Block ID resolution is case-insensitive for hex digits
+    // - Block ID resolution is case-insensitive for format
     // - All operations validate block existence before proceeding
     // - Mount operations use `base_dir` to resolve relative paths
     pub fn execute(
@@ -87,7 +87,7 @@ impl BlockCommands {
                     | Some(id) => {
                         let text = store.point(&id).unwrap_or_default();
                         let children: Vec<String> =
-                            store.children(&id).iter().map(|c| format!("{:?}", c)).collect();
+                            store.children(&id).iter().map(|c| format!("{}", c)).collect();
                         (store, CliResult::Show { id, text, children })
                     }
                 }
@@ -435,7 +435,7 @@ impl BlockCommands {
                             .friend_blocks_for(&tid)
                             .iter()
                             .map(|f| FriendInfo {
-                                id: format!("{:?}", f.block_id),
+                                id: format!("{}", f.block_id),
                                 perspective: f.perspective.clone(),
                                 telescope_lineage: f.parent_lineage_telescope,
                                 telescope_children: f.children_telescope,

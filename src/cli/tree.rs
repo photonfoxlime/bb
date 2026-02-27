@@ -27,7 +27,7 @@ pub enum TreeCommands {
     ///
     /// # Example
     /// ```bash
-    /// block tree add-child 1v1b3c "My new idea"
+    /// block tree add-child 1v1 "My new idea"
     /// # Returns: 2v1
     /// ```
     AddChild(AddChildCommand),
@@ -52,7 +52,7 @@ pub enum TreeCommands {
     ///
     /// # Example
     /// ```bash
-    /// block tree add-sibling 1v1b3c "Next sibling"
+    /// block tree add-sibling 1v1 "Next sibling"
     /// # Returns: 3v1
     /// ```
     AddSibling(AddSiblingCommand),
@@ -77,10 +77,10 @@ pub enum TreeCommands {
     ///
     /// # Example
     /// ```bash
-    /// block tree wrap 1v1b3c "New parent section"
+    /// block tree wrap 1v1 "New parent section"
     /// # Returns: 4v1
-    /// # Before: root -> [1v1b3c]
-    /// # After:  root -> [4v1] -> [1v1b3c]
+    /// # Before: root -> [1v1]
+    /// # After:  root -> [4v1] -> [1v1]
     /// ```
     Wrap(WrapCommand),
 
@@ -103,7 +103,7 @@ pub enum TreeCommands {
     ///
     /// # Example
     /// ```bash
-    /// block tree duplicate 1v1b3c
+    /// block tree duplicate 1v1
     /// # Returns: 5v1
     /// ```
     Duplicate(DuplicateCommand),
@@ -131,8 +131,8 @@ pub enum TreeCommands {
     ///
     /// # Example
     /// ```bash
-    /// block tree delete 1v1b3c
-    /// # Returns: {"removed":["1v1b3c","1v1e6f","7v1"]}
+    /// block tree delete 1v1
+    /// # Returns: {"removed":["1v1","2v1","7v1"]}
     /// ```
     Delete(DeleteCommand),
 
