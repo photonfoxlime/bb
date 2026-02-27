@@ -57,7 +57,7 @@ pub enum ReduceMessage {
 pub fn handle(state: &mut AppState, message: ReduceMessage) -> Task<Message> {
     match message {
         | ReduceMessage::Start(block_id) => {
-            state.overflow_open_for = None;
+            state.set_overflow_open(false);
             if state.llm_requests.is_reducing(block_id) {
                 return Task::none();
             }

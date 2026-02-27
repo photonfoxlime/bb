@@ -60,16 +60,6 @@ use std::time::Duration;
 
 pub use config::AppConfig;
 
-/// Document interaction mode: normal editing vs picking a friend block.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum DocumentMode {
-    /// Normal block editing mode.
-    #[default]
-    Normal,
-    /// Picking a friend block to add to the focused block.
-    PickFriend,
-}
-
 /// Default capacity: 64 undo steps.
 const UNDO_CAPACITY: usize = 64;
 const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
@@ -109,16 +99,12 @@ pub struct AppState {
     /// `AppState::load()` initializes this to `false`; tests explicitly set it
     /// to `true` in `test_state` to avoid touching on-disk `blocks.json`.
     persistence_write_disabled: bool,
-    /// Block currently holding open the overflow menu.
-    overflow_open_for: Option<BlockId>,
+    /// State for the currently focused block: its id and overflow menu state.
+    focused_block: Option<FocusedBlockState>,
     /// (target_block_id, friend_block_id) of friend perspective currently being edited inline.
     editing_friend_perspective: Option<(BlockId, BlockId)>,
     /// Current text input value when editing friend perspective.
     editing_friend_perspective_input: Option<String>,
-    /// Block whose point editor currently has keyboard focus.
-    ///
-    /// Panel bar state is derived from this via [`BlockStore::panel_state`].
-    focused_block_id: Option<BlockId>,
     /// Block currently coalescing point edits into a single undo entry.
     editing_block_id: Option<BlockId>,
     /// Current document interaction mode (normal vs picking a friend).
@@ -176,10 +162,9 @@ impl AppState {
             editor_buffers,
             persistence_blocked,
             persistence_write_disabled: false,
-            overflow_open_for: None,
+            focused_block: None,
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,
-            focused_block_id: None,
             editing_block_id: None,
             document_mode: DocumentMode::default(),
 
@@ -297,9 +282,31 @@ impl AppState {
         }
     }
 
-    /// Resolve shortcut target priority: focused editor, then first root.
-    fn current_block_for_shortcuts(&self) -> Option<BlockId> {
-        self.focused_block_id.or_else(|| self.store.roots().first().copied())
+    /// Get the currently focused block state.
+    fn focused_block(&self) -> Option<FocusedBlockState> {
+        self.focused_block
+    }
+
+    /// Set the focused block.
+    fn set_focused_block(&mut self, block_id: BlockId) {
+        if let Some(state) = &mut self.focused_block {
+            state.id = block_id;
+        } else {
+            self.focused_block =
+                Some(FocusedBlockState { id: block_id, action_bar_overflow: false });
+        }
+    }
+
+    /// Clear the focused block.
+    fn clear_focused_block(&mut self) {
+        self.focused_block = None;
+    }
+
+    /// Set the overflow menu open/closed for the focused block.
+    fn set_overflow_open(&mut self, open: bool) {
+        if let Some(state) = &mut self.focused_block {
+            state.action_bar_overflow = open;
+        }
     }
 
     /// Snapshot the current store into undo history before a mutation.
@@ -322,7 +329,7 @@ impl AppState {
         self.editor_buffers = EditorBuffers::from_store(&snapshot.store);
         self.store = snapshot.store;
         self.llm_requests.clear();
-        self.focused_block_id = None;
+        self.clear_focused_block();
         self.editing_block_id = None;
 
         self.persist_with_context("after undo/redo");
@@ -452,6 +459,16 @@ impl AppState {
     }
 }
 
+/// Document interaction mode: normal editing vs picking a friend block.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum DocumentMode {
+    /// Normal block editing mode.
+    #[default]
+    Normal,
+    /// Picking a friend block to add to the focused block.
+    PickFriend,
+}
+
 /// Which top-level screen is active.
 ///
 /// The document view is the default; settings is reached via a gear icon button
@@ -471,6 +488,15 @@ pub struct WindowSize {
     pub width: f32,
     #[allow(dead_code)]
     pub height: f32,
+}
+
+/// State for a focused block: its id and overflow menu state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FocusedBlockState {
+    /// The block that is currently focused.
+    pub id: BlockId,
+    /// Whether the action bar overflow menu is open for this block.
+    pub action_bar_overflow: bool,
 }
 
 /// Snapshot of undoable application state.
@@ -540,7 +566,7 @@ mod edit {
         if state.document_mode == DocumentMode::PickFriend {
             return Task::none();
         }
-        state.focused_block_id = Some(block_id);
+        state.set_focused_block(block_id);
         if state.editing_block_id.as_ref() != Some(&block_id) {
             state.snapshot_for_undo();
             state.editing_block_id = Some(block_id);
@@ -581,8 +607,8 @@ mod edit {
         {
             // Only change focus in Normal mode
             if state.document_mode == DocumentMode::Normal {
-                state.focused_block_id = Some(target_id);
                 let wid_clone = wid.clone();
+                state.set_focused_block(target_id);
                 tracing::debug!(
                     from = ?block_id,
                     to = ?target_id,
@@ -608,7 +634,7 @@ mod shortcut {
     pub fn handle(state: &mut AppState, message: ShortcutMessage) -> Task<Message> {
         match message {
             | ShortcutMessage::Trigger(action_id) => {
-                let Some(block_id) = state.current_block_for_shortcuts() else {
+                let Some(block_id) = state.focused_block().map(|s| s.id) else {
                     return Task::none();
                 };
                 run_shortcut_for_block(state, block_id, action_id)
@@ -616,7 +642,7 @@ mod shortcut {
             | ShortcutMessage::ForBlock { block_id, action_id } => {
                 // Don't change focus in PickFriend mode
                 if state.document_mode != DocumentMode::PickFriend {
-                    state.focused_block_id = Some(block_id);
+                    state.set_focused_block(block_id);
                 }
                 run_shortcut_for_block(state, block_id, action_id)
             }
@@ -684,10 +710,9 @@ impl AppState {
             providers,
             errors: vec![],
             llm_requests: LlmRequests::new(),
-            overflow_open_for: None,
+            focused_block: None,
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,
-            focused_block_id: None,
             editing_block_id: None,
             document_mode: DocumentMode::default(),
             persistence_blocked: false,

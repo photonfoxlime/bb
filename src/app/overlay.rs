@@ -23,10 +23,13 @@ pub enum OverlayMessage {
 pub fn handle(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
     match message {
         | OverlayMessage::ToggleOverflow(block_id) => {
-            if state.overflow_open_for == Some(block_id) {
-                state.overflow_open_for = None;
+            let is_currently_open =
+                state.focused_block().is_some_and(|s| s.id == block_id && s.action_bar_overflow);
+            if is_currently_open {
+                state.set_overflow_open(false);
             } else {
-                state.overflow_open_for = Some(block_id);
+                state.set_focused_block(block_id);
+                state.set_overflow_open(true);
             }
             Task::none()
         }

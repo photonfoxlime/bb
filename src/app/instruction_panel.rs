@@ -313,7 +313,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
     use iced::widget::{column, row};
 
     // Get the focused block and check if instruction panel is open
-    let block_id = match state.focused_block_id {
+    let block_id = match state.focused_block().map(|s| s.id) {
         | Some(id) if matches!(state.store.panel_state(&id), Some(PanelBarState::Instruction)) => {
             id
         }
@@ -456,7 +456,7 @@ mod tests {
     #[test]
     fn instruction_toggle_opens_panel_without_clearing_input() {
         let (mut state, root) = test_state();
-        state.focused_block_id = Some(root);
+        state.set_focused_block(root);
         state.editor_buffers.set_instruction_text("keep this instruction");
         state.store.set_instruction_draft(root, "keep this instruction".to_string());
 
@@ -472,7 +472,7 @@ mod tests {
     #[test]
     fn instruction_toggle_opens_panel_with_persisted_drafts() {
         let (mut state, root) = test_state();
-        state.focused_block_id = Some(root);
+        state.set_focused_block(root);
         state.store.set_instruction_draft(root, "persisted instruction".to_string());
         state.store.set_inquiry_draft(root, "persisted inquiry".to_string());
 
@@ -492,7 +492,7 @@ mod tests {
     #[test]
     fn instruction_toggle_closes_panel_and_preserves_draft_state() {
         let (mut state, root) = test_state();
-        state.focused_block_id = Some(root);
+        state.set_focused_block(root);
         state.store.set_panel_state(&root, Some(PanelBarState::Instruction));
         state.store.set_instruction_draft(root, "prompt".to_string());
         state.store.set_inquiry_draft(root, "result".to_string());
@@ -525,7 +525,7 @@ mod tests {
             .expect("append sibling succeeds");
         state.store.update_point(&root, "root text".to_string());
         state.editor_buffers.set_text(&root, "root text");
-        state.focused_block_id = Some(sibling);
+        state.set_focused_block(sibling);
         // Put inquiry draft in store instead of instruction_panel
         state.store.set_inquiry_draft(sibling, "inquiry response".to_string());
 
@@ -551,7 +551,7 @@ mod tests {
             .append_sibling(&root, "sibling text".to_string())
             .expect("append sibling succeeds");
         let before_len = state.store.children(&sibling).len();
-        state.focused_block_id = Some(sibling);
+        state.set_focused_block(sibling);
         // Put inquiry draft in store instead of instruction_panel
         state.store.set_inquiry_draft(sibling, "child from inquiry".to_string());
 
@@ -574,7 +574,7 @@ mod tests {
     #[test]
     fn inquire_submission_consumes_instruction_editor_text() {
         let (mut state, root) = test_state();
-        state.focused_block_id = Some(root);
+        state.set_focused_block(root);
         state.editor_buffers.set_instruction_text("ask this");
         state.store.set_instruction_draft(root, "ask this".to_string());
 
@@ -612,7 +612,7 @@ mod tests {
     #[test]
     fn expand_with_instruction_consumes_persisted_instruction_draft() {
         let (mut state, root) = test_state();
-        state.focused_block_id = Some(root);
+        state.set_focused_block(root);
         state.store.set_instruction_draft(root, "expand this".to_string());
         state.editor_buffers.set_instruction_text("expand this");
 
@@ -627,7 +627,7 @@ mod tests {
     #[test]
     fn dismiss_clears_persisted_inquiry_draft() {
         let (mut state, root) = test_state();
-        state.focused_block_id = Some(root);
+        state.set_focused_block(root);
         state.store.set_inquiry_draft(root, "draft".to_string());
 
         let _ = AppState::update(

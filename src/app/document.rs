@@ -273,7 +273,7 @@ impl<'a> TreeView<'a> {
                 .into()
         };
 
-        let is_focused = self.state.focused_block_id == Some(*block_id);
+        let is_focused = self.state.focused_block().map_or(false, |s| s.id == *block_id);
 
         // Only render action bar when block is focused
         let action_buttons: Element<'a, Message> = if is_focused {
@@ -364,7 +364,7 @@ impl<'a> TreeView<'a> {
             }
         }
 
-        match (self.state.document_mode, self.state.focused_block_id) {
+        match (self.state.document_mode, self.state.focused_block().map(|s| s.id)) {
             | (DocumentMode::Normal, Some(focused)) if focused == *block_id => {
                 // Render the block as the focused block
                 container(block).style(theme::focused_block).into()
@@ -737,7 +737,8 @@ impl<'a> TreeView<'a> {
     }
 
     fn render_action_buttons(&self, block_id: &BlockId, vm: &ActionBarVm) -> Element<'a, Message> {
-        let is_overflow_open = self.state.overflow_open_for.as_ref() == Some(block_id);
+        let is_overflow_open =
+            self.state.focused_block().is_some_and(|s| s.id == *block_id && s.action_bar_overflow);
         let mut actions_row = row![].spacing(theme::ACTION_GAP);
 
         // Always show primary actions

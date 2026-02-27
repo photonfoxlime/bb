@@ -45,7 +45,7 @@ pub enum StructureMessage {
 pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> {
     match message {
         | StructureMessage::AddChild(block_id) => {
-            state.overflow_open_for = None;
+            state.set_overflow_open(false);
             state.mutate_with_undo_and_persist("after adding child", |state| {
                     if let Some(child_id) = state.store.append_child(&block_id, String::new()) {
                         tracing::info!(parent_block_id = ?block_id, child_block_id = ?child_id, "added child block");
@@ -65,7 +65,7 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
                         "added parent block"
                     );
                     state.editor_buffers.set_text(&parent_id, "");
-                    state.overflow_open_for = None;
+                    state.set_overflow_open(false);
                     return true;
                 }
                 false
@@ -77,7 +77,7 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
                     if let Some(sibling_id) = state.store.append_sibling(&block_id, String::new()) {
                         tracing::info!(block_id = ?block_id, sibling_block_id = ?sibling_id, "added sibling block");
                         state.editor_buffers.set_text(&sibling_id, "");
-                        state.overflow_open_for = None;
+                        state.set_overflow_open(false);
                         return true;
                     }
                     false
@@ -89,7 +89,7 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
                     if let Some(duplicate_id) = state.store.duplicate_subtree_after(&block_id) {
                         tracing::info!(block_id = ?block_id, duplicate_block_id = ?duplicate_id, "duplicated block subtree");
                         state.editor_buffers.ensure_subtree(&state.store, &duplicate_id);
-                        state.overflow_open_for = None;
+                        state.set_overflow_open(false);
                         return true;
                     }
                     false
@@ -104,13 +104,13 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
                 for id in &removed_ids {
                     state.llm_requests.remove_block(*id);
                 }
-                if removed_ids.iter().any(|id| Some(*id) == state.focused_block_id) {
-                    state.focused_block_id = None;
+                if removed_ids.iter().any(|id| state.focused_block().is_some_and(|s| s.id == *id)) {
+                    state.clear_focused_block();
                 }
                 for root_id in state.store.roots() {
                     state.editor_buffers.ensure_block(&state.store, root_id);
                 }
-                state.overflow_open_for = None;
+                state.set_overflow_open(false);
                 state.persist_with_context("after archiving subtree");
             }
             Task::none()
@@ -121,7 +121,7 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
             Task::none()
         }
         | StructureMessage::AddFriendBlock { target, friend_id } => {
-            state.overflow_open_for = None;
+            state.set_overflow_open(false);
             // Need to check document_mode before mutation since it happens inside the closure
             let was_pick_friend = state.document_mode == DocumentMode::PickFriend;
             state.mutate_with_undo_and_persist("after adding friend block", |state| {

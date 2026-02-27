@@ -65,7 +65,7 @@ pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> 
             Task::none()
         }
         | MountFileMessage::SaveToFile(block_id) => {
-            state.overflow_open_for = None;
+            state.set_overflow_open(false);
             let title = t!("save_block_to_file").to_string();
             Task::perform(
                 async move {
@@ -118,7 +118,7 @@ pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> 
             Task::none()
         }
         | MountFileMessage::LoadFromFile(block_id) => {
-            state.overflow_open_for = None;
+            state.set_overflow_open(false);
             let title = t!("load_block_from_file").to_string();
             Task::perform(
                 async move {
