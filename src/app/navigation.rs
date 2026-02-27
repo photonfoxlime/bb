@@ -10,6 +10,7 @@
 //! from the main document or external files. Each layer remembers the block id
 //! and optionally the file path for breadcrumb display.
 
+use crate::app::error::{AppError, UiError};
 use crate::app::{AppState, Message};
 use crate::store::{BlockId, BlockStore};
 use iced::Task;
@@ -22,8 +23,6 @@ pub enum NavigationMessage {
     Enter(BlockId),
     /// Jump to a specific breadcrumb depth.
     GoTo(usize),
-    /// Pop one layer (back button).
-    Back,
     /// Pop to root.
     Home,
     /// Open an external file dialog.
@@ -82,11 +81,6 @@ impl NavigationStack {
         &self.layers
     }
 
-    /// Check if at root (only one layer).
-    pub fn is_root(&self) -> bool {
-        self.layers.len() <= 1
-    }
-
     /// Get the current block id.
     pub fn current_block_id(&self) -> Option<BlockId> {
         self.current().map(|l| l.block_id)
@@ -113,14 +107,6 @@ pub fn handle(state: &mut AppState, message: NavigationMessage) -> Task<Message>
         | NavigationMessage::GoTo(depth) => {
             state.navigation.pop_to(depth);
             // Ensure editor buffers for the new current block
-            if let Some(current_id) = state.navigation.current_block_id() {
-                state.editor_buffers.ensure_block(&state.store, &current_id);
-            }
-            Task::none()
-        }
-        | NavigationMessage::Back => {
-            let new_len = state.navigation.layers().len().saturating_sub(2);
-            state.navigation.pop_to(new_len);
             if let Some(current_id) = state.navigation.current_block_id() {
                 state.editor_buffers.ensure_block(&state.store, &current_id);
             }
@@ -191,7 +177,12 @@ pub fn handle(state: &mut AppState, message: NavigationMessage) -> Task<Message>
         }
         | NavigationMessage::ExternalLoadFailed { path, error } => {
             tracing::error!(path = %path.display(), %error, "failed to load external file");
-            // TODO: show error banner to user
+            // Show error banner to user
+            state.record_error(AppError::Persistence(UiError::from_message(format!(
+                "Failed to open external document '{}': {}",
+                path.display(),
+                error
+            ))));
             Task::none()
         }
     }

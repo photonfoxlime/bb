@@ -317,7 +317,8 @@ impl AppState {
 
     /// Snapshot the current store into undo history before a mutation.
     fn snapshot_for_undo(&mut self) {
-        self.undo_history.push(UndoSnapshot { store: self.store.clone() });
+        self.undo_history
+            .push(UndoSnapshot { store: self.store.clone(), navigation: self.navigation.clone() });
         self.edit_session = None;
     }
 
@@ -334,6 +335,7 @@ impl AppState {
     fn restore_snapshot(&mut self, snapshot: UndoSnapshot) {
         self.editor_buffers = EditorBuffers::from_store(&snapshot.store);
         self.store = snapshot.store;
+        self.navigation = snapshot.navigation;
         self.llm_requests.clear();
         self.clear_focus();
         self.edit_session = None;
@@ -517,12 +519,13 @@ pub struct FocusState {
 
 /// Snapshot of undoable application state.
 ///
-/// Contains only the store. Editor buffers are
+/// Contains the store and navigation stack. Editor buffers are
 /// rebuilt from the store on restore since `text_editor::Content` is
 /// not cheaply cloneable with full cursor state.
 #[derive(Clone)]
 struct UndoSnapshot {
     store: BlockStore,
+    navigation: NavigationStack,
 }
 
 mod undo_redo {
@@ -538,7 +541,10 @@ mod undo_redo {
     pub fn handle(state: &mut AppState, message: UndoRedoMessage) -> Task<Message> {
         match message {
             | UndoRedoMessage::Undo => {
-                let current = UndoSnapshot { store: state.store.clone() };
+                let current = UndoSnapshot {
+                    store: state.store.clone(),
+                    navigation: state.navigation.clone(),
+                };
                 if let Some(previous) = state.undo_history.undo(current) {
                     tracing::info!("undo applied");
                     state.restore_snapshot(previous);
@@ -546,7 +552,10 @@ mod undo_redo {
                 Task::none()
             }
             | UndoRedoMessage::Redo => {
-                let current = UndoSnapshot { store: state.store.clone() };
+                let current = UndoSnapshot {
+                    store: state.store.clone(),
+                    navigation: state.navigation.clone(),
+                };
                 if let Some(next) = state.undo_history.redo(current) {
                     tracing::info!("redo applied");
                     state.restore_snapshot(next);
