@@ -45,10 +45,11 @@ pub struct InstructionDraftRecord {
 
 /// Persisted inquiry draft payload keyed by target [`BlockId`].
 ///
-/// This captures the latest inquiry response for a target block until the user
+/// This captures the inquiry question and response for a target block until the user
 /// applies or dismisses it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InquiryDraftRecord {
+    pub inquiry: String,
     pub response: String,
 }
 
@@ -129,17 +130,43 @@ impl BlockStore {
         self.inquiry_drafts.get(*id)
     }
 
-    /// Set the inquiry draft for a block.
+    /// Set the inquiry question for a block.
+    ///
+    /// # Ensures
+    /// - Stores the inquiry text.
+    /// - If a response already exists, preserves it.
+    pub fn set_inquiry(&mut self, id: BlockId, inquiry: String) {
+        let trimmed = inquiry.trim().to_string();
+        let existing_response = self
+            .inquiry_drafts
+            .get(id)
+            .and_then(|r| if r.response.is_empty() { None } else { Some(r.response.clone()) });
+        self.inquiry_drafts.insert(
+            id,
+            InquiryDraftRecord {
+                inquiry: trimmed,
+                response: existing_response.unwrap_or_default(),
+            },
+        );
+    }
+
+    /// Set the inquiry response for a block.
     ///
     /// # Ensures
     /// - If `response` is empty (after trimming), removes any existing draft.
     /// - Otherwise, stores the trimmed response text.
+    /// - Preserves the inquiry question if it exists.
     pub fn set_inquiry_draft(&mut self, id: BlockId, response: String) {
         let trimmed = response.trim();
         if trimmed.is_empty() {
             self.inquiry_drafts.remove(id);
         } else {
-            self.inquiry_drafts.insert(id, InquiryDraftRecord { response: trimmed.to_string() });
+            let existing_inquiry =
+                self.inquiry_drafts.get(id).map(|r| r.inquiry.clone()).unwrap_or_default();
+            self.inquiry_drafts.insert(
+                id,
+                InquiryDraftRecord { inquiry: existing_inquiry, response: trimmed.to_string() },
+            );
         }
     }
 

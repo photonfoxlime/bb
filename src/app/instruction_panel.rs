@@ -122,10 +122,9 @@ pub fn handle(
                 | Ok(c) => c,
                 | Err(_) => return iced::Task::none(),
             };
-            state.store.remove_inquiry_draft(&target_block_id);
+            state.store.set_inquiry(target_block_id, instruction.clone());
             state.store.remove_instruction_draft(&target_block_id);
-            state
-                .persist_with_context("after consuming instruction and inquiry drafts for inquire");
+            state.persist_with_context("after storing inquiry and consuming instruction draft");
             state.editor_buffers.set_instruction_text("");
             tracing::info!(block_id = ?target_block_id, "instruction inquiry started");
             let request_task = iced::Task::perform(
@@ -185,11 +184,9 @@ pub fn handle(
             if instruction.is_empty() {
                 return iced::Task::none();
             }
-            // Persist the instruction draft - expand will consume it
             state.store.set_instruction_draft(target_block_id, instruction.clone());
             state.persist_with_context("after persisting instruction draft for expand");
             state.editor_buffers.set_instruction_text("");
-            // Close the instruction panel and trigger expand
             state.store.set_panel_state(&target_block_id, None);
             state.persist_with_context("after closing instruction panel");
             crate::app::AppState::update(
@@ -202,11 +199,9 @@ pub fn handle(
             if instruction.is_empty() {
                 return iced::Task::none();
             }
-            // Persist the instruction draft - reduce will consume it
             state.store.set_instruction_draft(target_block_id, instruction.clone());
             state.persist_with_context("after persisting instruction draft for reduce");
             state.editor_buffers.set_instruction_text("");
-            // Close the instruction panel and trigger reduce
             state.store.set_panel_state(&target_block_id, None);
             state.persist_with_context("after closing instruction panel");
             crate::app::AppState::update(
@@ -215,7 +210,6 @@ pub fn handle(
             )
         }
         | InstructionPanelMessage::ApplyInstructionRewrite => {
-            // Get inquiry draft: first check focused block, then search for any block with draft
             if state.store.inquiry_draft(&target_block_id).is_none() {
                 tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
                 return iced::Task::none();
@@ -234,7 +228,6 @@ pub fn handle(
             iced::Task::none()
         }
         | InstructionPanelMessage::AppendInstructionResponse => {
-            // Get inquiry draft: first check focused block, then search for any block with draft
             if state.store.inquiry_draft(&target_block_id).is_none() {
                 tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
                 return iced::Task::none();
@@ -262,7 +255,6 @@ pub fn handle(
             iced::Task::none()
         }
         | InstructionPanelMessage::AddInstructionResponseAsChild => {
-            // Get inquiry draft: first check focused block, then search for any block with draft
             if state.store.inquiry_draft(&target_block_id).is_none() {
                 tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
                 return iced::Task::none();
@@ -288,7 +280,6 @@ pub fn handle(
             iced::Task::none()
         }
         | InstructionPanelMessage::Dismiss => {
-            // Dismiss clears the inquiry draft from store
             state.store.remove_inquiry_draft(&target_block_id);
             state.persist_with_context("after dismissing inquiry draft");
             iced::Task::none()
@@ -297,7 +288,6 @@ pub fn handle(
 }
 
 fn sync_instruction_panel_from_store(state: &mut AppState, target_block_id: &BlockId) {
-    // Load instruction draft from store into editor buffer
     let instruction = state
         .store
         .instruction_draft(target_block_id)
@@ -320,46 +310,55 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
     };
 
     let instruction_content = state.editor_buffers.instruction_content();
-    let inquiry_result = state.store.inquiry_draft(&block_id).map(|r| r.response.as_str());
+    let inquiry_result = state.store.inquiry_draft(&block_id);
     let is_inquiring = state.llm_requests.is_inquiring(block_id);
 
     let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
 
-    let mut instruction_section = column![].spacing(theme::PANEL_INNER_GAP);
+    if is_inquiring || inquiry_result.is_some() {
+        let inquiry_text = inquiry_result.as_ref().map(|r| r.inquiry.as_str()).unwrap_or_default();
 
-    instruction_section = instruction_section.push(
-        container(
-            text_editor(instruction_content)
-                .placeholder(t!("instruction_placeholder").to_string())
-                .style(theme::point_editor)
-                .height(theme::INSTRUCTION_EDITOR_HEIGHT)
-                .on_action(move |action| {
-                    Message::InstructionPanel(block_id, InstructionPanelMessage::TextEdited(action))
-                }),
-        )
-        .width(iced::Length::Fill),
-    );
-
-    let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
-
-    if is_inquiring {
-        button_row = button_row.push(
-            button(
-                row![]
-                    .spacing(4)
-                    .align_y(iced::Alignment::Center)
-                    .push(icons::icon_loader().size(theme::INSTRUCTION_BUTTON_SIZE).center())
-                    .push(
-                        text(t!("instruction_inquiring").to_string())
-                            .font(theme::INTER)
-                            .size(theme::INSTRUCTION_BUTTON_SIZE),
-                    ),
+        let inquiry_section = column![].spacing(theme::PANEL_INNER_GAP).push(
+            container(
+                text(t!("instruction_inquiry_label").to_string())
+                    .font(theme::INTER)
+                    .size(theme::INSTRUCTION_BUTTON_SIZE),
             )
-            .style(theme::destructive_button)
-            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::CancelInquire)),
+            .width(iced::Length::Fill),
         );
+
+        let inquiry_content = container(
+            scrollable(text(inquiry_text).font(theme::LXGW_WENKAI).size(14))
+                .height(iced::Length::Fixed(80.0))
+                .width(iced::Length::Fill),
+        )
+        .padding(Padding::from([6.0, 8.0]))
+        .style(theme::draft_panel)
+        .width(iced::Length::Fill);
+
+        panel = panel.push(inquiry_section);
+        panel = panel.push(inquiry_content);
     } else {
+        let mut instruction_section = column![].spacing(theme::PANEL_INNER_GAP);
+
+        instruction_section = instruction_section.push(
+            container(
+                text_editor(instruction_content)
+                    .placeholder(t!("instruction_placeholder").to_string())
+                    .style(theme::point_editor)
+                    .height(theme::INSTRUCTION_EDITOR_HEIGHT)
+                    .on_action(move |action| {
+                        Message::InstructionPanel(
+                            block_id,
+                            InstructionPanelMessage::TextEdited(action),
+                        )
+                    }),
+            )
+            .width(iced::Length::Fill),
+        );
+
+        let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
+
         button_row = button_row.push(
             button(
                 text(t!("instruction_inquire").to_string())
@@ -398,12 +397,33 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 InstructionPanelMessage::ReduceWithInstruction,
             )),
         );
+
+        instruction_section = instruction_section.push(button_row);
+        panel = panel.push(instruction_section);
     }
 
-    instruction_section = instruction_section.push(button_row);
-    panel = panel.push(instruction_section);
+    if is_inquiring {
+        let button_row = row![].spacing(theme::PANEL_BUTTON_GAP).push(
+            button(
+                row![]
+                    .spacing(4)
+                    .align_y(iced::Alignment::Center)
+                    .push(icons::icon_loader().size(theme::INSTRUCTION_BUTTON_SIZE).center())
+                    .push(
+                        text(t!("instruction_inquiring").to_string())
+                            .font(theme::INTER)
+                            .size(theme::INSTRUCTION_BUTTON_SIZE),
+                    ),
+            )
+            .style(theme::destructive_button)
+            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::CancelInquire)),
+        );
+        panel = panel.push(button_row);
+    }
 
     if let Some(result) = inquiry_result {
+        let response_text = result.response.as_str();
         let mut result_section = column![].spacing(theme::PANEL_INNER_GAP);
 
         result_section = result_section.push(
@@ -416,7 +436,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         );
 
         let result_content = container(
-            scrollable(text(result).font(theme::LXGW_WENKAI).size(14))
+            scrollable(text(response_text).font(theme::LXGW_WENKAI).size(14))
                 .height(iced::Length::Fixed(120.0))
                 .width(iced::Length::Fill),
         )
@@ -524,7 +544,6 @@ mod tests {
         );
 
         assert_eq!(state.editor_buffers.instruction_content().text(), "persisted instruction");
-        // Inquiry result is now in the store
         assert_eq!(
             state.store.inquiry_draft(&root).map(|r| r.response.as_str()),
             Some("persisted inquiry")
@@ -547,13 +566,11 @@ mod tests {
         );
 
         assert_eq!(state.store.panel_state(&root).copied(), None);
-        // Persisted drafts should be preserved in store
         assert_eq!(
             state.store.instruction_draft(&root).map(|d| d.instruction.as_str()),
             Some("prompt")
         );
         assert_eq!(state.store.inquiry_draft(&root).map(|r| r.response.as_str()), Some("result"));
-        // Loading state should also be preserved
         assert!(state.llm_requests.is_inquiring(root));
         assert_eq!(state.editor_buffers.instruction_content().text(), "keep me");
     }
@@ -568,7 +585,6 @@ mod tests {
         state.store.update_point(&root, "root text".to_string());
         state.editor_buffers.set_text(&root, "root text");
         state.set_focus(sibling);
-        // Put inquiry draft in store instead of instruction_panel
         state.store.set_inquiry_draft(sibling, "inquiry response".to_string());
 
         let _ = AppState::update(
@@ -581,7 +597,6 @@ mod tests {
             Some("sibling text\n\ninquiry response")
         );
         assert_eq!(state.store.point(&root).as_deref(), Some("root text"));
-        // Inquiry draft should be cleared from store
         assert!(state.store.inquiry_draft(&root).is_none());
     }
 
@@ -594,7 +609,6 @@ mod tests {
             .expect("append sibling succeeds");
         let before_len = state.store.children(&sibling).len();
         state.set_focus(sibling);
-        // Put inquiry draft in store instead of instruction_panel
         state.store.set_inquiry_draft(sibling, "child from inquiry".to_string());
 
         let _ = AppState::update(
@@ -609,7 +623,6 @@ mod tests {
         assert_eq!(children.len(), before_len + 1);
         let child_id = *children.last().expect("new child added under sibling");
         assert_eq!(state.store.point(&child_id).as_deref(), Some("child from inquiry"));
-        // Inquiry draft should be cleared from store
         assert!(state.store.inquiry_draft(&sibling).is_none());
     }
 
@@ -625,7 +638,6 @@ mod tests {
             Message::InstructionPanel(root, InstructionPanelMessage::Inquire),
         );
 
-        // Inquiry loading state is tracked in llm_requests
         assert!(state.llm_requests.is_inquiring(root));
         assert!(state.editor_buffers.instruction_content().text().is_empty());
         assert!(state.store.instruction_draft(&root).is_none());
