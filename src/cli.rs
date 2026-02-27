@@ -42,9 +42,10 @@
 //! block mount set 0xblock /path/to/file.md --format markdown
 //! ```
 
+use crate::store::{
+    Direction, MountFormat as StoreMountFormat, PanelBarState as StorePanelBarState,
+};
 use clap::{Parser, ValueEnum};
-
-use crate::store::{Direction, MountFormat as StoreMountFormat, PanelBarState as StorePanelBarState};
 
 // ============================================================================
 // Custom Type Aliases for CLI
@@ -63,16 +64,15 @@ impl std::str::FromStr for BlockId {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
-        
+
         // Accept with or without 0x prefix
-        let hex_part = s.strip_prefix("0x")
-            .or_else(|| s.strip_prefix("0X"))
-            .unwrap_or(s);
-        
+        let hex_part = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
+
         if hex_part.len() != 10 {
             return Err(format!(
                 "Invalid BlockId: expected 10 hex characters after 0x, got {} ('{}')",
-                hex_part.len(), s
+                hex_part.len(),
+                s
             ));
         }
 
@@ -106,12 +106,9 @@ impl std::str::FromStr for MountFormatCli {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "json" => Ok(Self(StoreMountFormat::Json)),
-            "markdown" | "md" => Ok(Self(StoreMountFormat::Markdown)),
-            _ => Err(format!(
-                "Invalid mount format: '{}'. Expected 'json' or 'markdown'.",
-                s
-            )),
+            | "json" => Ok(Self(StoreMountFormat::Json)),
+            | "markdown" | "md" => Ok(Self(StoreMountFormat::Markdown)),
+            | _ => Err(format!("Invalid mount format: '{}'. Expected 'json' or 'markdown'.", s)),
         }
     }
 }
@@ -119,8 +116,8 @@ impl std::str::FromStr for MountFormatCli {
 impl std::fmt::Display for MountFormatCli {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
-            StoreMountFormat::Json => write!(f, "json"),
-            StoreMountFormat::Markdown => write!(f, "markdown"),
+            | StoreMountFormat::Json => write!(f, "json"),
+            | StoreMountFormat::Markdown => write!(f, "markdown"),
         }
     }
 }
@@ -144,12 +141,11 @@ impl std::str::FromStr for PanelBarStateCli {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            "friends" => Ok(Self(StorePanelBarState::Friends)),
-            "instruction" => Ok(Self(StorePanelBarState::Instruction)),
-            _ => Err(format!(
-                "Invalid panel state: '{}'. Expected 'friends' or 'instruction'.",
-                s
-            )),
+            | "friends" => Ok(Self(StorePanelBarState::Friends)),
+            | "instruction" => Ok(Self(StorePanelBarState::Instruction)),
+            | _ => {
+                Err(format!("Invalid panel state: '{}'. Expected 'friends' or 'instruction'.", s))
+            }
         }
     }
 }
@@ -157,8 +153,8 @@ impl std::str::FromStr for PanelBarStateCli {
 impl std::fmt::Display for PanelBarStateCli {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
-            StorePanelBarState::Friends => write!(f, "friends"),
-            StorePanelBarState::Instruction => write!(f, "instruction"),
+            | StorePanelBarState::Friends => write!(f, "friends"),
+            | StorePanelBarState::Instruction => write!(f, "instruction"),
         }
     }
 }

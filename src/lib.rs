@@ -2,7 +2,7 @@
 rust_i18n::i18n!("locales", fallback = "en-US");
 
 mod app;
-// mod cli;
+mod cli;
 mod i18n;
 mod store;
 mod llm;
