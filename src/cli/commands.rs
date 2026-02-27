@@ -36,15 +36,15 @@
 //! block --output json roots
 //!
 //! # Tree operations
-//! block tree add-child 0x1a2b3c "New idea"
-//! block tree move 0xsource 0xtarget --after
+//! block tree add-child 1v1b3c "New idea"
+//! block tree move 1v1 2v1 --after
 //!
 //! # Draft management
-//! block draft expand 0xblock --rewrite "Refined text" --children "Child 1" "Child 2"
+//! block draft expand 1v1 --rewrite "Refined text" --children "Child 1" "Child 2"
 //!
 //! # Mount external files
-//! block mount set 0xblock /path/to/file.md --format markdown
-//! block mount expand 0xblock
+//! block mount set 1v1 /path/to/file.md --format markdown
+//! block mount expand 1v1
 //! ```
 //!
 //! # Execution Flow

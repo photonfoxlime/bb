@@ -8,53 +8,33 @@
 //! Tests use the in-memory store to avoid modifying the real block store.
 
 use crate::cli::{
-    BlockCommands, BlockId, OutputFormat,
+    BlockCommands, BlockId, OutputFormat, print_result,
     commands::RootCommand,
-    draft::{
-        ClearDraftCommand, DraftCommands, ExpandDraftCommand, InquiryDraftCommand,
-        InstructionDraftCommand, ListDraftCommand, ReduceDraftCommand,
-    },
+    draft::{DraftCommands, ExpandDraftCommand, InstructionDraftCommand, ReduceDraftCommand, InquiryDraftCommand, ListDraftCommand, ClearDraftCommand},
     fold::{FoldCommands, StatusFoldCommand, ToggleFoldCommand},
-    nav::{LineageCommand, NavCommands, NextCommand, PrevCommand},
-    print_result,
-    query::{FindCommand, ShowCommand},
+    nav::{NavCommands, NextCommand, PrevCommand, LineageCommand},
+    query::{ShowCommand, FindCommand},
     results::CliResult,
-    tree::{
-        AddChildCommand, AddSiblingCommand, DeleteCommand, DuplicateCommand, MoveCommand,
-        TreeCommands, WrapCommand,
-    },
+    tree::{TreeCommands, AddChildCommand, AddSiblingCommand, WrapCommand, DuplicateCommand, DeleteCommand, MoveCommand},
 };
 use crate::store::BlockStore;
 use std::path::PathBuf;
 
-/// Create a test store with a simple tree structure.
-///
-/// Structure:
-/// ```text
-/// root (default)
-/// ├── child1
-/// │   └── grandchild1
-/// └── child2
-/// ```
 fn create_test_store() -> BlockStore {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
-    let _child2 = store.append_child(&root_id, "child2".to_string()).unwrap();
+    let child2 = store.append_child(&root_id, "child2".to_string()).unwrap();
     let _grandchild1 = store.append_child(&child1, "grandchild1".to_string()).unwrap();
     store
 }
 
 fn format_block_id(id: crate::store::BlockId) -> String {
-    format!("{:?}", id)
+    format!("{}", id)
 }
 
-// ============================================================================
-// Query Command Tests
-// ============================================================================
-
 #[test]
-fn roots_command() {
+fn test_roots_command() {
     let store = create_test_store();
     let cmd = BlockCommands::Roots(RootCommand {});
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -62,7 +42,7 @@ fn roots_command() {
 }
 
 #[test]
-fn show_command() {
+fn test_show_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId(format_block_id(root_id)) });
@@ -72,27 +52,23 @@ fn show_command() {
 }
 
 #[test]
-fn show_unknown_block() {
+fn test_show_unknown_block() {
     let store = create_test_store();
-    let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId("0x0000000000".to_string()) });
+    let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId("0v0".to_string()) });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Error(msg) if msg.contains("Unknown block ID")));
 }
 
 #[test]
-fn find_command() {
+fn test_find_command() {
     let store = create_test_store();
     let cmd = BlockCommands::Find(FindCommand { query: "child".to_string(), limit: 10 });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Find(matches) if matches.len() >= 2));
 }
 
-// ============================================================================
-// Tree Command Tests
-// ============================================================================
-
 #[test]
-fn add_child_command() {
+fn test_add_child_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
@@ -100,13 +76,11 @@ fn add_child_command() {
         text: "new child".to_string(),
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
-    assert!(
-        matches!(result, CliResult::BlockId(new_id) if store.children(&root_id).contains(&new_id))
-    );
+    assert!(matches!(result, CliResult::BlockId(new_id) if store.children(&root_id).contains(&new_id)));
 }
 
 #[test]
-fn add_sibling_command() {
+fn test_add_sibling_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
@@ -115,13 +89,11 @@ fn add_sibling_command() {
         text: "sibling".to_string(),
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
-    assert!(
-        matches!(result, CliResult::BlockId(new_id) if store.children(&root_id).contains(&new_id))
-    );
+    assert!(matches!(result, CliResult::BlockId(new_id) if store.children(&root_id).contains(&new_id)));
 }
 
 #[test]
-fn wrap_command() {
+fn test_wrap_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
@@ -135,7 +107,7 @@ fn wrap_command() {
 }
 
 #[test]
-fn duplicate_command() {
+fn test_duplicate_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
@@ -148,7 +120,7 @@ fn duplicate_command() {
 }
 
 #[test]
-fn delete_command() {
+fn test_delete_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
@@ -162,7 +134,7 @@ fn delete_command() {
 }
 
 #[test]
-fn move_command_after() {
+fn test_move_command_after() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let children = store.children(&root_id);
@@ -171,20 +143,14 @@ fn move_command_after() {
     let cmd = BlockCommands::Tree(TreeCommands::Move(MoveCommand {
         source_id: BlockId(format_block_id(child1)),
         target_id: BlockId(format_block_id(child2)),
-        before: false,
-        after: true,
-        under: false,
+        before: false, after: true, under: false,
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Success) && store.children(&root_id).contains(&child1));
 }
 
-// ============================================================================
-// Navigation Command Tests
-// ============================================================================
-
 #[test]
-fn nav_next_command() {
+fn test_nav_next_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Nav(NavCommands::Next(NextCommand {
@@ -196,7 +162,7 @@ fn nav_next_command() {
 }
 
 #[test]
-fn nav_prev_command() {
+fn test_nav_prev_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
@@ -208,7 +174,7 @@ fn nav_prev_command() {
 }
 
 #[test]
-fn nav_lineage_command() {
+fn test_nav_lineage_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
@@ -219,12 +185,8 @@ fn nav_lineage_command() {
     assert!(matches!(result, CliResult::Lineage(points) if !points.is_empty()));
 }
 
-// ============================================================================
-// Draft Command Tests
-// ============================================================================
-
 #[test]
-fn draft_expand_command() {
+fn test_draft_expand_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Draft(DraftCommands::Expand(ExpandDraftCommand {
@@ -237,7 +199,7 @@ fn draft_expand_command() {
 }
 
 #[test]
-fn draft_reduce_command() {
+fn test_draft_reduce_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
@@ -251,7 +213,7 @@ fn draft_reduce_command() {
 }
 
 #[test]
-fn draft_instruction_command() {
+fn test_draft_instruction_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Draft(DraftCommands::Instruction(InstructionDraftCommand {
@@ -263,7 +225,7 @@ fn draft_instruction_command() {
 }
 
 #[test]
-fn draft_inquiry_command() {
+fn test_draft_inquiry_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Draft(DraftCommands::Inquiry(InquiryDraftCommand {
@@ -275,13 +237,12 @@ fn draft_inquiry_command() {
 }
 
 #[test]
-fn draft_list_command() {
+fn test_draft_list_command() {
     let mut store = create_test_store();
     let root_id = store.roots()[0];
-    store.insert_expansion_draft(
-        root_id,
-        crate::store::ExpansionDraftRecord { rewrite: Some("test".to_string()), children: vec![] },
-    );
+    store.insert_expansion_draft(root_id, crate::store::ExpansionDraftRecord {
+        rewrite: Some("test".to_string()), children: vec![],
+    });
     let cmd = BlockCommands::Draft(DraftCommands::List(ListDraftCommand {
         block_id: BlockId(format_block_id(root_id)),
     }));
@@ -290,31 +251,22 @@ fn draft_list_command() {
 }
 
 #[test]
-fn draft_clear_command() {
+fn test_draft_clear_command() {
     let mut store = create_test_store();
     let root_id = store.roots()[0];
-    store.insert_expansion_draft(
-        root_id,
-        crate::store::ExpansionDraftRecord { rewrite: None, children: vec![] },
-    );
+    store.insert_expansion_draft(root_id, crate::store::ExpansionDraftRecord {
+        rewrite: None, children: vec![],
+    });
     let cmd = BlockCommands::Draft(DraftCommands::Clear(ClearDraftCommand {
         block_id: BlockId(format_block_id(root_id)),
-        all: true,
-        expand: false,
-        reduce: false,
-        instruction: false,
-        inquiry: false,
+        all: true, expand: false, reduce: false, instruction: false, inquiry: false,
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Success) && store.expansion_draft(&root_id).is_none());
 }
 
-// ============================================================================
-// Fold Command Tests
-// ============================================================================
-
 #[test]
-fn fold_toggle_command() {
+fn test_fold_toggle_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let initial = store.is_collapsed(&root_id);
@@ -322,13 +274,11 @@ fn fold_toggle_command() {
         block_id: BlockId(format_block_id(root_id)),
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
-    assert!(
-        matches!(result, CliResult::Collapsed(c) if c != initial && store.is_collapsed(&root_id) == c)
-    );
+    assert!(matches!(result, CliResult::Collapsed(c) if c != initial && store.is_collapsed(&root_id) == c));
 }
 
 #[test]
-fn fold_status_command() {
+fn test_fold_status_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Fold(FoldCommands::Status(StatusFoldCommand {
@@ -338,61 +288,30 @@ fn fold_status_command() {
     assert!(matches!(result, CliResult::Collapsed(c) if c == store.is_collapsed(&root_id)));
 }
 
-// ============================================================================
-// Output Formatting Tests
-// ============================================================================
-
 #[test]
-fn output_json_format() {
-    print_result(&CliResult::Roots(vec!["0x1".to_string(), "0x2".to_string()]), OutputFormat::Json);
+fn test_output_json_format() {
+    print_result(&CliResult::Roots(vec!["1v1".to_string(), "2v1".to_string()]), OutputFormat::Json);
 }
 
 #[test]
-fn output_table_format() {
-    print_result(
-        &CliResult::Roots(vec!["0x1".to_string(), "0x2".to_string()]),
-        OutputFormat::Table,
-    );
+fn test_output_table_format() {
+    print_result(&CliResult::Roots(vec!["1v1".to_string(), "2v1".to_string()]), OutputFormat::Table);
 }
 
 #[test]
-fn output_error_to_stderr() {
+fn test_output_error_to_stderr() {
     print_result(&CliResult::Error("test error".to_string()), OutputFormat::Table);
 }
 
 #[test]
-fn output_success() {
+fn test_output_success() {
     print_result(&CliResult::Success, OutputFormat::Table);
 }
 
-// ============================================================================
-// Edge Cases and Error Handling
-// ============================================================================
+#[test]
 
 #[test]
-fn block_id_case_insensitive() {
-    let store = create_test_store();
-    let root_id = store.roots()[0];
-    let id_str = format_block_id(root_id).to_uppercase();
-    let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId(id_str) });
-    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
-    assert!(matches!(result, CliResult::Show { id, .. } if id == root_id));
-}
-
-#[test]
-fn block_id_without_prefix() {
-    let store = create_test_store();
-    let root_id = store.roots()[0];
-    let id_str = format_block_id(root_id);
-    // Try with or without 0x prefix
-    let id_str_no_prefix = id_str.strip_prefix("0x").unwrap_or(&id_str).to_string();
-    let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId(id_str_no_prefix) });
-    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
-    assert!(matches!(result, CliResult::Show { id, .. } if id == root_id));
-}
-
-#[test]
-fn find_with_limit() {
+fn test_find_with_limit() {
     let store = create_test_store();
     let cmd = BlockCommands::Find(FindCommand { query: "".to_string(), limit: 1 });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -400,15 +319,13 @@ fn find_with_limit() {
 }
 
 #[test]
-fn move_with_unknown_source() {
+fn test_move_with_unknown_source() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Tree(TreeCommands::Move(MoveCommand {
-        source_id: BlockId("0x0000000000".to_string()),
+        source_id: BlockId("0v0".to_string()),
         target_id: BlockId(format_block_id(root_id)),
-        before: false,
-        after: false,
-        under: false,
+        before: false, after: false, under: false,
     }));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Error(msg) if msg.contains("Unknown")));

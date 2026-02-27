@@ -76,8 +76,7 @@ impl BlockCommands {
             // Read-only operations that inspect the store without modification.
             // List all root block IDs.
             | BlockCommands::Roots(RootCommand {}) => {
-                let roots: Vec<String> =
-                    store.roots().iter().map(|id| format!("{:?}", id)).collect();
+                let roots: Vec<String> = store.roots().iter().map(|id| format!("{}", id)).collect();
                 (store, CliResult::Roots(roots))
             }
             // Show details of a specific block.
@@ -331,7 +330,7 @@ impl BlockCommands {
                                 redundant_children: d
                                     .redundant_children
                                     .iter()
-                                    .map(|id| format!("{:?}", id))
+                                    .map(|id| format!("{}", id))
                                     .collect(),
                             });
                         let instruction =
@@ -600,24 +599,23 @@ impl BlockCommands {
         }
     }
 
-    // Resolve a CLI BlockId string to an actual store BlockId.
+    /// Resolve a CLI BlockId string to an actual store BlockId.
     ///
-    // Performs case-insensitive matching on the hex portion of block IDs.
-    // The "0x" prefix is optional for matching.
+    /// Performs flexible, case-insensitive matching on block ID strings.
+    /// Format: `NvG` where N=index and G=generation (e.g., `1v1`, `2v3`).
     ///
-    // # Arguments
+    /// # Arguments
     ///
-    // - `store`: The store to search
-    // - `cli_id`: The CLI-provided ID string (e.g., "0x1a2b3c4d5e")
+    /// - `store`: The store to search
+    /// - `cli_id`: The CLI-provided ID string
     ///
-    // # Returns
+    /// # Returns
     ///
-    // `Some(BlockId)` if a matching block exists, `None` otherwise.
+    /// `Some(BlockId)` if a matching block exists, `None` otherwise.
     fn resolve_block_id(store: &BlockStore, cli_id: &BlockId) -> Option<crate::store::BlockId> {
-        let cli_str = cli_id.0.strip_prefix("0x").unwrap_or(&cli_id.0);
+        let cli_str = &cli_id.0;
         for (id, _) in &store.nodes {
-            let id_str = format!("{:?}", id);
-            let id_str = id_str.strip_prefix("0x").unwrap_or(&id_str);
+            let id_str = format!("{}", id);
             if id_str.eq_ignore_ascii_case(cli_str) {
                 return Some(id);
             }
@@ -657,7 +655,7 @@ impl BlockCommands {
     ) {
         if let Some(text) = store.point(id) {
             if text.to_lowercase().contains(query) {
-                results.push(Match { id: format!("{:?}", id), text });
+                results.push(Match { id: format!("{}", id), text });
             }
         }
         for child in store.children(id) {

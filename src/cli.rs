@@ -55,7 +55,18 @@ pub use results::CliResult;
 
 /// Block ID type for CLI argument parsing.
 ///
-/// Parses the string and resolves it against the store's slotmap.
+/// Accepts block IDs in clean "NvG" format (e.g., `1v1`, `2v3`) where:
+/// - `N` = slot index in the store
+/// - `G` = generation counter (incremented on reuse)
+///
+/// Matching is case-insensitive and flexible.
+///
+/// # Examples
+///
+/// ```bash
+/// block show 1v1
+/// block show 2v3
+/// ```
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BlockId(pub String);
 
@@ -65,20 +76,8 @@ impl std::str::FromStr for BlockId {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let s = s.trim();
 
-        let hex_part = s.strip_prefix("0x").or_else(|| s.strip_prefix("0X")).unwrap_or(s);
-
-        if hex_part.len() != 10 {
-            return Err(format!(
-                "Invalid BlockId: expected 10 hex characters after 0x, got {} ('{}')",
-                hex_part.len(),
-                s
-            ));
-        }
-
-        for c in hex_part.chars() {
-            if !c.is_ascii_hexdigit() {
-                return Err(format!("Invalid hex character '{}' in BlockId", c));
-            }
+        if s.is_empty() {
+            return Err("Invalid BlockId: cannot be empty".to_string());
         }
 
         Ok(Self(s.to_string()))

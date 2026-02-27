@@ -23,11 +23,11 @@ pub enum DraftCommands {
     ///
     /// # Example
     /// ```bash
-    /// block draft expand 0x123 --rewrite "Refined version" \
+    /// block draft expand 1v1 --rewrite "Refined version" \
     ///     --children "Proposed child 1" "Proposed child 2"
     ///
     /// # Set children only (no rewrite)
-    /// block draft expand 0x123 --children "Just kids"
+    /// block draft expand 1v1 --children "Just kids"
     /// ```
     Expand(ExpandDraftCommand),
 
@@ -44,9 +44,9 @@ pub enum DraftCommands {
     ///
     /// # Example
     /// ```bash
-    /// block draft reduce 0x123 \
+    /// block draft reduce 1v1 \
     ///     --reduction "All the things" \
-    ///     --redundant-children 0x456 0x789
+    ///     --redundant-children 1v1 1v1
     /// ```
     Reduce(ReduceDraftCommand),
 
@@ -62,7 +62,7 @@ pub enum DraftCommands {
     ///
     /// # Example
     /// ```bash
-    /// block draft instruction 0x123 --text "Make this more concise"
+    /// block draft instruction 1v1 --text "Make this more concise"
     /// ```
     Instruction(InstructionDraftCommand),
 
@@ -78,7 +78,7 @@ pub enum DraftCommands {
     ///
     /// # Example
     /// ```bash
-    /// block draft inquiry 0x123 --response "The key insight is..."
+    /// block draft inquiry 1v1 --response "The key insight is..."
     /// ```
     Inquiry(InquiryDraftCommand),
 
@@ -92,8 +92,8 @@ pub enum DraftCommands {
     ///
     /// # Example
     /// ```bash
-    /// block draft list 0x123
-    /// block draft list 0x123 --output json
+    /// block draft list 1v1
+    /// block draft list 1v1 --output json
     /// ```
     List(ListDraftCommand),
 
@@ -110,8 +110,8 @@ pub enum DraftCommands {
     ///
     /// # Example
     /// ```bash
-    /// block draft clear 0x123 --all
-    /// block draft clear 0x123 --expand
+    /// block draft clear 1v1 --all
+    /// block draft clear 1v1 --expand
     /// ```
     Clear(ClearDraftCommand),
 }

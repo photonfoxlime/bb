@@ -27,8 +27,8 @@ pub enum TreeCommands {
     ///
     /// # Example
     /// ```bash
-    /// block tree add-child 0x1a2b3c "My new idea"
-    /// # Returns: 0x9z8y7x
+    /// block tree add-child 1v1b3c "My new idea"
+    /// # Returns: 2v1
     /// ```
     AddChild(AddChildCommand),
 
@@ -52,8 +52,8 @@ pub enum TreeCommands {
     ///
     /// # Example
     /// ```bash
-    /// block tree add-sibling 0x1a2b3c "Next sibling"
-    /// # Returns: 0x7w6v5u
+    /// block tree add-sibling 1v1b3c "Next sibling"
+    /// # Returns: 3v1
     /// ```
     AddSibling(AddSiblingCommand),
 
@@ -77,10 +77,10 @@ pub enum TreeCommands {
     ///
     /// # Example
     /// ```bash
-    /// block tree wrap 0x1a2b3c "New parent section"
-    /// # Returns: 0x4t3s2r
-    /// # Before: root -> [0x1a2b3c]
-    /// # After:  root -> [0x4t3s2r] -> [0x1a2b3c]
+    /// block tree wrap 1v1b3c "New parent section"
+    /// # Returns: 4v1
+    /// # Before: root -> [1v1b3c]
+    /// # After:  root -> [4v1] -> [1v1b3c]
     /// ```
     Wrap(WrapCommand),
 
@@ -103,8 +103,8 @@ pub enum TreeCommands {
     ///
     /// # Example
     /// ```bash
-    /// block tree duplicate 0x1a2b3c
-    /// # Returns: 0x1q2w3e
+    /// block tree duplicate 1v1b3c
+    /// # Returns: 5v1
     /// ```
     Duplicate(DuplicateCommand),
 
@@ -131,8 +131,8 @@ pub enum TreeCommands {
     ///
     /// # Example
     /// ```bash
-    /// block tree delete 0x1a2b3c
-    /// # Returns: {"removed":["0x1a2b3c","0x4d5e6f","0x7g8h9i"]}
+    /// block tree delete 1v1b3c
+    /// # Returns: {"removed":["1v1b3c","1v1e6f","7v1"]}
     /// ```
     Delete(DeleteCommand),
 
@@ -165,9 +165,9 @@ pub enum TreeCommands {
     ///
     /// # Example
     /// ```bash
-    /// block tree move 0xsource 0xtarget --before
-    /// block tree move 0xsource 0xtarget --after
-    /// block tree move 0xsource 0xtarget --under
+    /// block tree move 1v1 2v1 --before
+    /// block tree move 1v1 2v1 --after
+    /// block tree move 1v1 2v1 --under
     /// ```
     Move(MoveCommand),
 }
@@ -192,8 +192,8 @@ pub struct AddChildCommand {
     ///
     /// # Example
     /// ```bash
-    /// block tree add-child 0x123 "My new idea"
-    /// block tree add-child 0x123 ""  # Empty text
+    /// block tree add-child 1v1 "My new idea"
+    /// block tree add-child 1v1 ""  # Empty text
     /// ```
     #[arg(value_name = "TEXT")]
     pub text: String,
@@ -265,9 +265,9 @@ pub struct MoveCommand {
     ///
     /// # Example
     /// ```bash
-    /// block tree move 0xsrc 0xtgt --before
-    /// # Before: [..., 0xsrc, ..., 0xtgt, ...]
-    /// # After:  [..., 0xtgt, 0xsrc, ...]
+    /// block tree move 1v1 2v1 --before
+    /// # Before: [..., 1v1, ..., 2v1, ...]
+    /// # After:  [..., 2v1, 1v1, ...]
     /// ```
     #[arg(long, group = "direction")]
     pub before: bool,
@@ -278,9 +278,9 @@ pub struct MoveCommand {
     ///
     /// # Example
     /// ```bash
-    /// block tree move 0xsrc 0xtgt --after
-    /// # Before: [..., 0xtgt, ..., 0xsrc, ...]
-    /// # After:  [..., 0xtgt, 0xsrc, ...]
+    /// block tree move 1v1 2v1 --after
+    /// # Before: [..., 2v1, ..., 1v1, ...]
+    /// # After:  [..., 2v1, 1v1, ...]
     /// ```
     #[arg(long, group = "direction")]
     pub after: bool,
@@ -291,9 +291,9 @@ pub struct MoveCommand {
     ///
     /// # Example
     /// ```bash
-    /// block tree move 0xsrc 0xtgt --under
-    /// # Before: 0xtgt -> []
-    /// # After:  0xtgt -> [0xsrc]
+    /// block tree move 1v1 2v1 --under
+    /// # Before: 2v1 -> []
+    /// # After:  2v1 -> [1v1]
     /// ```
     #[arg(long, group = "direction")]
     pub under: bool,

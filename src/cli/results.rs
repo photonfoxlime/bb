@@ -132,7 +132,7 @@ pub struct ReductionDraftInfo {
 /// and full point text.
 #[derive(Debug, serde::Serialize)]
 pub struct Match {
-    /// Block ID in hex format (e.g., "0x1a2b3c4d5e").
+    /// Block ID in hex format (e.g., "1v1b3c4d5e").
     pub id: String,
     /// Full point text content of the block.
     pub text: String,

@@ -21,8 +21,8 @@ pub enum NavCommands {
     ///
     /// # Example
     /// ```bash
-    /// block nav next 0x1a2b3c
-    /// # Output: 0x4d5e6f
+    /// block nav next 1v1b3c
+    /// # Output: 1v1e6f
     /// ```
     Next(NextCommand),
 
@@ -41,8 +41,8 @@ pub enum NavCommands {
     ///
     /// # Example
     /// ```bash
-    /// block nav prev 0x4d5e6f
-    /// # Output: 0x1a2b3c
+    /// block nav prev 1v1e6f
+    /// # Output: 1v1b3c
     /// ```
     Prev(PrevCommand),
 
@@ -61,7 +61,7 @@ pub enum NavCommands {
     ///
     /// # Example
     /// ```bash
-    /// block nav lineage 0xdeep
+    /// block nav lineage 1v1p
     /// # Output: ["Root", "Section", "Subsection"]
     /// ```
     Lineage(LineageCommand),

@@ -75,7 +75,7 @@ pub use persist::StoreLoadError;
 
 use mount::MountTable;
 use serde::{Deserialize, Serialize};
-use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
+use slotmap::{Key, SecondaryMap, SlotMap, SparseSecondaryMap};
 
 /// Internal projection used during snapshot/extract to override mount paths.
 #[derive(Debug, Clone)]
@@ -117,6 +117,15 @@ pub struct FriendBlock {
 
 slotmap::new_key_type! {
     pub struct BlockId;
+}
+
+impl std::fmt::Display for BlockId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let ffi = self.data().as_ffi();
+        let index = ffi & 0xFFFFFFFF;
+        let generation = ffi >> 32;
+        write!(f, "{}v{}", index, generation)
+    }
 }
 
 /// Specifies the direction for moving a block relative to a target block.

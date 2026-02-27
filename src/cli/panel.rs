@@ -17,8 +17,8 @@ pub enum PanelCommands {
     ///
     /// # Example
     /// ```bash
-    /// block panel set 0x123 friends
-    /// block panel set 0x123 instruction
+    /// block panel set 1v1 friends
+    /// block panel set 1v1 instruction
     /// ```
     Set(SetPanelCommand),
 
@@ -30,7 +30,7 @@ pub enum PanelCommands {
     ///
     /// # Example
     /// ```bash
-    /// block panel get 0x123
+    /// block panel get 1v1
     /// # Output: {"panel": "friends"}
     /// ```
     Get(GetPanelCommand),
@@ -43,7 +43,7 @@ pub enum PanelCommands {
     ///
     /// # Example
     /// ```bash
-    /// block panel clear 0x123
+    /// block panel clear 1v1
     /// ```
     Clear(ClearPanelCommand),
 }

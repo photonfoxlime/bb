@@ -31,8 +31,8 @@ pub enum FriendCommands {
     ///
     /// # Example
     /// ```bash
-    /// block friend add 0x123 0x456 --perspective "Related design"
-    /// block friend add 0x123 0x789 --telescope-lineage --telescope-children
+    /// block friend add 1v1 1v1 --perspective "Related design"
+    /// block friend add 1v1 1v1 --telescope-lineage --telescope-children
     /// ```
     Add(AddFriendCommand),
 
@@ -45,7 +45,7 @@ pub enum FriendCommands {
     ///
     /// # Example
     /// ```bash
-    /// block friend remove 0x123 0x456
+    /// block friend remove 1v1 1v1
     /// ```
     Remove(RemoveFriendCommand),
 
@@ -57,8 +57,8 @@ pub enum FriendCommands {
     ///
     /// # Example
     /// ```bash
-    /// block friend list 0x123
-    /// block friend list 0x123 --output json
+    /// block friend list 1v1
+    /// block friend list 1v1 --output json
     /// ```
     List(ListFriendCommand),
 }

@@ -28,8 +28,8 @@ pub enum MountCommands {
     ///
     /// # Example
     /// ```bash
-    /// block mount set 0x123 /data/external.json
-    /// block mount set 0x123 /notes/notes.md --format markdown
+    /// block mount set 1v1 /data/external.json
+    /// block mount set 1v1 /notes/notes.md --format markdown
     /// ```
     Set(SetMountCommand),
 
@@ -55,8 +55,8 @@ pub enum MountCommands {
     ///
     /// # Example
     /// ```bash
-    /// block mount expand 0x123
-    /// block mount expand 0x123 --base-dir /projects/app
+    /// block mount expand 1v1
+    /// block mount expand 1v1 --base-dir /projects/app
     /// ```
     Expand(ExpandMountCommand),
 
@@ -79,7 +79,7 @@ pub enum MountCommands {
     ///
     /// # Example
     /// ```bash
-    /// block mount collapse 0x123
+    /// block mount collapse 1v1
     /// ```
     Collapse(CollapseMountCommand),
 
@@ -106,8 +106,8 @@ pub enum MountCommands {
     ///
     /// # Example
     /// ```bash
-    /// block mount extract 0x123 --output /backup/notes.json
-    /// block mount extract 0x123 --output notes.md --format markdown
+    /// block mount extract 1v1 --output /backup/notes.json
+    /// block mount extract 1v1 --output notes.md --format markdown
     /// ```
     Extract(ExtractMountCommand),
 
@@ -119,7 +119,7 @@ pub enum MountCommands {
     ///
     /// # Example
     /// ```bash
-    /// block mount info 0x123
+    /// block mount info 1v1
     /// ```
     Info(InfoMountCommand),
 }

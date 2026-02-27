@@ -20,7 +20,7 @@ pub enum FoldCommands {
     ///
     /// # Example
     /// ```bash
-    /// block fold toggle 0x123
+    /// block fold toggle 1v1
     /// # Output: {"collapsed": true}
     /// ```
     Toggle(ToggleFoldCommand),
@@ -37,7 +37,7 @@ pub enum FoldCommands {
     ///
     /// # Example
     /// ```bash
-    /// block fold status 0x123
+    /// block fold status 1v1
     /// # Output: {"collapsed": false}
     /// ```
     Status(StatusFoldCommand),
