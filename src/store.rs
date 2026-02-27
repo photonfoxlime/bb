@@ -29,12 +29,12 @@
 //! The store uses [`SparseSecondaryMap<BlockId, T>`] for optional per-block
 //! metadata that must survive save/load cycles. Two categories exist:
 //!
-//! **Per-block data** (user-authored content): `expansion_drafts`,
-//! `reduction_drafts`, `view_collapsed`, `friend_blocks`, `instruction_drafts`.
+//! 1. Per-block data (user-authored content): `expansion_drafts`,
+//!    `reduction_drafts`, `view_collapsed`, `friend_blocks`, `instruction_drafts`.
 //!
-//! **Per-block UI state** (ephemeral but worth persisting): `panel_state`.
-//! This is not user-authored content but persists because it's useful to
-//! remember which panel was open for each block.
+//! 2. Per-block UI state (ephemeral but worth persisting): `panel_state`.
+//!    This is not user-authored content but persists because it's useful to
+//!    remember which panel was open for each block.
 //!
 //! Checklist for a new field:
 //!

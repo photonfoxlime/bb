@@ -2,13 +2,13 @@
 //!
 //! # Design
 //!
-//! - **Resolution**: Effective locale is, in order: (1) optional locale in
+//! - Resolution: Effective locale is, in order: (1) optional locale in
 //!   [`AppConfig`], (2) environment (`LANG` / `LC_ALL`), (3) [`DEFAULT_LOCALE`].
 //!   The result is normalized via [`resolve_locale`]. Use [`resolved_locale_from_config`]
 //!   with the app's config to get the locale for the session.
-//! - **Persistence**: [`AppConfig`] is loaded and saved by the app layer (see
+//! - Persistence: [`AppConfig`] is loaded and saved by the app layer (see
 //!   `AppState::load` / app config save). This module does not perform I/O.
-//! - **View contract**: Call [`set_app_locale`] once at the start of each view
+//! - View contract: Call [`set_app_locale`] once at the start of each view
 //!   with the effective locale (e.g. from `state.effective_locale()`) so all
 //!   `t!(...)` lookups use the same language.
 //!

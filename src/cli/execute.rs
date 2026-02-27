@@ -8,10 +8,10 @@
 //!
 //! The `execute()` method follows a consistent pattern:
 //!
-//! 1. **Resolve BlockId**: Convert CLI string IDs to internal `store::BlockId`
-//! 2. **Validate**: Check that referenced blocks exist
-//! 3. **Execute**: Call the appropriate `BlockStore` method
-//! 4. **Return**: Package result as `CliResult` for formatting
+//! 1. Resolve BlockId: Convert CLI string IDs to internal `store::BlockId`
+//! 2. Validate: Check that referenced blocks exist
+//! 3. Execute: Call the appropriate `BlockStore` method
+//! 4. Return: Package result as `CliResult` for formatting
 //!
 //! # Error Handling
 //!
@@ -21,15 +21,15 @@
 //!
 //! # Command Categories
 //!
-//! - **Query** (`roots`, `show`, `find`): Read-only, no store modification
-//! - **Tree** (`add-child`, `move`, `delete`, etc.): Structural edits
-//! - **Nav** (`next`, `prev`, `lineage`): DFS navigation helpers
-//! - **Draft** (`expand`, `reduce`, `instruction`, `inquiry`): LLM interaction
-//! - **Fold** (`toggle`, `status`): Visibility state management
-//! - **Friend** (`add`, `remove`, `list`): Cross-reference links
-//! - **Mount** (`set`, `expand`, `collapse`, `extract`): External file integration
-//! - **Panel** (`set`, `get`, `clear`): Sidebar UI state
-//! - **Context**: LLM context preparation
+//! - Query (`roots`, `show`, `find`): Read-only, no store modification
+//! - Tree (`add-child`, `move`, `delete`, etc.): Structural edits
+//! - Nav (`next`, `prev`, `lineage`): DFS navigation helpers
+//! - Draft (`expand`, `reduce`, `instruction`, `inquiry`): LLM interaction
+//! - Fold (`toggle`, `status`): Visibility state management
+//! - Friend (`add`, `remove`, `list`): Cross-reference links
+//! - Mount (`set`, `expand`, `collapse`, `extract`): External file integration
+//! - Panel (`set`, `get`, `clear`): Sidebar UI state
+//! - Context: LLM context preparation
 
 use super::BlockId;
 use super::results::{CliResult, ExpansionDraftInfo, FriendInfo, Match, ReductionDraftInfo};

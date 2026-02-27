@@ -3,8 +3,8 @@
 //! This module provides the complete output formatting logic for all CLI results.
 //! It transforms `CliResult` values into user-visible output in two formats:
 //!
-//! - **JSON**: Machine-readable, suitable for scripting and programmatic consumption
-//! - **Table**: Human-readable, with structured formatting and labels
+//! - JSON: Machine-readable, suitable for scripting and programmatic consumption
+//! - Table: Human-readable, with structured formatting and labels
 //!
 //! # Architecture
 //!
@@ -27,10 +27,10 @@
 //!
 //! # Design Principles
 //!
-//! - **Consistency**: All variants use the same JSON/table pattern
-//! - **Error handling**: Errors go to stderr, everything else to stdout
-//! - **Graceful degradation**: Uses `unwrap_or_default()` for serialization failures
-//! - **No side effects**: Pure formatting logic, all I/O via println!/eprintln!
+//! - Consistency: All variants use the same JSON/table pattern
+//! - Error handling: Errors go to stderr, everything else to stdout
+//! - Graceful degradation: Uses `unwrap_or_default()` for serialization failures
+//! - No side effects: Pure formatting logic, all I/O via println!/eprintln!
 
 use crate::cli::{
     CliResult, OutputFormat,

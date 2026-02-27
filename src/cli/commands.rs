@@ -25,9 +25,9 @@
 //!
 //! # Design Principles
 //!
-//! - **Global flags**: `--store`, `--verbose`, and `--output` apply to all commands
-//! - **Subcommand organization**: Related operations are grouped by domain for discoverability
-//! - **Type-safe arguments**: Custom types like `BlockId` and `OutputFormat` enforce validity at parse time
+//! - Global flags: `--store`, `--verbose`, and `--output` apply to all commands
+//! - Subcommand organization: Related operations are grouped by domain for discoverability
+//! - Type-safe arguments: Custom types like `BlockId` and `OutputFormat` enforce validity at parse time
 //!
 //! # Example Usage
 //!

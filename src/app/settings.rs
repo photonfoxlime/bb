@@ -15,12 +15,12 @@
 //!
 //! [`llm::LlmProviders`] separates providers into two categories:
 //!
-//! - **Preset providers** (OpenAI, OpenRouter, etc.) are always present and
+//! - Preset providers (OpenAI, OpenRouter, etc.) are always present and
 //!   cannot be deleted. Their base URL is fixed; the user only supplies an
 //!   API key and optionally overrides the model. Saving a preset skips
 //!   `from_raw` validation — an empty API key is allowed (the user just
 //!   hasn't configured this preset yet).
-//! - **Custom providers** are fully user-managed. All fields (name, base URL,
+//! - Custom providers are fully user-managed. All fields (name, base URL,
 //!   API key, model) are editable and validated via `from_raw` before save.
 //!   Users can add and delete custom providers.
 //!
