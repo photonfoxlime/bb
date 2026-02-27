@@ -37,7 +37,8 @@
 
 use super::{
     AppState, DocumentMode, EditMessage, ErrorBanner, ErrorMessage, ExpandMessage, Message,
-    MountFileMessage, OverlayMessage, ReduceMessage, ShortcutMessage, StructureMessage,
+    MountFileMessage, NavigationMessage, OverlayMessage, ReduceMessage, ShortcutMessage,
+    StructureMessage,
     action_bar::{
         ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
         ViewportBucket, action_i18n_key, action_to_message, build_action_bar_vm,
@@ -117,16 +118,7 @@ impl<'a> DocumentView<'a> {
         .width(Fill)
         .height(Fill);
 
-        // Settings gear button – top-right corner
-        let gear_button = button(
-            lucide_icons::iced::icon_settings()
-                .size(16)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
-        )
-        .on_press(Message::Settings(SettingsMessage::Open))
-        .style(theme::action_button)
-        .padding(theme::BUTTON_PAD);
-
+        // Error banner
         if let Some(error_banner) = ErrorBanner::from_state(state) {
             let mut banner_content = column![
                 row![
@@ -158,6 +150,7 @@ impl<'a> DocumentView<'a> {
             );
         }
 
+        // Document tree
         let tree = TreeView::new(state).render_roots();
         let max_width = theme::canvas_max_width(state.window_size.width);
         let content = container(tree).padding(theme::CANVAS_PAD).max_width(max_width);
@@ -173,8 +166,29 @@ impl<'a> DocumentView<'a> {
 
         let main_content = container(layout).style(theme::canvas).width(Fill).height(Fill);
 
+        // Settings gear button – top-right corner
+        let gear_button = button(
+            lucide_icons::iced::icon_settings()
+                .size(16)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
+        )
+        .on_press(Message::Settings(SettingsMessage::Open))
+        .style(theme::action_button)
+        .padding(theme::BUTTON_PAD);
+
+        // Open external document button – top-right, next to gear
+        let open_external_btn = button(
+            icons::icon_folder_open()
+                .size(16)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
+        )
+        .on_press(Message::Navigation(NavigationMessage::OpenExternalDialog))
+        .style(theme::action_button)
+        .padding(theme::BUTTON_PAD);
+
+        let top_right_buttons = row![open_external_btn, gear_button].spacing(theme::ACTION_GAP);
         let floating_gear = container(
-            container(gear_button)
+            container(top_right_buttons)
                 .width(Fill)
                 .align_y(iced::alignment::Vertical::Top)
                 .align_x(iced::alignment::Horizontal::Right)
@@ -183,7 +197,85 @@ impl<'a> DocumentView<'a> {
         .width(Fill)
         .height(Fill);
 
-        stack![main_content, floating_gear, toolbar_container].width(Fill).height(Fill).into()
+        // Breadcrumb navigation - bottom-left corner
+        let breadcrumbs = self.render_breadcrumbs();
+        let breadcrumbs_container = container(breadcrumbs)
+            .align_y(iced::alignment::Vertical::Bottom)
+            .align_x(iced::alignment::Horizontal::Left)
+            .padding(iced::Padding::new(16.0).left(theme::CANVAS_PAD).bottom(theme::CANVAS_PAD));
+
+        stack![main_content, floating_gear, toolbar_container, breadcrumbs_container]
+            .width(Fill)
+            .height(Fill)
+            .into()
+    }
+
+    /// Render the breadcrumb navigation bar.
+    fn render_breadcrumbs(&self) -> Element<'a, Message> {
+        let layers = self.state.navigation.layers();
+        if layers.len() <= 1 {
+            // At root, no breadcrumbs needed
+            return row![].into();
+        }
+
+        let mut crumbs = row![].spacing(theme::ACTION_GAP);
+
+        // Home button
+        let home_btn = button(centered_icon(
+            icons::icon_house()
+                .size(theme::TOOLBAR_ICON_SIZE)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into(),
+        ))
+        .style(theme::action_button)
+        .padding(theme::BUTTON_PAD)
+        .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .on_press(Message::Navigation(NavigationMessage::Home));
+        crumbs = crumbs.push(home_btn);
+
+        // Separator
+        crumbs = crumbs.push(text("›").style(theme::spine_text));
+
+        // Each layer as a clickable breadcrumb
+        for (i, layer) in layers.iter().enumerate() {
+            // Get block text for label
+            let label = self.state.store.point(&layer.block_id).unwrap_or_default();
+            let display_label =
+                if label.len() > 30 { format!("{}...", &label[..27]) } else { label };
+
+            // Add file path indicator if present
+            let full_label = if let Some(path) = &layer.path {
+                if let Some(file_name) = path.file_name() {
+                    format!("{} ({})", display_label, file_name.to_string_lossy())
+                } else {
+                    display_label.to_string()
+                }
+            } else {
+                display_label.to_string()
+            };
+
+            let crumb_btn = button(text(full_label.clone()).style(theme::spine_text))
+                .style(theme::action_button)
+                .padding(theme::BUTTON_PAD);
+
+            // Make clickable except for current layer
+            if i < layers.len() - 1 {
+                crumbs = crumbs
+                    .push(crumb_btn.on_press(Message::Navigation(NavigationMessage::GoTo(i))));
+            } else {
+                // Current layer - not clickable, emphasize as plain text in a container
+                let current_crumb: Element<'a, Message> = text(full_label).into();
+                crumbs = crumbs.push(current_crumb);
+            }
+
+            // Separator (not after last item)
+            if i < layers.len() - 1 {
+                crumbs = crumbs.push(text("›").style(theme::spine_text));
+            }
+        }
+
+        crumbs.into()
     }
 }
 
@@ -200,7 +292,14 @@ impl<'a> TreeView<'a> {
     }
 
     pub(super) fn render_roots(&self) -> Element<'a, Message> {
-        self.render_line(self.state.store.roots())
+        // Render from the current navigation layer's block
+        let current_block = self.state.navigation.current_block_id();
+        let children = if let Some(block_id) = current_block {
+            self.state.store.children(&block_id)
+        } else {
+            self.state.store.roots()
+        };
+        self.render_line(children)
     }
 
     fn render_line(&self, ids: &'a [BlockId]) -> Element<'a, Message> {

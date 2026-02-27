@@ -95,3 +95,7 @@ settings_providers: "提供元"
 # Instruction panel (additional)
 instruction_additional: "追加指令: %{instruction}"
 
+# Mount file dialogs
+save_block_to_file: "ブロックをファイルに保存"
+load_block_from_file: "ファイルからブロックを読み込む"
+open_external_document: "外部ドキュメントを開く"

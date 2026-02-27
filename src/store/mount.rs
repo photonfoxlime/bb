@@ -551,7 +551,10 @@ impl BlockStore {
     /// Re-key all blocks from `sub_store` into this store with fresh ids.
     ///
     /// Returns `(new_root_ids, all_new_ids)`.
-    fn rekey_sub_store(
+    ///
+    /// The `mount_point` is used to track the origin of re-keyed blocks.
+    /// For external file imports that are not mounts, pass one of the store's roots.
+    pub fn rekey_sub_store(
         &mut self, sub_store: &BlockStore, mount_point: &BlockId,
     ) -> (Vec<BlockId>, Vec<BlockId>) {
         let mut id_map: std::collections::HashMap<BlockId, BlockId> =

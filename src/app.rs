@@ -24,6 +24,7 @@ mod structure;
 mod overlay;
 mod mount_file;
 mod error_banner;
+mod navigation;
 
 use self::{
     action_bar::{
@@ -39,6 +40,7 @@ use self::{
     instruction_panel::InstructionPanelMessage,
     llm_requests::{LlmRequests, RequestSignature},
     mount_file::MountFileMessage,
+    navigation::{NavigationMessage, NavigationStack},
     overlay::OverlayMessage,
     reduce::ReduceMessage,
     settings::{SettingsMessage, SettingsState},
@@ -122,6 +124,8 @@ pub struct AppState {
     /// Persisted app preferences (e.g. optional locale). Loaded at startup from
     /// `<config_dir>/app.toml`; effective locale is derived via [`i18n::resolved_locale_from_config`].
     pub config: AppConfig,
+    /// Navigation stack: tracks drill-down path through block subtrees.
+    navigation: NavigationStack,
 }
 
 impl AppState {
@@ -154,6 +158,7 @@ impl AppState {
         tracing::info!(is_dark, "detected system appearance");
         let config = crate::app::config::load();
         let settings = SettingsState::from_providers(&providers, &config);
+        let first_root = *store.roots().first().expect("store has at least one root");
         Self {
             store,
             undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
@@ -174,6 +179,7 @@ impl AppState {
             window_size: WindowSize::default(),
             is_dark,
             config,
+            navigation: NavigationStack::new_root(first_root),
         }
     }
 
@@ -364,6 +370,7 @@ pub enum Message {
     WindowResized(WindowSize),
     DocumentMode(DocumentMode),
     SystemThemeChanged(iced::theme::Mode),
+    Navigation(NavigationMessage),
 }
 
 impl AppState {
@@ -402,6 +409,7 @@ impl AppState {
                 }
                 Task::none()
             }
+            | Message::Navigation(message) => navigation::handle(self, message),
         }
     }
 }
@@ -729,6 +737,7 @@ impl AppState {
             window_size: WindowSize::default(),
             is_dark: false,
             config,
+            navigation: NavigationStack::new_root(root),
         };
         (state, root)
     }
