@@ -43,7 +43,8 @@ impl BloomingBlockery {
             | Some(Commands::Block(block_commands)) => {
                 // Load store from CLI path or default
                 let store_path = cli.store.clone().unwrap_or_else(|| PathBuf::from("blocks.json"));
-                let base_dir = cli.store
+                let base_dir = cli
+                    .store
                     .as_ref()
                     .and_then(|p| p.parent())
                     .map(PathBuf::from)
@@ -53,57 +54,61 @@ impl BloomingBlockery {
                     .unwrap_or_else(|_| BlockStore::default());
 
                 // Execute the command
-                let (store, result) = block_commands.execute(store, &base_dir, cli.output);
+                let (store, result) = block_commands.execute(store, &base_dir);
 
                 // Handle output based on result type
                 match result {
-                    CliResult::Success => {
+                    | CliResult::Success => {
                         // Save and print success
                         let _ = store.save();
                         println!("OK");
                     }
-                    CliResult::Error(msg) => {
+                    | CliResult::Error(msg) => {
                         eprintln!("Error: {}", msg);
                     }
-                    CliResult::Roots(ids) => {
+                    | CliResult::Roots(ids) => {
                         Self::print_roots(&ids, cli.output);
                     }
-                    CliResult::Show { id, text, children } => {
+                    | CliResult::Show { id, text, children } => {
                         Self::print_show(id, &text, &children, cli.output);
                     }
-                    CliResult::Find(matches) => {
+                    | CliResult::Find(matches) => {
                         Self::print_find(&matches, cli.output);
                     }
-                    CliResult::BlockId(id) => {
-                        println!("{:?}", id);
+                    | CliResult::BlockId(id) => {
+                        Self::print_block_id(id, cli.output);
                     }
-                    CliResult::OptionalBlockId(id) => {
-                        if let Some(id) = id {
-                            println!("{:?}", id);
-                        }
+                    | CliResult::OptionalBlockId(id) => {
+                        Self::print_optional_block_id(id.as_ref(), cli.output);
                     }
-                    CliResult::Removed(ids) => {
-                        println!("{{\"removed\":{}}}", serde_json::to_string(&ids).unwrap_or_default());
+                    | CliResult::Removed(ids) => {
+                        Self::print_removed(&ids, cli.output);
                     }
-                    CliResult::Collapsed(collapsed) => {
-                        println!("{{\"collapsed\":{}}}", collapsed);
+                    | CliResult::Collapsed(collapsed) => {
+                        Self::print_collapsed(collapsed, cli.output);
                     }
-                    CliResult::Lineage(points) => {
+                    | CliResult::Lineage(points) => {
                         Self::print_lineage(&points, cli.output);
                     }
-                    CliResult::Context { lineage, children, friends } => {
+                    | CliResult::Context { lineage, children, friends } => {
                         Self::print_context(&lineage, &children, friends, cli.output);
                     }
-                    CliResult::DraftList { expansion, reduction, instruction, inquiry } => {
-                        Self::print_draft_list(expansion.as_ref(), reduction.as_ref(), instruction.as_ref(), inquiry.as_ref(), cli.output);
+                    | CliResult::DraftList { expansion, reduction, instruction, inquiry } => {
+                        Self::print_draft_list(
+                            expansion.as_ref(),
+                            reduction.as_ref(),
+                            instruction.as_ref(),
+                            inquiry.as_ref(),
+                            cli.output,
+                        );
                     }
-                    CliResult::FriendList(friends) => {
+                    | CliResult::FriendList(friends) => {
                         Self::print_friend_list(&friends, cli.output);
                     }
-                    CliResult::MountInfo { ref path, ref format, expanded } => {
+                    | CliResult::MountInfo { ref path, ref format, expanded } => {
                         Self::print_mount_info(path.as_deref(), format, expanded, cli.output);
                     }
-                    CliResult::PanelState(state) => {
+                    | CliResult::PanelState(state) => {
                         Self::print_panel_state(state.as_deref(), cli.output);
                     }
                 }
@@ -147,10 +152,10 @@ impl BloomingBlockery {
 
     fn print_roots(ids: &[String], output: cli::OutputFormat) {
         match output {
-            cli::OutputFormat::Json => {
+            | cli::OutputFormat::Json => {
                 println!("{}", serde_json::json!({ "roots": ids }));
             }
-            cli::OutputFormat::Table => {
+            | cli::OutputFormat::Table => {
                 for id in ids {
                     println!("{}", id);
                 }
@@ -160,14 +165,17 @@ impl BloomingBlockery {
 
     fn print_show(id: store::BlockId, text: &str, children: &[String], output: cli::OutputFormat) {
         match output {
-            cli::OutputFormat::Json => {
-                println!("{}", serde_json::json!({
-                    "id": format!("{:?}", id),
-                    "text": text,
-                    "children": children
-                }));
+            | cli::OutputFormat::Json => {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "id": format!("{:?}", id),
+                        "text": text,
+                        "children": children
+                    })
+                );
             }
-            cli::OutputFormat::Table => {
+            | cli::OutputFormat::Table => {
                 println!("ID:       {:?}", id);
                 println!("Text:     {}", text);
                 println!("Children: {:?}", children);
@@ -177,10 +185,10 @@ impl BloomingBlockery {
 
     fn print_find(matches: &[cli::Match], output: cli::OutputFormat) {
         match output {
-            cli::OutputFormat::Json => {
+            | cli::OutputFormat::Json => {
                 println!("{}", serde_json::to_string(matches).unwrap_or_default());
             }
-            cli::OutputFormat::Table => {
+            | cli::OutputFormat::Table => {
                 for m in matches {
                     println!("{}: {}", m.id, m.text);
                 }
@@ -190,10 +198,10 @@ impl BloomingBlockery {
 
     fn print_lineage(points: &[String], output: cli::OutputFormat) {
         match output {
-            cli::OutputFormat::Json => {
+            | cli::OutputFormat::Json => {
                 println!("{}", serde_json::json!({ "lineage": points }));
             }
-            cli::OutputFormat::Table => {
+            | cli::OutputFormat::Table => {
                 for (i, p) in points.iter().enumerate() {
                     println!("{}. {}", i + 1, p);
                 }
@@ -201,16 +209,21 @@ impl BloomingBlockery {
         }
     }
 
-    fn print_context(lineage: &[String], children: &[String], friends: usize, output: cli::OutputFormat) {
+    fn print_context(
+        lineage: &[String], children: &[String], friends: usize, output: cli::OutputFormat,
+    ) {
         match output {
-            cli::OutputFormat::Json => {
-                println!("{}", serde_json::json!({
-                    "lineage": lineage,
-                    "children": children,
-                    "friends": friends
-                }));
+            | cli::OutputFormat::Json => {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "lineage": lineage,
+                        "children": children,
+                        "friends": friends
+                    })
+                );
             }
-            cli::OutputFormat::Table => {
+            | cli::OutputFormat::Table => {
                 println!("Lineage:");
                 for p in lineage {
                     println!("  - {}", p);
@@ -222,22 +235,22 @@ impl BloomingBlockery {
     }
 
     fn print_draft_list(
-        expansion: Option<&cli::ExpansionDraftInfo>,
-        reduction: Option<&cli::ReductionDraftInfo>,
-        instruction: Option<&String>,
-        inquiry: Option<&String>,
-        output: cli::OutputFormat,
+        expansion: Option<&cli::ExpansionDraftInfo>, reduction: Option<&cli::ReductionDraftInfo>,
+        instruction: Option<&String>, inquiry: Option<&String>, output: cli::OutputFormat,
     ) {
         match output {
-            cli::OutputFormat::Json => {
-                println!("{}", serde_json::json!({
-                    "expansion": expansion,
-                    "reduction": reduction,
-                    "instruction": instruction,
-                    "inquiry": inquiry
-                }));
+            | cli::OutputFormat::Json => {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "expansion": expansion,
+                        "reduction": reduction,
+                        "instruction": instruction,
+                        "inquiry": inquiry
+                    })
+                );
             }
-            cli::OutputFormat::Table => {
+            | cli::OutputFormat::Table => {
                 if let Some(e) = expansion {
                     println!("Expansion draft:");
                     if let Some(r) = &e.rewrite {
@@ -260,7 +273,11 @@ impl BloomingBlockery {
                 if let Some(q) = inquiry {
                     println!("Inquiry: {}", q);
                 }
-                if expansion.is_none() && reduction.is_none() && instruction.is_none() && inquiry.is_none() {
+                if expansion.is_none()
+                    && reduction.is_none()
+                    && instruction.is_none()
+                    && inquiry.is_none()
+                {
                     println!("(no drafts)");
                 }
             }
@@ -269,10 +286,10 @@ impl BloomingBlockery {
 
     fn print_friend_list(friends: &[cli::FriendInfo], output: cli::OutputFormat) {
         match output {
-            cli::OutputFormat::Json => {
+            | cli::OutputFormat::Json => {
                 println!("{}", serde_json::to_string(friends).unwrap_or_default());
             }
-            cli::OutputFormat::Table => {
+            | cli::OutputFormat::Table => {
                 if friends.is_empty() {
                     println!("(no friends)");
                 } else {
@@ -293,16 +310,21 @@ impl BloomingBlockery {
         }
     }
 
-    fn print_mount_info(path: Option<&str>, format: &str, expanded: bool, output: cli::OutputFormat) {
+    fn print_mount_info(
+        path: Option<&str>, format: &str, expanded: bool, output: cli::OutputFormat,
+    ) {
         match output {
-            cli::OutputFormat::Json => {
-                println!("{}", serde_json::json!({
-                    "path": path,
-                    "format": format,
-                    "expanded": expanded
-                }));
+            | cli::OutputFormat::Json => {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "path": path,
+                        "format": format,
+                        "expanded": expanded
+                    })
+                );
             }
-            cli::OutputFormat::Table => {
+            | cli::OutputFormat::Table => {
                 println!("Path: {}", path.unwrap_or("(none)"));
                 println!("Format: {}", format);
                 println!("Expanded: {}", expanded);
@@ -312,14 +334,60 @@ impl BloomingBlockery {
 
     fn print_panel_state(state: Option<&str>, output: cli::OutputFormat) {
         match output {
-            cli::OutputFormat::Json => {
+            | cli::OutputFormat::Json => {
                 println!("{}", serde_json::json!({ "panel": state }));
             }
-            cli::OutputFormat::Table => {
-                match state {
-                    Some(s) => println!("{}", s),
-                    None => println!("(not set)"),
+            | cli::OutputFormat::Table => match state {
+                | Some(s) => println!("{}", s),
+                | None => println!("(not set)"),
+            },
+        }
+    }
+
+    fn print_block_id(id: store::BlockId, output: cli::OutputFormat) {
+        match output {
+            | cli::OutputFormat::Json => {
+                println!("{}", serde_json::json!({ "id": format!("{:?}", id) }));
+            }
+            | cli::OutputFormat::Table => {
+                println!("{:?}", id);
+            }
+        }
+    }
+
+    fn print_optional_block_id(id: Option<&store::BlockId>, output: cli::OutputFormat) {
+        match output {
+            | cli::OutputFormat::Json => {
+                println!("{}", serde_json::json!({ "id": id.map(|i| format!("{:?}", i)) }));
+            }
+            | cli::OutputFormat::Table => {
+                if let Some(id) = id {
+                    println!("{:?}", id);
                 }
+            }
+        }
+    }
+
+    fn print_removed(ids: &[String], output: cli::OutputFormat) {
+        match output {
+            | cli::OutputFormat::Json => {
+                println!("{}", serde_json::json!({ "removed": ids }));
+            }
+            | cli::OutputFormat::Table => {
+                for id in ids {
+                    println!("Removed: {}", id);
+                }
+            }
+        }
+    }
+
+    fn print_collapsed(collapsed: bool, output: cli::OutputFormat) {
+        match output {
+            | cli::OutputFormat::Json => {
+                println!("{}", serde_json::json!({ "collapsed": collapsed }));
+            }
+            | cli::OutputFormat::Table => {
+                println!("Collapsed: {}", collapsed);
             }
         }
     }

@@ -3,15 +3,8 @@
 use super::BlockId;
 use super::results::{CliResult, ExpansionDraftInfo, FriendInfo, Match, ReductionDraftInfo};
 use super::{
-    BlockCommands,
-    context::ContextCommand,
-    draft::DraftCommands,
-    fold::FoldCommands,
-    friend::FriendCommands,
-    mount::MountCommands,
-    nav::NavCommands,
-    panel::PanelCommands,
-    query::{FindCommand, RootCommand, ShowCommand},
+    BlockCommands, draft::DraftCommands, fold::FoldCommands, friend::FriendCommands,
+    mount::MountCommands, nav::NavCommands, panel::PanelCommands, query::RootCommand,
     tree::TreeCommands,
 };
 use crate::store as store_module;
@@ -28,13 +21,13 @@ impl BlockCommands {
     ///
     /// - `store`: The block store to operate on
     /// - `base_dir`: Base directory for resolving relative mount paths
-    /// - `output`: Output format for query results
+    /// - `_output`: Output format for query results (used by caller for formatting)
     ///
     /// # Returns
     ///
     /// Modified store (or original if no changes) and command result.
     pub fn execute(
-        self, mut store: BlockStore, base_dir: &std::path::Path, output: super::OutputFormat,
+        self, mut store: BlockStore, base_dir: &std::path::Path,
     ) -> (BlockStore, CliResult) {
         match self {
             // Query commands - no store modification
