@@ -45,6 +45,7 @@
 use crate::store::{
     Direction, MountFormat as StoreMountFormat, PanelBarState as StorePanelBarState,
 };
+use crate::store as store_module;
 use clap::{Parser, ValueEnum};
 
 // ============================================================================
@@ -172,7 +173,7 @@ impl From<PanelBarStateCli> for StorePanelBarState {
 /// This CLI provides programmatic access to all block store operations including
 /// tree mutations, navigation, drafts, folds, friends, mounts, and panel state.
 #[derive(Debug, Parser)]
-#[command(name = "blooming-blockery", about, long_about = "")]
+#[command(name = "blooming-blockery", about, long_about)]
 pub struct BlockCli {
     #[command(subcommand)]
     pub command: Option<Commands>,
@@ -1610,8 +1611,99 @@ impl BlockCommands {
                     }
                 }
             }
-            // Draft commands (placeholder - would need more implementation)
-            BlockCommands::Draft(_) => (store, CliResult::Error("Draft commands not yet implemented".to_string())),
+            // Draft commands
+            BlockCommands::Draft(DraftCommands::Expand(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let draft = store_module::ExpansionDraftRecord {
+                            rewrite: cmd.rewrite,
+                            children: cmd.children,
+                        };
+                        store.insert_expansion_draft(block_id, draft);
+                        (store, CliResult::Success)
+                    }
+                }
+            }
+            BlockCommands::Draft(DraftCommands::Reduce(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let redundant: Vec<_> = cmd.redundant_children
+                            .iter()
+                            .filter_map(|c| Self::resolve_block_id(&store, c))
+                            .collect();
+                        let draft = store_module::ReductionDraftRecord {
+                            reduction: cmd.reduction,
+                            redundant_children: redundant,
+                        };
+                        store.insert_reduction_draft(block_id, draft);
+                        (store, CliResult::Success)
+                    }
+                }
+            }
+            BlockCommands::Draft(DraftCommands::Instruction(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        store.set_instruction_draft(block_id, cmd.text);
+                        (store, CliResult::Success)
+                    }
+                }
+            }
+            BlockCommands::Draft(DraftCommands::Inquiry(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        store.set_inquiry_draft(block_id, cmd.response);
+                        (store, CliResult::Success)
+                    }
+                }
+            }
+            BlockCommands::Draft(DraftCommands::List(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let expansion = store.expansion_draft(&block_id).map(|d| ExpansionDraftInfo {
+                            rewrite: d.rewrite.clone(),
+                            children: d.children.clone(),
+                        });
+                        let reduction = store.reduction_draft(&block_id).map(|d| ReductionDraftInfo {
+                            reduction: d.reduction.clone(),
+                            redundant_children: d.redundant_children.iter().map(|id| format!("{:?}", id)).collect(),
+                        });
+                        let instruction = store.instruction_draft(&block_id).map(|d| d.instruction.clone());
+                        let inquiry = store.inquiry_draft(&block_id).map(|d| d.response.clone());
+                        (store, CliResult::DraftList { expansion, reduction, instruction, inquiry })
+                    }
+                }
+            }
+            BlockCommands::Draft(DraftCommands::Clear(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        if cmd.all || cmd.expand {
+                            store.remove_expansion_draft(&block_id);
+                        }
+                        if cmd.all || cmd.reduce {
+                            store.remove_reduction_draft(&block_id);
+                        }
+                        if cmd.all || cmd.instruction {
+                            store.remove_instruction_draft(&block_id);
+                        }
+                        if cmd.all || cmd.inquiry {
+                            store.remove_inquiry_draft(&block_id);
+                        }
+                        (store, CliResult::Success)
+                    }
+                }
+            }
             // Fold commands
             BlockCommands::Fold(FoldCommands::Toggle(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
@@ -1633,12 +1725,168 @@ impl BlockCommands {
                     }
                 }
             }
-            // Friend commands (placeholder)
-            BlockCommands::Friend(_) => (store, CliResult::Error("Friend commands not yet implemented".to_string())),
-            // Mount commands (placeholder)
-            BlockCommands::Mount(_) => (store, CliResult::Error("Mount commands not yet implemented".to_string())),
-            // Panel commands (placeholder)
-            BlockCommands::Panel(_) => (store, CliResult::Error("Panel commands not yet implemented".to_string())),
+            // Friend commands
+            BlockCommands::Friend(FriendCommands::Add(cmd)) => {
+                let target = Self::resolve_block_id(&store, &cmd.target_id);
+                let friend = Self::resolve_block_id(&store, &cmd.friend_id);
+                match (target, friend) {
+                    (Some(tid), Some(fid)) => {
+                        let mut friends = store.friend_blocks_for(&tid).to_vec();
+                        friends.push(store_module::FriendBlock {
+                            block_id: fid,
+                            perspective: cmd.perspective,
+                            parent_lineage_telescope: cmd.telescope_lineage,
+                            children_telescope: cmd.telescope_children,
+                        });
+                        store.set_friend_blocks_for(&tid, friends);
+                        (store, CliResult::Success)
+                    }
+                    _ => (store, CliResult::Error("Unknown block ID".to_string())),
+                }
+            }
+            BlockCommands::Friend(FriendCommands::Remove(cmd)) => {
+                let target = Self::resolve_block_id(&store, &cmd.target_id);
+                let friend = Self::resolve_block_id(&store, &cmd.friend_id);
+                match (target, friend) {
+                    (Some(tid), Some(fid)) => {
+                        let mut friends = store.friend_blocks_for(&tid).to_vec();
+                        friends.retain(|f| f.block_id != fid);
+                        store.set_friend_blocks_for(&tid, friends);
+                        (store, CliResult::Success)
+                    }
+                    _ => (store, CliResult::Error("Unknown block ID".to_string())),
+                }
+            }
+            BlockCommands::Friend(FriendCommands::List(cmd)) => {
+                let target = Self::resolve_block_id(&store, &cmd.target_id);
+                match target {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(tid) => {
+                        let friends: Vec<FriendInfo> = store.friend_blocks_for(&tid)
+                            .iter()
+                            .map(|f| FriendInfo {
+                                id: format!("{:?}", f.block_id),
+                                perspective: f.perspective.clone(),
+                                telescope_lineage: f.parent_lineage_telescope,
+                                telescope_children: f.children_telescope,
+                            })
+                            .collect();
+                        (store, CliResult::FriendList(friends))
+                    }
+                }
+            }
+            // Mount commands
+            BlockCommands::Mount(MountCommands::Set(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let result = store.set_mount_path_with_format(&block_id, cmd.path, cmd.format.into());
+                        match result {
+                            Some(()) => (store, CliResult::Success),
+                            None => (store, CliResult::Error("Failed to set mount path (block may have children)".to_string())),
+                        }
+                    }
+                }
+            }
+            BlockCommands::Mount(MountCommands::Expand(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        match store.expand_mount(&block_id, base_dir) {
+                            Ok(_) => (store, CliResult::Success),
+                            Err(e) => (store, CliResult::Error(format!("Expand failed: {}", e))),
+                        }
+                    }
+                }
+            }
+            BlockCommands::Mount(MountCommands::Collapse(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        match store.collapse_mount(&block_id) {
+                            Some(()) => (store, CliResult::Success),
+                            None => (store, CliResult::Error("Block is not an expanded mount".to_string())),
+                        }
+                    }
+                }
+            }
+            BlockCommands::Mount(MountCommands::Extract(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        match store.save_subtree_to_file(&block_id, &cmd.output, base_dir) {
+                            Ok(()) => (store, CliResult::Success),
+                            Err(e) => (store, CliResult::Error(format!("Extract failed: {}", e))),
+                        }
+                    }
+                }
+            }
+            BlockCommands::Mount(MountCommands::Info(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let node = store.node(&block_id);
+                        let mount_entry = store.mount_table().entry(block_id);
+                        let result = match (node, mount_entry) {
+                            (Some(store_module::BlockNode::Mount { path, format }), None) => {
+                                CliResult::MountInfo {
+                                    path: Some(path.display().to_string()),
+                                    format: format!("{:?}", format),
+                                    expanded: false,
+                                }
+                            }
+                            (_, Some(entry)) => {
+                                CliResult::MountInfo {
+                                    path: Some(entry.path.display().to_string()),
+                                    format: format!("{:?}", entry.format),
+                                    expanded: true,
+                                }
+                            }
+                            _ => CliResult::Error("Block is not a mount".to_string()),
+                        };
+                        (store, result)
+                    }
+                }
+            }
+            // Panel commands
+            BlockCommands::Panel(PanelCommands::Set(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        store.set_panel_state(&block_id, Some(cmd.panel.into()));
+                        (store, CliResult::Success)
+                    }
+                }
+            }
+            BlockCommands::Panel(PanelCommands::Get(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        let state = store.panel_state(&block_id).map(|s| match s {
+                            store_module::PanelBarState::Friends => "friends",
+                            store_module::PanelBarState::Instruction => "instruction",
+                        });
+                        (store, CliResult::PanelState(state.map(String::from)))
+                    }
+                }
+            }
+            BlockCommands::Panel(PanelCommands::Clear(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    Some(block_id) => {
+                        store.set_panel_state(&block_id, None);
+                        (store, CliResult::Success)
+                    }
+                }
+            }
             // Context command
             BlockCommands::Context(cmd) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
@@ -1734,6 +1982,37 @@ pub enum CliResult {
     Lineage(Vec<String>),
     /// LLM context.
     Context { lineage: Vec<String>, children: Vec<String>, friends: usize },
+    /// Draft listing result.
+    DraftList {
+        expansion: Option<ExpansionDraftInfo>,
+        reduction: Option<ReductionDraftInfo>,
+        instruction: Option<String>,
+        inquiry: Option<String>,
+    },
+    /// Friend list result.
+    FriendList(Vec<FriendInfo>),
+    /// Mount info result.
+    MountInfo {
+        path: Option<String>,
+        format: String,
+        expanded: bool,
+    },
+    /// Panel state result.
+    PanelState(Option<String>),
+}
+
+/// Expansion draft info for CLI output.
+#[derive(Debug, serde::Serialize)]
+pub struct ExpansionDraftInfo {
+    pub rewrite: Option<String>,
+    pub children: Vec<String>,
+}
+
+/// Reduction draft info for CLI output.
+#[derive(Debug, serde::Serialize)]
+pub struct ReductionDraftInfo {
+    pub reduction: String,
+    pub redundant_children: Vec<String>,
 }
 
 /// Search match result.
@@ -1743,4 +2022,13 @@ pub struct Match {
     pub id: String,
     /// Block text content.
     pub text: String,
+}
+
+/// Friend info for CLI output.
+#[derive(Debug, serde::Serialize)]
+pub struct FriendInfo {
+    pub id: String,
+    pub perspective: Option<String>,
+    pub telescope_lineage: bool,
+    pub telescope_children: bool,
 }

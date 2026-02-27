@@ -94,6 +94,18 @@ impl BloomingBlockery {
                     CliResult::Context { lineage, children, friends } => {
                         Self::print_context(&lineage, &children, friends, cli.output);
                     }
+                    CliResult::DraftList { expansion, reduction, instruction, inquiry } => {
+                        Self::print_draft_list(expansion.as_ref(), reduction.as_ref(), instruction.as_ref(), inquiry.as_ref(), cli.output);
+                    }
+                    CliResult::FriendList(friends) => {
+                        Self::print_friend_list(&friends, cli.output);
+                    }
+                    CliResult::MountInfo { ref path, ref format, expanded } => {
+                        Self::print_mount_info(path.as_deref(), format, expanded, cli.output);
+                    }
+                    CliResult::PanelState(state) => {
+                        Self::print_panel_state(state.as_deref(), cli.output);
+                    }
                 }
             }
         }
@@ -205,6 +217,109 @@ impl BloomingBlockery {
                 }
                 println!("Children: {:?}", children);
                 println!("Friends: {}", friends);
+            }
+        }
+    }
+
+    fn print_draft_list(
+        expansion: Option<&cli::ExpansionDraftInfo>,
+        reduction: Option<&cli::ReductionDraftInfo>,
+        instruction: Option<&String>,
+        inquiry: Option<&String>,
+        output: cli::OutputFormat,
+    ) {
+        match output {
+            cli::OutputFormat::Json => {
+                println!("{}", serde_json::json!({
+                    "expansion": expansion,
+                    "reduction": reduction,
+                    "instruction": instruction,
+                    "inquiry": inquiry
+                }));
+            }
+            cli::OutputFormat::Table => {
+                if let Some(e) = expansion {
+                    println!("Expansion draft:");
+                    if let Some(r) = &e.rewrite {
+                        println!("  Rewrite: {}", r);
+                    }
+                    if !e.children.is_empty() {
+                        println!("  Children: {:?}", e.children);
+                    }
+                }
+                if let Some(r) = reduction {
+                    println!("Reduction draft:");
+                    println!("  Reduction: {}", r.reduction);
+                    if !r.redundant_children.is_empty() {
+                        println!("  Redundant children: {:?}", r.redundant_children);
+                    }
+                }
+                if let Some(i) = instruction {
+                    println!("Instruction: {}", i);
+                }
+                if let Some(q) = inquiry {
+                    println!("Inquiry: {}", q);
+                }
+                if expansion.is_none() && reduction.is_none() && instruction.is_none() && inquiry.is_none() {
+                    println!("(no drafts)");
+                }
+            }
+        }
+    }
+
+    fn print_friend_list(friends: &[cli::FriendInfo], output: cli::OutputFormat) {
+        match output {
+            cli::OutputFormat::Json => {
+                println!("{}", serde_json::to_string(friends).unwrap_or_default());
+            }
+            cli::OutputFormat::Table => {
+                if friends.is_empty() {
+                    println!("(no friends)");
+                } else {
+                    for f in friends {
+                        println!("{}", f.id);
+                        if let Some(p) = &f.perspective {
+                            println!("  Perspective: {}", p);
+                        }
+                        if f.telescope_lineage {
+                            println!("  Telescope lineage: yes");
+                        }
+                        if f.telescope_children {
+                            println!("  Telescope children: yes");
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    fn print_mount_info(path: Option<&str>, format: &str, expanded: bool, output: cli::OutputFormat) {
+        match output {
+            cli::OutputFormat::Json => {
+                println!("{}", serde_json::json!({
+                    "path": path,
+                    "format": format,
+                    "expanded": expanded
+                }));
+            }
+            cli::OutputFormat::Table => {
+                println!("Path: {}", path.unwrap_or("(none)"));
+                println!("Format: {}", format);
+                println!("Expanded: {}", expanded);
+            }
+        }
+    }
+
+    fn print_panel_state(state: Option<&str>, output: cli::OutputFormat) {
+        match output {
+            cli::OutputFormat::Json => {
+                println!("{}", serde_json::json!({ "panel": state }));
+            }
+            cli::OutputFormat::Table => {
+                match state {
+                    Some(s) => println!("{}", s),
+                    None => println!("(not set)"),
+                }
             }
         }
     }
