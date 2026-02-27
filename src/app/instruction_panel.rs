@@ -417,7 +417,8 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
         let result_content = container(
             scrollable(text(result).font(theme::LXGW_WENKAI).size(14))
-                .height(iced::Length::Fixed(120.0)),
+                .height(iced::Length::Fixed(120.0))
+                .width(iced::Length::Fill),
         )
         .padding(Padding::from([6.0, 8.0]))
         .style(theme::draft_panel)
