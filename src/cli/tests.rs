@@ -24,7 +24,7 @@ fn create_test_store() -> BlockStore {
     let mut store = BlockStore::default();
     let root_id = store.roots()[0];
     let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
-    let child2 = store.append_child(&root_id, "child2".to_string()).unwrap();
+    let _child2 = store.append_child(&root_id, "child2".to_string()).unwrap();
     let _grandchild1 = store.append_child(&child1, "grandchild1".to_string()).unwrap();
     store
 }
@@ -34,7 +34,7 @@ fn format_block_id(id: crate::store::BlockId) -> String {
 }
 
 #[test]
-fn test_roots_command() {
+fn roots_command() {
     let store = create_test_store();
     let cmd = BlockCommands::Roots(RootCommand {});
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -42,7 +42,7 @@ fn test_roots_command() {
 }
 
 #[test]
-fn test_show_command() {
+fn show_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId(format_block_id(root_id)) });
@@ -52,7 +52,7 @@ fn test_show_command() {
 }
 
 #[test]
-fn test_show_unknown_block() {
+fn show_unknown_block() {
     let store = create_test_store();
     let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId("0v0".to_string()) });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -60,7 +60,7 @@ fn test_show_unknown_block() {
 }
 
 #[test]
-fn test_find_command() {
+fn find_command() {
     let store = create_test_store();
     let cmd = BlockCommands::Find(FindCommand { query: "child".to_string(), limit: 10 });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -68,7 +68,7 @@ fn test_find_command() {
 }
 
 #[test]
-fn test_add_child_command() {
+fn add_child_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
@@ -80,7 +80,7 @@ fn test_add_child_command() {
 }
 
 #[test]
-fn test_add_sibling_command() {
+fn add_sibling_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
@@ -93,7 +93,7 @@ fn test_add_sibling_command() {
 }
 
 #[test]
-fn test_wrap_command() {
+fn wrap_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
@@ -107,7 +107,7 @@ fn test_wrap_command() {
 }
 
 #[test]
-fn test_duplicate_command() {
+fn duplicate_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
@@ -120,7 +120,7 @@ fn test_duplicate_command() {
 }
 
 #[test]
-fn test_delete_command() {
+fn delete_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
@@ -134,7 +134,7 @@ fn test_delete_command() {
 }
 
 #[test]
-fn test_move_command_after() {
+fn move_command_after() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let children = store.children(&root_id);
@@ -150,7 +150,7 @@ fn test_move_command_after() {
 }
 
 #[test]
-fn test_nav_next_command() {
+fn nav_next_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Nav(NavCommands::Next(NextCommand {
@@ -162,7 +162,7 @@ fn test_nav_next_command() {
 }
 
 #[test]
-fn test_nav_prev_command() {
+fn nav_prev_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
@@ -174,7 +174,7 @@ fn test_nav_prev_command() {
 }
 
 #[test]
-fn test_nav_lineage_command() {
+fn nav_lineage_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
@@ -186,7 +186,7 @@ fn test_nav_lineage_command() {
 }
 
 #[test]
-fn test_draft_expand_command() {
+fn draft_expand_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Draft(DraftCommands::Expand(ExpandDraftCommand {
@@ -199,7 +199,7 @@ fn test_draft_expand_command() {
 }
 
 #[test]
-fn test_draft_reduce_command() {
+fn draft_reduce_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
@@ -213,7 +213,7 @@ fn test_draft_reduce_command() {
 }
 
 #[test]
-fn test_draft_instruction_command() {
+fn draft_instruction_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Draft(DraftCommands::Instruction(InstructionDraftCommand {
@@ -225,7 +225,7 @@ fn test_draft_instruction_command() {
 }
 
 #[test]
-fn test_draft_inquiry_command() {
+fn draft_inquiry_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Draft(DraftCommands::Inquiry(InquiryDraftCommand {
@@ -237,7 +237,7 @@ fn test_draft_inquiry_command() {
 }
 
 #[test]
-fn test_draft_list_command() {
+fn draft_list_command() {
     let mut store = create_test_store();
     let root_id = store.roots()[0];
     store.insert_expansion_draft(root_id, crate::store::ExpansionDraftRecord {
@@ -251,7 +251,7 @@ fn test_draft_list_command() {
 }
 
 #[test]
-fn test_draft_clear_command() {
+fn draft_clear_command() {
     let mut store = create_test_store();
     let root_id = store.roots()[0];
     store.insert_expansion_draft(root_id, crate::store::ExpansionDraftRecord {
@@ -266,7 +266,7 @@ fn test_draft_clear_command() {
 }
 
 #[test]
-fn test_fold_toggle_command() {
+fn fold_toggle_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let initial = store.is_collapsed(&root_id);
@@ -278,7 +278,7 @@ fn test_fold_toggle_command() {
 }
 
 #[test]
-fn test_fold_status_command() {
+fn fold_status_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Fold(FoldCommands::Status(StatusFoldCommand {
@@ -289,29 +289,27 @@ fn test_fold_status_command() {
 }
 
 #[test]
-fn test_output_json_format() {
+fn output_json_format() {
     print_result(&CliResult::Roots(vec!["1v1".to_string(), "2v1".to_string()]), OutputFormat::Json);
 }
 
 #[test]
-fn test_output_table_format() {
+fn output_table_format() {
     print_result(&CliResult::Roots(vec!["1v1".to_string(), "2v1".to_string()]), OutputFormat::Table);
 }
 
 #[test]
-fn test_output_error_to_stderr() {
+fn output_error_to_stderr() {
     print_result(&CliResult::Error("test error".to_string()), OutputFormat::Table);
 }
 
 #[test]
-fn test_output_success() {
+fn output_success() {
     print_result(&CliResult::Success, OutputFormat::Table);
 }
 
 #[test]
-
-#[test]
-fn test_find_with_limit() {
+fn find_with_limit() {
     let store = create_test_store();
     let cmd = BlockCommands::Find(FindCommand { query: "".to_string(), limit: 1 });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -319,7 +317,7 @@ fn test_find_with_limit() {
 }
 
 #[test]
-fn test_move_with_unknown_source() {
+fn move_with_unknown_source() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Tree(TreeCommands::Move(MoveCommand {
