@@ -24,6 +24,8 @@ doc_friend_empty_hint: "点击 + 从其他块添加友块。"
 doc_perspective: "视角：%{label}"
 doc_friend_as: "乃"
 doc_friend_perspective_placeholder: "添加视角..."
+doc_friend_telescope_parent: "在上下文中包含父系谱"
+doc_friend_telescope_children: "在上下文中包含子块"
 ui_remove: "移除"
 doc_status_expanding: "展开中..."
 doc_status_reducing: "精简中..."
@@ -64,8 +66,16 @@ settings_new_provider_placeholder: "新自定义提供方名称..."
 settings_base_url_placeholder: "https://api.example.com/v1"
 settings_api_key_placeholder: "sk-..."
 settings_model_placeholder: "gpt-4o"
-save_block_to_file: "将块保存到文件"
-load_block_from_file: "从文件加载块"
+settings_dark_mode: "深色模式"
+settings_system_default: "系统默认"
+settings_data_file: "数据文件"
+settings_llm_config: "LLM 配置"
+settings_not_available: "不可用"
+settings_appearance: "外观"
+settings_data_paths: "数据路径"
+settings_providers: "提供方"
+
+# Action bar buttons
 action_expand: "展开"
 action_reduce: "精简"
 action_add_child: "添加子块"
@@ -79,21 +89,13 @@ action_duplicate: "复制"
 action_save_to_file: "保存到文件"
 action_load_from_file: "从文件加载"
 action_archive: "归档"
+
+# Status chip messages
 status_expand_failed: "展开失败"
 status_reduce_failed: "精简失败"
 
-# Settings (additional)
-settings_dark_mode: "深色模式"
-settings_system_default: "系统默认"
-settings_data_file: "数据文件"
-settings_llm_config: "LLM配置"
-settings_not_available: "不可用"
-settings_appearance: "外观"
-settings_data_paths: "数据路径"
-settings_providers: "提供方"
-
 # Instruction panel (additional)
-instruction_additional: "附加指令: %{instruction}"
+instruction_additional: "附加指令：%{instruction}"
 
 # Mount file dialogs
 save_block_to_file: "保存块到文件"

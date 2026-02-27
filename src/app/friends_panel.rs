@@ -31,7 +31,9 @@
 use crate::app::{AppState, DocumentMode, Message, StructureMessage};
 use crate::store::{BlockId, PanelBarState};
 use crate::theme;
-use iced::widget::{Id, button, column, container, operation::focus, row, text, text_input};
+use iced::widget::{
+    Id, button, column, container, operation::focus, row, text, text_input, tooltip,
+};
 use iced::{Element, Length, Task};
 use lucide_icons::iced as icons;
 
@@ -359,28 +361,46 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     .spacing(theme::FRIEND_TOGGLE_GAP)
                     .align_y(iced::alignment::Vertical::Center)
                     .push(
-                        button(
-                            icons::icon_corner_up_left().size(theme::FRIEND_TOGGLE_ICON_SIZE).center(),
+                        tooltip(
+                            button(
+                                icons::icon_corner_up_left().size(theme::FRIEND_TOGGLE_ICON_SIZE).center(),
+                            )
+                            .style(theme::toggle_button(friend.parent_lineage_telescope))
+                            .height(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
+                            .width(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
+                            .padding(0)
+                            .on_press(Message::FriendPanel(
+                                FriendPanelMessage::ToggleParentLineageTelescope { target, friend_id },
+                            )),
+                            text(rust_i18n::t!("doc_friend_telescope_parent").to_string())
+                                .size(12)
+                                .font(theme::INTER),
+                            tooltip::Position::Bottom,
                         )
-                        .style(theme::toggle_button(friend.parent_lineage_telescope))
-                        .height(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
-                        .width(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
-                        .padding(0)
-                        .on_press(Message::FriendPanel(
-                            FriendPanelMessage::ToggleParentLineageTelescope { target, friend_id },
-                        )),
+                        .style(theme::tooltip)
+                        .padding(theme::TOOLTIP_PAD)
+                        .gap(theme::TOOLTIP_GAP),
                     )
                     .push(
-                        button(
-                            icons::icon_corner_down_right().size(theme::FRIEND_TOGGLE_ICON_SIZE).center(),
+                        tooltip(
+                            button(
+                                icons::icon_corner_down_right().size(theme::FRIEND_TOGGLE_ICON_SIZE).center(),
+                            )
+                            .style(theme::toggle_button(friend.children_telescope))
+                            .height(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
+                            .width(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
+                            .padding(0)
+                            .on_press(Message::FriendPanel(
+                                FriendPanelMessage::ToggleChildrenTelescope { target, friend_id },
+                            )),
+                            text(rust_i18n::t!("doc_friend_telescope_children").to_string())
+                                .size(12)
+                                .font(theme::INTER),
+                            tooltip::Position::Bottom,
                         )
-                        .style(theme::toggle_button(friend.children_telescope))
-                        .height(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
-                        .width(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
-                        .padding(0)
-                        .on_press(Message::FriendPanel(
-                            FriendPanelMessage::ToggleChildrenTelescope { target, friend_id },
-                        )),
+                        .style(theme::tooltip)
+                        .padding(theme::TOOLTIP_PAD)
+                        .gap(theme::TOOLTIP_GAP),
                     ),
             )
             .push(

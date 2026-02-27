@@ -24,6 +24,8 @@ doc_friend_empty_hint: "+ をクリックして他のブロックから友ブロ
 doc_perspective: "視点：%{label}"
 doc_friend_as: "として"
 doc_friend_perspective_placeholder: "視点を追加..."
+doc_friend_telescope_parent: "コンテキストに親の系譜を含む"
+doc_friend_telescope_children: "コンテキストに子を含む"
 ui_remove: "削除"
 doc_status_expanding: "展開中..."
 doc_status_reducing: "要約中..."
@@ -64,8 +66,16 @@ settings_new_provider_placeholder: "新しいカスタム提供元名..."
 settings_base_url_placeholder: "https://api.example.com/v1"
 settings_api_key_placeholder: "sk-..."
 settings_model_placeholder: "gpt-4o"
-save_block_to_file: "ブロックをファイルに保存"
-load_block_from_file: "ファイルからブロックを読み込み"
+settings_dark_mode: "ダークモード"
+settings_system_default: "システム設定"
+settings_data_file: "データファイル"
+settings_llm_config: "LLM 設定"
+settings_not_available: "利用不可"
+settings_appearance: "外観"
+settings_data_paths: "データパス"
+settings_providers: "提供元"
+
+# Action bar buttons
 action_expand: "展開"
 action_reduce: "要約"
 action_add_child: "子を追加"
@@ -79,21 +89,13 @@ action_duplicate: "複製"
 action_save_to_file: "ファイルに保存"
 action_load_from_file: "ファイルから読み込み"
 action_archive: "アーカイブ"
+
+# Status chip messages
 status_expand_failed: "展開失敗"
 status_reduce_failed: "要約失敗"
 
-# Settings (additional)
-settings_dark_mode: "ダークモード"
-settings_system_default: "システム設定"
-settings_data_file: "データファイル"
-settings_llm_config: "LLM設定"
-settings_not_available: "利用不可"
-settings_appearance: "外観"
-settings_data_paths: "データパス"
-settings_providers: "提供元"
-
 # Instruction panel (additional)
-instruction_additional: "追加指令: %{instruction}"
+instruction_additional: "追加指令：%{instruction}"
 
 # Mount file dialogs
 save_block_to_file: "ブロックをファイルに保存"
