@@ -63,6 +63,7 @@ pub use super::friend::FriendCommands;
 pub use super::mount::MountCommands;
 pub use super::nav::NavCommands;
 pub use super::panel::PanelCommands;
+pub use super::point::EditPointCommand;
 pub use super::query::{FindCommand, RootCommand, ShowCommand};
 pub use super::tree::TreeCommands;
 
@@ -133,6 +134,8 @@ pub enum BlockCommands {
     Show(ShowCommand),
     /// Search blocks by text content (case-insensitive).
     Find(FindCommand),
+    /// Edit the text content of a block.
+    Point(EditPointCommand),
     /// Structural tree editing operations.
     #[command(subcommand)]
     Tree(TreeCommands),

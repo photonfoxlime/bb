@@ -16,6 +16,7 @@ use crate::cli::{
     },
     fold::{FoldCommands, StatusFoldCommand, ToggleFoldCommand},
     nav::{LineageCommand, NavCommands, NextCommand, PrevCommand},
+    point::EditPointCommand,
     print_result,
     query::{FindCommand, ShowCommand},
     results::CliResult,
@@ -72,6 +73,30 @@ fn find_command() {
     let cmd = BlockCommands::Find(FindCommand { query: "child".to_string(), limit: 10 });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Find(matches) if matches.len() >= 2));
+}
+
+#[test]
+fn point_edit_command() {
+    let store = create_test_store();
+    let root_id = store.roots()[0];
+    let cmd = BlockCommands::Point(EditPointCommand {
+        block_id: BlockId(format_block_id(root_id)),
+        text: "Updated text".to_string(),
+    });
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+    assert!(matches!(result, CliResult::Success));
+    assert_eq!(store.point(&root_id), Some("Updated text".to_string()));
+}
+
+#[test]
+fn point_edit_unknown_block() {
+    let store = create_test_store();
+    let cmd = BlockCommands::Point(EditPointCommand {
+        block_id: BlockId("0v0".to_string()),
+        text: "Should not work".to_string(),
+    });
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+    assert!(matches!(result, CliResult::Error(msg) if msg.contains("Unknown block ID")));
 }
 
 #[test]

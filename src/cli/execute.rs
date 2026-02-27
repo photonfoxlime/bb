@@ -102,6 +102,17 @@ impl BlockCommands {
                     .collect();
                 (store, CliResult::Find(matches))
             }
+            // Edit the text content of a block.
+            | BlockCommands::Point(cmd) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    | Some(block_id) => {
+                        store.update_point(&block_id, cmd.text);
+                        (store, CliResult::Success)
+                    }
+                }
+            }
             // ========================================================================
             // Tree Commands
             // ========================================================================

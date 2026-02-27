@@ -48,6 +48,10 @@ block show 1v1 --output json
 # Search blocks by text (case-insensitive substring)
 block find "search query"
 block find "TODO" --limit 10
+
+# Edit the text content of a block
+block point <BLOCK_ID> "New text content"
+block point 1v1 "Updated text"
 ```
 
 ### Tree Structure Commands

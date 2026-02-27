@@ -41,6 +41,7 @@ pub mod mount;
 pub mod nav;
 pub mod output;
 pub mod panel;
+pub mod point;
 pub mod query;
 pub mod results;
 pub mod tree;
