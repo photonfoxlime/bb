@@ -851,12 +851,17 @@ impl<'a> TreeView<'a> {
                 for descriptor in &vm.overflow {
                     actions_row = actions_row.push(self.render_action_button(block_id, descriptor));
                 }
-                let btn = button(centered_icon(icons::icon_x().size(16).into()))
-                    .style(theme::action_button)
-                    .padding(0)
-                    .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                    .on_press(Message::Overlay(OverlayMessage::ToggleOverflow(*block_id)));
+                let btn = button(centered_icon(
+                    icons::icon_x()
+                        .size(16)
+                        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                        .into(),
+                ))
+                .style(theme::action_button)
+                .padding(0)
+                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::Overlay(OverlayMessage::ToggleOverflow(*block_id)));
 
                 actions_row = actions_row.push(
                     tooltip(
@@ -870,12 +875,17 @@ impl<'a> TreeView<'a> {
                 );
             } else {
                 // When closed, show "More" button
-                let btn = button(centered_icon(icons::icon_ellipsis().size(16).into()))
-                    .style(theme::action_button)
-                    .padding(0)
-                    .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                    .on_press(Message::Overlay(OverlayMessage::ToggleOverflow(*block_id)));
+                let btn = button(centered_icon(
+                    icons::icon_ellipsis()
+                        .size(16)
+                        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                        .into(),
+                ))
+                .style(theme::action_button)
+                .padding(0)
+                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::Overlay(OverlayMessage::ToggleOverflow(*block_id)));
 
                 actions_row = actions_row.push(
                     tooltip(
