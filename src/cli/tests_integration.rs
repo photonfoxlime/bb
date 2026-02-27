@@ -7,11 +7,11 @@ use crate::cli::{
     BlockCommands, BlockId,
     draft::{
         ClearDraftCommand, DraftCommands, ExpandDraftCommand, InstructionDraftCommand,
-        ListDraftCommand,
+        ListDraftCommand, ReduceDraftCommand,
     },
     fold::{FoldCommands, StatusFoldCommand, ToggleFoldCommand},
-    friend::{AddFriendCommand, FriendCommands, ListFriendCommand},
-    nav::{LineageCommand, NavCommands, PrevCommand},
+    friend::{AddFriendCommand, FriendCommands, ListFriendCommand, RemoveFriendCommand},
+    nav::{LineageCommand, NavCommands, NextCommand, PrevCommand},
     query::{FindCommand, ShowCommand},
     results::CliResult,
     tree::{
@@ -590,4 +590,557 @@ fn test_duplicate_root() {
 
     assert!(store.roots().contains(&dup_id));
     assert_eq!(store.children(&dup_id).len(), 1);
+}
+
+// ============================================================================
+// Complex Multi-Step Integration Tests
+// ============================================================================
+
+#[test]
+fn test_build_deep_tree_then_navigate() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+
+    // Build a deep tree: root -> child -> grandchild -> greatgrandchild -> gggrandchild
+    let mut current_id = root_id;
+    let mut ids = vec![current_id];
+
+    for i in 0..10 {
+        let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+            parent_id: BlockId(fmt(current_id)),
+            text: format!("level{}", i),
+        }));
+        let (s, result) = cmd.execute(store, &PathBuf::from("."));
+        store = s;
+
+        current_id = match result {
+            | CliResult::BlockId(id) => id,
+            | _ => panic!("Expected BlockId at level {}", i),
+        };
+        ids.push(current_id);
+    }
+
+    // Navigate from deepest back to root using prev
+    let mut cursor = current_id;
+    for i in (0..ids.len() - 1).rev() {
+        let cmd =
+            BlockCommands::Nav(NavCommands::Prev(PrevCommand { block_id: BlockId(fmt(cursor)) }));
+        let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
+
+        match result {
+            | CliResult::OptionalBlockId(Some(prev_id)) => {
+                assert_eq!(prev_id, ids[i], "Prev at level {} should be {:?}", i, ids[i]);
+                cursor = prev_id;
+            }
+            | _ => panic!("Expected prev at level {}", i),
+        }
+    }
+
+    // Navigate forward from root using next
+    cursor = root_id;
+    for i in 1..ids.len() {
+        let cmd =
+            BlockCommands::Nav(NavCommands::Next(NextCommand { block_id: BlockId(fmt(cursor)) }));
+        let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
+
+        match result {
+            | CliResult::OptionalBlockId(Some(next_id)) => {
+                assert_eq!(next_id, ids[i]);
+                cursor = next_id;
+            }
+            | _ => panic!("Expected next at level {}", i),
+        }
+    }
+}
+
+#[test]
+fn test_complex_restructure_move_wrap_duplicate() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+
+    // Build initial structure: root -> [A, B, C]
+    let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+        parent_id: BlockId(fmt(root_id)),
+        text: "A".to_string(),
+    }));
+    let (s, result) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+    let id_a = match result {
+        | CliResult::BlockId(id) => id,
+        | _ => panic!(),
+    };
+
+    let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+        parent_id: BlockId(fmt(root_id)),
+        text: "B".to_string(),
+    }));
+    let (s, result) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+    let id_b = match result {
+        | CliResult::BlockId(id) => id,
+        | _ => panic!(),
+    };
+
+    let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+        parent_id: BlockId(fmt(root_id)),
+        text: "C".to_string(),
+    }));
+    let (s, result) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+    let id_c = match result {
+        | CliResult::BlockId(id) => id,
+        | _ => panic!(),
+    };
+
+    // Add children to A: A -> [A1, A2]
+    let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+        parent_id: BlockId(fmt(id_a)),
+        text: "A1".to_string(),
+    }));
+    let (s, result) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+    let _id_a1 = match result {
+        | CliResult::BlockId(id) => id,
+        | _ => panic!(),
+    };
+
+    let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+        parent_id: BlockId(fmt(id_a)),
+        text: "A2".to_string(),
+    }));
+    let (s, _) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+
+    // Wrap A with WrapperA: root -> [WrapperA -> [A -> [A1, A2]], B, C]
+    let cmd = BlockCommands::Tree(TreeCommands::Wrap(WrapCommand {
+        block_id: BlockId(fmt(id_a)),
+        text: "WrapperA".to_string(),
+    }));
+    let (s, result) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+    let id_wrapper_a = match result {
+        | CliResult::BlockId(id) => id,
+        | _ => panic!(),
+    };
+
+    // Move C under WrapperA: root -> [WrapperA -> [A, C], B]
+    let cmd = BlockCommands::Tree(TreeCommands::Move(MoveCommand {
+        source_id: BlockId(fmt(id_c)),
+        target_id: BlockId(fmt(id_wrapper_a)),
+        before: false,
+        after: false,
+        under: true,
+    }));
+    let (s, result) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+    assert!(matches!(result, CliResult::Success));
+
+    // Duplicate B: root -> [WrapperA, B, B_copy]
+    let cmd = BlockCommands::Tree(TreeCommands::Duplicate(DuplicateCommand {
+        block_id: BlockId(fmt(id_b)),
+    }));
+    let (s, result) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+    let _id_b_copy = match result {
+        | CliResult::BlockId(id) => id,
+        | _ => panic!(),
+    };
+
+    // Verify final structure
+    let root_children = store.children(&root_id);
+    assert_eq!(root_children.len(), 3); // WrapperA, B, B_copy
+    assert!(root_children.contains(&id_wrapper_a));
+    assert!(root_children.contains(&id_b));
+
+    // Verify WrapperA has A and C as children
+    let wrapper_children = store.children(&id_wrapper_a);
+    assert_eq!(wrapper_children.len(), 2);
+    assert!(wrapper_children.contains(&id_a));
+    assert!(wrapper_children.contains(&id_c));
+
+    // Verify A still has A1, A2
+    let a_children = store.children(&id_a);
+    assert_eq!(a_children.len(), 2);
+}
+
+#[test]
+fn test_draft_workflow_expand_then_reduce_then_clear() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+
+    // Set expansion draft
+    let cmd = BlockCommands::Draft(DraftCommands::Expand(ExpandDraftCommand {
+        block_id: BlockId(fmt(root_id)),
+        rewrite: Some("expanded version".to_string()),
+        children: vec!["child1".to_string(), "child2".to_string()],
+    }));
+    let (s, result) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+    assert!(matches!(result, CliResult::Success));
+
+    // Set reduction draft
+    let cmd = BlockCommands::Draft(DraftCommands::Reduce(ReduceDraftCommand {
+        block_id: BlockId(fmt(root_id)),
+        reduction: "summary of everything".to_string(),
+        redundant_children: vec![],
+    }));
+    let (s, result) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+    assert!(matches!(result, CliResult::Success));
+
+    // Set instruction draft
+    let cmd = BlockCommands::Draft(DraftCommands::Instruction(InstructionDraftCommand {
+        block_id: BlockId(fmt(root_id)),
+        text: "Make this clearer".to_string(),
+    }));
+    let (s, result) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+    assert!(matches!(result, CliResult::Success));
+
+    // Verify all three drafts exist
+    let cmd = BlockCommands::Draft(DraftCommands::List(ListDraftCommand {
+        block_id: BlockId(fmt(root_id)),
+    }));
+    let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
+
+    match result {
+        | CliResult::DraftList { expansion, reduction, instruction, inquiry } => {
+            assert!(expansion.is_some());
+            assert!(reduction.is_some());
+            assert!(instruction.is_some());
+            assert!(inquiry.is_none());
+        }
+        | _ => panic!("Expected all three drafts"),
+    }
+
+    // Clear only expansion
+    let cmd = BlockCommands::Draft(DraftCommands::Clear(ClearDraftCommand {
+        block_id: BlockId(fmt(root_id)),
+        all: false,
+        expand: true,
+        reduce: false,
+        instruction: false,
+        inquiry: false,
+    }));
+    let (s, result) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+    assert!(matches!(result, CliResult::Success));
+
+    // Verify only reduction and instruction remain
+    let cmd = BlockCommands::Draft(DraftCommands::List(ListDraftCommand {
+        block_id: BlockId(fmt(root_id)),
+    }));
+    let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
+
+    match result {
+        | CliResult::DraftList { expansion, reduction, instruction, inquiry } => {
+            assert!(expansion.is_none());
+            assert!(reduction.is_some());
+            assert!(instruction.is_some());
+            assert!(inquiry.is_none());
+        }
+        | _ => panic!("Expected reduction and instruction only"),
+    }
+
+    // Clear all remaining
+    let cmd = BlockCommands::Draft(DraftCommands::Clear(ClearDraftCommand {
+        block_id: BlockId(fmt(root_id)),
+        all: true,
+        expand: false,
+        reduce: false,
+        instruction: false,
+        inquiry: false,
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+    assert!(matches!(result, CliResult::Success));
+
+    // Verify all cleared
+    let cmd = BlockCommands::Draft(DraftCommands::List(ListDraftCommand {
+        block_id: BlockId(fmt(root_id)),
+    }));
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    match result {
+        | CliResult::DraftList { expansion, reduction, instruction, inquiry } => {
+            assert!(expansion.is_none());
+            assert!(reduction.is_none());
+            assert!(instruction.is_none());
+            assert!(inquiry.is_none());
+        }
+        | _ => panic!("Expected all cleared"),
+    }
+}
+
+#[test]
+fn test_multiple_friends_then_list_then_remove() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+
+    // Create 5 children
+    let mut child_ids = vec![];
+    for i in 0..5 {
+        let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+            parent_id: BlockId(fmt(root_id)),
+            text: format!("child{}", i),
+        }));
+        let (s, result) = cmd.execute(store, &PathBuf::from("."));
+        store = s;
+        let id = match result {
+            | CliResult::BlockId(id) => id,
+            | _ => panic!(),
+        };
+        child_ids.push(id);
+    }
+
+    // Add friend relationships: child0 -> [child1, child2, child3]
+    for i in 1..4 {
+        let cmd = BlockCommands::Friend(FriendCommands::Add(AddFriendCommand {
+            target_id: BlockId(fmt(child_ids[0])),
+            friend_id: BlockId(fmt(child_ids[i])),
+            perspective: Some(format!("relation{}", i)),
+            telescope_lineage: i % 2 == 0,
+            telescope_children: i > 2,
+        }));
+        let (s, result) = cmd.execute(store, &PathBuf::from("."));
+        store = s;
+        assert!(matches!(result, CliResult::Success));
+    }
+
+    // List friends of child0
+    let cmd = BlockCommands::Friend(FriendCommands::List(ListFriendCommand {
+        target_id: BlockId(fmt(child_ids[0])),
+    }));
+    let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
+
+    match result {
+        | CliResult::FriendList(friends) => {
+            assert_eq!(friends.len(), 3);
+            // Verify each friend
+            for (i, friend) in friends.iter().enumerate() {
+                assert_eq!(friend.id, fmt(child_ids[i + 1]));
+                assert_eq!(friend.perspective, Some(format!("relation{}", i + 1)));
+                assert_eq!(friend.telescope_lineage, (i + 1) % 2 == 0);
+                assert_eq!(friend.telescope_children, i + 1 > 2);
+            }
+        }
+        | _ => panic!("Expected friend list"),
+    }
+
+    // Remove middle friend (child2)
+    let cmd = BlockCommands::Friend(FriendCommands::Remove(RemoveFriendCommand {
+        target_id: BlockId(fmt(child_ids[0])),
+        friend_id: BlockId(fmt(child_ids[1])),
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+    assert!(matches!(result, CliResult::Success));
+
+    // Verify remaining friends
+    let cmd = BlockCommands::Friend(FriendCommands::List(ListFriendCommand {
+        target_id: BlockId(fmt(child_ids[0])),
+    }));
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    match result {
+        | CliResult::FriendList(friends) => {
+            assert_eq!(friends.len(), 2);
+            assert!(!friends.iter().any(|f| f.id == fmt(child_ids[1])));
+        }
+        | _ => panic!("Expected 2 friends"),
+    }
+}
+
+#[test]
+fn test_find_across_large_tree_with_limit() {
+    use crate::cli::query::FindCommand;
+
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+
+    // Build tree with specific pattern
+    // root -> [target1, other, target2, other, target3]
+    let mut target_ids = vec![];
+    for i in 0..10 {
+        let text = if i % 3 == 0 {
+            target_ids.push(i);
+            format!("TARGET_{}", i)
+        } else {
+            format!("other_{}", i)
+        };
+
+        let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+            parent_id: BlockId(fmt(root_id)),
+            text,
+        }));
+        let (s, _) = cmd.execute(store, &PathBuf::from("."));
+        store = s;
+    }
+
+    // Find all TARGETs
+    let cmd = BlockCommands::Find(FindCommand { query: "TARGET".to_string(), limit: 100 });
+    let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
+
+    match result {
+        | CliResult::Find(matches) => {
+            assert_eq!(matches.len(), 4); // TARGET_0, TARGET_3, TARGET_6, TARGET_9
+            for m in &matches {
+                assert!(m.text.starts_with("TARGET_"));
+            }
+        }
+        | _ => panic!("Expected Find"),
+    }
+
+    // Find with limit
+    let cmd = BlockCommands::Find(FindCommand { query: "TARGET".to_string(), limit: 2 });
+    let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
+
+    match result {
+        | CliResult::Find(matches) => {
+            assert_eq!(matches.len(), 2);
+        }
+        | _ => panic!("Expected Find with limit"),
+    }
+}
+
+#[test]
+fn test_fold_multiple_blocks_then_verify() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+
+    // Create 5 children
+    let mut child_ids = vec![];
+    for i in 0..5 {
+        let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+            parent_id: BlockId(fmt(root_id)),
+            text: format!("child{}", i),
+        }));
+        let (s, result) = cmd.execute(store, &PathBuf::from("."));
+        store = s;
+        let id = match result {
+            | CliResult::BlockId(id) => id,
+            | _ => panic!(),
+        };
+        child_ids.push(id);
+    }
+
+    // Toggle fold state for alternating children
+    let mut expected_states = vec![];
+    for (_i, &child_id) in child_ids.iter().enumerate() {
+        let initial = store.is_collapsed(&child_id);
+        expected_states.push(!initial); // After toggle
+
+        let cmd = BlockCommands::Fold(FoldCommands::Toggle(ToggleFoldCommand {
+            block_id: BlockId(fmt(child_id)),
+        }));
+        let (s, result) = cmd.execute(store, &PathBuf::from("."));
+        store = s;
+
+        match result {
+            | CliResult::Collapsed(state) => {
+                assert_eq!(state, !initial);
+            }
+            | _ => panic!("Expected Collapsed"),
+        }
+    }
+
+    // Verify all states with status command
+    for (i, &child_id) in child_ids.iter().enumerate() {
+        let cmd = BlockCommands::Fold(FoldCommands::Status(StatusFoldCommand {
+            block_id: BlockId(fmt(child_id)),
+        }));
+        let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
+
+        match result {
+            | CliResult::Collapsed(state) => {
+                assert_eq!(state, expected_states[i], "Child {} state mismatch", i);
+            }
+            | _ => panic!("Expected Collapsed for child {}", i),
+        }
+    }
+}
+
+#[test]
+fn test_wrap_then_add_child_to_wrapper() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+
+    // Create child
+    let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+        parent_id: BlockId(fmt(root_id)),
+        text: "original".to_string(),
+    }));
+    let (s, result) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+    let child_id = match result {
+        | CliResult::BlockId(id) => id,
+        | _ => panic!(),
+    };
+
+    // Wrap child
+    let cmd = BlockCommands::Tree(TreeCommands::Wrap(WrapCommand {
+        block_id: BlockId(fmt(child_id)),
+        text: "wrapper".to_string(),
+    }));
+    let (s, result) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+    let wrapper_id = match result {
+        | CliResult::BlockId(id) => id,
+        | _ => panic!(),
+    };
+
+    // Add new child to wrapper
+    let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+        parent_id: BlockId(fmt(wrapper_id)),
+        text: "sibling_to_original".to_string(),
+    }));
+    let (s, result) = cmd.execute(store, &PathBuf::from("."));
+    store = s;
+    let new_sibling = match result {
+        | CliResult::BlockId(id) => id,
+        | _ => panic!(),
+    };
+
+    // Verify structure
+    let wrapper_children = store.children(&wrapper_id);
+    assert_eq!(wrapper_children.len(), 2);
+    assert!(wrapper_children.contains(&child_id));
+    assert!(wrapper_children.contains(&new_sibling));
+
+    // Verify original child still has same text
+    assert_eq!(store.point(&child_id), Some("original".to_string()));
+}
+
+#[test]
+fn test_nav_lineage_for_deeply_nested_block() {
+    let mut store = BlockStore::default();
+    let mut current_id = store.roots()[0];
+    let mut ids = vec![current_id];
+
+    // Build 20-level deep tree
+    for i in 0..20 {
+        let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+            parent_id: BlockId(fmt(current_id)),
+            text: format!("level{}", i),
+        }));
+        let (s, result) = cmd.execute(store, &PathBuf::from("."));
+        store = s;
+        current_id = match result {
+            | CliResult::BlockId(id) => id,
+            | _ => panic!(),
+        };
+        ids.push(current_id);
+    }
+
+    // Get lineage of deepest node
+    let cmd = BlockCommands::Nav(NavCommands::Lineage(LineageCommand {
+        block_id: BlockId(fmt(current_id)),
+    }));
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    match result {
+        | CliResult::Lineage(points) => {
+            // Should have all ancestors (20 levels + root counted twice in lineage?)
+            assert!(points.len() >= 20);
+        }
+        | _ => panic!("Expected Lineage"),
+    }
 }
