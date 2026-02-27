@@ -192,6 +192,7 @@ impl AppState {
     }
 
     /// Persist app config to `<config_dir>/app.toml`. Call when config changes (e.g. locale from settings).
+    #[allow(dead_code)]
     pub fn save_app_config(&self) -> Result<(), crate::app::config::SaveError> {
         crate::app::config::save(&self.config)
     }
@@ -479,6 +480,7 @@ pub enum ViewMode {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct WindowSize {
     pub width: f32,
+    #[allow(dead_code)]
     pub height: f32,
 }
 
