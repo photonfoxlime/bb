@@ -386,6 +386,29 @@ impl<'a> TreeView<'a> {
                 .into()
         };
 
+        let is_pick_friend_mode = self.state.document_mode == DocumentMode::PickFriend;
+        let is_target_block =
+            is_pick_friend_mode && self.state.focus().is_some_and(|s| s.block_id != *block_id);
+
+        let point_editor: Element<'a, Message> = if is_target_block {
+            // In friend picker mode, render as plain text so the button wrapper can capture clicks
+            let point_text = self.state.store.point(block_id).unwrap_or_default();
+            container(text(point_text)).width(Fill).height(Length::Shrink).into()
+        } else {
+            let mut editor = text_editor(editor_content)
+                .placeholder(t!("doc_placeholder_point").to_string())
+                .style(theme::point_editor)
+                .on_action(move |action| {
+                    Message::Edit(EditMessage::PointEdited { block_id: block_id_for_edit, action })
+                })
+                .key_binding(move |key_press| editor_key_binding(block_id_for_edit, key_press))
+                .height(Length::Shrink);
+            if let Some(wid) = self.state.editor_buffers.widget_id(block_id) {
+                editor = editor.id(wid.clone());
+            }
+            editor.into()
+        };
+
         let row_content = row![]
             .spacing(theme::ROW_GAP)
             .width(Fill)
@@ -398,23 +421,7 @@ impl<'a> TreeView<'a> {
                         .bottom(theme::ROW_CONTROL_VERTICAL_PAD),
                 ),
             )
-            .push({
-                let mut editor = text_editor(editor_content)
-                    .placeholder(t!("doc_placeholder_point").to_string())
-                    .style(theme::point_editor)
-                    .on_action(move |action| {
-                        Message::Edit(EditMessage::PointEdited {
-                            block_id: block_id_for_edit,
-                            action,
-                        })
-                    })
-                    .key_binding(move |key_press| editor_key_binding(block_id_for_edit, key_press))
-                    .height(Length::Shrink);
-                if let Some(wid) = self.state.editor_buffers.widget_id(block_id) {
-                    editor = editor.id(wid.clone());
-                }
-                editor
-            });
+            .push(point_editor);
 
         // Build the bottom row: inline panel bar on left, action bar on right
         let left_col = self.render_overlay_panel_bar(block_id, is_focused);
