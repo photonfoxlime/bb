@@ -61,8 +61,8 @@ impl BloomingBlockery {
                 // Execute the command
                 let (store, result) = block_commands.execute(store, &base_dir);
 
-                // Save store if command succeeded
-                if matches!(result, CliResult::Success) {
+                // Save store if command didn't fail
+                if !matches!(result, CliResult::Error(_)) {
                     let () = store.save()?;
                 }
 
