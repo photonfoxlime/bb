@@ -216,7 +216,7 @@ impl<'a> DocumentView<'a> {
     /// Render the breadcrumb navigation bar.
     fn render_breadcrumbs(&self) -> Element<'a, Message> {
         let layers = self.state.navigation.layers();
-        if layers.len() <= 1 {
+        if layers.is_empty() {
             // At root, no breadcrumbs needed
             return row![].into();
         }
@@ -234,12 +234,6 @@ impl<'a> DocumentView<'a> {
         .on_press(Message::Navigation(NavigationMessage::Home));
         crumbs = crumbs.push(home_btn);
 
-        // At root, just show the home button
-        if layers.len() <= 1 {
-            return crumbs.into();
-        }
-
-        // Separator before breadcrumbs
         // Separator before breadcrumbs
         crumbs = crumbs.push(text("›").style(theme::spine_text));
 
