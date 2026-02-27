@@ -244,8 +244,7 @@ impl<'a> DocumentView<'a> {
         for (i, layer) in layers.iter().enumerate() {
             // Get block text for label
             let label = self.state.store.point(&layer.block_id).unwrap_or_default();
-            let display_label =
-                if label.len() > 30 { format!("{}...", &label[..27]) } else { label };
+            let display_label = truncate_chars(&label, 30);
 
             // Add file path indicator if present
             let full_label = if let Some(path) = &layer.path {
@@ -987,4 +986,30 @@ fn centered_icon<'a>(icon: Element<'a, Message>) -> Element<'a, Message> {
         .align_x(iced::alignment::Horizontal::Center)
         .align_y(iced::alignment::Vertical::Center)
         .into()
+}
+
+/// Truncate a string to a maximum number of Unicode scalar values (chars).
+///
+/// If the string exceeds `max_chars`, it is truncated and "..." is appended.
+/// This function correctly handles non-ASCII characters by operating on
+/// Unicode scalar values rather than bytes.
+///
+/// # Arguments
+///
+/// * `s` - The string to truncate
+/// * `max_chars` - Maximum number of characters (including ellipsis)
+///
+/// # Examples
+///
+/// ```
+/// assert_eq!(truncate_chars("hello", 10), "hello");
+/// assert_eq!(truncate_chars("hello world", 8), "hello...");
+/// assert_eq!(truncate_chars("こんにちは", 6), "こんに...");
+/// ```
+fn truncate_chars(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        s.to_string()
+    } else {
+        s.chars().take(max_chars - 3).collect::<String>() + "..."
+    }
 }
