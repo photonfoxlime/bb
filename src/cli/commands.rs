@@ -80,7 +80,7 @@ pub struct BlockCli {
 
     /// Path to the block store file.
     ///
-    /// If not provided, defaults to `blocks.json` in the current directory.
+    /// If not provided, defaults to [`crate::paths::AppPaths::data_file()`].
     #[arg(long, global = true, value_name = "PATH")]
     pub store: Option<std::path::PathBuf>,
 

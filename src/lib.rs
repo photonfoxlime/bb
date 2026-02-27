@@ -13,6 +13,7 @@ mod undo;
 use self::{
     app::AppState,
     cli::{BlockCli, CliResult, Commands, print_result},
+    paths::AppPaths,
     store::BlockStore,
 };
 use clap::{CommandFactory, Parser};
@@ -41,8 +42,12 @@ impl BloomingBlockery {
             }
             // Block store manipulation commands
             | Some(Commands::Block(block_commands)) => {
-                // Load store from CLI path or default
-                let store_path = cli.store.clone().unwrap_or_else(|| PathBuf::from("blocks.json"));
+                // Load store from CLI path or default to AppPaths::data_file()
+                let store_path = cli
+                    .store
+                    .clone()
+                    .or_else(AppPaths::data_file)
+                    .ok_or_else(|| anyhow::anyhow!("failed to determine data file path"))?;
                 let base_dir = cli
                     .store
                     .as_ref()
