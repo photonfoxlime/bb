@@ -165,3 +165,6 @@ pub enum OutputFormat {
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+mod tests_integration;
