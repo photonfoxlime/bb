@@ -501,6 +501,8 @@ impl BlockStore {
                     id_map.get(&friend.block_id).copied().map(|block_id| FriendBlock {
                         block_id,
                         perspective: friend.perspective.clone(),
+                        parent_lineage_telescope: friend.parent_lineage_telescope,
+                        children_telescope: friend.children_telescope,
                     })
                 })
                 .collect::<Vec<_>>();
@@ -608,6 +610,8 @@ impl BlockStore {
                     id_map.get(&friend.block_id).copied().map(|block_id| FriendBlock {
                         block_id,
                         perspective: friend.perspective.clone(),
+                        parent_lineage_telescope: friend.parent_lineage_telescope,
+                        children_telescope: friend.children_telescope,
                     })
                 })
                 .collect::<Vec<_>>();

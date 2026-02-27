@@ -32,14 +32,33 @@ impl Prompt {
     fn format_friend_blocks_lines(friend_blocks: &[FriendContext]) -> String {
         let mut lines = String::new();
         for (index, friend_block) in friend_blocks.iter().enumerate() {
-            if let Some(perspective) = friend_block.perspective() {
-                lines.push_str(&format!(
-                    "[{index}] {} (perspective: {perspective})\n",
-                    friend_block.point()
-                ));
-            } else {
-                lines.push_str(&format!("[{index}] {}\n", friend_block.point()));
+            let mut line = format!("[{}] {}", index, friend_block.point());
+
+            // Add lineage if visible
+            if friend_block.parent_lineage_telescope {
+                if let Some(lineage) = friend_block.friend_lineage() {
+                    let lineage_str = lineage.points().collect::<Vec<_>>().join(" > ");
+                    line.push_str(&format!(" (lineage: {})", lineage_str));
+                }
             }
+
+            // Add children if visible
+            if friend_block.children_telescope {
+                if let Some(children) = friend_block.friend_children() {
+                    if !children.is_empty() {
+                        let children_str = children.join("; ");
+                        line.push_str(&format!(" (children: {})", children_str));
+                    }
+                }
+            }
+
+            // Add perspective
+            if let Some(perspective) = friend_block.perspective() {
+                line.push_str(&format!(" (perspective: {})", perspective));
+            }
+
+            lines.push_str(&line);
+            lines.push('\n');
         }
         lines
     }
@@ -238,8 +257,13 @@ mod tests {
     fn expand_prompt_includes_friend_blocks() {
         let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
         let friends = vec![
-            FriendContext::new("peer concept A".to_string(), Some("historical lens".to_string())),
-            FriendContext::new("peer concept B".to_string(), None),
+            FriendContext::new(
+                "peer concept A".to_string(),
+                Some("historical lens".to_string()),
+                true,
+                true,
+            ),
+            FriendContext::new("peer concept B".to_string(), None, true, true),
         ];
         let ctx = BlockContext::new(lineage, vec![], friends);
         let prompt = Prompt::expand_from_context(&ctx, None);
@@ -254,6 +278,8 @@ mod tests {
         let friends = vec![FriendContext::new(
             "supporting external detail".to_string(),
             Some("skeptical counterpoint".to_string()),
+            true,
+            true,
         )];
         let ctx = BlockContext::new(lineage, vec![], friends);
         let prompt = Prompt::reduce_from_context(&ctx, None);

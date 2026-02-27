@@ -173,6 +173,12 @@ pub const FRIEND_PERSPECTIVE_HEIGHT: f32 = 16.0;
 pub const FRIEND_PERSPECTIVE_ICON_SIZE: f32 = 10.0;
 /// Spacing inside friend row in friends panel.
 pub const FRIEND_ROW_GAP: f32 = 4.0;
+/// Font size for friend visibility toggle icons.
+pub const FRIEND_TOGGLE_ICON_SIZE: f32 = 10.0;
+/// Font size for friend visibility toggle buttons.
+pub const FRIEND_TOGGLE_SIZE: f32 = 14.0;
+/// Gap between visibility toggles in friends panel.
+pub const FRIEND_TOGGLE_GAP: f32 = 8.0;
 
 // ── Theme constructor ────────────────────────────────────────────────
 
@@ -330,6 +336,41 @@ pub fn destructive_button(theme: &Theme, status: button::Status) -> button::Styl
             ..base
         },
         | button::Status::Disabled => button::Style { text_color: p.spine, ..base },
+    }
+}
+
+/// Toggle button style - highlighted when active (on), muted when inactive (off).
+pub fn toggle_button(is_on: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |theme: &Theme, status: button::Status| {
+        let p = focused_palette(theme);
+        let active = is_on;
+        let base = button::Style {
+            background: if active { Some(p.tint.into()) } else { None },
+            text_color: if active { p.accent } else { p.accent_muted },
+            border: border::rounded(3).width(if active { 1 } else { 0 }).color(if active {
+                p.accent
+            } else {
+                Color::TRANSPARENT
+            }),
+            shadow: Default::default(),
+            snap: false,
+        };
+        match status {
+            | button::Status::Active => base,
+            | button::Status::Hovered => button::Style {
+                text_color: p.ink,
+                background: Some(p.tint.into()),
+                border: border::rounded(3).width(1).color(p.spine),
+                ..base
+            },
+            | button::Status::Pressed => button::Style {
+                text_color: p.ink,
+                background: Some(Color { a: 0.15, ..p.accent }.into()),
+                border: border::rounded(3).width(1).color(p.accent_muted),
+                ..base
+            },
+            | button::Status::Disabled => button::Style { text_color: p.spine, ..base },
+        }
     }
 }
 

@@ -374,12 +374,12 @@ mod tests {
         let ctx1 = llm::BlockContext::new(
             lineage.clone(),
             vec![],
-            vec![llm::FriendContext::new("friend a".to_string(), None)],
+            vec![llm::FriendContext::new("friend a".to_string(), None, true, true)],
         );
         let ctx2 = llm::BlockContext::new(
             lineage,
             vec![],
-            vec![llm::FriendContext::new("friend b".to_string(), None)],
+            vec![llm::FriendContext::new("friend b".to_string(), None, true, true)],
         );
         assert_ne!(
             RequestSignature::from_block_context(&ctx1),
@@ -393,12 +393,22 @@ mod tests {
         let ctx1 = llm::BlockContext::new(
             lineage.clone(),
             vec![],
-            vec![llm::FriendContext::new("friend".to_string(), Some("supportive".to_string()))],
+            vec![llm::FriendContext::new(
+                "friend".to_string(),
+                Some("supportive".to_string()),
+                true,
+                true,
+            )],
         );
         let ctx2 = llm::BlockContext::new(
             lineage,
             vec![],
-            vec![llm::FriendContext::new("friend".to_string(), Some("critical".to_string()))],
+            vec![llm::FriendContext::new(
+                "friend".to_string(),
+                Some("critical".to_string()),
+                true,
+                true,
+            )],
         );
         assert_ne!(
             RequestSignature::from_block_context(&ctx1),

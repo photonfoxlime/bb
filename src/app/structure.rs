@@ -135,7 +135,12 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
                 if friends.iter().any(|f| f.block_id == friend_id) {
                     return false;
                 }
-                friends.push(FriendBlock { block_id: friend_id, perspective: None });
+                friends.push(FriendBlock {
+                    block_id: friend_id,
+                    perspective: None,
+                    parent_lineage_telescope: false,
+                    children_telescope: false,
+                });
                 state.store.set_friend_blocks_for(&target, friends);
                 tracing::info!(target = ?target, friend_id = ?friend_id, "added friend block");
                 true

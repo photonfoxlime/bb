@@ -56,8 +56,30 @@ impl BlockStore {
         let friend_blocks = friend_block_ids
             .iter()
             .filter_map(|friend| {
-                self.point(&friend.block_id)
-                    .map(|point| llm::FriendContext::new(point, friend.perspective.clone()))
+                let point = self.point(&friend.block_id)?;
+                let friend_lineage = if friend.parent_lineage_telescope {
+                    Some(self.lineage_points_for_id(&friend.block_id))
+                } else {
+                    None
+                };
+                let friend_children = if friend.children_telescope {
+                    Some(
+                        self.children(&friend.block_id)
+                            .iter()
+                            .filter_map(|child_id| self.point(child_id))
+                            .collect(),
+                    )
+                } else {
+                    None
+                };
+                Some(llm::FriendContext::with_context(
+                    point,
+                    friend.perspective.clone(),
+                    friend.parent_lineage_telescope,
+                    friend.children_telescope,
+                    friend_lineage,
+                    friend_children,
+                ))
             })
             .collect::<Vec<_>>();
         llm::BlockContext::new(lineage, existing_children, friend_blocks)

@@ -93,16 +93,26 @@ pub(crate) struct MountProjection {
 /// [`FriendBlock`] points to another block in the graph and an optional
 /// framing string (perspective) for how the source should interpret that friend.
 ///
-/// `block_id` points to the friend block in the main store graph.
-/// `perspective` is optional source-authored framing text that describes how
-/// the source block should interpret that friend block.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// - [`Self::block_id`] points to the friend block in the main store graph.
+/// - [`Self::perspective`] is optional source-authored framing text that describes how
+///   the source block should interpret that friend block.
+/// - [`Self::parent_lineage_telescope`] controls whether the friend block's parent lineage
+///   is included in LLM context.
+/// - [`Self::children_telescope`] controls whether the friend block's children
+///   are included in LLM context.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct FriendBlock {
     /// Target friend block id.
     pub block_id: BlockId,
     /// Optional source-authored framing for this friend relation.
     #[serde(default)]
     pub perspective: Option<String>,
+    /// Whether to include the friend block's parent lineage in LLM context.
+    #[serde(default)]
+    pub parent_lineage_telescope: bool,
+    /// Whether to include the friend block's children in LLM context.
+    #[serde(default)]
+    pub children_telescope: bool,
 }
 
 slotmap::new_key_type! {

@@ -56,6 +56,10 @@ pub enum FriendPanelMessage {
     ClearFriendPerspective { target: BlockId, friend_id: BlockId },
     /// Accept the perspective and exit editing mode.
     AcceptFriendPerspective { target: BlockId, friend_id: BlockId },
+    /// Toggle whether parent lineage is visible for a friend in LLM context.
+    ToggleParentLineageVisible { target: BlockId, friend_id: BlockId },
+    /// Toggle whether children are visible for a friend in LLM context.
+    ToggleChildrenVisible { target: BlockId, friend_id: BlockId },
 }
 
 /// Handle friends panel messages.
@@ -156,6 +160,38 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             // Exit editing state
             state.editing_friend_perspective = None;
             state.editing_friend_perspective_input = None;
+            Task::none()
+        }
+        | FriendPanelMessage::ToggleParentLineageVisible { target, friend_id } => {
+            state.mutate_with_undo_and_persist("after toggling friend parent lineage visibility", |state| {
+                let mut friends = state.store.friend_blocks_for(&target).to_vec();
+                let friend = friends.iter_mut().find(|f| f.block_id == friend_id);
+                if let Some(friend) = friend {
+                    let new_value = !friend.parent_lineage_telescope;
+                    friend.parent_lineage_telescope = new_value;
+                    state.store.set_friend_blocks_for(&target, friends);
+                    tracing::info!(target = ?target, friend_id = ?friend_id, parent_lineage_telescope = new_value, "toggled friend parent lineage visibility");
+                    true
+                } else {
+                    false
+                }
+            });
+            Task::none()
+        }
+        | FriendPanelMessage::ToggleChildrenVisible { target, friend_id } => {
+            state.mutate_with_undo_and_persist("after toggling friend children visibility", |state| {
+                let mut friends = state.store.friend_blocks_for(&target).to_vec();
+                let friend = friends.iter_mut().find(|f| f.block_id == friend_id);
+                if let Some(friend) = friend {
+                    let new_value = !friend.children_telescope;
+                    friend.children_telescope = new_value;
+                    state.store.set_friend_blocks_for(&target, friends);
+                    tracing::info!(target = ?target, friend_id = ?friend_id, children_telescope = new_value, "toggled friend children visibility");
+                    true
+                } else {
+                    false
+                }
+            });
             Task::none()
         }
     }
@@ -325,6 +361,36 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     .push(container(content))
                     .width(Length::Fill)
                     .height(Length::Fixed(theme::ICON_BUTTON_SIZE)),
+            )
+            // Visibility toggles: lineage and children
+            .push(
+                row![]
+                    .spacing(theme::FRIEND_TOGGLE_GAP)
+                    .align_y(iced::alignment::Vertical::Center)
+                    .push(
+                        button(
+                            icons::icon_corner_up_left().size(theme::FRIEND_TOGGLE_ICON_SIZE).center(),
+                        )
+                        .style(theme::toggle_button(friend.parent_lineage_telescope))
+                        .height(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
+                        .width(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
+                        .padding(0)
+                        .on_press(Message::FriendPanel(
+                            FriendPanelMessage::ToggleParentLineageVisible { target, friend_id },
+                        )),
+                    )
+                    .push(
+                        button(
+                            icons::icon_corner_down_right().size(theme::FRIEND_TOGGLE_ICON_SIZE).center(),
+                        )
+                        .style(theme::toggle_button(friend.children_telescope))
+                        .height(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
+                        .width(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
+                        .padding(0)
+                        .on_press(Message::FriendPanel(
+                            FriendPanelMessage::ToggleChildrenVisible { target, friend_id },
+                        )),
+                    ),
             )
             .push(
                 button(

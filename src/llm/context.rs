@@ -22,10 +22,18 @@ pub struct BlockContext {
 /// `point` is the friend block text itself.
 /// `perspective` is optional target-authored framing describing how the
 /// current block views that friend block.
+/// `parent_lineage_telescope` controls whether the friend block's parent lineage is included.
+/// `children_telescope` controls whether the friend block's children are included.
+/// `friend_lineage` contains the friend block's parent lineage (when visible).
+/// `friend_children` contains the friend block's children point texts (when visible).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FriendContext {
     pub(crate) point: String,
     pub(crate) perspective: Option<String>,
+    pub(crate) parent_lineage_telescope: bool,
+    pub(crate) children_telescope: bool,
+    pub(crate) friend_lineage: Option<Lineage>,
+    pub(crate) friend_children: Option<Vec<String>>,
 }
 
 impl BlockContext {
@@ -63,8 +71,35 @@ impl FriendContext {
     /// # Arguments
     /// * `point` - The friend block text.
     /// * `perspective` - Optional framing text describing how the target views this friend.
-    pub fn new(point: String, perspective: Option<String>) -> Self {
-        Self { point, perspective }
+    /// * `parent_lineage_telescope` - Whether to include the friend block's parent lineage.
+    /// * `children_telescope` - Whether to include the friend block's children.
+    pub fn new(
+        point: String, perspective: Option<String>, parent_lineage_telescope: bool,
+        children_telescope: bool,
+    ) -> Self {
+        Self {
+            point,
+            perspective,
+            parent_lineage_telescope,
+            children_telescope,
+            friend_lineage: None,
+            friend_children: None,
+        }
+    }
+
+    /// Create a new friend context with full context including lineage and children.
+    pub fn with_context(
+        point: String, perspective: Option<String>, parent_lineage_telescope: bool,
+        children_telescope: bool, friend_lineage: Option<Lineage>, friend_children: Option<Vec<String>>,
+    ) -> Self {
+        Self {
+            point,
+            perspective,
+            parent_lineage_telescope,
+            children_telescope,
+            friend_lineage,
+            friend_children,
+        }
     }
 
     pub fn point(&self) -> &str {
@@ -73,6 +108,22 @@ impl FriendContext {
 
     pub fn perspective(&self) -> Option<&str> {
         self.perspective.as_deref()
+    }
+
+    pub fn parent_lineage_telescope(&self) -> bool {
+        self.parent_lineage_telescope
+    }
+
+    pub fn children_telescope(&self) -> bool {
+        self.children_telescope
+    }
+
+    pub fn friend_lineage(&self) -> Option<&Lineage> {
+        self.friend_lineage.as_ref()
+    }
+
+    pub fn friend_children(&self) -> Option<&[String]> {
+        self.friend_children.as_deref()
     }
 }
 
@@ -281,7 +332,8 @@ mod tests {
     fn block_context_accessors() {
         let lineage = Lineage::from_points(vec!["root".into()]);
         let children = vec!["child_a".to_string(), "child_b".to_string()];
-        let friends = vec![FriendContext::new("friend".to_string(), Some("ally".to_string()))];
+        let friends =
+            vec![FriendContext::new("friend".to_string(), Some("ally".to_string()), true, true)];
         let ctx = BlockContext::new(lineage.clone(), children.clone(), friends.clone());
         assert_eq!(ctx.lineage(), &lineage);
         assert_eq!(ctx.existing_children(), &children[..]);
