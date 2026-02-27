@@ -222,23 +222,32 @@ impl BlockNode {
 /// a key in `nodes` **and** in `points`. The store always has at least one root.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockStore {
+    /// Persisted hint for empty mount points.
+    ///
+    /// When a mount point is not empty, this stores the first child's text content.
+    /// When the mount is later expanded to an empty file, this hint is used to
+    /// provide initial content.
+    #[serde(default)]
+    pub(crate) hint: Option<String>,
+    /// The ordered root block ids.
     pub(crate) roots: Vec<BlockId>,
+    /// The structural map of blocks, keyed by [`BlockId`].
     pub(crate) nodes: SlotMap<BlockId, BlockNode>,
-    /// Text content for each block, keyed by the same `BlockId`.
+    /// Text content for each block, keyed by [`BlockId`].
     pub(crate) points: SecondaryMap<BlockId, String>,
     /// Runtime-only mount tracking. Not serialized; reconstructed by
-    /// re-expanding `BlockNode::Mount` nodes after deserialization.
+    /// re-expanding [`BlockNode::Mount`] nodes after deserialization.
     #[serde(skip)]
     pub(crate) mount_table: MountTable,
     /// Persisted per-block expansion drafts (rewrite + suggested children).
     ///
-    /// Invariant: keys should reference existing blocks in `nodes`.
+    /// Invariant: keys should reference existing blocks in [`Self::nodes`].
     /// Sparse by design: only blocks with pending expansion drafts are stored.
     #[serde(default)]
     pub(crate) expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord>,
     /// Persisted per-block reduction drafts.
     ///
-    /// Invariant: keys should reference existing blocks in `nodes`.
+    /// Invariant: keys should reference existing blocks in [`Self::nodes`].
     /// Sparse by design: only blocks with pending reduction drafts are stored.
     #[serde(default)]
     pub(crate) reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord>,
@@ -289,6 +298,7 @@ impl BlockStore {
             SparseSecondaryMap::new(),
             SparseSecondaryMap::new(),
             SparseSecondaryMap::new(),
+            None,
         )
     }
 
@@ -301,7 +311,7 @@ impl BlockStore {
         inquiry_drafts: SparseSecondaryMap<BlockId, InquiryDraftRecord>,
         view_collapsed: SparseSecondaryMap<BlockId, bool>,
         friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>>,
-        panel_state: SparseSecondaryMap<BlockId, PanelBarState>,
+        panel_state: SparseSecondaryMap<BlockId, PanelBarState>, hint: Option<String>,
     ) -> Self {
         Self {
             roots,
@@ -315,6 +325,7 @@ impl BlockStore {
             view_collapsed,
             friend_blocks,
             panel_state,
+            hint,
         }
     }
     /// The ordered root block ids.

@@ -276,6 +276,7 @@ impl AppState {
     }
 
     fn record_error(&mut self, error: AppError) {
+        tracing::error!(%error, "recording error");
         if self.errors.last() == Some(&error) {
             return;
         }

@@ -6,10 +6,13 @@
 //! All user-facing text must be internationalized via `rust_i18n::t!`. Never
 //! hardcode UI strings; add keys to the locale files instead.
 
+use std::fmt;
+use thiserror::Error;
+
 /// Display-oriented error wrapper used across app modules.
 ///
 /// Keeps error transport lightweight while preserving user-facing messages.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub struct UiError {
     message: String,
 }
@@ -24,17 +27,29 @@ impl UiError {
     }
 }
 
+impl fmt::Display for UiError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
 /// Category of failure surfaced by the app shell.
 ///
 /// The variant indicates the subsystem so rendering and telemetry can distinguish
 /// configuration, persistence, and LLM workflow failures.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum AppError {
+    #[error("configuration error: {0}")]
     Configuration(UiError),
+    #[error("persistence error: {0}")]
     Persistence(UiError),
+    #[error("reduce error: {0}")]
     Reduce(UiError),
+    #[error("expand error: {0}")]
     Expand(UiError),
+    #[error("mount error: {0}")]
     Mount(UiError),
+    #[error("inquire error: {0}")]
     Inquire(UiError),
 }
 

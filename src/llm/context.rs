@@ -90,7 +90,8 @@ impl FriendContext {
     /// Create a new friend context with full context including lineage and children.
     pub fn with_context(
         point: String, perspective: Option<String>, parent_lineage_telescope: bool,
-        children_telescope: bool, friend_lineage: Option<Lineage>, friend_children: Option<Vec<String>>,
+        children_telescope: bool, friend_lineage: Option<Lineage>,
+        friend_children: Option<Vec<String>>,
     ) -> Self {
         Self {
             point,

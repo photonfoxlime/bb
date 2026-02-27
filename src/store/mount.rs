@@ -239,6 +239,18 @@ impl BlockStore {
                 .map_err(|reason| MountError::MarkdownParse { path: resolved.clone(), reason })?,
         };
 
+        // tracing::trace!(mount_point = ?mount_point, "expanding mount");
+        // tracing::trace!(point = ?self.points.get(*mount_point), "mount point content");
+        // tracing::trace!(hint = ?sub_store.hint, "hint");
+
+        // If the mount point is empty, use the hint to fill it's content.
+        if let Some(point) = self.points.get_mut(*mount_point)
+            && point.is_empty()
+            && let Some(hint) = &sub_store.hint
+        {
+            *point = hint.clone();
+        }
+
         let (new_roots, all_new_ids) = self.rekey_sub_store(&sub_store, mount_point);
 
         self.mount_table.insert_entry(
@@ -312,6 +324,11 @@ impl BlockStore {
         &mut self, block_id: &BlockId, path: &Path, base_dir: &Path,
     ) -> Result<(), MountError> {
         let node = self.nodes.get(*block_id).ok_or(MountError::UnknownBlock)?;
+        let hint = self
+            .points
+            .get(*block_id)
+            .cloned()
+            .and_then(|p| if p.is_empty() { None } else { Some(p) });
         let children = node.children().to_vec();
 
         // Collect descendant IDs, stopping at expanded mount boundaries.
@@ -331,7 +348,8 @@ impl BlockStore {
                 );
             }
         }
-        let sub_store = self.build_projected_store(&own_ids, &children, &mount_path_overrides);
+        let sub_store =
+            self.build_projected_store(&own_ids, hint, &children, &mount_path_overrides);
 
         let format = Self::format_from_path(path);
 
@@ -404,7 +422,7 @@ impl BlockStore {
     }
 
     fn build_projected_store(
-        &self, kept_ids: &[BlockId], roots: &[BlockId],
+        &self, kept_ids: &[BlockId], hint: Option<String>, roots: &[BlockId],
         mount_path_overrides: &std::collections::HashMap<BlockId, MountProjection>,
     ) -> BlockStore {
         let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
@@ -526,6 +544,7 @@ impl BlockStore {
             sub_view_collapsed,
             sub_friend_blocks,
             sub_panel_state,
+            hint,
         )
     }
 
@@ -658,7 +677,7 @@ impl BlockStore {
             );
         }
 
-        self.build_projected_store(&kept_ids, &self.roots, &mount_path_overrides)
+        self.build_projected_store(&kept_ids, None, &self.roots, &mount_path_overrides)
     }
 
     /// Extract blocks belonging to a mount entry into a standalone store.
@@ -673,9 +692,9 @@ impl BlockStore {
             .map(|node| node.children().to_vec())
             .unwrap_or_else(|| entry.root_ids.clone());
         let mut own_ids = Vec::new();
-        let mut _mount_points = Vec::new();
+        let mut mount_points = Vec::new();
         for root_id in &root_ids {
-            self.collect_own_subtree_ids(root_id, &mut own_ids, &mut _mount_points);
+            self.collect_own_subtree_ids(root_id, &mut own_ids, &mut mount_points);
         }
         let mut seen = std::collections::HashSet::new();
         own_ids.retain(|id| seen.insert(*id));
@@ -694,7 +713,13 @@ impl BlockStore {
             }
         }
 
-        self.build_projected_store(&own_ids, &root_ids, &mount_path_overrides)
+        let hint = self
+            .points
+            .get(*mount_point)
+            .cloned()
+            .and_then(|p| if p.is_empty() { None } else { Some(p) });
+
+        self.build_projected_store(&own_ids, hint, &root_ids, &mount_path_overrides)
     }
 
     /// Resolve a mount path against a base directory.

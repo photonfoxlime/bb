@@ -76,6 +76,6 @@ fn run_gui() -> iced::Result {
 #[cfg(feature = "log")]
 fn init_tracing() {
     let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("bb=info"));
+        .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("blooming_blockery=info"));
     let _ = tracing_subscriber::fmt().with_env_filter(env_filter).with_target(true).try_init();
 }
