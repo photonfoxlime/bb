@@ -257,13 +257,15 @@ mod tests {
     fn expand_prompt_includes_friend_blocks() {
         let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
         let friends = vec![
-            FriendContext::new(
+            FriendContext::with_context(
                 "peer concept A".to_string(),
                 Some("historical lens".to_string()),
                 true,
                 true,
+                None,
+                None,
             ),
-            FriendContext::new("peer concept B".to_string(), None, true, true),
+            FriendContext::with_context("peer concept B".to_string(), None, true, true, None, None),
         ];
         let ctx = BlockContext::new(lineage, vec![], friends);
         let prompt = Prompt::expand_from_context(&ctx, None);
@@ -275,11 +277,13 @@ mod tests {
     #[test]
     fn reduce_prompt_includes_friend_blocks() {
         let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
-        let friends = vec![FriendContext::new(
+        let friends = vec![FriendContext::with_context(
             "supporting external detail".to_string(),
             Some("skeptical counterpoint".to_string()),
             true,
             true,
+            None,
+            None,
         )];
         let ctx = BlockContext::new(lineage, vec![], friends);
         let prompt = Prompt::reduce_from_context(&ctx, None);

@@ -66,27 +66,6 @@ impl BlockContext {
 }
 
 impl FriendContext {
-    /// Create a new friend context with the given point text and optional perspective.
-    ///
-    /// # Arguments
-    /// * `point` - The friend block text.
-    /// * `perspective` - Optional framing text describing how the target views this friend.
-    /// * `parent_lineage_telescope` - Whether to include the friend block's parent lineage.
-    /// * `children_telescope` - Whether to include the friend block's children.
-    pub fn new(
-        point: String, perspective: Option<String>, parent_lineage_telescope: bool,
-        children_telescope: bool,
-    ) -> Self {
-        Self {
-            point,
-            perspective,
-            parent_lineage_telescope,
-            children_telescope,
-            friend_lineage: None,
-            friend_children: None,
-        }
-    }
-
     /// Create a new friend context with full context including lineage and children.
     pub fn with_context(
         point: String, perspective: Option<String>, parent_lineage_telescope: bool,
@@ -109,14 +88,6 @@ impl FriendContext {
 
     pub fn perspective(&self) -> Option<&str> {
         self.perspective.as_deref()
-    }
-
-    pub fn parent_lineage_telescope(&self) -> bool {
-        self.parent_lineage_telescope
-    }
-
-    pub fn children_telescope(&self) -> bool {
-        self.children_telescope
     }
 
     pub fn friend_lineage(&self) -> Option<&Lineage> {
@@ -333,8 +304,14 @@ mod tests {
     fn block_context_accessors() {
         let lineage = Lineage::from_points(vec!["root".into()]);
         let children = vec!["child_a".to_string(), "child_b".to_string()];
-        let friends =
-            vec![FriendContext::new("friend".to_string(), Some("ally".to_string()), true, true)];
+        let friends = vec![FriendContext::with_context(
+            "friend".to_string(),
+            Some("ally".to_string()),
+            true,
+            true,
+            None,
+            None,
+        )];
         let ctx = BlockContext::new(lineage.clone(), children.clone(), friends.clone());
         assert_eq!(ctx.lineage(), &lineage);
         assert_eq!(ctx.existing_children(), &children[..]);

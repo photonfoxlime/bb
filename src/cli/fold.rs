@@ -1,6 +1,6 @@
 //! Fold (collapse) state commands.
 
-use crate::cli::types::BlockId;
+use super::BlockId;
 use clap::Parser;
 
 /// Fold (collapse) state operations.

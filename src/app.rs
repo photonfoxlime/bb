@@ -361,17 +361,6 @@ pub enum Message {
 impl AppState {
     /// Process one message and return a follow-up task (if any).
     pub fn update(&mut self, message: Message) -> Task<Message> {
-        // When the settings view is active, Escape (arriving as CancelFriendPicker
-        // from the global event handler) should close settings instead.
-        if self.active_view == ViewMode::Settings
-            && matches!(&message, Message::FriendPanel(FriendPanelMessage::CancelFriendPicker))
-        {
-            return settings::handle(self, SettingsMessage::Close);
-        }
-
-        // When editing friend perspective, Escape (arriving as CancelEditingFriendPerspective)
-        // should just clear the editing state (handled in friends panel handler).
-
         match message {
             | Message::UndoRedo(message) => undo_redo::handle(self, message),
             | Message::Shortcut(message) => shortcut::handle(self, message),

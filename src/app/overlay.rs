@@ -17,7 +17,6 @@ use iced::Task;
 #[derive(Debug, Clone)]
 pub enum OverlayMessage {
     ToggleOverflow(BlockId),
-    CloseOverflow,
 }
 
 /// Process one overlay message and return a follow-up task (if any).
@@ -29,15 +28,6 @@ pub fn handle(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
             } else {
                 state.overflow_open_for = Some(block_id);
             }
-            Task::none()
-        }
-        | OverlayMessage::CloseOverflow => {
-            state.overflow_open_for = None;
-            if let Some(block_id) = state.focused_block_id {
-                state.store.set_panel_state(&block_id, None);
-            }
-            state.focused_block_id = None;
-            state.persist_with_context("after closing overflow");
             Task::none()
         }
     }

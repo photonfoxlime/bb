@@ -1,6 +1,6 @@
 //! Friend block commands.
 
-use crate::cli::types::BlockId;
+use super::BlockId;
 use clap::Parser;
 
 /// Friend block operations.

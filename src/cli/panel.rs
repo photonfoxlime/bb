@@ -1,6 +1,6 @@
 //! Panel state commands.
 
-use crate::cli::types::{BlockId, PanelBarStateCli};
+use super::{BlockId, PanelBarStateCli};
 use clap::Parser;
 
 /// Panel state operations.

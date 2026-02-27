@@ -1,6 +1,6 @@
 //! Tree structure commands.
 
-use crate::cli::types::BlockId;
+use super::BlockId;
 use clap::Parser;
 
 /// Tree structure operations.

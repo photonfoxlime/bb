@@ -1,6 +1,6 @@
 //! Context command (LLM context for a block).
 
-use crate::cli::types::BlockId;
+use super::BlockId;
 use clap::Parser;
 
 /// Get LLM context for a block.

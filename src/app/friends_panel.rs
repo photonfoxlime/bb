@@ -42,24 +42,20 @@ pub enum FriendPanelMessage {
     Toggle(BlockId),
     /// Start picking a friend for the given target block.
     StartFriendPicker(BlockId),
-    /// Cancel friend picker mode.
-    CancelFriendPicker,
     /// Start inline editing the perspective for a specific friend.
     StartEditingFriendPerspective { target: BlockId, friend_id: BlockId },
     /// Cancel inline editing of friend perspective (uses state to find target).
     CancelEditingFriendPerspective,
     /// Update the input buffer while editing friend perspective.
     UpdateFriendPerspectiveInput(String),
-    /// Commit the perspective input and save to store.
-    CommitFriendPerspective,
     /// Clear/remove the perspective for a friend.
     ClearFriendPerspective { target: BlockId, friend_id: BlockId },
     /// Accept the perspective and exit editing mode.
     AcceptFriendPerspective { target: BlockId, friend_id: BlockId },
-    /// Toggle whether parent lineage is visible for a friend in LLM context.
-    ToggleParentLineageVisible { target: BlockId, friend_id: BlockId },
-    /// Toggle whether children are visible for a friend in LLM context.
-    ToggleChildrenVisible { target: BlockId, friend_id: BlockId },
+    /// Toggle whether parent lineage telescope is enabled for a friend in LLM context.
+    ToggleParentLineageTelescope { target: BlockId, friend_id: BlockId },
+    /// Toggle whether children telescope is enabled for a friend in LLM context.
+    ToggleChildrenTelescope { target: BlockId, friend_id: BlockId },
 }
 
 /// Handle friends panel messages.
@@ -87,10 +83,6 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             state.document_mode = DocumentMode::PickFriend;
             Task::none()
         }
-        | FriendPanelMessage::CancelFriendPicker => {
-            state.document_mode = DocumentMode::Normal;
-            Task::none()
-        }
         | FriendPanelMessage::StartEditingFriendPerspective { target, friend_id } => {
             let current_perspective = state
                 .store
@@ -116,10 +108,6 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
         }
         | FriendPanelMessage::UpdateFriendPerspectiveInput(text) => {
             state.editing_friend_perspective_input = Some(text);
-            Task::none()
-        }
-        | FriendPanelMessage::CommitFriendPerspective => {
-            // Handled in view - the view constructs the message directly
             Task::none()
         }
         | FriendPanelMessage::ClearFriendPerspective { target, friend_id } => {
@@ -162,7 +150,7 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             state.editing_friend_perspective_input = None;
             Task::none()
         }
-        | FriendPanelMessage::ToggleParentLineageVisible { target, friend_id } => {
+        | FriendPanelMessage::ToggleParentLineageTelescope { target, friend_id } => {
             state.mutate_with_undo_and_persist("after toggling friend parent lineage visibility", |state| {
                 let mut friends = state.store.friend_blocks_for(&target).to_vec();
                 let friend = friends.iter_mut().find(|f| f.block_id == friend_id);
@@ -178,7 +166,7 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             });
             Task::none()
         }
-        | FriendPanelMessage::ToggleChildrenVisible { target, friend_id } => {
+        | FriendPanelMessage::ToggleChildrenTelescope { target, friend_id } => {
             state.mutate_with_undo_and_persist("after toggling friend children visibility", |state| {
                 let mut friends = state.store.friend_blocks_for(&target).to_vec();
                 let friend = friends.iter_mut().find(|f| f.block_id == friend_id);
@@ -376,7 +364,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                         .width(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
                         .padding(0)
                         .on_press(Message::FriendPanel(
-                            FriendPanelMessage::ToggleParentLineageVisible { target, friend_id },
+                            FriendPanelMessage::ToggleParentLineageTelescope { target, friend_id },
                         )),
                     )
                     .push(
@@ -388,7 +376,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                         .width(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
                         .padding(0)
                         .on_press(Message::FriendPanel(
-                            FriendPanelMessage::ToggleChildrenVisible { target, friend_id },
+                            FriendPanelMessage::ToggleChildrenTelescope { target, friend_id },
                         )),
                     ),
             )

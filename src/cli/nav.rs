@@ -1,6 +1,6 @@
 //! Navigation commands.
 
-use crate::cli::types::BlockId;
+use super::BlockId;
 use clap::Parser;
 
 /// Navigation operations.

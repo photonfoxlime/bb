@@ -1,6 +1,6 @@
 //! Mount commands (external file integration).
 
-use crate::cli::types::{BlockId, MountFormatCli};
+use super::{BlockId, MountFormatCli};
 use clap::Parser;
 
 /// Mount operations (external file integration).

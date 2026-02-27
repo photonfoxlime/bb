@@ -1,8 +1,8 @@
 //! BlockCommands execution implementation.
 
-use crate::cli::results::{CliResult, ExpansionDraftInfo, FriendInfo, Match, ReductionDraftInfo};
-use crate::cli::types::BlockId;
-use crate::cli::{
+use super::BlockId;
+use super::results::{CliResult, ExpansionDraftInfo, FriendInfo, Match, ReductionDraftInfo};
+use super::{
     BlockCommands,
     context::ContextCommand,
     draft::DraftCommands,

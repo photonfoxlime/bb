@@ -1,6 +1,6 @@
 //! Query commands: roots, show, find.
 
-use crate::cli::types::BlockId;
+use super::BlockId;
 use clap::Parser;
 
 /// Query root block IDs.

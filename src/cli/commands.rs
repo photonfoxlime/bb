@@ -1,6 +1,6 @@
 //! CLI commands: high-level command enums.
 
-use crate::cli::types::OutputFormat;
+use super::OutputFormat;
 use clap::Parser;
 
 pub use super::context::ContextCommand;

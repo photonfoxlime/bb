@@ -1,6 +1,6 @@
 //! Draft commands (LLM in-progress suggestions).
 
-use crate::cli::types::BlockId;
+use super::BlockId;
 use clap::Parser;
 
 /// Draft operations (LLM in-progress suggestions).
