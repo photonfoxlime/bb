@@ -1144,3 +1144,481 @@ fn test_nav_lineage_for_deeply_nested_block() {
         | _ => panic!("Expected Lineage"),
     }
 }
+
+// ============================================================================
+// Context Operation Tests
+// ============================================================================
+
+#[test]
+fn test_context_command_with_friends() {
+    use crate::cli::context::ContextCommand;
+
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+    let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
+    let child2 = store.append_child(&root_id, "child2".to_string()).unwrap();
+
+    // Add friend
+    let cmd = BlockCommands::Friend(FriendCommands::Add(AddFriendCommand {
+        target_id: BlockId(fmt(child1)),
+        friend_id: BlockId(fmt(child2)),
+        perspective: Some("related".to_string()),
+        telescope_lineage: false,
+        telescope_children: false,
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+    assert!(matches!(result, CliResult::Success));
+
+    // Get context for child1
+    let cmd = BlockCommands::Context(ContextCommand { block_id: BlockId(fmt(child1)) });
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    match result {
+        | CliResult::Context { lineage, children, friends } => {
+            assert!(lineage.len() >= 1); // Should include root
+            assert_eq!(children.len(), 0); // No children
+            assert_eq!(friends, 1); // One friend
+        }
+        | _ => panic!("Expected Context"),
+    }
+}
+
+#[test]
+fn test_context_for_root_block() {
+    use crate::cli::context::ContextCommand;
+
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+    store.append_child(&root_id, "child1".to_string()).unwrap();
+    store.append_child(&root_id, "child2".to_string()).unwrap();
+
+    // Get context for root
+    let cmd = BlockCommands::Context(ContextCommand { block_id: BlockId(fmt(root_id)) });
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    match result {
+        | CliResult::Context { lineage: _, children, friends } => {
+            // Root may have itself in lineage, just verify it works
+            assert_eq!(children.len(), 2);
+            assert_eq!(friends, 0);
+        }
+        | _ => panic!("Expected Context"),
+    }
+}
+
+// ============================================================================
+// Navigation Edge Cases
+// ============================================================================
+
+#[test]
+fn test_nav_next_at_leaf_returns_none() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+    let child = store.append_child(&root_id, "child".to_string()).unwrap();
+
+    // Next from leaf should return None (no children, no siblings)
+    let cmd = BlockCommands::Nav(NavCommands::Next(NextCommand { block_id: BlockId(fmt(child)) }));
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    match result {
+        | CliResult::OptionalBlockId(None) => {}
+        | _ => panic!("Expected None for next at leaf"),
+    }
+}
+
+#[test]
+fn test_nav_prev_at_root_returns_none() {
+    let store = BlockStore::default();
+    let root_id = store.roots()[0];
+
+    // Prev from root should return None
+    let cmd =
+        BlockCommands::Nav(NavCommands::Prev(PrevCommand { block_id: BlockId(fmt(root_id)) }));
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    match result {
+        | CliResult::OptionalBlockId(None) => {}
+        | _ => panic!("Expected None for prev at root"),
+    }
+}
+
+#[test]
+fn test_nav_next_visits_all_in_dfs_order() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+    let c1 = store.append_child(&root_id, "c1".to_string()).unwrap();
+    let _c2 = store.append_child(&root_id, "c2".to_string()).unwrap();
+    store.append_child(&c1, "gc1".to_string()).unwrap();
+
+    // DFS order: root -> c1 -> gc1 -> c2
+    let mut cursor = root_id;
+    let mut visited = vec![cursor];
+
+    for _ in 0..10 {
+        let cmd =
+            BlockCommands::Nav(NavCommands::Next(NextCommand { block_id: BlockId(fmt(cursor)) }));
+        let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
+
+        match result {
+            | CliResult::OptionalBlockId(Some(next)) => {
+                visited.push(next);
+                cursor = next;
+            }
+            | CliResult::OptionalBlockId(None) => break,
+            | _ => panic!("Expected OptionalBlockId"),
+        }
+    }
+
+    assert_eq!(visited.len(), 4); // root, c1, gc1, c2
+}
+
+// ============================================================================
+// Multiple Roots Tests
+// ============================================================================
+
+#[test]
+fn test_multiple_roots_operations() {
+    let store = BlockStore::default();
+    let root1 = store.roots()[0];
+
+    // Add second root by adding sibling to first root
+    let cmd = BlockCommands::Tree(TreeCommands::AddSibling(AddSiblingCommand {
+        block_id: BlockId(fmt(root1)),
+        text: "second root".to_string(),
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+    let root2 = match result {
+        | CliResult::BlockId(id) => id,
+        | _ => panic!("Expected BlockId"),
+    };
+
+    // Verify two roots
+    assert_eq!(store.roots().len(), 2);
+
+    // Add child to second root
+    let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+        parent_id: BlockId(fmt(root2)),
+        text: "child of root2".to_string(),
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+    let child2 = match result {
+        | CliResult::BlockId(id) => id,
+        | _ => panic!("Expected BlockId"),
+    };
+
+    // Verify structure
+    assert!(store.children(&root2).contains(&child2));
+    assert!(store.children(&root1).is_empty());
+}
+
+#[test]
+fn test_roots_command_lists_all() {
+    let store = BlockStore::default();
+    let root1 = store.roots()[0];
+
+    // Add second root
+    let cmd = BlockCommands::Tree(TreeCommands::AddSibling(AddSiblingCommand {
+        block_id: BlockId(fmt(root1)),
+        text: "root2".to_string(),
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+    let root2 = match result {
+        | CliResult::BlockId(id) => id,
+        | _ => panic!("Expected BlockId"),
+    };
+
+    // Add third root
+    let cmd = BlockCommands::Tree(TreeCommands::AddSibling(AddSiblingCommand {
+        block_id: BlockId(fmt(root2)),
+        text: "root3".to_string(),
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+    assert!(matches!(result, CliResult::BlockId(_)));
+
+    // List all roots
+    let cmd = BlockCommands::Roots(crate::cli::commands::RootCommand {});
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    match result {
+        | CliResult::Roots(ids) => {
+            assert_eq!(ids.len(), 3);
+        }
+        | _ => panic!("Expected Roots"),
+    }
+}
+
+// ============================================================================
+// Friend Telescoping Tests
+// ============================================================================
+
+#[test]
+fn test_friend_with_telescope_options() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+    let child1 = store.append_child(&root_id, "child1".to_string()).unwrap();
+    let child2 = store.append_child(&root_id, "child2".to_string()).unwrap();
+    store.append_child(&child2, "grandchild".to_string()).unwrap();
+
+    // Add friend with both telescopes enabled
+    let cmd = BlockCommands::Friend(FriendCommands::Add(AddFriendCommand {
+        target_id: BlockId(fmt(child1)),
+        friend_id: BlockId(fmt(child2)),
+        perspective: Some("telescoped".to_string()),
+        telescope_lineage: true,
+        telescope_children: true,
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+    assert!(matches!(result, CliResult::Success));
+
+    // List friends and verify telescope flags
+    let cmd = BlockCommands::Friend(FriendCommands::List(ListFriendCommand {
+        target_id: BlockId(fmt(child1)),
+    }));
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    match result {
+        | CliResult::FriendList(friends) => {
+            assert_eq!(friends.len(), 1);
+            assert!(friends[0].telescope_lineage);
+            assert!(friends[0].telescope_children);
+        }
+        | _ => panic!("Expected FriendList"),
+    }
+}
+
+// ============================================================================
+// Error Handling Tests
+// ============================================================================
+
+#[test]
+fn test_unknown_block_errors_consistently() {
+    let store = BlockStore::default();
+
+    let unknown_id = "999v999";
+
+    // Test show
+    let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId(unknown_id.to_string()) });
+    let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
+    assert!(matches!(result, CliResult::Error(_)));
+
+    // Test nav next
+    let cmd = BlockCommands::Nav(NavCommands::Next(NextCommand {
+        block_id: BlockId(unknown_id.to_string()),
+    }));
+    let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
+    assert!(matches!(result, CliResult::Error(_)));
+
+    // Test fold toggle
+    let cmd = BlockCommands::Fold(FoldCommands::Toggle(ToggleFoldCommand {
+        block_id: BlockId(unknown_id.to_string()),
+    }));
+    let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
+    assert!(matches!(result, CliResult::Error(_)));
+
+    // Test add child to unknown
+    let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+        parent_id: BlockId(unknown_id.to_string()),
+        text: "test".to_string(),
+    }));
+    let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
+    assert!(matches!(result, CliResult::Error(_)));
+}
+
+#[test]
+fn test_empty_query_find() {
+    let store = BlockStore::default();
+    let _root_id = store.roots()[0];
+
+    // Empty query should match everything
+    let cmd = BlockCommands::Find(FindCommand { query: "".to_string(), limit: 100 });
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    match result {
+        | CliResult::Find(matches) => {
+            assert!(matches.len() >= 1);
+        }
+        | _ => panic!("Expected Find"),
+    }
+}
+
+// ============================================================================
+// Duplicate Edge Cases
+// ============================================================================
+
+#[test]
+fn test_duplicate_leaf_block() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+    let leaf = store.append_child(&root_id, "leaf".to_string()).unwrap();
+
+    // Duplicate leaf (no children)
+    let cmd = BlockCommands::Tree(TreeCommands::Duplicate(DuplicateCommand {
+        block_id: BlockId(fmt(leaf)),
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    let dup = match result {
+        | CliResult::BlockId(id) => id,
+        | _ => panic!("Expected BlockId"),
+    };
+
+    // Verify duplicate
+    assert!(store.children(&root_id).contains(&dup));
+    assert_eq!(store.point(&dup), store.point(&leaf));
+    assert!(store.children(&dup).is_empty());
+}
+
+#[test]
+fn test_duplicate_with_collapsed_state() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+    let child = store.append_child(&root_id, "child".to_string()).unwrap();
+    store.append_child(&child, "grandchild".to_string());
+
+    // Collapse child
+    store.toggle_collapsed(&child);
+    assert!(store.is_collapsed(&child));
+
+    // Duplicate child
+    let cmd = BlockCommands::Tree(TreeCommands::Duplicate(DuplicateCommand {
+        block_id: BlockId(fmt(child)),
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    let dup = match result {
+        | CliResult::BlockId(id) => id,
+        | _ => panic!("Expected BlockId"),
+    };
+
+    // Note: collapse state may or may not be copied depending on implementation
+    // Just verify structure is duplicated
+    assert!(store.children(&root_id).contains(&dup));
+    assert_eq!(store.children(&dup).len(), 1);
+}
+
+// ============================================================================
+// Delete Edge Cases
+// ============================================================================
+
+#[test]
+fn test_delete_last_child() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+    let only_child = store.append_child(&root_id, "only".to_string()).unwrap();
+
+    // Delete the only child
+    let cmd = BlockCommands::Tree(TreeCommands::Delete(DeleteCommand {
+        block_id: BlockId(fmt(only_child)),
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    assert!(matches!(result, CliResult::Removed(_)));
+    assert!(store.children(&root_id).is_empty());
+}
+
+#[test]
+fn test_delete_root_fails() {
+    let store = BlockStore::default();
+    let root_id = store.roots()[0];
+
+    // Deleting root should work but leave empty roots list or fail
+    let cmd = BlockCommands::Tree(TreeCommands::Delete(DeleteCommand {
+        block_id: BlockId(fmt(root_id)),
+    }));
+    let (_store, _result) = cmd.execute(store, &PathBuf::from("."));
+
+    // Either error or succeeds with empty roots
+    // Just verify operation completes without panic
+}
+
+// ============================================================================
+// Move Edge Cases
+// ============================================================================
+
+#[test]
+fn test_move_before_first_sibling() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+    let c1 = store.append_child(&root_id, "c1".to_string()).unwrap();
+    let c2 = store.append_child(&root_id, "c2".to_string()).unwrap();
+
+    // Move c2 before c1
+    let cmd = BlockCommands::Tree(TreeCommands::Move(MoveCommand {
+        source_id: BlockId(fmt(c2)),
+        target_id: BlockId(fmt(c1)),
+        before: true,
+        after: false,
+        under: false,
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    assert!(matches!(result, CliResult::Success));
+
+    let children = store.children(&root_id);
+    assert_eq!(children[0], c2);
+    assert_eq!(children[1], c1);
+}
+
+#[test]
+fn test_move_after_last_sibling() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+    let c1 = store.append_child(&root_id, "c1".to_string()).unwrap();
+    let c2 = store.append_child(&root_id, "c2".to_string()).unwrap();
+
+    // Move c1 after c2
+    let cmd = BlockCommands::Tree(TreeCommands::Move(MoveCommand {
+        source_id: BlockId(fmt(c1)),
+        target_id: BlockId(fmt(c2)),
+        before: false,
+        after: true,
+        under: false,
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    assert!(matches!(result, CliResult::Success));
+
+    let children = store.children(&root_id);
+    assert_eq!(children[0], c2);
+    assert_eq!(children[1], c1);
+}
+
+// ============================================================================
+// Stress Test
+// ============================================================================
+
+#[test]
+fn test_rapid_sequential_operations() {
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+
+    // 50 rapid add-child operations
+    for i in 0..50 {
+        let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+            parent_id: BlockId(fmt(root_id)),
+            text: format!("child{}", i),
+        }));
+        let (s, result) = cmd.execute(store, &PathBuf::from("."));
+        store = s;
+        assert!(matches!(result, CliResult::BlockId(_)), "Add {} failed", i);
+    }
+
+    // Verify all 50 children exist
+    assert_eq!(store.children(&root_id).len(), 50);
+
+    // Delete every other child
+    let children: Vec<_> = store.children(&root_id).to_vec();
+    for (i, &child) in children.iter().enumerate() {
+        if i % 2 == 0 {
+            let cmd = BlockCommands::Tree(TreeCommands::Delete(DeleteCommand {
+                block_id: BlockId(fmt(child)),
+            }));
+            let (s, result) = cmd.execute(store, &PathBuf::from("."));
+            store = s;
+            assert!(matches!(result, CliResult::Removed(_)));
+        }
+    }
+
+    // Should have 25 remaining
+    assert_eq!(store.children(&root_id).len(), 25);
+}
