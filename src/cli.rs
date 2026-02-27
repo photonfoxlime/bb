@@ -6,25 +6,11 @@
 //!
 //! # Design Principles
 //!
-//! - **Subcommand hierarchy**: Commands are grouped by domain (tree, nav, draft,
+//! - Subcommand hierarchy: Commands are grouped by domain (tree, nav, draft,
 //!   fold, friend, mount, panel) for discoverability.
-//! - **Idempotency**: Commands that modify state return clear success/failure
+//! - Idempotency: Commands that modify state return clear success/failure
 //!   indicators. Read commands are safe and side-effect free.
-//! - **Rich errors**: Each command documents its failure modes for debugging.
-//!
-//! # Usage
-//!
-//! ```ignore
-//! use clap::Parser;
-//! use crate::cli::BlockCli;
-//!
-//! let args = BlockCli::parse();
-//! match args.command {
-//!     Commands::Tree(cmd) => /* ... */,
-//!     Commands::Nav(cmd) => /* ... */,
-//!     // ...
-//! }
-//! ```
+//! - Rich errors: Each command documents its failure modes for debugging.
 //!
 //! # Example Invocations
 //!
@@ -177,3 +163,6 @@ pub enum OutputFormat {
     /// Table format for human readability.
     Table,
 }
+
+#[cfg(test)]
+mod tests;
