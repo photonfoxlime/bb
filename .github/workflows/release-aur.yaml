@@ -22,18 +22,10 @@ jobs:
       # Example: blooming-blockery-bin OR blooming-blockery
       AUR_PKG: blooming-blockery-bin
 
-      # The app name used in cargo-dist artifact names
-      APP_NAME: blooming-blockery
-
-      # The Linux asset name cargo-dist publishes (from your v0.0.4 release)
+      # The Linux asset name cargo-dist publishes
       LINUX_ASSET: blooming-blockery-x86_64-unknown-linux-gnu.tar.xz
 
     steps:
-      - name: Install tools
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-
       - name: Install CLI deps
         run: |
           sudo apt-get update
@@ -92,11 +84,9 @@ jobs:
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
 
-          # Private key: create an SSH keypair and add the public key to your AUR account
           echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
 
-          # Trust AUR host key
           ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
 
       - name: Clone AUR repo
@@ -117,14 +107,13 @@ jobs:
             -e "s/^pkgrel=.*/pkgrel=1/" \
             PKGBUILD
 
-          # Replace source URL line(s) that mention releases/download
-          # Keep it simple: replace any github releases/download URL inside source=()
+          # Replace a GitHub releases/download URL inside source=()
           perl -0777 -i -pe "s|(source=\\([^\\)]*?)https://github\\.com/[^\\s\\)]+/releases/download/[^\\s\\)]+/[^\\s\\)]+|(\\1${SRC_URL}|s" PKGBUILD
 
-          # Replace first sha256sums value (common for single-source binary PKGBUILDs)
+          # Replace first sha256sums entry (single-source PKGBUILD)
           perl -0777 -i -pe "s|sha256sums=\\('([0-9a-f]{64}|SKIP)'\\)|sha256sums=('${SHA256}')|s" PKGBUILD
 
-          # Keep .SRCINFO in sync (many AUR maintainers commit it)
+          # Keep .SRCINFO in sync if present
           if [ -f .SRCINFO ]; then
             sed -i -E \
               -e "s/^\\s*pkgver = .*/pkgver = ${PKGVER}/" \
@@ -146,7 +135,6 @@ jobs:
 
           git add PKGBUILD .SRCINFO || true
 
-          # If nothing changed, avoid failing
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
