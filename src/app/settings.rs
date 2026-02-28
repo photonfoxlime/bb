@@ -41,8 +41,9 @@ use crate::i18n;
 use crate::llm;
 use crate::paths::AppPaths;
 use crate::theme;
-use iced::widget::{button, column, container, pick_list, row, text, text_input, toggler};
+use iced::widget::{button, column, container, pick_list, row, text, text_input, toggler, tooltip};
 use iced::{Element, Fill, Length, Task};
+use lucide_icons::iced as icons;
 use rust_i18n::t;
 
 /// Draft form values for the settings screen.
@@ -117,6 +118,11 @@ pub enum SettingsMessage {
     ToggleTheme(bool),
     /// Change the locale override.
     SetLocale(Option<String>),
+    /// Copy a resolved settings path to the system clipboard.
+    ///
+    /// The path is computed in [`view`] and sent as an owned string so this
+    /// message remains self-contained and does not depend on global path state.
+    CopyPath(String),
 }
 
 impl SettingsState {
@@ -347,6 +353,10 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             }
             Task::none()
         }
+        | SettingsMessage::CopyPath(path) => {
+            tracing::info!(path = %path, "copied settings path to clipboard");
+            iced::clipboard::write(path)
+        }
     }
 }
 
@@ -528,20 +538,34 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         section(appearance_title, column![locale_picker, theme_toggler].spacing(10));
 
     // ── Data Paths section ───────────────────────────────────────────
-    let data_path = AppPaths::data_file()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| t!("settings_not_available").to_string());
-    let config_path = AppPaths::llm_config()
-        .map(|p| p.display().to_string())
-        .unwrap_or_else(|| t!("settings_not_available").to_string());
+    let data_path = AppPaths::data_file().map(|p| p.display().to_string());
+    let config_path = AppPaths::llm_config().map(|p| p.display().to_string());
+    let data_path_display =
+        data_path.clone().unwrap_or_else(|| t!("settings_not_available").to_string());
+    let config_path_display =
+        config_path.clone().unwrap_or_else(|| t!("settings_not_available").to_string());
 
     let paths_title = t!("settings_data_paths").to_string();
     let data_file_label = t!("settings_data_file").to_string();
     let llm_config_label = t!("settings_llm_config").to_string();
+    let copy_path_label = t!("settings_copy_path").to_string();
     let paths_section = section(
         paths_title,
-        column![path_row(data_file_label, data_path), path_row(llm_config_label, config_path),]
-            .spacing(6),
+        column![
+            path_row(
+                data_file_label,
+                data_path_display,
+                copy_path_label.clone(),
+                data_path.map(|path| Message::Settings(SettingsMessage::CopyPath(path))),
+            ),
+            path_row(
+                llm_config_label,
+                config_path_display,
+                copy_path_label,
+                config_path.map(|path| Message::Settings(SettingsMessage::CopyPath(path))),
+            ),
+        ]
+        .spacing(6),
     );
 
     // ── Assemble ─────────────────────────────────────────────────────
@@ -610,17 +634,45 @@ fn section(
 
 /// A read-only key-value row for path display.
 ///
-/// Takes owned strings so the row can outlive any local temporaries.
-fn path_row(label: String, path: String) -> Element<'static, Message> {
-    row![
-        text(label)
-            .size(13)
-            .font(theme::INTER)
-            .color(theme::LIGHT.accent_muted)
-            .width(Length::Fixed(90.0)),
-        text(path).size(13),
-    ]
-    .spacing(8)
-    .align_y(iced::Alignment::Center)
-    .into()
+/// Optionally appends a copy action button when a concrete path exists.
+/// All values are owned so the row can outlive local temporaries.
+fn path_row(
+    label: String, path: String, copy_tooltip: String, copy_message: Option<Message>,
+) -> Element<'static, Message> {
+    let label_text = text(label)
+        .size(13)
+        .font(theme::INTER)
+        .color(theme::LIGHT.accent_muted)
+        .width(Length::Fixed(90.0));
+    let path_text = text(path).size(13).width(Fill);
+
+    let mut content =
+        row![label_text, path_text].spacing(8).align_y(iced::Alignment::Center).width(Fill);
+
+    if let Some(message) = copy_message {
+        let copy_icon = container(
+            icons::icon_copy()
+                .size(theme::TOOLBAR_ICON_SIZE)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
+        )
+        .padding(theme::BUTTON_PAD)
+        .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .align_x(iced::alignment::Horizontal::Center)
+        .align_y(iced::alignment::Vertical::Center);
+
+        let copy_button =
+            button(copy_icon).on_press(message).style(theme::action_button).padding(0);
+        let copy_with_tooltip = tooltip(
+            copy_button,
+            text(copy_tooltip).size(12).font(theme::INTER),
+            tooltip::Position::Bottom,
+        )
+        .style(theme::tooltip)
+        .padding(theme::TOOLTIP_PAD)
+        .gap(theme::TOOLTIP_GAP);
+        content = content.push(copy_with_tooltip);
+    }
+
+    content.into()
 }
