@@ -30,6 +30,7 @@
 
 use crate::app::{AppState, DocumentMode, Message, StructureMessage};
 use crate::component::icon_button::IconButton;
+use crate::component::text_button::TextButton;
 use crate::store::{BlockId, BlockPanelBarState};
 use crate::text::truncate_for_display;
 use crate::theme;
@@ -225,15 +226,9 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
     // Header with "+" button to start friend picker
     let mut header = row![].spacing(theme::PANEL_BUTTON_GAP);
     header = header.push(
-        button(
-            text(rust_i18n::t!("ui_add").to_string())
-                .font(theme::INTER)
-                .size(theme::FRIEND_POINT_SIZE)
-                .align_y(iced::alignment::Alignment::Center),
-        )
-        .style(theme::action_button)
-        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-        .on_press(Message::FriendPanel(FriendPanelMessage::StartFriendPicker(block_id))),
+        TextButton::action(rust_i18n::t!("ui_add").to_string(), theme::FRIEND_POINT_SIZE)
+            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::FriendPanel(FriendPanelMessage::StartFriendPicker(block_id))),
     );
 
     // Show message based on state
@@ -461,12 +456,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     ),
             )
             .push(
-                button(
-                    text(rust_i18n::t!("ui_remove").to_string())
-                        .font(theme::INTER)
-                        .size(theme::FRIEND_POINT_SIZE),
-                )
-                .style(theme::destructive_button)
+                TextButton::destructive(rust_i18n::t!("ui_remove").to_string(), theme::FRIEND_POINT_SIZE)
                 .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
                 .padding(0)
                 .on_press(Message::Structure(

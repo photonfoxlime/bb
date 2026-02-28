@@ -6,6 +6,7 @@
 //! to avoid running expensive searches while users are still typing.
 
 use crate::app::{AppState, DocumentMode, Message, friends_panel::FriendPanelMessage};
+use crate::component::text_button::TextButton;
 use crate::store::BlockId;
 use crate::text::truncate_for_display;
 use crate::theme;
@@ -271,22 +272,15 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
         .align_y(Alignment::Center)
         .push(text(count_label).size(theme::FIND_META_SIZE).style(theme::spine_text))
         .push(
-            button(
-                text(t!("find_prev").to_string()).font(theme::INTER).size(theme::FIND_META_SIZE),
-            )
-            .style(theme::action_button)
-            .on_press(Message::Find(FindMessage::JumpPrevious)),
+            TextButton::action(t!("find_prev").to_string(), theme::FIND_META_SIZE)
+                .on_press(Message::Find(FindMessage::JumpPrevious)),
         )
         .push(
-            button(
-                text(t!("find_next").to_string()).font(theme::INTER).size(theme::FIND_META_SIZE),
-            )
-            .style(theme::action_button)
-            .on_press(Message::Find(FindMessage::JumpNext)),
+            TextButton::action(t!("find_next").to_string(), theme::FIND_META_SIZE)
+                .on_press(Message::Find(FindMessage::JumpNext)),
         )
         .push(
-            button(text(t!("ui_close").to_string()).font(theme::INTER).size(theme::FIND_META_SIZE))
-                .style(theme::action_button)
+            TextButton::action(t!("ui_close").to_string(), theme::FIND_META_SIZE)
                 .on_press(Message::Find(FindMessage::Close)),
         );
 

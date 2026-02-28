@@ -52,6 +52,7 @@ use super::{
 };
 use crate::{
     component::icon_button::IconButton,
+    component::text_button::TextButton,
     store::{BlockId, BlockPanelBarState, ExpansionDraftRecord, ReductionDraftRecord},
     text::truncate_for_display,
     theme,
@@ -560,22 +561,17 @@ impl<'a> TreeView<'a> {
                             .spacing(theme::PANEL_BUTTON_GAP)
                             .push(space::horizontal())
                             .push(
-                                button(
-                                    text(t!("doc_apply_rewrite").to_string())
-                                        .font(theme::INTER)
-                                        .size(13),
-                                )
-                                .style(theme::action_button)
-                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                .on_press(Message::Expand(ExpandMessage::ApplyRewrite(*block_id))),
+                                TextButton::action(t!("doc_apply_rewrite").to_string(), 13.0)
+                                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                                    .on_press(Message::Expand(ExpandMessage::ApplyRewrite(
+                                        *block_id,
+                                    ))),
                             )
                             .push(
-                                button(
-                                    text(t!("doc_dismiss_rewrite").to_string())
-                                        .font(theme::INTER)
-                                        .size(13),
+                                TextButton::destructive(
+                                    t!("doc_dismiss_rewrite").to_string(),
+                                    13.0,
                                 )
-                                .style(theme::destructive_button)
                                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                 .on_press(Message::Expand(ExpandMessage::RejectRewrite(*block_id))),
                             ),
@@ -592,14 +588,12 @@ impl<'a> TreeView<'a> {
                             .width(Length::Fill),
                     )
                     .push(
-                        button(text(t!("doc_accept_all").to_string()).font(theme::INTER).size(13))
-                            .style(theme::action_button)
+                        TextButton::action(t!("doc_accept_all").to_string(), 13.0)
                             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                             .on_press(Message::Expand(ExpandMessage::AcceptAllChildren(*block_id))),
                     )
                     .push(
-                        button(text(t!("doc_discard_all").to_string()).font(theme::INTER).size(13))
-                            .style(theme::destructive_button)
+                        TextButton::destructive(t!("doc_discard_all").to_string(), 13.0)
                             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                             .on_press(Message::Expand(ExpandMessage::DiscardAllChildren(
                                 *block_id,
@@ -613,8 +607,7 @@ impl<'a> TreeView<'a> {
                         .spacing(theme::PANEL_BUTTON_GAP)
                         .push(container(text(child.as_str())).width(Length::Fill))
                         .push(
-                            button(text(t!("doc_keep").to_string()).font(theme::INTER).size(13))
-                                .style(theme::action_button)
+                            TextButton::action(t!("doc_keep").to_string(), 13.0)
                                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                 .on_press(Message::Expand(ExpandMessage::AcceptChild {
                                     block_id: *block_id,
@@ -622,8 +615,7 @@ impl<'a> TreeView<'a> {
                                 })),
                         )
                         .push(
-                            button(text(t!("doc_drop").to_string()).font(theme::INTER).size(13))
-                                .style(theme::destructive_button)
+                            TextButton::destructive(t!("doc_drop").to_string(), 13.0)
                                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                 .on_press(Message::Expand(ExpandMessage::RejectChild {
                                     block_id: *block_id,
@@ -657,22 +649,14 @@ impl<'a> TreeView<'a> {
                     .spacing(theme::PANEL_BUTTON_GAP)
                     .push(space::horizontal())
                     .push(
-                        button(
-                            text(t!("doc_apply_reduction").to_string()).font(theme::INTER).size(13),
-                        )
-                        .style(theme::action_button)
-                        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                        .on_press(Message::Reduce(ReduceMessage::Apply(*block_id))),
+                        TextButton::action(t!("doc_apply_reduction").to_string(), 13.0)
+                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                            .on_press(Message::Reduce(ReduceMessage::Apply(*block_id))),
                     )
                     .push(
-                        button(
-                            text(t!("doc_dismiss_reduction").to_string())
-                                .font(theme::INTER)
-                                .size(13),
-                        )
-                        .style(theme::destructive_button)
-                        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                        .on_press(Message::Reduce(ReduceMessage::Reject(*block_id))),
+                        TextButton::destructive(t!("doc_dismiss_reduction").to_string(), 13.0)
+                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                            .on_press(Message::Reduce(ReduceMessage::Reject(*block_id))),
                     ),
             );
 
@@ -692,16 +676,14 @@ impl<'a> TreeView<'a> {
                             .width(Length::Fill),
                     )
                     .push(
-                        button(text(t!("doc_delete_all").to_string()).font(theme::INTER).size(13))
-                            .style(theme::destructive_button)
+                        TextButton::destructive(t!("doc_delete_all").to_string(), 13.0)
                             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                             .on_press(Message::Reduce(ReduceMessage::AcceptAllDeletions(
                                 *block_id,
                             ))),
                     )
                     .push(
-                        button(text(t!("doc_keep_all").to_string()).font(theme::INTER).size(13))
-                            .style(theme::action_button)
+                        TextButton::action(t!("doc_keep_all").to_string(), 13.0)
                             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                             .on_press(Message::Reduce(ReduceMessage::RejectAllDeletions(
                                 *block_id,
@@ -716,8 +698,7 @@ impl<'a> TreeView<'a> {
                         .spacing(theme::PANEL_BUTTON_GAP)
                         .push(container(text(child_text)).width(Length::Fill))
                         .push(
-                            button(text(t!("doc_delete").to_string()).font(theme::INTER).size(13))
-                                .style(theme::destructive_button)
+                            TextButton::destructive(t!("doc_delete").to_string(), 13.0)
                                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                 .on_press(Message::Reduce(ReduceMessage::AcceptChildDeletion {
                                     block_id: *block_id,
@@ -725,8 +706,7 @@ impl<'a> TreeView<'a> {
                                 })),
                         )
                         .push(
-                            button(text(t!("doc_keep").to_string()).font(theme::INTER).size(13))
-                                .style(theme::action_button)
+                            TextButton::action(t!("doc_keep").to_string(), 13.0)
                                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                                 .on_press(Message::Reduce(ReduceMessage::RejectChildDeletion {
                                     block_id: *block_id,
@@ -870,23 +850,18 @@ impl<'a> TreeView<'a> {
         let button_row = row![]
             .spacing(theme::PANEL_BUTTON_GAP)
             .push(
-                button(text(t!("ui_friends").to_string()).font(theme::INTER).size(13))
-                    .style(move |theme, status| {
-                        theme::panel_toggle_button(theme, status, friends_panel_open)
-                    })
+                TextButton::panel_toggle(t!("ui_friends").to_string(), 13.0, friends_panel_open)
                     .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                     .on_press(Message::FriendPanel(FriendPanelMessage::Toggle(*block_id))),
             )
             .push(
-                button(text(t!("ui_instruction").to_string()).font(theme::INTER).size(13))
-                    .style(move |theme, status| {
-                        theme::panel_toggle_button(theme, status, instruction_panel_open)
-                    })
-                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                    .on_press(Message::InstructionPanel(
-                        *block_id,
-                        InstructionPanelMessage::Toggle,
-                    )),
+                TextButton::panel_toggle(
+                    t!("ui_instruction").to_string(),
+                    13.0,
+                    instruction_panel_open,
+                )
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::InstructionPanel(*block_id, InstructionPanelMessage::Toggle)),
             );
 
         container(button_row).padding(Padding::ZERO.right(theme::INDENT)).into()
@@ -939,20 +914,18 @@ impl<'a> TreeView<'a> {
 
         let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
         button_row = button_row.push(
-            button(text(t!("ui_friends").to_string()).font(theme::INTER).size(13))
-                .style(move |theme, status| {
-                    theme::panel_toggle_button(theme, status, friends_panel_open)
-                })
+            TextButton::panel_toggle(t!("ui_friends").to_string(), 13.0, friends_panel_open)
                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .on_press(Message::FriendPanel(FriendPanelMessage::Toggle(*block_id))),
         );
         button_row = button_row.push(
-            button(text(t!("ui_instruction").to_string()).font(theme::INTER).size(13))
-                .style(move |theme, status| {
-                    theme::panel_toggle_button(theme, status, instruction_panel_open)
-                })
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(*block_id, InstructionPanelMessage::Toggle)),
+            TextButton::panel_toggle(
+                t!("ui_instruction").to_string(),
+                13.0,
+                instruction_panel_open,
+            )
+            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::InstructionPanel(*block_id, InstructionPanelMessage::Toggle)),
         );
 
         let mut col =

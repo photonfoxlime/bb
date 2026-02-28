@@ -44,6 +44,7 @@
 //! - add response as a new child under the target.
 
 use crate::app::{AppState, BlockPanelBarState, Message, RequestSignature};
+use crate::component::text_button::TextButton;
 use crate::llm;
 use crate::store::BlockId;
 use crate::theme;
@@ -446,23 +447,19 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
 
         button_row = button_row.push(
-            button(
-                text(t!("instruction_inquire").to_string())
-                    .font(theme::INTER)
-                    .size(theme::INSTRUCTION_BUTTON_SIZE),
+            TextButton::action(
+                t!("instruction_inquire").to_string(),
+                theme::INSTRUCTION_BUTTON_SIZE,
             )
-            .style(theme::action_button)
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
             .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Inquire)),
         );
 
         button_row = button_row.push(
-            button(
-                text(t!("instruction_expand").to_string())
-                    .font(theme::INTER)
-                    .size(theme::INSTRUCTION_BUTTON_SIZE),
+            TextButton::action(
+                t!("instruction_expand").to_string(),
+                theme::INSTRUCTION_BUTTON_SIZE,
             )
-            .style(theme::action_button)
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
             .on_press(Message::InstructionPanel(
                 block_id,
@@ -471,12 +468,10 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         );
 
         button_row = button_row.push(
-            button(
-                text(t!("instruction_reduce").to_string())
-                    .font(theme::INTER)
-                    .size(theme::INSTRUCTION_BUTTON_SIZE),
+            TextButton::action(
+                t!("instruction_reduce").to_string(),
+                theme::INSTRUCTION_BUTTON_SIZE,
             )
-            .style(theme::action_button)
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
             .on_press(Message::InstructionPanel(
                 block_id,
@@ -538,12 +533,10 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             if !is_inquiring {
                 let mut action_buttons = row![].spacing(theme::PANEL_BUTTON_GAP);
                 action_buttons = action_buttons.push(
-                    button(
-                        text(t!("instruction_apply_rewrite").to_string())
-                            .font(theme::INTER)
-                            .size(theme::INSTRUCTION_BUTTON_SIZE),
+                    TextButton::action(
+                        t!("instruction_apply_rewrite").to_string(),
+                        theme::INSTRUCTION_BUTTON_SIZE,
                     )
-                    .style(theme::action_button)
                     .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
                     .on_press(Message::InstructionPanel(
                         block_id,
@@ -551,12 +544,10 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     )),
                 );
                 action_buttons = action_buttons.push(
-                    button(
-                        text(t!("instruction_append_block").to_string())
-                            .font(theme::INTER)
-                            .size(theme::INSTRUCTION_BUTTON_SIZE),
+                    TextButton::action(
+                        t!("instruction_append_block").to_string(),
+                        theme::INSTRUCTION_BUTTON_SIZE,
                     )
-                    .style(theme::action_button)
                     .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
                     .on_press(Message::InstructionPanel(
                         block_id,
@@ -564,12 +555,10 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     )),
                 );
                 action_buttons = action_buttons.push(
-                    button(
-                        text(t!("instruction_add_child").to_string())
-                            .font(theme::INTER)
-                            .size(theme::INSTRUCTION_BUTTON_SIZE),
+                    TextButton::action(
+                        t!("instruction_add_child").to_string(),
+                        theme::INSTRUCTION_BUTTON_SIZE,
                     )
-                    .style(theme::action_button)
                     .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
                     .on_press(Message::InstructionPanel(
                         block_id,
@@ -577,12 +566,10 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     )),
                 );
                 action_buttons = action_buttons.push(
-                    button(
-                        text(t!("ui_discard").to_string())
-                            .font(theme::INTER)
-                            .size(theme::INSTRUCTION_BUTTON_SIZE),
+                    TextButton::destructive(
+                        t!("ui_discard").to_string(),
+                        theme::INSTRUCTION_BUTTON_SIZE,
                     )
-                    .style(theme::destructive_button)
                     .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
                     .on_press(Message::InstructionPanel(
                         block_id,

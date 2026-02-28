@@ -38,11 +38,12 @@
 use super::config::{self, AppConfig};
 use super::{AppState, Message, ViewMode};
 use crate::component::icon_button::IconButton;
+use crate::component::text_button::TextButton;
 use crate::i18n;
 use crate::llm;
 use crate::paths::AppPaths;
 use crate::theme;
-use iced::widget::{button, column, container, pick_list, row, text, text_input, toggler, tooltip};
+use iced::widget::{column, container, pick_list, row, text, text_input, toggler, tooltip};
 use iced::{Element, Fill, Length, Task};
 use lucide_icons::iced as icons;
 use rust_i18n::t;
@@ -402,11 +403,10 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         if settings.selected_provider == settings.active_provider {
             text(t!("settings_active").to_string()).size(12).color(palette.success).into()
         } else {
-            button(text(t!("settings_set_active").to_string()).size(12).font(theme::INTER))
+            TextButton::action(t!("settings_set_active").to_string(), 12.0)
                 .on_press(Message::Settings(SettingsMessage::SetActiveProvider(
                     settings.selected_provider.clone(),
                 )))
-                .style(theme::action_button)
                 .padding(iced::Padding::new(4.0).left(10.0).right(10.0))
                 .into()
         };
@@ -420,9 +420,8 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         .size(14)
         .padding(8);
 
-    let add_button = button(text(t!("settings_add").to_string()).font(theme::INTER).size(13))
+    let add_button = TextButton::action(t!("settings_add").to_string(), 13.0)
         .on_press(Message::Settings(SettingsMessage::AddProvider))
-        .style(theme::action_button)
         .padding(iced::Padding::new(6.0).left(12.0).right(12.0));
 
     let add_row = row![new_provider_input, add_button].spacing(8).align_y(iced::Alignment::Center);
@@ -433,13 +432,15 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let can_delete =
         !settings.selected_is_preset && settings.selected_provider != settings.active_provider;
     if can_delete {
-        let delete_btn =
-            button(text(t!("settings_delete_provider").to_string()).size(12).color(palette.danger))
-                .on_press(Message::Settings(SettingsMessage::DeleteProvider(
-                    settings.selected_provider.clone(),
-                )))
-                .style(theme::action_button)
-                .padding(iced::Padding::new(4.0).left(10.0).right(10.0));
+        let delete_btn = TextButton::action_with_color(
+            t!("settings_delete_provider").to_string(),
+            12.0,
+            palette.danger,
+        )
+        .on_press(Message::Settings(SettingsMessage::DeleteProvider(
+            settings.selected_provider.clone(),
+        )))
+        .padding(iced::Padding::new(4.0).left(10.0).right(10.0));
         provider_management = provider_management.push(delete_btn);
     }
 
@@ -471,11 +472,9 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         Message::Settings(SettingsMessage::ModelChanged(v))
     });
 
-    let save_button =
-        button(row![text(t!("settings_save").to_string()).font(theme::INTER).size(14),])
-            .on_press(Message::Settings(SettingsMessage::Save))
-            .style(theme::action_button)
-            .padding(iced::Padding::new(6.0).left(16.0).right(16.0));
+    let save_button = TextButton::action(t!("settings_save").to_string(), 14.0)
+        .on_press(Message::Settings(SettingsMessage::Save))
+        .padding(iced::Padding::new(6.0).left(16.0).right(16.0));
 
     let mut save_row = row![save_button].spacing(12).align_y(iced::Alignment::Center);
     if let Some(status) = &settings.status {
