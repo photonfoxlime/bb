@@ -15,7 +15,9 @@ use crate::cli::{
         InstructionDraftCommand, ListDraftCommand, ReduceDraftCommand,
     },
     fold::{FoldCommands, StatusFoldCommand, ToggleFoldCommand},
-    nav::{LineageCommand, NavCommands, NextCommand, PrevCommand},
+    nav::{
+        FindNextCommand, FindPrevCommand, LineageCommand, NavCommands, NextCommand, PrevCommand,
+    },
     point::EditPointCommand,
     print_result,
     query::{FindCommand, ShowCommand},
@@ -221,6 +223,39 @@ fn nav_lineage_command() {
     }));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Lineage(points) if !points.is_empty()));
+}
+
+#[test]
+fn nav_find_next_wraps_by_default() {
+    let store = create_test_store();
+    let root_id = store.roots()[0];
+    let child2 = store.children(&root_id)[1];
+
+    let cmd = BlockCommands::Nav(NavCommands::FindNext(FindNextCommand {
+        block_id: BlockId(format_block_id(child2)),
+        query: "child".to_string(),
+        no_wrap: false,
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    let expected = store.children(&root_id)[0];
+    assert!(matches!(result, CliResult::OptionalBlockId(Some(id)) if id == expected));
+}
+
+#[test]
+fn nav_find_prev_no_wrap_returns_none_without_earlier_match() {
+    let store = create_test_store();
+    let root_id = store.roots()[0];
+    let child1 = store.children(&root_id)[0];
+
+    let cmd = BlockCommands::Nav(NavCommands::FindPrev(FindPrevCommand {
+        block_id: BlockId(format_block_id(child1)),
+        query: "child".to_string(),
+        no_wrap: true,
+    }));
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    assert!(matches!(result, CliResult::OptionalBlockId(None)));
 }
 
 #[test]

@@ -193,7 +193,7 @@ impl BlockCommands {
                         match removed {
                             | Some(ids) => {
                                 let ids_str: Vec<String> =
-                                    ids.iter().map(|i| format!("{:?}", i)).collect();
+                                    ids.iter().map(|i| format!("{}", i)).collect();
                                 (store, CliResult::Removed(ids_str))
                             }
                             | None => (store, CliResult::Error("Failed to delete".to_string())),
@@ -263,6 +263,40 @@ impl BlockCommands {
                         let lineage = store.lineage_points_for_id(&block_id);
                         let points: Vec<String> = lineage.points().map(String::from).collect();
                         (store, CliResult::Lineage(points))
+                    }
+                }
+            }
+            // Jump to the next query match in DFS order.
+            | BlockCommands::Nav(NavCommands::FindNext(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    | Some(block_id) => {
+                        let next = Self::find_relative_query_match(
+                            &store,
+                            &block_id,
+                            &cmd.query,
+                            true,
+                            !cmd.no_wrap,
+                        );
+                        (store, CliResult::OptionalBlockId(next))
+                    }
+                }
+            }
+            // Jump to the previous query match in DFS order.
+            | BlockCommands::Nav(NavCommands::FindPrev(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    | Some(block_id) => {
+                        let prev = Self::find_relative_query_match(
+                            &store,
+                            &block_id,
+                            &cmd.query,
+                            false,
+                            !cmd.no_wrap,
+                        );
+                        (store, CliResult::OptionalBlockId(prev))
                     }
                 }
             }
@@ -536,13 +570,13 @@ impl BlockCommands {
                             | (Some(store_module::BlockNode::Mount { path, format }), None) => {
                                 CliResult::MountInfo {
                                     path: Some(path.display().to_string()),
-                                    format: format!("{:?}", format),
+                                    format: format!("{}", format),
                                     expanded: false,
                                 }
                             }
                             | (_, Some(entry)) => CliResult::MountInfo {
                                 path: Some(entry.path.display().to_string()),
-                                format: format!("{:?}", entry.format),
+                                format: format!("{}", entry.format),
                                 expanded: true,
                             },
                             | _ => CliResult::Error("Block is not a mount".to_string()),
@@ -635,5 +669,67 @@ impl BlockCommands {
             }
         }
         None
+    }
+
+    /// Find the nearest query match before/after a cursor block in DFS order.
+    ///
+    /// Matching uses [`BlockStore::find_block_point`], so mixed-language phrase
+    /// tokenization and full-query fallback stay consistent with `block find`.
+    ///
+    /// # Behavior
+    /// - Returns `None` when query is empty or no matches exist.
+    /// - For `forward = true`, returns the nearest match strictly after `cursor`.
+    /// - For `forward = false`, returns the nearest match strictly before `cursor`.
+    /// - If no strict candidate exists and `wrap` is true, wraps to first/last match.
+    fn find_relative_query_match(
+        store: &BlockStore, cursor: &store_module::BlockId, query: &str, forward: bool, wrap: bool,
+    ) -> Option<store_module::BlockId> {
+        let query = query.trim();
+        if query.is_empty() {
+            return None;
+        }
+
+        let matches = store.find_block_point(query);
+        if matches.is_empty() {
+            return None;
+        }
+
+        let all_ids = store.find_block_point("");
+        let cursor_position = all_ids.iter().position(|id| id == cursor)?;
+
+        if forward {
+            for matched in &matches {
+                let Some(position) = all_ids.iter().position(|id| id == matched) else {
+                    continue;
+                };
+                if position > cursor_position {
+                    return Some(*matched);
+                }
+            }
+            if wrap {
+                return matches.first().copied();
+            }
+            return None;
+        }
+
+        let mut candidate = None;
+        for matched in &matches {
+            let Some(position) = all_ids.iter().position(|id| id == matched) else {
+                continue;
+            };
+            if position < cursor_position {
+                candidate = Some(*matched);
+            } else {
+                break;
+            }
+        }
+
+        if candidate.is_some() {
+            candidate
+        } else if wrap {
+            matches.last().copied()
+        } else {
+            None
+        }
     }
 }

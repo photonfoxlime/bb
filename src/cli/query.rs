@@ -26,13 +26,16 @@ pub struct ShowCommand {
 pub struct FindCommand {
     /// Search query string.
     ///
-    /// Case-insensitive substring match against all block text content.
-    /// Empty string returns no results.
+    /// Matching is delegated to `BlockStore::find_block_point`:
+    /// - case-insensitive full-query substring match, and
+    /// - case-insensitive mixed-language phrase-token matching.
+    ///
+    /// Empty query matches all blocks in deterministic DFS order.
     ///
     /// # Example
     /// ```bash
     /// block find "TODO"
-    /// block find ""  # Returns empty result
+    /// block find ""  # Returns all blocks (subject to --limit)
     /// ```
     #[arg(value_name = "QUERY")]
     pub query: String,

@@ -11,7 +11,9 @@ use crate::cli::{
     },
     fold::{FoldCommands, StatusFoldCommand, ToggleFoldCommand},
     friend::{AddFriendCommand, FriendCommands, ListFriendCommand, RemoveFriendCommand},
-    nav::{LineageCommand, NavCommands, NextCommand, PrevCommand},
+    nav::{
+        FindNextCommand, FindPrevCommand, LineageCommand, NavCommands, NextCommand, PrevCommand,
+    },
     query::{FindCommand, ShowCommand},
     results::CliResult,
     tree::{
@@ -1439,6 +1441,58 @@ fn empty_query_find() {
         }
         | _ => panic!("Expected Find"),
     }
+}
+
+#[test]
+fn nav_find_next_and_prev_follow_dfs_match_order() {
+    let mut store = BlockStore::default();
+    let root = store.roots()[0];
+    let alpha_a = store.append_child(&root, "alpha A".to_string()).unwrap();
+    let alpha_deep = store.append_child(&alpha_a, "alpha deep".to_string()).unwrap();
+    let alpha_b = store.append_child(&root, "alpha B".to_string()).unwrap();
+    let _other = store.append_child(&root, "other".to_string()).unwrap();
+
+    // DFS order among alpha matches: alpha_a -> alpha_deep -> alpha_b
+    let cmd = BlockCommands::Nav(NavCommands::FindNext(FindNextCommand {
+        block_id: BlockId(fmt(alpha_a)),
+        query: "alpha".to_string(),
+        no_wrap: false,
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+    assert!(matches!(result, CliResult::OptionalBlockId(Some(id)) if id == alpha_deep));
+
+    let cmd = BlockCommands::Nav(NavCommands::FindNext(FindNextCommand {
+        block_id: BlockId(fmt(alpha_deep)),
+        query: "alpha".to_string(),
+        no_wrap: false,
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+    assert!(matches!(result, CliResult::OptionalBlockId(Some(id)) if id == alpha_b));
+
+    let cmd = BlockCommands::Nav(NavCommands::FindPrev(FindPrevCommand {
+        block_id: BlockId(fmt(alpha_b)),
+        query: "alpha".to_string(),
+        no_wrap: false,
+    }));
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+    assert!(matches!(result, CliResult::OptionalBlockId(Some(id)) if id == alpha_deep));
+}
+
+#[test]
+fn nav_find_next_no_wrap_returns_none_at_end() {
+    let mut store = BlockStore::default();
+    let root = store.roots()[0];
+    let first = store.append_child(&root, "target 1".to_string()).unwrap();
+    let last = store.append_child(&root, "target 2".to_string()).unwrap();
+    let _ = first;
+
+    let cmd = BlockCommands::Nav(NavCommands::FindNext(FindNextCommand {
+        block_id: BlockId(fmt(last)),
+        query: "target".to_string(),
+        no_wrap: true,
+    }));
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+    assert!(matches!(result, CliResult::OptionalBlockId(None)));
 }
 
 // ============================================================================

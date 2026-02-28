@@ -65,6 +65,35 @@ pub enum NavCommands {
     /// # Output: ["Root", "Section", "Subsection"]
     /// ```
     Lineage(LineageCommand),
+
+    /// Jump to the next query match in DFS order.
+    ///
+    /// This is cursor-based navigation for search workflows. It evaluates the
+    /// query with the same mixed-language matcher as `block find`, then returns
+    /// the nearest match strictly after `block_id` in DFS order.
+    ///
+    /// By default, this wraps to the first match when no later match exists.
+    /// Use `--no-wrap` to return `null` instead.
+    ///
+    /// # Example
+    /// ```bash
+    /// block nav find-next 1v1 "design"
+    /// block nav find-next 1v1 "design" --no-wrap
+    /// ```
+    FindNext(FindNextCommand),
+
+    /// Jump to the previous query match in DFS order.
+    ///
+    /// Returns the nearest match strictly before `block_id` in DFS order.
+    /// By default, this wraps to the last match when no earlier match exists.
+    /// Use `--no-wrap` to return `null` instead.
+    ///
+    /// # Example
+    /// ```bash
+    /// block nav find-prev 2v1 "design"
+    /// block nav find-prev 2v1 "design" --no-wrap
+    /// ```
+    FindPrev(FindPrevCommand),
 }
 
 /// Get the next visible block.
@@ -89,4 +118,36 @@ pub struct LineageCommand {
     /// Target block.
     #[arg(value_name = "BLOCK_ID")]
     pub block_id: BlockId,
+}
+
+/// Jump to the next query match from a cursor block.
+#[derive(Debug, Parser)]
+pub struct FindNextCommand {
+    /// Current cursor block.
+    #[arg(value_name = "BLOCK_ID")]
+    pub block_id: BlockId,
+
+    /// Search query string.
+    #[arg(value_name = "QUERY")]
+    pub query: String,
+
+    /// Disable wrap-around when no later match exists.
+    #[arg(long)]
+    pub no_wrap: bool,
+}
+
+/// Jump to the previous query match from a cursor block.
+#[derive(Debug, Parser)]
+pub struct FindPrevCommand {
+    /// Current cursor block.
+    #[arg(value_name = "BLOCK_ID")]
+    pub block_id: BlockId,
+
+    /// Search query string.
+    #[arg(value_name = "QUERY")]
+    pub query: String,
+
+    /// Disable wrap-around when no earlier match exists.
+    #[arg(long)]
+    pub no_wrap: bool,
 }

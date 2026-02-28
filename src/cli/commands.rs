@@ -132,7 +132,7 @@ pub enum BlockCommands {
     Roots(RootCommand),
     /// Show details of a specific block.
     Show(ShowCommand),
-    /// Search blocks by text content (case-insensitive).
+    /// Search blocks by point text using mixed-language matching.
     Find(FindCommand),
     /// Edit the text content of a block.
     Point(EditPointCommand),
