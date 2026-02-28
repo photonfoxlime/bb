@@ -133,21 +133,16 @@ impl BlockStore {
     /// Set the inquiry question for a block.
     ///
     /// # Ensures
-    /// - Stores the inquiry text.
-    /// - If a response already exists, preserves it.
+    /// - If `inquiry` is empty after trimming, removes any existing draft.
+    /// - Otherwise stores the trimmed inquiry text and clears any old response.
     pub fn set_inquiry(&mut self, id: BlockId, inquiry: String) {
         let trimmed = inquiry.trim().to_string();
-        let existing_response = self
-            .inquiry_drafts
-            .get(id)
-            .and_then(|r| if r.response.is_empty() { None } else { Some(r.response.clone()) });
-        self.inquiry_drafts.insert(
-            id,
-            InquiryDraftRecord {
-                inquiry: trimmed,
-                response: existing_response.unwrap_or_default(),
-            },
-        );
+        if trimmed.is_empty() {
+            self.inquiry_drafts.remove(id);
+            return;
+        }
+        self.inquiry_drafts
+            .insert(id, InquiryDraftRecord { inquiry: trimmed, response: String::new() });
     }
 
     /// Set the inquiry response for a block.

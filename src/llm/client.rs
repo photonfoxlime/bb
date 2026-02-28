@@ -144,7 +144,8 @@ impl LlmClient {
     /// - `instruction` must not be empty.
     ///
     /// # Ensures
-    /// - Returns `Ok(String)` with the LLM's response.
+    /// - Returns `Ok(String)` with a non-empty trimmed LLM response.
+    /// - Returns `Err(LlmError::InvalidResponse)` if no usable text is returned.
     pub async fn inquire(
         &self, context: &BlockContext, instruction: &str,
     ) -> Result<String, LlmError> {
@@ -157,9 +158,13 @@ impl LlmClient {
 
         let prompt = Prompt::inquire_from_context(context, instruction);
         let content = self.request_completion("inquire", prompt, 0.7, 700).await?;
+        let trimmed = content.trim();
+        if trimmed.is_empty() {
+            return Err(LlmError::InvalidResponse);
+        }
 
-        tracing::info!(chars = content.len(), "llm inquire response");
-        Ok(content.trim().to_string())
+        tracing::info!(chars = trimmed.len(), "llm inquire response");
+        Ok(trimmed.to_string())
     }
 
     async fn request_completion(

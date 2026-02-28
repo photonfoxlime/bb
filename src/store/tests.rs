@@ -487,6 +487,18 @@ fn serde_round_trip_preserves_persisted_drafts() {
 }
 
 #[test]
+fn set_inquiry_replaces_question_and_clears_old_response() {
+    let (mut store, root, _child_a, _child_b) = simple_store();
+    store.set_inquiry_draft(root, "old response".to_string());
+
+    store.set_inquiry(root, "new question".to_string());
+
+    let draft = store.inquiry_draft(&root).expect("inquiry draft exists");
+    assert_eq!(draft.inquiry, "new question");
+    assert!(draft.response.is_empty());
+}
+
+#[test]
 fn remove_subtree_cleans_persisted_drafts() {
     let (mut store, _root, child_a, child_b) = simple_store();
     store.expansion_drafts.insert(

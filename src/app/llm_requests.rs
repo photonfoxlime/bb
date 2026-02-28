@@ -27,6 +27,7 @@ pub struct LlmRequests {
     inquiry_handles: SparseSecondaryMap<BlockId, task::Handle>,
     pending_reduce_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
     pending_expand_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
+    pending_inquiry_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
 }
 
 impl LlmRequests {
@@ -43,6 +44,7 @@ impl LlmRequests {
         self.inquiry_handles.clear();
         self.pending_reduce_signatures.clear();
         self.pending_expand_signatures.clear();
+        self.pending_inquiry_signatures.clear();
     }
 
     pub fn is_reducing(&self, block_id: BlockId) -> bool {
@@ -81,8 +83,9 @@ impl LlmRequests {
         self.pending_expand_signatures.insert(block_id, request_signature);
     }
 
-    pub fn mark_inquiry_loading(&mut self, block_id: BlockId) {
+    pub fn mark_inquiry_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
         self.inquiry_states.insert(block_id, InquiryState::Loading);
+        self.pending_inquiry_signatures.insert(block_id, request_signature);
     }
 
     pub fn replace_reduce_handle(&mut self, block_id: BlockId, handle: task::Handle) {
@@ -126,10 +129,14 @@ impl LlmRequests {
         self.pending_expand_signatures.remove(block_id)
     }
 
-    /// Finalize an inquiry request.
-    pub fn finish_inquiry_request(&mut self, block_id: BlockId) {
+    /// Finalize an inquiry request and return its captured context signature.
+    ///
+    /// Finalization is atomic per block: loading marker, handle, and pending
+    /// signature are cleared together.
+    pub fn finish_inquiry_request(&mut self, block_id: BlockId) -> Option<RequestSignature> {
         self.inquiry_handles.remove(block_id);
         self.inquiry_states.remove(block_id);
+        self.pending_inquiry_signatures.remove(block_id)
     }
 
     pub fn set_reduce_error(&mut self, block_id: BlockId, reason: UiError) {
@@ -172,6 +179,7 @@ impl LlmRequests {
             handle.abort();
         }
         self.inquiry_states.remove(block_id);
+        self.pending_inquiry_signatures.remove(block_id);
         true
     }
 
@@ -187,6 +195,7 @@ impl LlmRequests {
         }
         self.pending_reduce_signatures.remove(block_id);
         self.pending_expand_signatures.remove(block_id);
+        self.pending_inquiry_signatures.remove(block_id);
         self.reduce_states.remove(block_id);
         self.expand_states.remove(block_id);
         self.inquiry_states.remove(block_id);

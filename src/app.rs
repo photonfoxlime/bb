@@ -298,6 +298,16 @@ impl AppState {
         }
     }
 
+    fn llm_config_for_inquire(&mut self) -> Option<llm::LlmConfig> {
+        match self.providers.resolve_active() {
+            | Ok(config) => Some(config),
+            | Err(err) => {
+                self.record_error(AppError::Configuration(UiError::from_message(err)));
+                None
+            }
+        }
+    }
+
     fn record_error(&mut self, error: AppError) {
         tracing::error!(%error, "recording error");
         if self.errors.last() == Some(&error) {

@@ -43,7 +43,7 @@
 //! - append response to target point,
 //! - add response as a new child under the target.
 
-use crate::app::{AppState, Message, PanelBarState};
+use crate::app::{AppState, Message, PanelBarState, RequestSignature};
 use crate::llm;
 use crate::store::BlockId;
 use crate::theme;
@@ -66,7 +66,11 @@ pub enum InstructionPanelMessage {
     /// Send inquiry to LLM with the instruction.
     Inquire,
     /// Inquiry request completed.
-    InquireDone { block_id: BlockId, result: Result<String, crate::app::UiError> },
+    InquireDone {
+        block_id: BlockId,
+        request_signature: RequestSignature,
+        result: Result<String, crate::app::UiError>,
+    },
     /// Cancel an in-flight inquiry request.
     CancelInquire,
     /// Expand with instruction as system prompt.
@@ -116,12 +120,14 @@ pub fn handle(
             if instruction.is_empty() {
                 return iced::Task::none();
             }
-            state.llm_requests.mark_inquiry_loading(target_block_id);
             let context = state.store.block_context_for_id(&target_block_id);
-            let config = match state.providers.resolve_active() {
-                | Ok(c) => c,
-                | Err(_) => return iced::Task::none(),
+            let Some(request_signature) = RequestSignature::from_block_context(&context) else {
+                return iced::Task::none();
             };
+            let Some(config) = state.llm_config_for_inquire() else {
+                return iced::Task::none();
+            };
+            state.llm_requests.mark_inquiry_loading(target_block_id, request_signature);
             state.store.set_inquiry(target_block_id, instruction.clone());
             state.store.remove_instruction_draft(&target_block_id);
             state.persist_with_context("after storing inquiry and consuming instruction draft");
@@ -136,13 +142,20 @@ pub fn handle(
                             client.inquire(&context, &instruction),
                         )
                         .await,
-                        "inquire request timed out after 30 seconds",
+                        format!(
+                            "inquire request timed out after {} seconds",
+                            LLM_REQUEST_TIMEOUT.as_secs()
+                        ),
                     )
                 },
                 move |result| {
                     Message::InstructionPanel(
                         target_block_id,
-                        InstructionPanelMessage::InquireDone { block_id: target_block_id, result },
+                        InstructionPanelMessage::InquireDone {
+                            block_id: target_block_id,
+                            request_signature,
+                            result,
+                        },
                     )
                 },
             );
@@ -150,8 +163,20 @@ pub fn handle(
             state.llm_requests.replace_inquiry_handle(target_block_id, handle);
             request_task
         }
-        | InstructionPanelMessage::InquireDone { block_id, result } => {
-            state.llm_requests.finish_inquiry_request(block_id);
+        | InstructionPanelMessage::InquireDone { block_id, request_signature, result } => {
+            let pending_signature = state.llm_requests.finish_inquiry_request(block_id);
+            if state.store.node(&block_id).is_none() {
+                return iced::Task::none();
+            }
+            if pending_signature != Some(request_signature)
+                || state.is_stale_response(&block_id, request_signature)
+            {
+                tracing::info!(
+                    block_id = ?block_id,
+                    "discarded stale instruction inquiry response after context changed"
+                );
+                return iced::Task::none();
+            }
             match result {
                 | Ok(response) => {
                     tracing::info!(
@@ -160,6 +185,7 @@ pub fn handle(
                         "instruction inquiry succeeded"
                     );
                     state.store.set_inquiry_draft(block_id, response);
+                    state.errors.retain(|err| !matches!(err, crate::app::AppError::Inquire(_)));
                     state.persist_with_context("after persisting instruction inquiry draft");
                 }
                 | Err(reason) => {
@@ -560,7 +586,8 @@ mod tests {
         state.store.set_panel_state(&root, Some(PanelBarState::Instruction));
         state.store.set_instruction_draft(root, "prompt".to_string());
         state.store.set_inquiry_draft(root, "result".to_string());
-        state.llm_requests.mark_inquiry_loading(root);
+        let signature = state.block_context_signature(&root).expect("root has request signature");
+        state.llm_requests.mark_inquiry_loading(root, signature);
         state.editor_buffers.set_instruction_text("keep me");
 
         let _ = AppState::update(
@@ -649,12 +676,16 @@ mod tests {
     #[test]
     fn inquire_done_persists_inquiry_draft() {
         let (mut state, root) = test_state();
+        let request_signature =
+            state.block_context_signature(&root).expect("root has request signature");
+        state.llm_requests.mark_inquiry_loading(root, request_signature);
         let _ = AppState::update(
             &mut state,
             Message::InstructionPanel(
                 root,
                 InstructionPanelMessage::InquireDone {
                     block_id: root,
+                    request_signature,
                     result: Ok("persisted response".to_string()),
                 },
             ),
@@ -664,6 +695,53 @@ mod tests {
             state.store.inquiry_draft(&root).map(|draft| draft.response.as_str()),
             Some("persisted response")
         );
+    }
+
+    #[test]
+    fn inquire_with_invalid_provider_does_not_enter_loading() {
+        let (mut state, root) = test_state();
+        state.set_focus(root);
+        state.providers.update_preset(
+            crate::llm::PresetProvider::OpenAI,
+            crate::llm::PresetConfig { api_key: String::new(), model: "test-model".to_string() },
+        );
+        state.editor_buffers.set_instruction_text("ask this");
+
+        let _ = AppState::update(
+            &mut state,
+            Message::InstructionPanel(root, InstructionPanelMessage::Inquire),
+        );
+
+        assert!(!state.llm_requests.is_inquiring(root));
+        assert!(
+            state.errors.iter().any(|err| matches!(err, crate::app::AppError::Configuration(_)))
+        );
+        assert_eq!(state.editor_buffers.instruction_content().text(), "ask this");
+        assert!(state.store.inquiry_draft(&root).is_none());
+    }
+
+    #[test]
+    fn inquire_done_discards_stale_response_after_context_change() {
+        let (mut state, root) = test_state();
+        let request_signature =
+            state.block_context_signature(&root).expect("root has request signature");
+        state.llm_requests.mark_inquiry_loading(root, request_signature);
+        state.store.set_inquiry(root, "original inquiry".to_string());
+        state.store.update_point(&root, "changed context".to_string());
+
+        let _ = AppState::update(
+            &mut state,
+            Message::InstructionPanel(
+                root,
+                InstructionPanelMessage::InquireDone {
+                    block_id: root,
+                    request_signature,
+                    result: Ok("stale response".to_string()),
+                },
+            ),
+        );
+
+        assert_eq!(state.store.inquiry_draft(&root).map(|draft| draft.response.as_str()), Some(""));
     }
 
     #[test]

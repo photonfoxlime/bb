@@ -157,12 +157,20 @@ impl Prompt {
 
     /// Build a prompt for a one-time instruction inquiry.
     ///
-    /// The inquiry prompt includes the block's lineage and friend blocks as context,
-    /// followed by the user's instruction. The response is a free-form text answer
-    /// that can be applied as a rewrite to the block's point.
+    /// The inquiry prompt includes the block's lineage, direct children, and
+    /// friend blocks as context, followed by the user's instruction. The
+    /// response is a free-form text answer that can be applied as a rewrite to
+    /// the block's point.
     pub(crate) fn inquire_from_context(context: &BlockContext, instruction: &str) -> Self {
         let lineage_lines = Self::format_lineage_lines(&context.lineage);
+        let children_lines = Self::format_children_lines(&context.existing_children);
         let friend_lines = Self::format_friend_blocks_lines(&context.friend_blocks);
+
+        let children_context = if context.existing_children.is_empty() {
+            String::new()
+        } else {
+            format!("\nExisting children:\n{children_lines}")
+        };
 
         let friend_context = if context.friend_blocks.is_empty() {
             String::new()
@@ -173,7 +181,7 @@ impl Prompt {
         Self {
             system: "You are a helpful writing assistant. Respond to the user's instruction based on the provided context.".to_string(),
             user: format!(
-                "Context:\n{lineage_lines}{friend_context}\n\nInstruction: {instruction}\n\nProvide a response that addresses the instruction."
+                "Context:\n{lineage_lines}{children_context}{friend_context}\n\nInstruction: {instruction}\n\nProvide a response that addresses the instruction."
             ),
         }
     }
@@ -293,5 +301,27 @@ mod tests {
                 .user
                 .contains("[0] supporting external detail (perspective: skeptical counterpoint)")
         );
+    }
+
+    #[test]
+    fn inquire_prompt_includes_existing_children() {
+        let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
+        let ctx = BlockContext::new(
+            lineage,
+            vec!["child one".to_string(), "child two".to_string()],
+            vec![],
+        );
+        let prompt = Prompt::inquire_from_context(&ctx, "answer this");
+        assert!(prompt.user.contains("Existing children:"));
+        assert!(prompt.user.contains("[0] child one"));
+        assert!(prompt.user.contains("[1] child two"));
+    }
+
+    #[test]
+    fn inquire_prompt_omits_existing_children_when_empty() {
+        let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
+        let ctx = BlockContext::new(lineage, vec![], vec![]);
+        let prompt = Prompt::inquire_from_context(&ctx, "answer this");
+        assert!(!prompt.user.contains("Existing children:"));
     }
 }
