@@ -2,6 +2,37 @@
 
 A tree-structured document editor that catalyzes text-based design and implementation.
 
+## Installation
+
+Arch Linux
+```ignore
+pacman -S blooming-blockery
+```
+
+Homebrew
+```ignore
+brew install blooming-blockery
+```
+
+Winget
+```ignore
+winget install --id Miorin.BloomingBlockery
+```
+
+Cargo
+```ignore
+cargo install blooming-blockery
+```
+
+
+## Skills
+
+The CLI for Blooming Blockery: `blooming-blockery-cli`
+```ignore
+npx skills add https://github.com/photonfoxlime/bb --skill blooming-blockery-cli
+```
+
+
 ## Core Concepts
 
 The document is tree-structured where each node (which we call *block*) contains
@@ -33,7 +64,7 @@ The root is just a block. Higher-order blocks are naturally implemented as sub-b
 6. Alternatively, the user can reduce a verbose point to a concise one,
    by clicking the *reduce* button that's attached to each block.
 
-## UI Draft
+## UI Aesthetics
 
 The UI renders the document as a calm, handwritten-feeling tree. Each level is a
 vertical line (a structural spine), and every block is marked by the same simple
