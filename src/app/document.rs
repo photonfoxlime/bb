@@ -82,7 +82,7 @@ impl<'a> DocumentView<'a> {
         let mut layout = column![].spacing(theme::LAYOUT_GAP);
 
         // Modebar buttons (normal, pick friend) - top-left corner
-        let is_normal_mode = state.transient_ui.document_mode == DocumentMode::Normal;
+        let is_normal_mode = state.ui().document_mode == DocumentMode::Normal;
 
         let normal_mode_btn = button(centered_icon(
             icons::icon_mouse_pointer_2()
@@ -109,7 +109,7 @@ impl<'a> DocumentView<'a> {
 
         // Document tree
         let tree = TreeView::new(state).render_roots();
-        let max_width = theme::canvas_max_width(state.transient_ui.window_size.width);
+        let max_width = theme::canvas_max_width(state.ui().window_size.width);
         let content = container(tree).padding(theme::CANVAS_PAD).max_width(max_width);
         layout = layout.push(
             scrollable(
@@ -399,17 +399,16 @@ impl<'a> TreeView<'a> {
                 .into()
         };
 
-        let is_pick_friend_mode = self.state.transient_ui.document_mode == DocumentMode::PickFriend;
+        let is_pick_friend_mode = self.state.ui().document_mode == DocumentMode::PickFriend;
         let is_target_block =
             is_pick_friend_mode && self.state.focus().is_some_and(|s| s.block_id != *block_id);
 
         // Check if this block should be highlighted due to friend panel hover
-        let is_hovered_friend =
-            self.state.transient_ui.hovered_friend_block.is_some_and(|hovered_id| {
-                hovered_id == *block_id
-                    && self.state.store.is_visible(block_id)
-                    && self.state.navigation.is_in_current_view(&self.state.store, block_id)
-            });
+        let is_hovered_friend = self.state.ui().hovered_friend_block.is_some_and(|hovered_id| {
+            hovered_id == *block_id
+                && self.state.store.is_visible(block_id)
+                && self.state.navigation.is_in_current_view(&self.state.store, block_id)
+        });
 
         let point_editor: Element<'a, Message> = if is_target_block {
             // In friend picker mode, render as plain text so the button wrapper can capture clicks
@@ -495,7 +494,7 @@ impl<'a> TreeView<'a> {
             }
         }
 
-        match (self.state.transient_ui.document_mode, self.state.focus().map(|s| s.block_id)) {
+        match (self.state.ui().document_mode, self.state.focus().map(|s| s.block_id)) {
             | (DocumentMode::Normal, Some(focused)) if focused == *block_id => {
                 // Render the block as the focused block
                 container(block).style(theme::focused_block).into()
@@ -791,7 +790,7 @@ impl<'a> TreeView<'a> {
     }
 
     fn viewport_bucket(&self) -> ViewportBucket {
-        let width = self.state.transient_ui.window_size.width;
+        let width = self.state.ui().window_size.width;
         if width <= 0.0 {
             return ViewportBucket::Wide;
         }
@@ -1058,9 +1057,9 @@ impl<'a> TreeView<'a> {
         &self, block_id: &BlockId, mount_path: &'a std::path::Path,
     ) -> Element<'a, Message> {
         let is_inline_confirmation_armed =
-            self.state.transient_ui.pending_inline_mount_confirmation == Some(*block_id);
+            self.state.ui().pending_inline_mount_confirmation == Some(*block_id);
         let is_mount_action_overflow_open =
-            self.state.transient_ui.mount_action_overflow_block == Some(*block_id);
+            self.state.ui().mount_action_overflow_block == Some(*block_id);
 
         let move_label = t!("action_move_mount_file").to_string();
         let inline_label = t!("action_inline_mount").to_string();

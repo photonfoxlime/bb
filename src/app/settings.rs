@@ -160,12 +160,12 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
     match message {
         | SettingsMessage::Open => {
             state.settings = SettingsState::from_providers(&state.providers, &state.config);
-            state.transient_ui.active_view = ViewMode::Settings;
+            state.ui_mut().active_view = ViewMode::Settings;
             tracing::info!("settings view opened");
             Task::none()
         }
         | SettingsMessage::Close => {
-            state.transient_ui.active_view = ViewMode::Document;
+            state.ui_mut().active_view = ViewMode::Document;
             tracing::info!("settings view closed");
             Task::none()
         }
@@ -325,7 +325,7 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             Task::none()
         }
         | SettingsMessage::ToggleTheme(is_dark) => {
-            state.transient_ui.is_dark = is_dark;
+            state.ui_mut().is_dark = is_dark;
             tracing::info!(is_dark, "theme toggled from settings");
             Task::none()
         }
@@ -362,7 +362,7 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
 /// Custom providers have all fields editable and can be deleted.
 pub fn view(state: &AppState) -> Element<'_, Message> {
     let settings = &state.settings;
-    let palette = if state.transient_ui.is_dark { &theme::DARK } else { &theme::LIGHT };
+    let palette = if state.ui().is_dark { &theme::DARK } else { &theme::LIGHT };
 
     // ── Header ───────────────────────────────────────────────────────
     let back_button = button(
@@ -492,7 +492,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     .width(Fill);
 
     // ── Appearance section ───────────────────────────────────────────
-    let theme_toggler = toggler(state.transient_ui.is_dark)
+    let theme_toggler = toggler(state.ui().is_dark)
         .on_toggle(|v| Message::Settings(SettingsMessage::ToggleTheme(v)))
         .label(t!("settings_dark_mode").to_string())
         .text_size(14);
@@ -545,7 +545,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     );
 
     // ── Assemble ─────────────────────────────────────────────────────
-    let max_width = theme::canvas_max_width(state.transient_ui.window_size.width);
+    let max_width = theme::canvas_max_width(state.ui().window_size.width);
     let content =
         column![header, provider_section, config_section, appearance_section, paths_section]
             .spacing(24)

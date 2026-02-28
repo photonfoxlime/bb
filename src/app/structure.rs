@@ -44,7 +44,7 @@ pub enum StructureMessage {
 /// Process one structure message and return a follow-up task (if any).
 pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> {
     // Clear friend hover state on any structure action
-    state.transient_ui.hovered_friend_block = None;
+    state.ui_mut().hovered_friend_block = None;
 
     match message {
         | StructureMessage::AddChild(block_id) => {
@@ -126,7 +126,7 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
         | StructureMessage::AddFriendBlock { target, friend_id } => {
             state.set_overflow_open(false);
             // Need to check document_mode before mutation since it happens inside the closure
-            let was_pick_friend = state.transient_ui.document_mode == DocumentMode::PickFriend;
+            let was_pick_friend = state.ui().document_mode == DocumentMode::PickFriend;
             state.mutate_with_undo_and_persist("after adding friend block", |state| {
                 if friend_id == target {
                     return false;
@@ -150,7 +150,7 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
             });
             // Exit PickFriend mode after adding a friend
             if was_pick_friend {
-                state.transient_ui.document_mode = DocumentMode::Normal;
+                state.ui_mut().document_mode = DocumentMode::Normal;
             }
             Task::none()
         }

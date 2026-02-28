@@ -136,17 +136,17 @@ pub enum FindMessage {
 pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
     match message {
         | FindMessage::Open => {
-            state.transient_ui.find_ui.open();
+            state.ui_mut().find_ui.open();
             refresh_matches(state);
             focus(find_query_input_id())
         }
         | FindMessage::Close => {
-            state.transient_ui.find_ui.close();
+            state.ui_mut().find_ui.close();
             Task::none()
         }
         | FindMessage::Escape => {
-            if state.transient_ui.find_ui.is_open() {
-                state.transient_ui.find_ui.close();
+            if state.ui().find_ui.is_open() {
+                state.ui_mut().find_ui.close();
                 return Task::none();
             }
             AppState::update(
@@ -155,30 +155,30 @@ pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
             )
         }
         | FindMessage::QueryChanged(query) => {
-            state.transient_ui.find_ui.set_query(query);
+            state.ui_mut().find_ui.set_query(query);
             refresh_matches(state);
             Task::none()
         }
         | FindMessage::JumpSelected => jump_to_selected(state),
         | FindMessage::JumpNext => {
-            if !state.transient_ui.find_ui.is_open() {
+            if !state.ui().find_ui.is_open() {
                 return Task::none();
             }
-            state.transient_ui.find_ui.select_next();
+            state.ui_mut().find_ui.select_next();
             jump_to_selected(state)
         }
         | FindMessage::JumpPrevious => {
-            if !state.transient_ui.find_ui.is_open() {
+            if !state.ui().find_ui.is_open() {
                 return Task::none();
             }
-            state.transient_ui.find_ui.select_previous();
+            state.ui_mut().find_ui.select_previous();
             jump_to_selected(state)
         }
         | FindMessage::JumpToIndex(index) => {
-            if !state.transient_ui.find_ui.is_open() {
+            if !state.ui().find_ui.is_open() {
                 return Task::none();
             }
-            state.transient_ui.find_ui.select_index(index);
+            state.ui_mut().find_ui.select_index(index);
             jump_to_selected(state)
         }
     }
@@ -186,7 +186,7 @@ pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
 
 /// Render the floating find overlay.
 pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
-    if !state.transient_ui.find_ui.is_open() {
+    if !state.ui().find_ui.is_open() {
         return container(iced::widget::Space::new())
             .width(Length::Fill)
             .height(Length::Fill)
@@ -194,10 +194,10 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     }
 
     let title = text(t!("ui_find").to_string()).font(theme::INTER).size(theme::FIND_TITLE_SIZE);
-    let count_label = if state.transient_ui.find_ui.query().trim().is_empty() {
+    let count_label = if state.ui().find_ui.query().trim().is_empty() {
         t!("find_hint_type").to_string()
     } else {
-        t!("find_results_count", count = state.transient_ui.find_ui.matches().len()).to_string()
+        t!("find_results_count", count = state.ui().find_ui.matches().len()).to_string()
     };
 
     let controls = row![]
@@ -225,27 +225,26 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
         );
 
     let placeholder = t!("find_placeholder").to_string();
-    let query_input = text_input(placeholder.as_str(), state.transient_ui.find_ui.query())
+    let query_input = text_input(placeholder.as_str(), state.ui().find_ui.query())
         .id(find_query_input_id())
         .on_input(|query| Message::Find(FindMessage::QueryChanged(query)))
         .on_submit(Message::Find(FindMessage::JumpSelected))
         .size(theme::FIND_QUERY_SIZE)
         .padding(theme::FIND_QUERY_PAD);
 
-    let result_list: Element<'a, Message> = if state.transient_ui.find_ui.query().trim().is_empty()
-    {
+    let result_list: Element<'a, Message> = if state.ui().find_ui.query().trim().is_empty() {
         container(text(t!("find_hint_empty").to_string()).style(theme::spine_text))
             .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
             .width(Length::Fill)
             .into()
-    } else if state.transient_ui.find_ui.matches().is_empty() {
+    } else if state.ui().find_ui.matches().is_empty() {
         container(text(t!("find_no_results").to_string()).style(theme::spine_text))
             .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
             .width(Length::Fill)
             .into()
     } else {
         let mut rows = column![].spacing(theme::PANEL_INNER_GAP);
-        for (index, block_id) in state.transient_ui.find_ui.matches().iter().enumerate() {
+        for (index, block_id) in state.ui().find_ui.matches().iter().enumerate() {
             let point = state.store.point(block_id).unwrap_or_default();
             let point_label = truncate_for_display(&point, theme::FIND_RESULT_POINT_TRUNCATE);
             let lineage = result_lineage(state, block_id);
@@ -265,7 +264,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
             let row_container = container(row_content)
                 .width(Length::Fill)
                 .padding(Padding::from([theme::FIND_RESULT_PAD_V, theme::FIND_RESULT_PAD_H]));
-            let row_container = if state.transient_ui.find_ui.selected_index() == Some(index) {
+            let row_container = if state.ui().find_ui.selected_index() == Some(index) {
                 row_container.style(theme::friend_picker_hover)
             } else {
                 row_container
@@ -312,17 +311,17 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
 }
 
 fn refresh_matches(state: &mut AppState) {
-    let query = state.transient_ui.find_ui.query().trim();
+    let query = state.ui().find_ui.query().trim();
     let matches = if query.is_empty() { vec![] } else { state.store.find_block_point(query) };
-    state.transient_ui.find_ui.replace_matches(matches);
+    state.ui_mut().find_ui.replace_matches(matches);
 }
 
 fn jump_to_selected(state: &mut AppState) -> Task<Message> {
-    if !state.transient_ui.find_ui.is_open() {
+    if !state.ui().find_ui.is_open() {
         return Task::none();
     }
 
-    let Some(target) = state.transient_ui.find_ui.selected_block_id() else {
+    let Some(target) = state.ui().find_ui.selected_block_id() else {
         return focus(find_query_input_id());
     };
 
@@ -381,8 +380,8 @@ mod tests {
             Message::Find(FindMessage::QueryChanged("beta".to_string())),
         );
 
-        assert_eq!(state.transient_ui.find_ui.matches(), &[target]);
-        assert_eq!(state.transient_ui.find_ui.selected_block_id(), Some(target));
+        assert_eq!(state.ui().find_ui.matches(), &[target]);
+        assert_eq!(state.ui().find_ui.selected_block_id(), Some(target));
     }
 
     #[test]
@@ -430,10 +429,10 @@ mod tests {
     #[test]
     fn escape_falls_back_to_friend_picker_cancel_when_closed() {
         let (mut state, _) = test_state();
-        state.transient_ui.document_mode = DocumentMode::PickFriend;
+        state.ui_mut().document_mode = DocumentMode::PickFriend;
 
         let _ = AppState::update(&mut state, Message::Find(FindMessage::Escape));
 
-        assert_eq!(state.transient_ui.document_mode, DocumentMode::Normal);
+        assert_eq!(state.ui().document_mode, DocumentMode::Normal);
     }
 }

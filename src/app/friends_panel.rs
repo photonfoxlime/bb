@@ -80,7 +80,7 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
                     | Some(PanelBarState::Friends) => {
                         state.store.set_panel_state(&block_id, None);
                         // Clear hover state when closing the friends panel
-                        state.transient_ui.hovered_friend_block = None;
+                        state.ui_mut().hovered_friend_block = None;
                     }
                     | _ => {
                         state.store.set_panel_state(&block_id, Some(PanelBarState::Friends));
@@ -94,7 +94,7 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
         }
         | FriendPanelMessage::StartFriendPicker(_block_id) => {
             state.set_overflow_open(false);
-            state.transient_ui.document_mode = DocumentMode::PickFriend;
+            state.ui_mut().document_mode = DocumentMode::PickFriend;
             Task::none()
         }
         | FriendPanelMessage::StartEditingFriendPerspective { target, friend_id } => {
@@ -105,23 +105,23 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
                 .find(|f| f.block_id == friend_id)
                 .and_then(|f| f.perspective.clone())
                 .unwrap_or_default();
-            state.transient_ui.editing_friend_perspective = Some((target, friend_id));
-            state.transient_ui.editing_friend_perspective_input = Some(current_perspective);
+            state.ui_mut().editing_friend_perspective = Some((target, friend_id));
+            state.ui_mut().editing_friend_perspective_input = Some(current_perspective);
             // Focus the text input
             let input_id = Id::new("friend-perspective-input");
             focus(input_id)
         }
         | FriendPanelMessage::CancelEditingFriendPerspective => {
             // Clear editing state regardless of what's being edited
-            state.transient_ui.editing_friend_perspective = None;
-            state.transient_ui.editing_friend_perspective_input = None;
-            if state.transient_ui.document_mode == DocumentMode::PickFriend {
-                state.transient_ui.document_mode = DocumentMode::Normal;
+            state.ui_mut().editing_friend_perspective = None;
+            state.ui_mut().editing_friend_perspective_input = None;
+            if state.ui().document_mode == DocumentMode::PickFriend {
+                state.ui_mut().document_mode = DocumentMode::Normal;
             }
             Task::none()
         }
         | FriendPanelMessage::UpdateFriendPerspectiveInput(text) => {
-            state.transient_ui.editing_friend_perspective_input = Some(text);
+            state.ui_mut().editing_friend_perspective_input = Some(text);
             Task::none()
         }
         | FriendPanelMessage::ClearFriendPerspective { target, friend_id } => {
@@ -139,13 +139,13 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
                 }
             });
             // Also clear the editing state
-            state.transient_ui.editing_friend_perspective = None;
-            state.transient_ui.editing_friend_perspective_input = None;
+            state.ui_mut().editing_friend_perspective = None;
+            state.ui_mut().editing_friend_perspective_input = None;
             Task::none()
         }
         | FriendPanelMessage::AcceptFriendPerspective { target, friend_id } => {
             // Get current input value
-            let perspective = state.transient_ui.editing_friend_perspective_input.clone();
+            let perspective = state.ui().editing_friend_perspective_input.clone();
             // Save to store
             state.mutate_with_undo_and_persist("after setting friend perspective", |state| {
                 let mut friends = state.store.friend_blocks_for(&target).to_vec();
@@ -160,8 +160,8 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
                 }
             });
             // Exit editing state
-            state.transient_ui.editing_friend_perspective = None;
-            state.transient_ui.editing_friend_perspective_input = None;
+            state.ui_mut().editing_friend_perspective = None;
+            state.ui_mut().editing_friend_perspective_input = None;
             Task::none()
         }
         | FriendPanelMessage::ToggleParentLineageTelescope { target, friend_id } => {
@@ -197,11 +197,11 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             Task::none()
         }
         | FriendPanelMessage::HoverFriend(friend_id) => {
-            state.transient_ui.hovered_friend_block = Some(friend_id);
+            state.ui_mut().hovered_friend_block = Some(friend_id);
             Task::none()
         }
         | FriendPanelMessage::UnhoverFriend => {
-            state.transient_ui.hovered_friend_block = None;
+            state.ui_mut().hovered_friend_block = None;
             Task::none()
         }
     }
@@ -268,8 +268,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         let friend_id = friend.block_id;
         let target = block_id;
 
-        let is_editing_this =
-            state.transient_ui.editing_friend_perspective == Some((target, friend_id));
+        let is_editing_this = state.ui().editing_friend_perspective == Some((target, friend_id));
         let placeholder = rust_i18n::t!("doc_friend_perspective_placeholder").to_string();
 
         // Layout: "[start of point text] as [perspective]"
@@ -278,7 +277,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         let content: Element<'a, Message> = if is_editing_this {
             // Inline editing for perspective with accept/cancel buttons
             let current_input =
-                state.transient_ui.editing_friend_perspective_input.as_deref().unwrap_or("");
+                state.ui().editing_friend_perspective_input.as_deref().unwrap_or("");
             // Create a unique ID for this text input
             let input_id = Id::new("friend-perspective-input");
             let input_field = text_input(&placeholder, current_input)
@@ -294,11 +293,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     target,
                     friend_id,
                     perspective: Some(
-                        state
-                            .transient_ui
-                            .editing_friend_perspective_input
-                            .clone()
-                            .unwrap_or_default(),
+                        state.ui().editing_friend_perspective_input.clone().unwrap_or_default(),
                     ),
                 }));
 

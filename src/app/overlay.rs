@@ -24,7 +24,7 @@ pub enum OverlayMessage {
 /// Process one overlay message and return a follow-up task (if any).
 pub fn handle(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
     // Clear friend hover state when interacting with overlays
-    state.transient_ui.hovered_friend_block = None;
+    state.ui_mut().hovered_friend_block = None;
 
     match message {
         | OverlayMessage::ToggleOverflow(block_id) => {
@@ -39,10 +39,10 @@ pub fn handle(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
             Task::none()
         }
         | OverlayMessage::ToggleMountActionsOverflow(block_id) => {
-            if state.transient_ui.mount_action_overflow_block == Some(block_id) {
-                state.transient_ui.mount_action_overflow_block = None;
+            if state.ui().mount_action_overflow_block == Some(block_id) {
+                state.ui_mut().mount_action_overflow_block = None;
             } else {
-                state.transient_ui.mount_action_overflow_block = Some(block_id);
+                state.ui_mut().mount_action_overflow_block = Some(block_id);
             }
             Task::none()
         }

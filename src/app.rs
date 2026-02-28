@@ -78,7 +78,7 @@ const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// - `editor_buffers`: widget-local text buffers + focus ids.
 /// - persistence flags: recovery guard for unsafe-on-disk state plus a runtime
 ///   write gate for side-effect-free runs.
-/// - `transient_ui`: non-persisted interaction state (focus, mode/view, hover, inline editors, popovers).
+/// - `transient_ui`: non-persisted interaction state (focus, mode/view, hover, inline editors, popovers, find).
 /// - `edit_session`: undo coalescing session tracker.
 #[derive(Clone)]
 pub struct AppState {
@@ -104,6 +104,10 @@ pub struct AppState {
     /// to `true` in `test_state` to avoid touching on-disk `blocks.json`.
     persistence_write_disabled: bool,
     /// Transient UI singleton state (focus, mode/view, overlays, viewport, theme, find).
+    ///
+    /// Access this field via [`Self::ui`] and [`Self::ui_mut`] from app submodules.
+    /// This keeps call sites consistent and centralizes expectations for
+    /// non-persisted UI state usage.
     transient_ui: TransientUiState,
     /// Edit session: block currently coalescing point edits into a single undo entry.
     edit_session: Option<BlockId>,
@@ -186,9 +190,28 @@ impl AppState {
         i18n::resolved_locale_from_config(&self.config)
     }
 
+    /// Borrow transient UI state.
+    ///
+    /// This is the canonical read API for ephemeral interaction state.
+    /// Reads through this accessor are always side-effect free and never
+    /// mutate persisted document state or undo history.
+    pub(crate) fn ui(&self) -> &TransientUiState {
+        &self.transient_ui
+    }
+
+    /// Mutably borrow transient UI state.
+    ///
+    /// This is the canonical write API for ephemeral interaction state.
+    /// Callers should only mutate UI/session fields (focus, overlays, find,
+    /// viewport/theme hints) and must not encode durable document semantics
+    /// through this channel.
+    pub(crate) fn ui_mut(&mut self) -> &mut TransientUiState {
+        &mut self.transient_ui
+    }
+
     /// Whether the current UI appearance mode is dark.
     pub fn is_dark_mode(&self) -> bool {
-        self.transient_ui.is_dark
+        self.ui().is_dark
     }
 
     fn startup_store_from_load_result(
@@ -288,26 +311,26 @@ impl AppState {
 
     /// Get the current UI focus state.
     fn focus(&self) -> Option<FocusState> {
-        self.transient_ui.focus
+        self.ui().focus
     }
 
     /// Set the focused block.
     fn set_focus(&mut self, block_id: BlockId) {
-        if let Some(state) = &mut self.transient_ui.focus {
+        if let Some(state) = &mut self.ui_mut().focus {
             state.block_id = block_id;
         } else {
-            self.transient_ui.focus = Some(FocusState { block_id, overflow_open: false });
+            self.ui_mut().focus = Some(FocusState { block_id, overflow_open: false });
         }
     }
 
     /// Clear the focus.
     fn clear_focus(&mut self) {
-        self.transient_ui.focus = None;
+        self.ui_mut().focus = None;
     }
 
     /// Set the overflow menu open/closed for the focused block.
     fn set_overflow_open(&mut self, open: bool) {
-        if let Some(state) = &mut self.transient_ui.focus {
+        if let Some(state) = &mut self.ui_mut().focus {
             state.overflow_open = open;
         }
     }
@@ -379,13 +402,13 @@ impl AppState {
         let keep_inline_confirmation =
             matches!(&message, Message::MountFile(MountFileMessage::InlineMountAll(_)));
         if !keep_inline_confirmation {
-            self.transient_ui.pending_inline_mount_confirmation = None;
+            self.ui_mut().pending_inline_mount_confirmation = None;
         }
 
         let keep_mount_action_overflow =
             matches!(&message, Message::Overlay(OverlayMessage::ToggleMountActionsOverflow(_)));
         if !keep_mount_action_overflow {
-            self.transient_ui.mount_action_overflow_block = None;
+            self.ui_mut().mount_action_overflow_block = None;
         }
 
         match message {
@@ -407,20 +430,20 @@ impl AppState {
             }
             | Message::Settings(message) => settings::handle(self, message),
             | Message::WindowResized(size) => {
-                self.transient_ui.window_size = size;
+                self.ui_mut().window_size = size;
                 Task::none()
             }
             | Message::DocumentMode(mode) => {
                 // Clear friend hover state when changing document modes
-                self.transient_ui.hovered_friend_block = None;
-                self.transient_ui.document_mode = mode;
+                self.ui_mut().hovered_friend_block = None;
+                self.ui_mut().document_mode = mode;
                 Task::none()
             }
             | Message::SystemThemeChanged(mode) => {
                 let dark = matches!(mode, iced::theme::Mode::Dark);
-                if self.transient_ui.is_dark != dark {
+                if self.ui().is_dark != dark {
                     tracing::info!(is_dark = dark, "system theme changed");
-                    self.transient_ui.is_dark = dark;
+                    self.ui_mut().is_dark = dark;
                 }
                 Task::none()
             }
@@ -432,7 +455,7 @@ impl AppState {
 impl AppState {
     pub fn view(&self) -> Element<'_, Message> {
         i18n::set_app_locale(&self.effective_locale());
-        match self.transient_ui.active_view {
+        match self.ui().active_view {
             | ViewMode::Document => document::DocumentView::new(self).view(),
             | ViewMode::Settings => settings::view(self),
         }
@@ -539,6 +562,10 @@ pub struct FocusState {
 /// This struct groups ephemeral UI-only state such as focus, hover feedback,
 /// inline editor buffers, and temporary confirmation/overflow toggles.
 /// It is intentionally excluded from undo snapshots and on-disk persistence.
+///
+/// Access pattern for app modules:
+/// - read through [`AppState::ui`]
+/// - write through [`AppState::ui_mut`]
 ///
 /// # Design Decisions
 ///
@@ -689,10 +716,10 @@ mod edit {
         state: &mut AppState, block_id: BlockId, action: text_editor::Action,
     ) -> Task<Message> {
         // Clear friend hover state when editing
-        state.transient_ui.hovered_friend_block = None;
+        state.ui_mut().hovered_friend_block = None;
 
         // Don't change focus in PickFriend mode
-        if state.transient_ui.document_mode == DocumentMode::PickFriend {
+        if state.ui().document_mode == DocumentMode::PickFriend {
             return Task::none();
         }
         state.set_focus(block_id);
@@ -735,7 +762,7 @@ mod edit {
             && let Some(wid) = state.editor_buffers.widget_id(&target_id)
         {
             // Only change focus in Normal mode
-            if state.transient_ui.document_mode == DocumentMode::Normal {
+            if state.ui().document_mode == DocumentMode::Normal {
                 let wid_clone = wid.clone();
                 state.set_focus(target_id);
                 tracing::debug!(
@@ -770,7 +797,7 @@ mod shortcut {
             }
             | ShortcutMessage::ForBlock { block_id, action_id } => {
                 // Don't change focus in PickFriend mode
-                if state.transient_ui.document_mode != DocumentMode::PickFriend {
+                if state.ui().document_mode != DocumentMode::PickFriend {
                     state.set_focus(block_id);
                 }
                 run_shortcut_for_block(state, block_id, action_id)
