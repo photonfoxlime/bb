@@ -97,7 +97,7 @@ impl BloomingBlockery {
             .font(include_bytes!("../assets/fonts/LXGWWenKai-Medium.ttf").as_slice())
             .font(lucide_icons::LUCIDE_FONT_BYTES)
             .default_font(theme::DEFAULT_FONT)
-            .theme(|state: &AppState| AppState::theme(state.is_dark))
+            .theme(|state: &AppState| AppState::theme(state.is_dark_mode()))
             .title("Blooming Blockery")
             .run()?;
         Ok(())

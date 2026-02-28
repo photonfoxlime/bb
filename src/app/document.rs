@@ -109,7 +109,7 @@ impl<'a> DocumentView<'a> {
 
         // Document tree
         let tree = TreeView::new(state).render_roots();
-        let max_width = theme::canvas_max_width(state.window_size.width);
+        let max_width = theme::canvas_max_width(state.transient_ui.window_size.width);
         let content = container(tree).padding(theme::CANVAS_PAD).max_width(max_width);
         layout = layout.push(
             scrollable(
@@ -791,7 +791,7 @@ impl<'a> TreeView<'a> {
     }
 
     fn viewport_bucket(&self) -> ViewportBucket {
-        let width = self.state.window_size.width;
+        let width = self.state.transient_ui.window_size.width;
         if width <= 0.0 {
             return ViewportBucket::Wide;
         }

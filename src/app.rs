@@ -103,19 +103,12 @@ pub struct AppState {
     /// `AppState::load()` initializes this to `false`; tests explicitly set it
     /// to `true` in `test_state` to avoid touching on-disk `blocks.json`.
     persistence_write_disabled: bool,
-    /// Transient UI singleton state (hover effects, visual feedback).
+    /// Transient UI singleton state (focus, mode/view, overlays, viewport, theme, find).
     transient_ui: TransientUiState,
-    /// Transient find-overlay state (query, matches, and selection).
-    find_ui: FindUiState,
     /// Edit session: block currently coalescing point edits into a single undo entry.
     edit_session: Option<BlockId>,
     /// Draft form state for the settings screen.
     pub settings: SettingsState,
-    /// Current window dimensions for responsive layout.
-    pub window_size: WindowSize,
-    /// Whether the current theme is dark. Detected from the system at startup
-    /// and updated live via `iced::system::theme_changes()`.
-    pub is_dark: bool,
     /// Persisted app preferences (e.g. optional locale). Loaded at startup from
     /// `<config_dir>/app.toml`; effective locale is derived via [`i18n::resolved_locale_from_config`].
     pub config: AppConfig,
@@ -160,6 +153,11 @@ impl AppState {
         tracing::info!(is_dark, "detected system appearance");
         let config = crate::app::config::load();
         let settings = SettingsState::from_providers(&providers, &config);
+        let transient_ui = TransientUiState {
+            is_dark,
+            window_size: WindowSize::default(),
+            ..TransientUiState::default()
+        };
         Self {
             store,
             undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
@@ -169,12 +167,9 @@ impl AppState {
             editor_buffers,
             persistence_blocked,
             persistence_write_disabled: false,
-            transient_ui: TransientUiState::default(),
-            find_ui: FindUiState::default(),
+            transient_ui,
             edit_session: None,
             settings,
-            window_size: WindowSize::default(),
-            is_dark,
             config,
             navigation: NavigationStack::default(),
         }
@@ -189,6 +184,11 @@ impl AppState {
     /// Effective UI locale for this session (config → env → default, normalized).
     pub fn effective_locale(&self) -> String {
         i18n::resolved_locale_from_config(&self.config)
+    }
+
+    /// Whether the current UI appearance mode is dark.
+    pub fn is_dark_mode(&self) -> bool {
+        self.transient_ui.is_dark
     }
 
     fn startup_store_from_load_result(
@@ -407,7 +407,7 @@ impl AppState {
             }
             | Message::Settings(message) => settings::handle(self, message),
             | Message::WindowResized(size) => {
-                self.window_size = size;
+                self.transient_ui.window_size = size;
                 Task::none()
             }
             | Message::DocumentMode(mode) => {
@@ -418,9 +418,9 @@ impl AppState {
             }
             | Message::SystemThemeChanged(mode) => {
                 let dark = matches!(mode, iced::theme::Mode::Dark);
-                if self.is_dark != dark {
+                if self.transient_ui.is_dark != dark {
                     tracing::info!(is_dark = dark, "system theme changed");
-                    self.is_dark = dark;
+                    self.transient_ui.is_dark = dark;
                 }
                 Task::none()
             }
@@ -555,12 +555,21 @@ pub struct FocusState {
 /// - Keeps serialization lean and focused on user data
 #[derive(Debug, Clone, Default)]
 pub struct TransientUiState {
+    /// Transient find-overlay state (query, matches, and selection).
+    pub find_ui: FindUiState,
     /// UI focus state: keyboard focus + overflow menu state.
     pub focus: Option<FocusState>,
     /// Current document interaction mode (normal vs picking a friend).
     pub document_mode: DocumentMode,
     /// Which top-level screen is currently shown.
     pub active_view: ViewMode,
+    /// Current window dimensions for responsive layout.
+    pub window_size: WindowSize,
+    /// Whether the current theme is dark.
+    ///
+    /// Initialized from the system at startup and updated by
+    /// `iced::system::theme_changes()` during runtime.
+    pub is_dark: bool,
     /// The friend block currently being hovered in the Friends Panel.
     ///
     /// When `Some`, the corresponding block in the document tree is highlighted
@@ -831,12 +840,9 @@ impl AppState {
             errors: vec![],
             llm_requests: LlmRequests::new(),
             transient_ui: TransientUiState::default(),
-            find_ui: FindUiState::default(),
             edit_session: None,
             persistence_blocked: false,
             persistence_write_disabled: true,
-            window_size: WindowSize::default(),
-            is_dark: false,
             config,
             navigation: NavigationStack::default(),
         };
