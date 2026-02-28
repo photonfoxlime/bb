@@ -218,6 +218,16 @@ pub const FIND_RESULT_POINT_TRUNCATE: usize = 72;
 /// Truncation budget per lineage segment in find results.
 pub const FIND_RESULT_LINEAGE_TRUNCATE: usize = 20;
 
+/// Window width threshold for medium action layout.
+pub const VIEWPORT_MEDIUM_MAX_WIDTH: f32 = 1200.0;
+/// Window width threshold for compact action layout.
+pub const VIEWPORT_COMPACT_MAX_WIDTH: f32 = 820.0;
+/// Window width threshold for touch-compact action layout.
+pub const VIEWPORT_TOUCH_COMPACT_MAX_WIDTH: f32 = 560.0;
+
+/// Font size for mount header path labels.
+pub const MOUNT_HEADER_TEXT_SIZE: f32 = 13.0;
+
 // ── Theme constructor ────────────────────────────────────────────────
 
 impl crate::app::AppState {

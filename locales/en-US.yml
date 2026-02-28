@@ -93,6 +93,9 @@ action_add_parent: "Add parent"
 action_duplicate: "Duplicate"
 action_save_to_file: "Save to file"
 action_load_from_file: "Load from file"
+action_move_mount_file: "Move mount file"
+action_inline_mount_all: "Inline all"
+action_confirm_inline_mount_all: "Confirm inline"
 action_archive: "Archive"
 
 # Settings (additional)
@@ -116,4 +119,6 @@ status_reduce_failed: "Reduce failed"
 # Mount file dialogs
 save_block_to_file: "Save block to file"
 load_block_from_file: "Load block from file"
+move_mounted_file: "Move mounted file"
+mount_inline_confirm_hint: "Click again to inline all mounted content"
 action_enter_block: "Enter"

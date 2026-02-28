@@ -329,6 +329,9 @@ impl<'a> TreeView<'a> {
 
         let is_expanded_mount = self.state.store.mount_table().entry(*block_id).is_some();
         let unexpanded_mount_path = node.mount_path();
+        let mount_display_path = unexpanded_mount_path.or_else(|| {
+            self.state.store.mount_table().entry(*block_id).map(|entry| entry.rel_path.as_path())
+        });
 
         let Some(editor_content) = self.state.editor_buffers.get(block_id) else {
             let fallback_text = self.state.store.point(block_id).unwrap_or_default();
@@ -452,7 +455,17 @@ impl<'a> TreeView<'a> {
         // Panel row (shown only when a panel is open)
         let panel_row = self.render_panel_row(block_id, is_focused);
 
-        let mut block = column![].spacing(theme::BLOCK_INNER_GAP).push(row_content);
+        let mut block = column![].spacing(theme::BLOCK_INNER_GAP);
+
+        // Mount header: path and mount actions.
+        if let Some(mount_path) = mount_display_path {
+            block = block.push(
+                container(self.render_mount_indicator(block_id, mount_path))
+                    .padding(Padding::ZERO.left(theme::INDENT)),
+            );
+        }
+
+        block = block.push(row_content);
         block = block.push(bar_row);
         block = block.push(panel_row);
         if action_bar.status_chip.is_some() {
@@ -466,14 +479,6 @@ impl<'a> TreeView<'a> {
         }
         if let Some(draft) = self.state.store.reduction_draft(block_id) {
             block = block.push(self.render_reduction_panel(block_id, draft));
-        }
-
-        // Unexpanded mount: show path label below the block.
-        if let Some(mount_path) = unexpanded_mount_path {
-            block = block.push(
-                container(self.render_mount_indicator(block_id, mount_path))
-                    .padding(Padding::ZERO.left(theme::INDENT)),
-            );
         }
 
         // Render children only when not folded.
@@ -783,7 +788,19 @@ impl<'a> TreeView<'a> {
     }
 
     fn viewport_bucket(&self) -> ViewportBucket {
-        ViewportBucket::Wide
+        let width = self.state.window_size.width;
+        if width <= 0.0 {
+            return ViewportBucket::Wide;
+        }
+        if width <= theme::VIEWPORT_TOUCH_COMPACT_MAX_WIDTH {
+            ViewportBucket::TouchCompact
+        } else if width <= theme::VIEWPORT_COMPACT_MAX_WIDTH {
+            ViewportBucket::Compact
+        } else if width <= theme::VIEWPORT_MEDIUM_MAX_WIDTH {
+            ViewportBucket::Medium
+        } else {
+            ViewportBucket::Wide
+        }
     }
 
     fn render_status_chip(&self, vm: &ActionBarVm) -> Element<'a, Message> {
@@ -1027,19 +1044,113 @@ impl<'a> TreeView<'a> {
             .into()
     }
 
-    /// Render a mount indicator showing the file path.
+    /// Render a mount header showing file path and mount actions.
     ///
-    /// Displayed below the node's own content for unexpanded mounts,
-    /// indicating that children live in an external file.
-    /// The chevron marker handles load/unload; this only shows the path.
+    /// Displayed above mount-backed nodes (both expanded and unexpanded).
+    /// Provides quick access to mount relocation and recursive inlining.
+    /// Inline-all uses a two-step confirmation button to reduce accidental
+    /// irreversible operations.
     fn render_mount_indicator(
-        &self, _block_id: &BlockId, mount_path: &'a std::path::Path,
+        &self, block_id: &BlockId, mount_path: &'a std::path::Path,
     ) -> Element<'a, Message> {
-        text(mount_path.display().to_string())
-            .font(theme::INTER)
-            .size(13)
-            .style(theme::spine_text)
-            .into()
+        let is_compact_actions = matches!(
+            self.viewport_bucket(),
+            ViewportBucket::Compact | ViewportBucket::TouchCompact
+        );
+        let is_inline_confirmation_armed =
+            self.state.ui_state.pending_inline_mount_confirmation == Some(*block_id);
+
+        let move_label = t!("action_move_mount_file").to_string();
+        let inline_label = if is_inline_confirmation_armed {
+            t!("action_confirm_inline_mount_all").to_string()
+        } else {
+            t!("action_inline_mount_all").to_string()
+        };
+
+        let move_btn: Element<'a, Message> = if is_compact_actions {
+            let icon = centered_icon(
+                icons::icon_hard_drive_upload()
+                    .size(theme::TOOLBAR_ICON_SIZE)
+                    .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                    .into(),
+            );
+            let btn = button(icon)
+                .style(theme::action_button)
+                .padding(0)
+                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::MountFile(MountFileMessage::MoveMount(*block_id)));
+            tooltip(btn, text(move_label).size(12).font(theme::INTER), tooltip::Position::Bottom)
+                .style(theme::tooltip)
+                .padding(theme::TOOLTIP_PAD)
+                .gap(theme::TOOLTIP_GAP)
+                .into()
+        } else {
+            button(text(move_label).font(theme::INTER))
+                .style(theme::action_button)
+                .padding(theme::BUTTON_PAD)
+                .on_press(Message::MountFile(MountFileMessage::MoveMount(*block_id)))
+                .into()
+        };
+
+        let inline_btn: Element<'a, Message> = if is_compact_actions {
+            let icon = centered_icon(
+                if is_inline_confirmation_armed {
+                    icons::icon_check_check()
+                } else {
+                    icons::icon_log_in()
+                }
+                .size(theme::TOOLBAR_ICON_SIZE)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into(),
+            );
+            let btn = button(icon)
+                .style(if is_inline_confirmation_armed {
+                    theme::destructive_button
+                } else {
+                    theme::action_button
+                })
+                .padding(0)
+                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::MountFile(MountFileMessage::InlineMountAll(*block_id)));
+            tooltip(btn, text(inline_label).size(12).font(theme::INTER), tooltip::Position::Bottom)
+                .style(theme::tooltip)
+                .padding(theme::TOOLTIP_PAD)
+                .gap(theme::TOOLTIP_GAP)
+                .into()
+        } else {
+            button(text(inline_label).font(theme::INTER))
+                .style(if is_inline_confirmation_armed {
+                    theme::destructive_button
+                } else {
+                    theme::action_button
+                })
+                .padding(theme::BUTTON_PAD)
+                .on_press(Message::MountFile(MountFileMessage::InlineMountAll(*block_id)))
+                .into()
+        };
+
+        let mut header = row![
+            text(mount_path.display().to_string())
+                .font(theme::INTER)
+                .size(theme::MOUNT_HEADER_TEXT_SIZE)
+                .style(theme::spine_text),
+            space::horizontal(),
+            move_btn,
+            inline_btn,
+        ]
+        .spacing(theme::ACTION_GAP)
+        .align_y(iced::Alignment::Center);
+        if is_inline_confirmation_armed && !is_compact_actions {
+            header = header.push(
+                text(t!("mount_inline_confirm_hint").to_string())
+                    .font(theme::INTER)
+                    .size(12)
+                    .style(theme::spine_text),
+            );
+        }
+        header.into()
     }
 }
 

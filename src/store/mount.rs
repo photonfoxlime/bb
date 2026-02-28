@@ -21,6 +21,10 @@
 //! [`expand_mount`](BlockStore::expand_mount) →
 //! [`collapse_mount`](BlockStore::collapse_mount).
 //!
+//! Mount management helpers: [`move_mount_file`](BlockStore::move_mount_file),
+//! [`inline_mount`](BlockStore::inline_mount), and
+//! [`inline_mount_recursive`](BlockStore::inline_mount_recursive).
+//!
 //! Persistence helpers: [`save_subtree_to_file`](BlockStore::save_subtree_to_file),
 //! [`snapshot_for_save`](BlockStore::snapshot_for_save),
 //! [`extract_mount_store`](BlockStore::extract_mount_store).
@@ -43,10 +47,14 @@ use thiserror::Error;
 pub enum MountError {
     #[error("block is not a mount node")]
     NotAMount,
+    #[error("block is not mounted")]
+    NotMounted,
     #[error("unknown block id")]
     UnknownBlock,
     #[error("failed to read mount file {path}: {source}")]
     Read { path: PathBuf, source: std::io::Error },
+    #[error("failed to write mount file {path}: {source}")]
+    Write { path: PathBuf, source: std::io::Error },
     #[error("failed to parse mount file {path}: {source}")]
     Parse { path: PathBuf, source: serde_json::Error },
     #[error("failed to parse markdown mount file {path}: {reason}")]
@@ -119,6 +127,11 @@ impl MountTable {
     /// Look up the mount entry for a mount-point block.
     pub fn entry(&self, mount_point: BlockId) -> Option<&MountEntry> {
         self.entries.get(mount_point)
+    }
+
+    /// Mutably look up the mount entry for a mount-point block.
+    pub fn entry_mut(&mut self, mount_point: BlockId) -> Option<&mut MountEntry> {
+        self.entries.get_mut(mount_point)
     }
 
     /// Remove the mount entry and all associated origin records.
@@ -232,10 +245,7 @@ impl BlockStore {
             | BlockNode::Children { .. } => return Err(MountError::NotAMount),
         };
 
-        let effective_base_dir = self
-            .mount_origin_path(mount_point)
-            .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
-            .unwrap_or_else(|| base_dir.to_path_buf());
+        let effective_base_dir = self.effective_mount_base_dir(mount_point, base_dir);
         let resolved = Self::resolve_mount_path(&rel_path, &effective_base_dir);
         let canonical = fs::canonicalize(&resolved).unwrap_or_else(|_| resolved.clone());
 
@@ -319,6 +329,144 @@ impl BlockStore {
             *node = BlockNode::with_path_and_format(entry.rel_path, entry.format);
         }
         Some(())
+    }
+
+    /// Move a mounted file to a new location and update mount metadata.
+    ///
+    /// Behavior depends on mount state:
+    /// - expanded mount: writes current in-memory mounted content to `new_path`,
+    ///   updates the mount entry paths, and removes the old file when paths differ;
+    /// - unexpanded mount: moves the existing backing file and updates the node's
+    ///   persisted mount path.
+    ///
+    /// Relative path storage is preserved against the effective mount base
+    /// directory (parent mount file directory for nested mounts, otherwise
+    /// the provided `base_dir`).
+    pub fn move_mount_file(
+        &mut self, mount_point: &BlockId, new_path: &Path, base_dir: &Path,
+    ) -> Result<(), MountError> {
+        let _ = self.nodes.get(*mount_point).ok_or(MountError::UnknownBlock)?;
+        let effective_base_dir = self.effective_mount_base_dir(mount_point, base_dir);
+        let target_path = if new_path.is_relative() {
+            effective_base_dir.join(new_path)
+        } else {
+            new_path.to_path_buf()
+        };
+
+        if let Some(entry) = self.mount_table.entry(*mount_point).cloned() {
+            let projected = self.extract_mount_store(mount_point, &entry);
+            Self::write_store_with_format(&target_path, entry.format, &projected)?;
+
+            let canonical_target =
+                fs::canonicalize(&target_path).unwrap_or_else(|_| target_path.clone());
+            if canonical_target != entry.path
+                && let Err(source) = fs::remove_file(&entry.path)
+                && source.kind() != std::io::ErrorKind::NotFound
+            {
+                return Err(MountError::Write { path: entry.path.clone(), source });
+            }
+
+            let rel_path = Self::relative_or_absolute_path(&target_path, &effective_base_dir);
+            if let Some(entry_mut) = self.mount_table.entry_mut(*mount_point) {
+                entry_mut.path = canonical_target;
+                entry_mut.rel_path = rel_path;
+            }
+            return Ok(());
+        }
+
+        let (current_rel_path, format) = match self.nodes.get(*mount_point) {
+            | Some(BlockNode::Mount { path, format }) => (path.clone(), *format),
+            | Some(BlockNode::Children { .. }) => return Err(MountError::NotMounted),
+            | None => return Err(MountError::UnknownBlock),
+        };
+        let source_path = Self::resolve_mount_path(&current_rel_path, &effective_base_dir);
+        if !source_path.exists() {
+            return Err(MountError::Read {
+                path: source_path,
+                source: std::io::Error::new(std::io::ErrorKind::NotFound, "mount file not found"),
+            });
+        }
+
+        if source_path != target_path {
+            if let Some(parent) = target_path.parent() {
+                fs::create_dir_all(parent)
+                    .map_err(|source| MountError::Write { path: target_path.clone(), source })?;
+            }
+            if fs::rename(&source_path, &target_path).is_err() {
+                fs::copy(&source_path, &target_path)
+                    .map_err(|source| MountError::Write { path: target_path.clone(), source })?;
+                fs::remove_file(&source_path)
+                    .map_err(|source| MountError::Write { path: source_path.clone(), source })?;
+            }
+        }
+
+        let rel_path = Self::relative_or_absolute_path(&target_path, &effective_base_dir);
+        if let Some(node) = self.nodes.get_mut(*mount_point) {
+            *node = BlockNode::with_path_and_format(rel_path, format);
+        }
+        Ok(())
+    }
+
+    /// Inline one mount into the current store.
+    ///
+    /// If the mount is unexpanded, this expands it first. Then runtime mount
+    /// tracking for `mount_point` is removed while leaving its expanded children
+    /// as normal in-store nodes.
+    pub fn inline_mount(
+        &mut self, mount_point: &BlockId, base_dir: &Path,
+    ) -> Result<(), MountError> {
+        let node = self.nodes.get(*mount_point).ok_or(MountError::UnknownBlock)?;
+        let has_entry = self.mount_table.entry(*mount_point).is_some();
+        let is_unexpanded_mount = matches!(node, BlockNode::Mount { .. });
+        if !has_entry && !is_unexpanded_mount {
+            return Err(MountError::NotMounted);
+        }
+
+        if is_unexpanded_mount {
+            self.expand_mount(mount_point, base_dir)?;
+        }
+
+        let Some(entry) = self.mount_table.remove_entry(*mount_point) else {
+            return Err(MountError::NotMounted);
+        };
+        tracing::info!(
+            mount_point = ?mount_point,
+            inlined_blocks = entry.block_ids.len(),
+            "inlined mount into current store"
+        );
+        Ok(())
+    }
+
+    /// Inline all mounted files reachable under `mount_point`.
+    ///
+    /// Traverses the subtree rooted at `mount_point`, expanding and detaching
+    /// each encountered mount so the full content remains in the current file.
+    /// Returns the number of inlined mount points.
+    pub fn inline_mount_recursive(
+        &mut self, mount_point: &BlockId, base_dir: &Path,
+    ) -> Result<usize, MountError> {
+        let _ = self.nodes.get(*mount_point).ok_or(MountError::UnknownBlock)?;
+
+        let mut stack = vec![*mount_point];
+        let mut inlined_mount_count = 0;
+        while let Some(current) = stack.pop() {
+            if self.nodes.get(current).is_none() {
+                continue;
+            }
+
+            let is_expanded_mount = self.mount_table.entry(current).is_some();
+            let is_unexpanded_mount =
+                self.node(&current).is_some_and(|node| matches!(node, BlockNode::Mount { .. }));
+            if is_expanded_mount || is_unexpanded_mount {
+                self.inline_mount(&current, base_dir)?;
+                inlined_mount_count += 1;
+            }
+
+            let children = self.children(&current).to_vec();
+            stack.extend(children.into_iter().rev());
+        }
+
+        Ok(inlined_mount_count)
     }
 
     /// Extract a block's children and their subtrees into a standalone
@@ -732,6 +880,48 @@ impl BlockStore {
             .and_then(|p| if p.is_empty() { None } else { Some(p) });
 
         self.build_projected_store(&own_ids, hint, &root_ids, &mount_path_overrides)
+    }
+
+    /// Derive the effective base directory for mount path resolution.
+    ///
+    /// For nested mounts this is the parent mount file directory; for top-level
+    /// mounts this is `base_dir`.
+    fn effective_mount_base_dir(&self, mount_point: &BlockId, base_dir: &Path) -> PathBuf {
+        self.mount_origin_path(mount_point)
+            .and_then(|path| path.parent().map(|parent| parent.to_path_buf()))
+            .unwrap_or_else(|| base_dir.to_path_buf())
+    }
+
+    /// Convert `path` to a path stored in mount metadata.
+    ///
+    /// Relative paths are preferred when `path` is under `base_dir`.
+    fn relative_or_absolute_path(path: &Path, base_dir: &Path) -> PathBuf {
+        path.strip_prefix(base_dir)
+            .map(|relative| relative.to_path_buf())
+            .unwrap_or_else(|_| path.to_path_buf())
+    }
+
+    /// Write a `BlockStore` to disk using the chosen mount format.
+    fn write_store_with_format(
+        path: &Path, format: MountFormat, store: &BlockStore,
+    ) -> Result<(), MountError> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .map_err(|source| MountError::Write { path: path.to_path_buf(), source })?;
+        }
+        match format {
+            | MountFormat::Json => {
+                let json = serde_json::to_string_pretty(store)
+                    .map_err(|source| MountError::Parse { path: path.to_path_buf(), source })?;
+                fs::write(path, json)
+                    .map_err(|source| MountError::Write { path: path.to_path_buf(), source })
+            }
+            | MountFormat::Markdown => {
+                let markdown = Self::render_markdown_mount_store(store);
+                fs::write(path, markdown)
+                    .map_err(|source| MountError::Write { path: path.to_path_buf(), source })
+            }
+        }
     }
 
     /// Resolve a mount path against a base directory.

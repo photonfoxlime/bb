@@ -136,9 +136,8 @@ pub struct AppState {
     /// subtree in the main view. The stack tracks the path from root to
     /// current view, with breadcrumbs rendered for quick navigation.
     ///
-    /// External documents opened via file dialog are merged into the main
-    /// store and appear as new navigation layers. The stack is part of the
-    /// undo snapshot for consistency.
+    /// Mount path hints are carried on navigation layers for breadcrumb
+    /// context. The stack is part of the undo snapshot for consistency.
     navigation: NavigationStack,
 }
 
@@ -394,6 +393,12 @@ pub enum Message {
 impl AppState {
     /// Process one message and return a follow-up task (if any).
     pub fn update(&mut self, message: Message) -> Task<Message> {
+        let keep_inline_confirmation =
+            matches!(&message, Message::MountFile(MountFileMessage::InlineMountAll(_)));
+        if !keep_inline_confirmation {
+            self.ui_state.pending_inline_mount_confirmation = None;
+        }
+
         match message {
             | Message::UndoRedo(message) => undo_redo::handle(self, message),
             | Message::Shortcut(message) => shortcut::handle(self, message),
@@ -574,6 +579,12 @@ pub struct UiSingletonState {
     /// If the friend is hidden, no visual feedback is shown to avoid confusing
     /// the user with a highlight that points to nothing visible.
     pub hovered_friend_block: Option<BlockId>,
+    /// Mount block id waiting for inline-all confirmation.
+    ///
+    /// The first click on "Inline all" arms this confirmation state for one
+    /// block. Any unrelated message clears it. A second click on the same block
+    /// performs the inline operation.
+    pub pending_inline_mount_confirmation: Option<BlockId>,
 }
 
 /// Snapshot of undoable application state.

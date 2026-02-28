@@ -97,6 +97,9 @@ action_add_parent: "親を追加"
 action_duplicate: "複製"
 action_save_to_file: "ファイルに保存"
 action_load_from_file: "ファイルから読み込み"
+action_move_mount_file: "マウントファイルを移動"
+action_inline_mount_all: "すべてインライン化"
+action_confirm_inline_mount_all: "インライン化を確認"
 action_archive: "アーカイブ"
 
 # Status chip messages
@@ -109,4 +112,6 @@ instruction_additional: "追加指令：%{instruction}"
 # Mount file dialogs
 save_block_to_file: "ブロックをファイルに保存"
 load_block_from_file: "ファイルからブロックを読み込む"
+move_mounted_file: "マウントファイルを移動"
+mount_inline_confirm_hint: "再度クリックすると、すべてのマウント内容をインライン化します"
 action_enter_block: "入る"

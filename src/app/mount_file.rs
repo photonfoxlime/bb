@@ -7,7 +7,7 @@
 //! hardcode UI strings; add keys to the locale files instead.
 //!
 //! Handles expanding/collapsing mount points (blocks backed by external files),
-//! save-to-file and load-from-file dialogs.
+//! save/load dialogs, mount relocation, and mount inlining.
 
 use super::editor_buffers::EditorBuffers;
 use super::error::{AppError, UiError};
@@ -20,12 +20,26 @@ use rust_i18n::t;
 /// Messages for mount, file I/O, and system theme operations.
 #[derive(Debug, Clone)]
 pub enum MountFileMessage {
+    /// Expand one mount point.
     ExpandMount(BlockId),
+    /// Collapse one expanded mount back to a path link.
     CollapseMount(BlockId),
+    /// Save a subtree into a mount file.
     SaveToFile(BlockId),
+    /// Save-file picker result.
     SaveToFilePicked { block_id: BlockId, path: Option<std::path::PathBuf> },
+    /// Attach a leaf block to an existing file.
     LoadFromFile(BlockId),
+    /// Load-file picker result.
     LoadFromFilePicked { block_id: BlockId, path: Option<std::path::PathBuf> },
+    /// Move a mounted file and update mount metadata.
+    MoveMount(BlockId),
+    /// Move-mount save-file picker result.
+    MoveMountPicked { block_id: BlockId, path: Option<std::path::PathBuf> },
+    /// Inline all mounted files reachable from this block.
+    ///
+    /// Uses a two-click confirmation flow: first click arms, second click executes.
+    InlineMountAll(BlockId),
 }
 
 /// Process one mount/file message and return a follow-up task (if any).
@@ -175,6 +189,83 @@ pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> 
                         true
                     });
             }
+            Task::none()
+        }
+        | MountFileMessage::MoveMount(block_id) => {
+            state.set_overflow_open(false);
+            let title = t!("move_mounted_file").to_string();
+            Task::perform(
+                async move {
+                    let dialog = rfd::AsyncFileDialog::new()
+                        .set_title(title)
+                        .add_filter("JSON", &["json"])
+                        .add_filter("Markdown", &["md", "markdown"])
+                        .save_file()
+                        .await;
+                    dialog.map(|handle| handle.path().to_path_buf())
+                },
+                move |path| {
+                    Message::MountFile(MountFileMessage::MoveMountPicked { block_id, path })
+                },
+            )
+        }
+        | MountFileMessage::MoveMountPicked { block_id, path } => {
+            if let Some(path) = path {
+                let base_dir = AppPaths::data_dir().unwrap_or_default();
+                state.mutate_with_undo_and_persist("after moving mount file", |state| match state
+                    .store
+                    .move_mount_file(&block_id, &path, &base_dir)
+                {
+                    | Ok(()) => {
+                        tracing::info!(
+                            block_id = ?block_id,
+                            path = %path.display(),
+                            "moved mount file"
+                        );
+                        true
+                    }
+                    | Err(err) => {
+                        tracing::error!(
+                            block_id = ?block_id,
+                            path = %path.display(),
+                            %err,
+                            "failed to move mount file"
+                        );
+                        state.record_error(AppError::Mount(UiError::from_message(&err)));
+                        false
+                    }
+                });
+            }
+            Task::none()
+        }
+        | MountFileMessage::InlineMountAll(block_id) => {
+            if state.ui_state.pending_inline_mount_confirmation != Some(block_id) {
+                state.ui_state.pending_inline_mount_confirmation = Some(block_id);
+                tracing::info!(block_id = ?block_id, "armed inline-all confirmation for mount");
+                return Task::none();
+            }
+
+            state.ui_state.pending_inline_mount_confirmation = None;
+            let base_dir = AppPaths::data_dir().unwrap_or_default();
+            state.mutate_with_undo_and_persist(
+                "after inlining mounted subtree",
+                |state| match state.store.inline_mount_recursive(&block_id, &base_dir) {
+                    | Ok(inlined_mount_count) => {
+                        tracing::info!(
+                            block_id = ?block_id,
+                            inlined_mount_count,
+                            "inlined mounted subtree"
+                        );
+                        state.editor_buffers = EditorBuffers::from_store(&state.store);
+                        true
+                    }
+                    | Err(err) => {
+                        tracing::error!(block_id = ?block_id, %err, "failed to inline mounts");
+                        state.record_error(AppError::Mount(UiError::from_message(&err)));
+                        false
+                    }
+                },
+            );
             Task::none()
         }
     }
