@@ -233,6 +233,46 @@ impl NavigationStack {
         self.current().map(|l| l.block_id)
     }
 
+    /// Rebuild the stack so the parent of `target` becomes the current view.
+    ///
+    /// This method is used by global find navigation: selecting a result should
+    /// reveal the target block in context without mutating fold state.
+    ///
+    /// # Behavior
+    /// - If `target` is a root, the stack is cleared (root view).
+    /// - Otherwise, stack layers become the ordered ancestor chain
+    ///   `root -> ... -> parent(target)`.
+    /// - Existing path hints are preserved when a matching ancestor already
+    ///   exists in the current stack.
+    pub fn reveal_parent_path(&mut self, store: &BlockStore, target: &BlockId) {
+        if store.node(target).is_none() {
+            tracing::error!(target = ?target, "cannot reveal parent path for missing block");
+            return;
+        }
+
+        let old_layers = self.layers.clone();
+        let mut ancestors = Vec::new();
+        let mut cursor = store.parent(target);
+        while let Some(parent) = cursor {
+            ancestors.push(parent);
+            cursor = store.parent(&parent);
+        }
+        ancestors.reverse();
+
+        self.layers = ancestors
+            .into_iter()
+            .map(|block_id| {
+                let path = old_layers
+                    .iter()
+                    .find(|layer| layer.block_id == block_id)
+                    .and_then(|layer| layer.path.clone());
+                NavigationLayer { block_id, path }
+            })
+            .collect();
+
+        tracing::debug!(target = ?target, depth = self.layers.len(), "revealed parent path");
+    }
+
     /// Check if a block is within the current navigation view.
     ///
     /// A block is in view if:

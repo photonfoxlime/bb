@@ -36,8 +36,8 @@
 //! - Empty state with placeholder makes the affordance discoverable without cluttering the UI.
 
 use super::{
-    AppState, DocumentMode, EditMessage, ErrorBanner, ErrorMessage, ExpandMessage, Message,
-    MountFileMessage, NavigationMessage, OverlayMessage, ReduceMessage, ShortcutMessage,
+    AppState, DocumentMode, EditMessage, ErrorBanner, ErrorMessage, ExpandMessage, FindMessage,
+    Message, MountFileMessage, NavigationMessage, OverlayMessage, ReduceMessage, ShortcutMessage,
     StructureMessage,
     action_bar::{
         ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
@@ -45,6 +45,7 @@ use super::{
         project_for_viewport, shortcut_to_action, status_error_i18n_key,
     },
     diff::{WordChange, word_diff},
+    find_panel,
     friends_panel::{self, FriendPanelMessage},
     instruction_panel::{self, InstructionPanelMessage},
     settings::SettingsMessage,
@@ -142,7 +143,18 @@ impl<'a> DocumentView<'a> {
         .style(theme::action_button)
         .padding(theme::BUTTON_PAD);
 
-        let top_right_buttons = row![open_external_btn, gear_button].spacing(theme::ACTION_GAP);
+        // Find button – top-right, next to open external and gear
+        let find_btn = button(
+            icons::icon_search()
+                .size(16)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
+        )
+        .on_press(Message::Find(FindMessage::Open))
+        .style(theme::action_button)
+        .padding(theme::BUTTON_PAD);
+
+        let top_right_buttons =
+            row![find_btn, open_external_btn, gear_button].spacing(theme::ACTION_GAP);
         let floating_gear = container(
             container(top_right_buttons)
                 .width(Fill)
@@ -213,6 +225,7 @@ impl<'a> DocumentView<'a> {
             main_content,
             floating_gear,
             toolbar_container,
+            find_panel::floating_overlay(state),
             breadcrumbs_container,
             floating_error_banner
         ]

@@ -15,6 +15,7 @@ mod document;
 mod editor_buffers;
 mod error;
 mod friends_panel;
+mod find_panel;
 mod instruction_panel;
 mod llm_requests;
 mod settings;
@@ -36,6 +37,7 @@ use self::{
     error::{AppError, ErrorMessage, UiError},
     error_banner::ErrorBanner,
     expand::ExpandMessage,
+    find_panel::{FindMessage, FindUiState},
     friends_panel::FriendPanelMessage,
     instruction_panel::InstructionPanelMessage,
     llm_requests::{LlmRequests, RequestSignature},
@@ -106,6 +108,8 @@ pub struct AppState {
     focus: Option<FocusState>,
     /// Transient UI singleton state (hover effects, visual feedback).
     ui_state: UiSingletonState,
+    /// Transient find-overlay state (query, matches, and selection).
+    find_ui: FindUiState,
     /// (target_block_id, friend_block_id) of friend perspective currently being edited inline.
     editing_friend_perspective: Option<(BlockId, BlockId)>,
     /// Current text input value when editing friend perspective.
@@ -179,6 +183,7 @@ impl AppState {
             persistence_write_disabled: false,
             focus: None,
             ui_state: UiSingletonState::default(),
+            find_ui: FindUiState::default(),
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,
             edit_session: None,
@@ -374,6 +379,7 @@ pub enum Message {
     Reduce(ReduceMessage),
     Expand(ExpandMessage),
     Structure(StructureMessage),
+    Find(FindMessage),
     Overlay(OverlayMessage),
     MountFile(MountFileMessage),
     FriendPanel(FriendPanelMessage),
@@ -397,6 +403,7 @@ impl AppState {
             }
             | Message::Reduce(message) => reduce::handle(self, message),
             | Message::Expand(message) => expand::handle(self, message),
+            | Message::Find(message) => find_panel::handle(self, message),
             | Message::Overlay(message) => overlay::handle(self, message),
             | Message::FriendPanel(message) => friends_panel::handle(self, message),
             | Message::Structure(message) => structure::handle(self, message),
@@ -443,46 +450,50 @@ impl AppState {
     /// system theme changes, and window resize events.
     pub fn subscription(_state: &AppState) -> Subscription<Message> {
         Subscription::batch([
-            event::listen_with(|event, status, _window| {
-                if status == event::Status::Captured {
-                    return None;
-                }
-
-                match event {
-                    | Event::Keyboard(keyboard::Event::KeyPressed {
-                        key: keyboard::Key::Named(keyboard::key::Named::Escape),
-                        ..
-                    }) => {
-                        // Cancel friend perspective editing - uses state internally
-                        Some(Message::FriendPanel(
-                            FriendPanelMessage::CancelEditingFriendPerspective,
-                        ))
-                    }
-                    | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-                        if modifiers.command() {
-                            match &key {
-                                | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
-                                    return if modifiers.shift() {
-                                        Some(Message::UndoRedo(UndoRedoMessage::Redo))
-                                    } else {
-                                        Some(Message::UndoRedo(UndoRedoMessage::Undo))
-                                    };
-                                }
-                                | _ => {}
+            event::listen_with(|event, status, _window| match event {
+                | Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(keyboard::key::Named::Escape),
+                    ..
+                }) => Some(Message::Find(FindMessage::Escape)),
+                | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                    if modifiers.command() {
+                        match &key {
+                            | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("f") => {
+                                return Some(Message::Find(FindMessage::Open));
                             }
+                            | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("g") => {
+                                return if modifiers.shift() {
+                                    Some(Message::Find(FindMessage::JumpPrevious))
+                                } else {
+                                    Some(Message::Find(FindMessage::JumpNext))
+                                };
+                            }
+                            | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
+                                return if modifiers.shift() {
+                                    Some(Message::UndoRedo(UndoRedoMessage::Redo))
+                                } else {
+                                    Some(Message::UndoRedo(UndoRedoMessage::Undo))
+                                };
+                            }
+                            | _ => {}
                         }
-                        action_bar::shortcut_to_action(key, modifiers)
-                            .map(ShortcutMessage::Trigger)
-                            .map(Message::Shortcut)
                     }
-                    | Event::Window(window::Event::Resized(size)) => {
-                        Some(Message::WindowResized(WindowSize {
-                            width: size.width as f32,
-                            height: size.height as f32,
-                        }))
+
+                    if status == event::Status::Captured {
+                        return None;
                     }
-                    | _ => None,
+
+                    action_bar::shortcut_to_action(key, modifiers)
+                        .map(ShortcutMessage::Trigger)
+                        .map(Message::Shortcut)
                 }
+                | Event::Window(window::Event::Resized(size)) => {
+                    Some(Message::WindowResized(WindowSize {
+                        width: size.width as f32,
+                        height: size.height as f32,
+                    }))
+                }
+                | _ => None,
             }),
             system::theme_changes().map(Message::SystemThemeChanged),
         ])
@@ -806,6 +817,7 @@ impl AppState {
             llm_requests: LlmRequests::new(),
             focus: None,
             ui_state: UiSingletonState::default(),
+            find_ui: FindUiState::default(),
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,
             edit_session: None,

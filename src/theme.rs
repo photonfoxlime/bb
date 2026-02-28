@@ -190,6 +190,34 @@ pub const FRIEND_TOGGLE_SIZE: f32 = 14.0;
 /// Gap between visibility toggles in friends panel.
 pub const FRIEND_TOGGLE_GAP: f32 = 8.0;
 
+/// Top offset for the floating find panel overlay.
+pub const FIND_PANEL_TOP: f32 = 16.0;
+/// Maximum width for the floating find panel.
+pub const FIND_PANEL_MAX_WIDTH: f32 = 680.0;
+/// Font size for find panel title text.
+pub const FIND_TITLE_SIZE: f32 = 14.0;
+/// Font size for find panel metadata and controls.
+pub const FIND_META_SIZE: f32 = 12.0;
+/// Font size for the find query text input.
+pub const FIND_QUERY_SIZE: f32 = 14.0;
+/// Padding for the find query text input.
+pub const FIND_QUERY_PAD: f32 = 8.0;
+/// Height of the find result list viewport.
+pub const FIND_RESULT_LIST_HEIGHT: f32 = 280.0;
+/// Vertical/horizontal padding for one find result row.
+pub const FIND_RESULT_PAD_V: f32 = 6.0;
+pub const FIND_RESULT_PAD_H: f32 = 8.0;
+/// Vertical gap between point text and lineage text in one find result row.
+pub const FIND_RESULT_LINE_GAP: f32 = 2.0;
+/// Font size for primary find result point text.
+pub const FIND_RESULT_POINT_SIZE: f32 = 13.0;
+/// Font size for secondary find result lineage text.
+pub const FIND_RESULT_META_SIZE: f32 = 11.0;
+/// Truncation budget for primary find result point text.
+pub const FIND_RESULT_POINT_TRUNCATE: usize = 72;
+/// Truncation budget per lineage segment in find results.
+pub const FIND_RESULT_LINEAGE_TRUNCATE: usize = 20;
+
 // ── Theme constructor ────────────────────────────────────────────────
 
 impl crate::app::AppState {
