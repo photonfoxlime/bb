@@ -34,7 +34,10 @@
 
 use crate::cli::{
     CliResult, OutputFormat,
-    results::{ExpansionDraftInfo, FriendInfo, Match, ReductionDraftInfo},
+    results::{
+        BatchError, BatchOutput, BatchResult, ExpansionDraftInfo, FriendInfo, Match,
+        ReductionDraftInfo,
+    },
 };
 use crate::store;
 
@@ -103,7 +106,90 @@ pub fn print_result(result: &CliResult, output: OutputFormat) {
         | CliResult::PanelState(state) => {
             print_panel_state(state.as_deref(), output);
         }
+        | CliResult::Batch(report) => {
+            print_batch_report(report, output);
+        }
     }
+}
+
+/// Print batch operation report.
+fn print_batch_report(report: &BatchResult, output: OutputFormat) {
+    match output {
+        | OutputFormat::Json => {
+            println!("{}", serde_json::to_string(report).unwrap_or_default());
+        }
+        | OutputFormat::Table => {
+            println!(
+                "Operation: {} (success: {}, failed: {})",
+                report.operation, report.successes, report.failures
+            );
+            for item in &report.outputs {
+                print_batch_output_table(item);
+            }
+            if !report.errors.is_empty() {
+                println!("Errors:");
+                for err in &report.errors {
+                    print_batch_error_table(err);
+                }
+            }
+        }
+    }
+}
+
+/// Print one batch output item in table mode.
+fn print_batch_output_table(item: &BatchOutput) {
+    match item {
+        | BatchOutput::Id { input, id } => println!("{} -> {}", input, id),
+        | BatchOutput::Removed { input, removed } => {
+            println!("{} -> removed {}", input, removed.join(", "))
+        }
+        | BatchOutput::Collapsed { input, collapsed } => {
+            println!("{} -> collapsed: {}", input, collapsed)
+        }
+        | BatchOutput::OptionalId { input, id } => {
+            println!("{} -> {}", input, id.as_deref().unwrap_or("(none)"))
+        }
+        | BatchOutput::Lineage { input, points } => {
+            println!("{} -> lineage: {}", input, points.join(" | "))
+        }
+        | BatchOutput::Show { input, id, text, children } => {
+            println!("{} -> id: {}, text: {}, children: {}", input, id, text, children.join(", "))
+        }
+        | BatchOutput::Context { input, lineage, children, friends } => {
+            println!(
+                "{} -> lineage: {}, children: {}, friends: {}",
+                input,
+                lineage.join(" | "),
+                children.join(", "),
+                friends
+            )
+        }
+        | BatchOutput::DraftList { input, expansion, reduction, instruction, inquiry } => {
+            let count = usize::from(expansion.is_some())
+                + usize::from(reduction.is_some())
+                + usize::from(instruction.is_some())
+                + usize::from(inquiry.is_some());
+            println!("{} -> drafts: {}", input, count);
+        }
+        | BatchOutput::MountInfo { input, path, format, expanded } => {
+            println!(
+                "{} -> path: {}, format: {}, expanded: {}",
+                input,
+                path.as_deref().unwrap_or("(none)"),
+                format,
+                expanded
+            )
+        }
+        | BatchOutput::InlinedCount { input, count } => {
+            println!("{} -> inlined mounts: {}", input, count)
+        }
+        | BatchOutput::Success { input } => println!("{} -> OK", input),
+    }
+}
+
+/// Print one batch error item in table mode.
+fn print_batch_error_table(error: &BatchError) {
+    println!("  - {}: {}", error.input, error.error);
 }
 
 /// Print root block IDs.

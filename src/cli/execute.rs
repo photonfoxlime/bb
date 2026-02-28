@@ -13,6 +13,10 @@
 //! 3. Execute: Call the appropriate `BlockStore` method
 //! 4. Return: Package result as `CliResult` for formatting
 //!
+//! Batch-capable commands also support comma-separated target IDs in a single
+//! ID argument. In batch mode, execution is continue-on-error: all targets are
+//! attempted and per-item failures are collected in `CliResult::Batch`.
+//!
 //! # Error Handling
 //!
 //! All errors are returned as `CliResult::Error` with descriptive messages.
@@ -32,7 +36,10 @@
 //! - Context: LLM context preparation
 
 use super::BlockId;
-use super::results::{CliResult, ExpansionDraftInfo, FriendInfo, Match, ReductionDraftInfo};
+use super::results::{
+    BatchError, BatchOutput, BatchResult, CliResult, ExpansionDraftInfo, FriendInfo, Match,
+    ReductionDraftInfo,
+};
 use super::{
     BlockCommands, draft::DraftCommands, fold::FoldCommands, friend::FriendCommands,
     mount::MountCommands, nav::NavCommands, panel::PanelCommands, query::RootCommand,
@@ -81,15 +88,43 @@ impl BlockCommands {
             }
             // Show details of a specific block.
             | BlockCommands::Show(cmd) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(id) => {
-                        let text = store.point(&id).unwrap_or_default();
-                        let children: Vec<String> =
-                            store.children(&id).iter().map(|c| format!("{}", c)).collect();
-                        (store, CliResult::Show { id, text, children })
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(id) => {
+                            let text = store.point(&id).unwrap_or_default();
+                            let children: Vec<String> =
+                                store.children(&id).iter().map(|c| format!("{}", c)).collect();
+                            (store, CliResult::Show { id, text, children })
+                        }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(id) => {
+                                let text = store.point(&id).unwrap_or_default();
+                                let children: Vec<String> =
+                                    store.children(&id).iter().map(|c| format!("{}", c)).collect();
+                                outputs.push(BatchOutput::Show {
+                                    input,
+                                    id: format!("{}", id),
+                                    text,
+                                    children,
+                                });
+                            }
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("query.show", outputs, errors)),
+                    )
                 }
             }
             // Search blocks by text content using store-level query matching.
@@ -107,13 +142,31 @@ impl BlockCommands {
             }
             // Edit the text content of a block.
             | BlockCommands::Point(cmd) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        store.update_point(&block_id, cmd.text);
-                        (store, CliResult::Success)
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            store.update_point(&block_id, cmd.text);
+                            (store, CliResult::Success)
+                        }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                store.update_point(&block_id, cmd.text.clone());
+                                outputs.push(BatchOutput::Success { input });
+                            }
+                        }
+                    }
+                    (store, CliResult::Batch(Self::make_batch_result("point", outputs, errors)))
                 }
             }
             // ========================================================================
@@ -122,83 +175,232 @@ impl BlockCommands {
             // Structural editing operations for modifying the block hierarchy.
             // Add a child block to a parent.
             | BlockCommands::Tree(TreeCommands::AddChild(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.parent_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown parent block ID".to_string())),
-                    | Some(parent_id) => {
-                        let new_id = store.append_child(&parent_id, cmd.text.clone());
-                        match new_id {
-                            | Some(new_id) => (store, CliResult::BlockId(new_id)),
-                            | None => (
-                                store,
-                                CliResult::Error(
-                                    "Failed to add child (parent may be a mount)".to_string(),
+                let targets = Self::expand_cli_targets(&cmd.parent_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown parent block ID".to_string())),
+                        | Some(parent_id) => {
+                            let new_id = store.append_child(&parent_id, cmd.text.clone());
+                            match new_id {
+                                | Some(new_id) => (store, CliResult::BlockId(new_id)),
+                                | None => (
+                                    store,
+                                    CliResult::Error(
+                                        "Failed to add child (parent may be a mount)".to_string(),
+                                    ),
                                 ),
-                            ),
+                            }
                         }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors.push(BatchError {
+                                input,
+                                error: "Unknown parent block ID".to_string(),
+                            }),
+                            | Some(parent_id) => {
+                                match store.append_child(&parent_id, cmd.text.clone()) {
+                                    | Some(new_id) => outputs
+                                        .push(BatchOutput::Id { input, id: format!("{}", new_id) }),
+                                    | None => errors.push(BatchError {
+                                        input,
+                                        error: "Failed to add child (parent may be a mount)"
+                                            .to_string(),
+                                    }),
+                                }
+                            }
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result(
+                            "tree.add-child",
+                            outputs,
+                            errors,
+                        )),
+                    )
                 }
             }
             // Add a sibling block after the target.
             | BlockCommands::Tree(TreeCommands::AddSibling(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        let new_id = store.append_sibling(&block_id, cmd.text.clone());
-                        match new_id {
-                            | Some(new_id) => (store, CliResult::BlockId(new_id)),
-                            | None => {
-                                (store, CliResult::Error("Failed to add sibling".to_string()))
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            let new_id = store.append_sibling(&block_id, cmd.text.clone());
+                            match new_id {
+                                | Some(new_id) => (store, CliResult::BlockId(new_id)),
+                                | None => {
+                                    (store, CliResult::Error("Failed to add sibling".to_string()))
+                                }
                             }
                         }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                match store.append_sibling(&block_id, cmd.text.clone()) {
+                                    | Some(new_id) => outputs
+                                        .push(BatchOutput::Id { input, id: format!("{}", new_id) }),
+                                    | None => errors.push(BatchError {
+                                        input,
+                                        error: "Failed to add sibling".to_string(),
+                                    }),
+                                }
+                            }
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result(
+                            "tree.add-sibling",
+                            outputs,
+                            errors,
+                        )),
+                    )
                 }
             }
             // Wrap a block in a new parent.
             | BlockCommands::Tree(TreeCommands::Wrap(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        let new_id = store.insert_parent(&block_id, cmd.text.clone());
-                        match new_id {
-                            | Some(new_id) => (store, CliResult::BlockId(new_id)),
-                            | None => (store, CliResult::Error("Failed to wrap block".to_string())),
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            let new_id = store.insert_parent(&block_id, cmd.text.clone());
+                            match new_id {
+                                | Some(new_id) => (store, CliResult::BlockId(new_id)),
+                                | None => {
+                                    (store, CliResult::Error("Failed to wrap block".to_string()))
+                                }
+                            }
                         }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                match store.insert_parent(&block_id, cmd.text.clone()) {
+                                    | Some(new_id) => outputs
+                                        .push(BatchOutput::Id { input, id: format!("{}", new_id) }),
+                                    | None => errors.push(BatchError {
+                                        input,
+                                        error: "Failed to wrap block".to_string(),
+                                    }),
+                                }
+                            }
+                        }
+                    }
+                    (store, CliResult::Batch(Self::make_batch_result("tree.wrap", outputs, errors)))
                 }
             }
             // Duplicate a block and its entire subtree.
             | BlockCommands::Tree(TreeCommands::Duplicate(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        let new_id = store.duplicate_subtree_after(&block_id);
-                        match new_id {
-                            | Some(new_id) => (store, CliResult::BlockId(new_id)),
-                            | None => (store, CliResult::Error("Failed to duplicate".to_string())),
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            let new_id = store.duplicate_subtree_after(&block_id);
+                            match new_id {
+                                | Some(new_id) => (store, CliResult::BlockId(new_id)),
+                                | None => {
+                                    (store, CliResult::Error("Failed to duplicate".to_string()))
+                                }
+                            }
                         }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => match store.duplicate_subtree_after(&block_id) {
+                                | Some(new_id) => outputs
+                                    .push(BatchOutput::Id { input, id: format!("{}", new_id) }),
+                                | None => errors.push(BatchError {
+                                    input,
+                                    error: "Failed to duplicate".to_string(),
+                                }),
+                            },
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result(
+                            "tree.duplicate",
+                            outputs,
+                            errors,
+                        )),
+                    )
                 }
             }
             // Delete a block and its entire subtree.
             | BlockCommands::Tree(TreeCommands::Delete(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        let removed = store.remove_block_subtree(&block_id);
-                        match removed {
-                            | Some(ids) => {
-                                let ids_str: Vec<String> =
-                                    ids.iter().map(|i| format!("{}", i)).collect();
-                                (store, CliResult::Removed(ids_str))
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            let removed = store.remove_block_subtree(&block_id);
+                            match removed {
+                                | Some(ids) => {
+                                    let ids_str: Vec<String> =
+                                        ids.iter().map(|i| format!("{}", i)).collect();
+                                    (store, CliResult::Removed(ids_str))
+                                }
+                                | None => (store, CliResult::Error("Failed to delete".to_string())),
                             }
-                            | None => (store, CliResult::Error("Failed to delete".to_string())),
                         }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => match store.remove_block_subtree(&block_id) {
+                                | Some(ids) => outputs.push(BatchOutput::Removed {
+                                    input,
+                                    removed: ids.iter().map(|id| format!("{}", id)).collect(),
+                                }),
+                                | None => errors.push(BatchError {
+                                    input,
+                                    error: "Failed to delete".to_string(),
+                                }),
+                            },
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("tree.delete", outputs, errors)),
+                    )
                 }
             }
             // Move a block relative to a target.
@@ -234,36 +436,102 @@ impl BlockCommands {
             // DFS-based navigation helpers for traversing the block tree.
             // Get the next visible block in DFS order.
             | BlockCommands::Nav(NavCommands::Next(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        let next = store.next_visible_in_dfs(&block_id);
-                        (store, CliResult::OptionalBlockId(next))
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            let next = store.next_visible_in_dfs(&block_id);
+                            (store, CliResult::OptionalBlockId(next))
+                        }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                let next = store.next_visible_in_dfs(&block_id);
+                                outputs.push(BatchOutput::OptionalId {
+                                    input,
+                                    id: next.map(|id| format!("{}", id)),
+                                });
+                            }
+                        }
+                    }
+                    (store, CliResult::Batch(Self::make_batch_result("nav.next", outputs, errors)))
                 }
             }
             // Get the previous visible block in DFS order.
             | BlockCommands::Nav(NavCommands::Prev(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        let prev = store.prev_visible_in_dfs(&block_id);
-                        (store, CliResult::OptionalBlockId(prev))
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            let prev = store.prev_visible_in_dfs(&block_id);
+                            (store, CliResult::OptionalBlockId(prev))
+                        }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                let prev = store.prev_visible_in_dfs(&block_id);
+                                outputs.push(BatchOutput::OptionalId {
+                                    input,
+                                    id: prev.map(|id| format!("{}", id)),
+                                });
+                            }
+                        }
+                    }
+                    (store, CliResult::Batch(Self::make_batch_result("nav.prev", outputs, errors)))
                 }
             }
             // Get the lineage (ancestor chain) of a block.
             | BlockCommands::Nav(NavCommands::Lineage(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        let lineage = store.lineage_points_for_id(&block_id);
-                        let points: Vec<String> = lineage.points().map(String::from).collect();
-                        (store, CliResult::Lineage(points))
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            let lineage = store.lineage_points_for_id(&block_id);
+                            let points: Vec<String> = lineage.points().map(String::from).collect();
+                            (store, CliResult::Lineage(points))
+                        }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                let lineage = store.lineage_points_for_id(&block_id);
+                                outputs.push(BatchOutput::Lineage {
+                                    input,
+                                    points: lineage.points().map(String::from).collect(),
+                                });
+                            }
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("nav.lineage", outputs, errors)),
+                    )
                 }
             }
             // Jump to the next query match in DFS order.
@@ -341,73 +609,200 @@ impl BlockCommands {
             }
             // Set an instruction draft for LLM guidance.
             | BlockCommands::Draft(DraftCommands::Instruction(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        store.set_instruction_draft(block_id, cmd.text);
-                        (store, CliResult::Success)
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            store.set_instruction_draft(block_id, cmd.text);
+                            (store, CliResult::Success)
+                        }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                store.set_instruction_draft(block_id, cmd.text.clone());
+                                outputs.push(BatchOutput::Success { input });
+                            }
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result(
+                            "draft.instruction",
+                            outputs,
+                            errors,
+                        )),
+                    )
                 }
             }
             // Set an inquiry draft (LLM response).
             | BlockCommands::Draft(DraftCommands::Inquiry(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        store.set_inquiry_draft(block_id, cmd.response);
-                        (store, CliResult::Success)
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            store.set_inquiry_draft(block_id, cmd.response);
+                            (store, CliResult::Success)
+                        }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                store.set_inquiry_draft(block_id, cmd.response.clone());
+                                outputs.push(BatchOutput::Success { input });
+                            }
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("draft.inquiry", outputs, errors)),
+                    )
                 }
             }
             // List all drafts for a block.
             | BlockCommands::Draft(DraftCommands::List(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        let expansion =
-                            store.expansion_draft(&block_id).map(|d| ExpansionDraftInfo {
-                                rewrite: d.rewrite.clone(),
-                                children: d.children.clone(),
-                            });
-                        let reduction =
-                            store.reduction_draft(&block_id).map(|d| ReductionDraftInfo {
-                                reduction: d.reduction.clone(),
-                                redundant_children: d
-                                    .redundant_children
-                                    .iter()
-                                    .map(|id| format!("{}", id))
-                                    .collect(),
-                            });
-                        let instruction =
-                            store.instruction_draft(&block_id).map(|d| d.instruction.clone());
-                        let inquiry = store.inquiry_draft(&block_id).map(|d| d.response.clone());
-                        (store, CliResult::DraftList { expansion, reduction, instruction, inquiry })
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            let expansion =
+                                store.expansion_draft(&block_id).map(|d| ExpansionDraftInfo {
+                                    rewrite: d.rewrite.clone(),
+                                    children: d.children.clone(),
+                                });
+                            let reduction =
+                                store.reduction_draft(&block_id).map(|d| ReductionDraftInfo {
+                                    reduction: d.reduction.clone(),
+                                    redundant_children: d
+                                        .redundant_children
+                                        .iter()
+                                        .map(|id| format!("{}", id))
+                                        .collect(),
+                                });
+                            let instruction =
+                                store.instruction_draft(&block_id).map(|d| d.instruction.clone());
+                            let inquiry =
+                                store.inquiry_draft(&block_id).map(|d| d.response.clone());
+                            (
+                                store,
+                                CliResult::DraftList { expansion, reduction, instruction, inquiry },
+                            )
+                        }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                let expansion =
+                                    store.expansion_draft(&block_id).map(|d| ExpansionDraftInfo {
+                                        rewrite: d.rewrite.clone(),
+                                        children: d.children.clone(),
+                                    });
+                                let reduction =
+                                    store.reduction_draft(&block_id).map(|d| ReductionDraftInfo {
+                                        reduction: d.reduction.clone(),
+                                        redundant_children: d
+                                            .redundant_children
+                                            .iter()
+                                            .map(|id| format!("{}", id))
+                                            .collect(),
+                                    });
+                                let instruction = store
+                                    .instruction_draft(&block_id)
+                                    .map(|d| d.instruction.clone());
+                                let inquiry =
+                                    store.inquiry_draft(&block_id).map(|d| d.response.clone());
+                                outputs.push(BatchOutput::DraftList {
+                                    input,
+                                    expansion,
+                                    reduction,
+                                    instruction,
+                                    inquiry,
+                                });
+                            }
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("draft.list", outputs, errors)),
+                    )
                 }
             }
             // Clear drafts from a block.
             | BlockCommands::Draft(DraftCommands::Clear(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        if cmd.all || cmd.expand {
-                            store.remove_expansion_draft(&block_id);
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            if cmd.all || cmd.expand {
+                                store.remove_expansion_draft(&block_id);
+                            }
+                            if cmd.all || cmd.reduce {
+                                store.remove_reduction_draft(&block_id);
+                            }
+                            if cmd.all || cmd.instruction {
+                                store.remove_instruction_draft(&block_id);
+                            }
+                            if cmd.all || cmd.inquiry {
+                                store.remove_inquiry_draft(&block_id);
+                            }
+                            (store, CliResult::Success)
                         }
-                        if cmd.all || cmd.reduce {
-                            store.remove_reduction_draft(&block_id);
-                        }
-                        if cmd.all || cmd.instruction {
-                            store.remove_instruction_draft(&block_id);
-                        }
-                        if cmd.all || cmd.inquiry {
-                            store.remove_inquiry_draft(&block_id);
-                        }
-                        (store, CliResult::Success)
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                if cmd.all || cmd.expand {
+                                    store.remove_expansion_draft(&block_id);
+                                }
+                                if cmd.all || cmd.reduce {
+                                    store.remove_reduction_draft(&block_id);
+                                }
+                                if cmd.all || cmd.instruction {
+                                    store.remove_instruction_draft(&block_id);
+                                }
+                                if cmd.all || cmd.inquiry {
+                                    store.remove_inquiry_draft(&block_id);
+                                }
+                                outputs.push(BatchOutput::Success { input });
+                            }
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("draft.clear", outputs, errors)),
+                    )
                 }
             }
             // ========================================================================
@@ -416,24 +811,66 @@ impl BlockCommands {
             // Visibility state management for collapsing/expanding blocks.
             // Toggle collapsed state of a block.
             | BlockCommands::Fold(FoldCommands::Toggle(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        let collapsed = store.toggle_collapsed(&block_id);
-                        (store, CliResult::Collapsed(collapsed))
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            let collapsed = store.toggle_collapsed(&block_id);
+                            (store, CliResult::Collapsed(collapsed))
+                        }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                let collapsed = store.toggle_collapsed(&block_id);
+                                outputs.push(BatchOutput::Collapsed { input, collapsed });
+                            }
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("fold.toggle", outputs, errors)),
+                    )
                 }
             }
             // Get collapsed state of a block.
             | BlockCommands::Fold(FoldCommands::Status(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        let collapsed = store.is_collapsed(&block_id);
-                        (store, CliResult::Collapsed(collapsed))
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            let collapsed = store.is_collapsed(&block_id);
+                            (store, CliResult::Collapsed(collapsed))
+                        }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                let collapsed = store.is_collapsed(&block_id);
+                                outputs.push(BatchOutput::Collapsed { input, collapsed });
+                            }
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("fold.status", outputs, errors)),
+                    )
                 }
             }
             // ========================================================================
@@ -523,26 +960,79 @@ impl BlockCommands {
             }
             // Expand a mount by loading external file contents.
             | BlockCommands::Mount(MountCommands::Expand(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => match store.expand_mount(&block_id, base_dir) {
-                        | Ok(_) => (store, CliResult::Success),
-                        | Err(e) => (store, CliResult::Error(format!("Expand failed: {}", e))),
-                    },
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => match store.expand_mount(&block_id, base_dir) {
+                            | Ok(_) => (store, CliResult::Success),
+                            | Err(e) => (store, CliResult::Error(format!("Expand failed: {}", e))),
+                        },
+                    }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => match store.expand_mount(&block_id, base_dir) {
+                                | Ok(_) => outputs.push(BatchOutput::Success { input }),
+                                | Err(e) => errors.push(BatchError {
+                                    input,
+                                    error: format!("Expand failed: {}", e),
+                                }),
+                            },
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("mount.expand", outputs, errors)),
+                    )
                 }
             }
             // Collapse a mount, removing loaded children.
             | BlockCommands::Mount(MountCommands::Collapse(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => match store.collapse_mount(&block_id) {
-                        | Some(()) => (store, CliResult::Success),
-                        | None => {
-                            (store, CliResult::Error("Block is not an expanded mount".to_string()))
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => match store.collapse_mount(&block_id) {
+                            | Some(()) => (store, CliResult::Success),
+                            | None => (
+                                store,
+                                CliResult::Error("Block is not an expanded mount".to_string()),
+                            ),
+                        },
+                    }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => match store.collapse_mount(&block_id) {
+                                | Some(()) => outputs.push(BatchOutput::Success { input }),
+                                | None => errors.push(BatchError {
+                                    input,
+                                    error: "Block is not an expanded mount".to_string(),
+                                }),
+                            },
                         }
-                    },
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result(
+                            "mount.collapse",
+                            outputs,
+                            errors,
+                        )),
+                    )
                 }
             }
             // Move a mount file and update mount metadata.
@@ -559,26 +1049,83 @@ impl BlockCommands {
             }
             // Inline one mount into the current store.
             | BlockCommands::Mount(MountCommands::Inline(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => match store.inline_mount(&block_id, base_dir) {
-                        | Ok(()) => (store, CliResult::Success),
-                        | Err(e) => (store, CliResult::Error(format!("Inline failed: {}", e))),
-                    },
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => match store.inline_mount(&block_id, base_dir) {
+                            | Ok(()) => (store, CliResult::Success),
+                            | Err(e) => (store, CliResult::Error(format!("Inline failed: {}", e))),
+                        },
+                    }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => match store.inline_mount(&block_id, base_dir) {
+                                | Ok(()) => outputs.push(BatchOutput::Success { input }),
+                                | Err(e) => errors.push(BatchError {
+                                    input,
+                                    error: format!("Inline failed: {}", e),
+                                }),
+                            },
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("mount.inline", outputs, errors)),
+                    )
                 }
             }
             // Inline all mounts recursively under a block.
             | BlockCommands::Mount(MountCommands::InlineRecursive(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => match store.inline_mount_recursive(&block_id, base_dir) {
-                        | Ok(count) => (store, CliResult::MountInlined(count)),
-                        | Err(e) => {
-                            (store, CliResult::Error(format!("Inline recursive failed: {}", e)))
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => match store.inline_mount_recursive(&block_id, base_dir)
+                        {
+                            | Ok(count) => (store, CliResult::MountInlined(count)),
+                            | Err(e) => {
+                                (store, CliResult::Error(format!("Inline recursive failed: {}", e)))
+                            }
+                        },
+                    }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                match store.inline_mount_recursive(&block_id, base_dir) {
+                                    | Ok(count) => {
+                                        outputs.push(BatchOutput::InlinedCount { input, count })
+                                    }
+                                    | Err(e) => errors.push(BatchError {
+                                        input,
+                                        error: format!("Inline recursive failed: {}", e),
+                                    }),
+                                }
+                            }
                         }
-                    },
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result(
+                            "mount.inline-recursive",
+                            outputs,
+                            errors,
+                        )),
+                    )
                 }
             }
             // Extract block subtree to a file.
@@ -601,29 +1148,71 @@ impl BlockCommands {
             }
             // Get mount information (path, format, expanded state).
             | BlockCommands::Mount(MountCommands::Info(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        let node = store.node(&block_id);
-                        let mount_entry = store.mount_table().entry(block_id);
-                        let result = match (node, mount_entry) {
-                            | (Some(store_module::BlockNode::Mount { path, format }), None) => {
-                                CliResult::MountInfo {
-                                    path: Some(path.display().to_string()),
-                                    format: format!("{}", format),
-                                    expanded: false,
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            let node = store.node(&block_id);
+                            let mount_entry = store.mount_table().entry(block_id);
+                            let result = match (node, mount_entry) {
+                                | (Some(store_module::BlockNode::Mount { path, format }), None) => {
+                                    CliResult::MountInfo {
+                                        path: Some(path.display().to_string()),
+                                        format: format!("{}", format),
+                                        expanded: false,
+                                    }
+                                }
+                                | (_, Some(entry)) => CliResult::MountInfo {
+                                    path: Some(entry.path.display().to_string()),
+                                    format: format!("{}", entry.format),
+                                    expanded: true,
+                                },
+                                | _ => CliResult::Error("Block is not a mount".to_string()),
+                            };
+                            (store, result)
+                        }
+                    }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                let node = store.node(&block_id);
+                                let mount_entry = store.mount_table().entry(block_id);
+                                match (node, mount_entry) {
+                                    | (
+                                        Some(store_module::BlockNode::Mount { path, format }),
+                                        None,
+                                    ) => outputs.push(BatchOutput::MountInfo {
+                                        input,
+                                        path: Some(path.display().to_string()),
+                                        format: format!("{}", format),
+                                        expanded: false,
+                                    }),
+                                    | (_, Some(entry)) => outputs.push(BatchOutput::MountInfo {
+                                        input,
+                                        path: Some(entry.path.display().to_string()),
+                                        format: format!("{}", entry.format),
+                                        expanded: true,
+                                    }),
+                                    | _ => errors.push(BatchError {
+                                        input,
+                                        error: "Block is not a mount".to_string(),
+                                    }),
                                 }
                             }
-                            | (_, Some(entry)) => CliResult::MountInfo {
-                                path: Some(entry.path.display().to_string()),
-                                format: format!("{}", entry.format),
-                                expanded: true,
-                            },
-                            | _ => CliResult::Error("Block is not a mount".to_string()),
-                        };
-                        (store, result)
+                        }
                     }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("mount.info", outputs, errors)),
+                    )
                 }
             }
             // Save all expanded mounts to their source files.
@@ -677,20 +1266,71 @@ impl BlockCommands {
             // LLM context preparation.
             // Get block context for LLM requests.
             | BlockCommands::Context(cmd) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        let context = store.block_context_for_id(&block_id);
-                        let lineage: Vec<String> =
-                            context.lineage.points().map(String::from).collect();
-                        let children = context.existing_children;
-                        let friends = context.friend_blocks.len();
-                        (store, CliResult::Context { lineage, children, friends })
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            let context = store.block_context_for_id(&block_id);
+                            let lineage: Vec<String> =
+                                context.lineage.points().map(String::from).collect();
+                            let children = context.existing_children;
+                            let friends = context.friend_blocks.len();
+                            (store, CliResult::Context { lineage, children, friends })
+                        }
                     }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                let context = store.block_context_for_id(&block_id);
+                                outputs.push(BatchOutput::Context {
+                                    input,
+                                    lineage: context.lineage.points().map(String::from).collect(),
+                                    children: context.existing_children,
+                                    friends: context.friend_blocks.len(),
+                                });
+                            }
+                        }
+                    }
+                    (store, CliResult::Batch(Self::make_batch_result("context", outputs, errors)))
                 }
             }
         }
+    }
+
+    /// Expand one CLI ID field into one-or-many targets.
+    ///
+    /// Batch mode is enabled by providing comma-separated IDs in a single
+    /// argument (for example, `1v1,2v1,3v1`). Empty tokens are ignored.
+    fn expand_cli_targets(single: &BlockId) -> Vec<BlockId> {
+        let mut all = Vec::new();
+        for part in single.0.split(',') {
+            let trimmed = part.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            all.push(BlockId(trimmed.to_string()));
+        }
+        if all.is_empty() {
+            all.push(single.clone());
+        }
+        all
+    }
+
+    /// Build a standardized continue-on-error batch result.
+    fn make_batch_result(
+        operation: &str, outputs: Vec<BatchOutput>, errors: Vec<BatchError>,
+    ) -> BatchResult {
+        let successes = outputs.len();
+        let failures = errors.len();
+        BatchResult { operation: operation.to_string(), successes, failures, outputs, errors }
     }
 
     /// Resolve a CLI BlockId string to an actual store BlockId.

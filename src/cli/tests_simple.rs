@@ -537,3 +537,69 @@ fn mount_extract_respects_format_override() {
         | _ => panic!("expected root to become markdown mount"),
     }
 }
+
+#[test]
+fn batch_point_continues_and_reports_errors() {
+    let store = create_test_store();
+    let root_id = store.roots()[0];
+    let batch = format!("{},0v0", format_block_id(root_id));
+
+    let cmd = BlockCommands::Point(EditPointCommand {
+        block_id: BlockId(batch),
+        text: "batched update".to_string(),
+    });
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    match result {
+        | CliResult::Batch(report) => {
+            assert_eq!(report.successes, 1);
+            assert_eq!(report.failures, 1);
+            assert_eq!(report.errors.len(), 1);
+        }
+        | _ => panic!("expected batch report"),
+    }
+    assert_eq!(store.point(&root_id), Some("batched update".to_string()));
+}
+
+#[test]
+fn batch_add_child_continues_and_reports_errors() {
+    let store = create_test_store();
+    let root_id = store.roots()[0];
+    let batch = format!("{},0v0", format_block_id(root_id));
+
+    let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+        parent_id: BlockId(batch),
+        text: "child via batch".to_string(),
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    match result {
+        | CliResult::Batch(report) => {
+            assert_eq!(report.successes, 1);
+            assert_eq!(report.failures, 1);
+            assert_eq!(report.errors.len(), 1);
+        }
+        | _ => panic!("expected batch report"),
+    }
+    assert_eq!(store.children(&root_id).len(), 3);
+}
+
+#[test]
+fn batch_show_continues_and_reports_errors() {
+    let store = create_test_store();
+    let root_id = store.roots()[0];
+    let batch = format!("{},0v0", format_block_id(root_id));
+
+    let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId(batch) });
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    match result {
+        | CliResult::Batch(report) => {
+            assert_eq!(report.successes, 1);
+            assert_eq!(report.failures, 1);
+            assert_eq!(report.errors.len(), 1);
+            assert_eq!(report.operation, "query.show");
+        }
+        | _ => panic!("expected batch report"),
+    }
+}

@@ -104,6 +104,69 @@ pub enum CliResult {
     ///
     /// Returned by `panel get`, showing the current sidebar mode.
     PanelState(Option<String>),
+    /// Batch execution report with per-item outputs and collected failures.
+    ///
+    /// Used by commands that support processing multiple target IDs in one run
+    /// while continuing through all items and reporting failures at the end.
+    Batch(BatchResult),
+}
+
+/// Continue-on-error report for batched CLI operations.
+#[derive(Debug, serde::Serialize)]
+pub struct BatchResult {
+    /// Operation identifier (for example, `tree.add-child`).
+    pub operation: String,
+    /// Number of successful items.
+    pub successes: usize,
+    /// Number of failed items.
+    pub failures: usize,
+    /// Per-item outputs produced by successful items.
+    pub outputs: Vec<BatchOutput>,
+    /// Per-item errors collected during execution.
+    pub errors: Vec<BatchError>,
+}
+
+/// One per-item error in a batched operation.
+#[derive(Debug, serde::Serialize)]
+pub struct BatchError {
+    /// User-provided input identifier for this item.
+    pub input: String,
+    /// Human-readable error message.
+    pub error: String,
+}
+
+/// Typed per-item output values for batch results.
+#[derive(Debug, serde::Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum BatchOutput {
+    /// Created block ID output.
+    Id { input: String, id: String },
+    /// Removed IDs output (subtree deletion).
+    Removed { input: String, removed: Vec<String> },
+    /// Boolean fold-state output.
+    Collapsed { input: String, collapsed: bool },
+    /// Optional block ID output for navigation operations.
+    OptionalId { input: String, id: Option<String> },
+    /// Lineage text output.
+    Lineage { input: String, points: Vec<String> },
+    /// Show command output.
+    Show { input: String, id: String, text: String, children: Vec<String> },
+    /// Context command output.
+    Context { input: String, lineage: Vec<String>, children: Vec<String>, friends: usize },
+    /// Draft listing output.
+    DraftList {
+        input: String,
+        expansion: Option<ExpansionDraftInfo>,
+        reduction: Option<ReductionDraftInfo>,
+        instruction: Option<String>,
+        inquiry: Option<String>,
+    },
+    /// Mount information output.
+    MountInfo { input: String, path: Option<String>, format: String, expanded: bool },
+    /// Inline-recursive count output.
+    InlinedCount { input: String, count: usize },
+    /// Success marker without extra payload.
+    Success { input: String },
 }
 
 /// Expansion draft data for CLI output.

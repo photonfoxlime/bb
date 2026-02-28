@@ -60,6 +60,9 @@ pub use results::CliResult;
 /// - `N` = slot index in the store
 /// - `G` = generation counter (incremented on reuse)
 ///
+/// Batch-capable commands additionally accept comma-separated IDs in the same
+/// argument position (for example, `1v1,2v1,3v1`).
+///
 /// Matching is case-insensitive and flexible.
 ///
 /// # Examples

@@ -30,6 +30,16 @@ Block IDs use a clean format like `1v1`, `2v3` where:
 - `v` = separator
 - Second number = generation counter (increments on reuse)
 
+Batch-capable commands also accept comma-separated IDs in a single ID argument:
+
+```bash
+block show 1v1,2v1,3v1
+block tree add-child 1v1,2v1 "Shared child text"
+```
+
+Batch execution is continue-on-error: all targets are attempted and errors are
+reported after processing completes.
+
 ## Command Reference
 
 All the following commands should be prepended by `blooming-blockery`.
@@ -220,5 +230,13 @@ block context 1v1
 2. Block IDs are case-insensitive
 3. Mount format defaults to `json` but supports `markdown`
    - `mount extract --format` overrides path-extension inference
-4. Panel states are `friends` or `instruction`
-5. The GUI launches by default if no subcommand is given
+4. Batch-capable commands support comma-separated IDs:
+   - `show`, `point`
+   - `tree add-child|add-sibling|wrap|duplicate|delete`
+   - `nav next|prev|lineage`
+   - `fold toggle|status`
+   - `draft instruction|inquiry|list|clear`
+   - `mount expand|collapse|inline|inline-recursive|info`
+   - `context`
+5. Panel states are `friends` or `instruction`
+6. The GUI launches by default if no subcommand is given
