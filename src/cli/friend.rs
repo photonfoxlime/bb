@@ -11,55 +11,16 @@ pub enum FriendCommands {
     /// Friend blocks are extra context blocks included in LLM requests for
     /// the target block. They are not children but related blocks with
     /// optional perspective framing.
-    ///
-    /// # Arguments
-    ///
-    /// - `target_id`: Block that "has" the friends
-    /// - `friend_id`: Block to add as a friend
-    /// - `--perspective`: Optional framing text for how to interpret the friend
-    /// - `--telescope-lineage`: Include friend's parent lineage in context
-    /// - `--telescope-children`: Include friend's children in context
-    ///
-    /// # Returns
-    ///
-    /// Success indicator.
-    ///
-    /// # Errors
-    ///
-    /// - `UnknownBlock`: Either ID not found.
-    /// - `InvalidOperation`: Adding self as friend.
-    ///
-    /// # Example
-    /// ```bash
-    /// block friend add 1v1 1v1 --perspective "Related design"
-    /// block friend add 1v1 1v1 --telescope-lineage --telescope-children
-    /// ```
+    /// Fails if either ID is unknown or if `target_id` equals `friend_id`.
+    /// Example: `blooming-blockery block friend add 1v1 2v1 --perspective "Related design"`.
     Add(AddFriendCommand),
 
     /// Remove a friend block.
-    ///
-    /// # Arguments
-    ///
-    /// - `target_id`: Block that has the friend
-    /// - `friend_id`: Friend to remove
-    ///
-    /// # Example
-    /// ```bash
-    /// block friend remove 1v1 1v1
-    /// ```
+    /// Example: `blooming-blockery block friend remove 1v1 2v1`.
     Remove(RemoveFriendCommand),
 
     /// List friend blocks for a target.
-    ///
-    /// # Arguments
-    ///
-    /// - `target_id`: Block to query
-    ///
-    /// # Example
-    /// ```bash
-    /// block friend list 1v1
-    /// block friend list 1v1 --output json
-    /// ```
+    /// Example: `blooming-blockery block friend list 1v1 --output json`.
     List(ListFriendCommand),
 }
 

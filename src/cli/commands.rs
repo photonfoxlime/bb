@@ -81,7 +81,7 @@ pub struct BlockCli {
 
     /// Path to the block store file.
     ///
-    /// If not provided, defaults to [`crate::paths::AppPaths::data_file()`].
+    /// If not provided, uses the default application data file path.
     #[arg(long, global = true, value_name = "PATH")]
     pub store: Option<std::path::PathBuf>,
 
@@ -93,8 +93,7 @@ pub struct BlockCli {
 
     /// Output format for query results.
     ///
-    /// - `table`: Human-readable format (default)
-    /// - `json`: Machine-readable JSON for scripting
+    /// Use `table` for human-readable output or `json` for scripting.
     #[arg(long, global = true, value_name = "FORMAT", default_value = "table")]
     pub output: OutputFormat,
 }

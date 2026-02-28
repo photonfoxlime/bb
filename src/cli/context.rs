@@ -8,10 +8,8 @@ use clap::Parser;
 pub struct ContextCommand {
     /// Target block.
     ///
-    /// The context includes:
-    /// - Lineage: ancestor block texts (root to parent)
-    /// - Children: direct children's text
-    /// - Friends: friend block info with perspectives
+    /// The context includes lineage text, direct children text, and friend
+    /// metadata for LLM requests.
     #[arg(value_name = "BLOCK_ID")]
     pub block_id: BlockId,
 }

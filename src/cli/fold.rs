@@ -9,37 +9,13 @@ pub enum FoldCommands {
     /// Toggle the fold state of a block.
     ///
     /// If collapsed, expands to show children. If expanded, collapses to hide.
-    ///
-    /// # Arguments
-    ///
-    /// - `block_id`: Target block (must have children to be collapsible)
-    ///
-    /// # Returns
-    ///
-    /// New fold state: `true` = collapsed, `false` = expanded.
-    ///
-    /// # Example
-    /// ```bash
-    /// block fold toggle 1v1
-    /// # Output: {"collapsed": true}
-    /// ```
+    /// Returns `true` when the block is collapsed after the operation.
+    /// Example: `blooming-blockery block fold toggle 1v1`.
     Toggle(ToggleFoldCommand),
 
     /// Get the fold state of a block.
-    ///
-    /// # Arguments
-    ///
-    /// - `block_id`: Target block
-    ///
-    /// # Returns
-    ///
-    /// `true` if collapsed, `false` if expanded.
-    ///
-    /// # Example
-    /// ```bash
-    /// block fold status 1v1
-    /// # Output: {"collapsed": false}
-    /// ```
+    /// Returns `true` if collapsed and `false` if expanded.
+    /// Example: `blooming-blockery block fold status 1v1`.
     Status(StatusFoldCommand),
 }
 

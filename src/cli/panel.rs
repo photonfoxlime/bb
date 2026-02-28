@@ -9,42 +9,15 @@ pub enum PanelCommands {
     /// Set the panel state for a block.
     ///
     /// Persists which panel (Friends or Instruction) is open for a block.
-    ///
-    /// # Arguments
-    ///
-    /// - `block_id`: Target block
-    /// - `panel`: Panel name (friends or instruction)
-    ///
-    /// # Example
-    /// ```bash
-    /// block panel set 1v1 friends
-    /// block panel set 1v1 instruction
-    /// ```
+    /// Example: `blooming-blockery block panel set 1v1 friends`.
     Set(SetPanelCommand),
 
     /// Get the panel state for a block.
-    ///
-    /// # Arguments
-    ///
-    /// - `block_id`: Target block
-    ///
-    /// # Example
-    /// ```bash
-    /// block panel get 1v1
-    /// # Output: {"panel": "friends"}
-    /// ```
+    /// Example: `blooming-blockery block panel get 1v1`.
     Get(GetPanelCommand),
 
     /// Clear the panel state.
-    ///
-    /// # Arguments
-    ///
-    /// - `block_id`: Target block
-    ///
-    /// # Example
-    /// ```bash
-    /// block panel clear 1v1
-    /// ```
+    /// Example: `blooming-blockery block panel clear 1v1`.
     Clear(ClearPanelCommand),
 }
 
@@ -57,8 +30,8 @@ pub struct SetPanelCommand {
 
     /// Panel to show.
     ///
-    /// - `friends`: Show friends panel
-    /// - `instruction`: Show instruction editor
+    /// Use `friends` to show the friends panel or `instruction` to show the
+    /// instruction editor.
     #[arg(value_name = "PANEL")]
     pub panel: PanelBarStateCli,
 }

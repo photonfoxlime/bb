@@ -9,61 +9,24 @@ pub enum NavCommands {
     /// Get the next visible block in DFS order.
     ///
     /// Traverses depth-first, descending into uncollapsed blocks and skipping
-    /// collapsed subtrees. Returns `null` if at the last visible block.
-    ///
-    /// # Arguments
-    ///
-    /// - `block_id`: Current block position
-    ///
-    /// # Returns
-    ///
-    /// Next visible block ID, or null if at end.
-    ///
-    /// # Example
-    /// ```bash
-    /// block nav next 1v1
-    /// # Output: 2v1
-    /// ```
+    /// collapsed subtrees.
+    /// Returns `null` when there is no next visible block.
+    /// Example: `blooming-blockery block nav next 1v1`.
     Next(NextCommand),
 
     /// Get the previous visible block in DFS order.
     ///
     /// Traverses backward, descending into deepest visible descendants of
-    /// previous siblings. Returns `null` if at the first visible block.
-    ///
-    /// # Arguments
-    ///
-    /// - `block_id`: Current block position
-    ///
-    /// # Returns
-    ///
-    /// Previous visible block ID, or null if at start.
-    ///
-    /// # Example
-    /// ```bash
-    /// block nav prev 2v1
-    /// # Output: 1v1
-    /// ```
+    /// previous siblings.
+    /// Returns `null` when there is no previous visible block.
+    /// Example: `blooming-blockery block nav prev 2v1`.
     Prev(PrevCommand),
 
     /// Get the lineage (ancestor chain) for a block.
     ///
     /// Returns all ancestor block texts from root to the target (exclusive of
     /// target's own text).
-    ///
-    /// # Arguments
-    ///
-    /// - `block_id`: Target block
-    ///
-    /// # Returns
-    ///
-    /// Vector of ancestor block texts in order (root → parent).
-    ///
-    /// # Example
-    /// ```bash
-    /// block nav lineage 1v1p
-    /// # Output: ["Root", "Section", "Subsection"]
-    /// ```
+    /// Example: `blooming-blockery block nav lineage 1v1`.
     Lineage(LineageCommand),
 
     /// Jump to the next query match in DFS order.
@@ -74,12 +37,7 @@ pub enum NavCommands {
     ///
     /// By default, this wraps to the first match when no later match exists.
     /// Use `--no-wrap` to return `null` instead.
-    ///
-    /// # Example
-    /// ```bash
-    /// block nav find-next 1v1 "design"
-    /// block nav find-next 1v1 "design" --no-wrap
-    /// ```
+    /// Example: `blooming-blockery block nav find-next 1v1 "design" --no-wrap`.
     FindNext(FindNextCommand),
 
     /// Jump to the previous query match in DFS order.
@@ -87,12 +45,7 @@ pub enum NavCommands {
     /// Returns the nearest match strictly before `block_id` in DFS order.
     /// By default, this wraps to the last match when no earlier match exists.
     /// Use `--no-wrap` to return `null` instead.
-    ///
-    /// # Example
-    /// ```bash
-    /// block nav find-prev 2v1 "design"
-    /// block nav find-prev 2v1 "design" --no-wrap
-    /// ```
+    /// Example: `blooming-blockery block nav find-prev 2v1 "design" --no-wrap`.
     FindPrev(FindPrevCommand),
 }
 
