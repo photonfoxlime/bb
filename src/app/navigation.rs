@@ -232,6 +232,46 @@ impl NavigationStack {
     pub fn current_block_id(&self) -> Option<BlockId> {
         self.current().map(|l| l.block_id)
     }
+
+    /// Check if a block is within the current navigation view.
+    ///
+    /// A block is in view if:
+    /// - The navigation stack is empty (viewing root) and the block is in the main document
+    /// - The block is a descendant of the current navigation layer's block
+    ///
+    /// This check is structural (based on parent-child relationships) and does
+    /// not consider fold state. Use `BlockStore::is_visible` to check fold state.
+    ///
+    /// # Arguments
+    ///
+    /// * `store` - The block store to query for structure
+    /// * `block_id` - The block to check
+    ///
+    /// # Returns
+    ///
+    /// `true` if the block is within the current navigation view, `false` otherwise.
+    pub fn is_in_current_view(&self, store: &BlockStore, block_id: &BlockId) -> bool {
+        // Empty stack means viewing all roots
+        let Some(current_layer) = self.current() else {
+            return store.node(block_id).is_some();
+        };
+
+        // Check if block_id is a descendant of current_layer.block_id
+        // or is the current layer's block itself
+        if block_id == &current_layer.block_id {
+            return true;
+        }
+
+        // Walk up the parent chain to see if we reach the current layer's block
+        let mut current = *block_id;
+        while let Some(parent) = store.parent(&current) {
+            if parent == current_layer.block_id {
+                return true;
+            }
+            current = parent;
+        }
+        false
+    }
 }
 
 /// Process one navigation message and return a follow-up task (if any).
@@ -250,6 +290,9 @@ impl NavigationStack {
 /// A task for asynchronous operations (file dialogs, file loading),
 /// or `Task::none()` for synchronous state updates.
 pub fn handle(state: &mut AppState, message: NavigationMessage) -> Task<Message> {
+    // Clear friend hover state on navigation
+    state.ui_state.hovered_friend_block = None;
+
     match message {
         | NavigationMessage::Enter(block_id) => {
             // Validate block exists

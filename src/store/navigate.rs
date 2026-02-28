@@ -147,4 +147,32 @@ impl BlockStore {
             }
         }
     }
+
+    /// Check if a block is visible in the current view.
+    ///
+    /// A block is visible if:
+    /// - All its ancestors (up to a root) are not collapsed
+    /// - The block itself exists in the store
+    ///
+    /// This does not check navigation layer visibility; it only checks
+    /// the fold state. Use this in combination with navigation checks
+    /// to determine if a block should be highlighted on hover.
+    ///
+    /// # Returns
+    /// - `true` if the block exists and all ancestors are expanded
+    /// - `false` if the block does not exist or any ancestor is collapsed
+    pub fn is_visible(&self, block_id: &BlockId) -> bool {
+        if self.node(block_id).is_none() {
+            return false;
+        }
+        // Walk up the ancestor chain; if any ancestor is collapsed, return false
+        let mut current = *block_id;
+        while let Some(parent) = self.parent(&current) {
+            if self.view_collapsed.contains_key(parent) {
+                return false;
+            }
+            current = parent;
+        }
+        true
+    }
 }

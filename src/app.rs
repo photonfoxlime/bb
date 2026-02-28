@@ -104,6 +104,8 @@ pub struct AppState {
     persistence_write_disabled: bool,
     /// UI focus state: keyboard focus + overflow menu state.
     focus: Option<FocusState>,
+    /// Transient UI singleton state (hover effects, visual feedback).
+    ui_state: UiSingletonState,
     /// (target_block_id, friend_block_id) of friend perspective currently being edited inline.
     editing_friend_perspective: Option<(BlockId, BlockId)>,
     /// Current text input value when editing friend perspective.
@@ -176,6 +178,7 @@ impl AppState {
             persistence_blocked,
             persistence_write_disabled: false,
             focus: None,
+            ui_state: UiSingletonState::default(),
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,
             edit_session: None,
@@ -407,6 +410,8 @@ impl AppState {
                 Task::none()
             }
             | Message::DocumentMode(mode) => {
+                // Clear friend hover state when changing document modes
+                self.ui_state.hovered_friend_block = None;
                 self.document_mode = mode;
                 Task::none()
             }
@@ -524,6 +529,42 @@ pub struct FocusState {
     pub overflow_open: bool,
 }
 
+/// UI singleton state: transient visual feedback state not tied to any specific block.
+///
+/// This struct holds ephemeral UI state that provides visual feedback to the user
+/// but does not need to be persisted or snapshot for undo/redo. The state is
+/// automatically cleared when no longer relevant (e.g., hover exits).
+///
+/// # Design Decisions
+///
+/// ## Why a Separate Struct?
+///
+/// - Keeps `AppState` organized by separating persistent state from transient UI feedback
+/// - Avoids cluttering undo snapshots with hover/visual-only state
+/// - Makes it clear which fields are not serialized or persisted
+///
+/// ## Why Not Persisted?
+///
+/// - Hover state is purely visual feedback with no semantic meaning
+/// - Resetting on reload is acceptable and expected behavior
+/// - Keeps serialization lean and focused on user data
+#[derive(Debug, Clone, Default)]
+pub struct UiSingletonState {
+    /// The friend block currently being hovered in the Friends Panel.
+    ///
+    /// When `Some`, the corresponding block in the document tree is highlighted
+    /// to help users identify the friend's location. The highlight is cleared
+    /// when hover exits or the friend panel is closed.
+    ///
+    /// # Visibility Constraint
+    ///
+    /// The highlight is only applied if the friend block is currently visible
+    /// in the document tree (not collapsed and within the current navigation layer).
+    /// If the friend is hidden, no visual feedback is shown to avoid confusing
+    /// the user with a highlight that points to nothing visible.
+    pub hovered_friend_block: Option<BlockId>,
+}
+
 /// Snapshot of undoable application state.
 ///
 /// Contains the store and navigation stack. Editor buffers are
@@ -612,6 +653,9 @@ mod edit {
     pub fn handle_point_edited(
         state: &mut AppState, block_id: BlockId, action: text_editor::Action,
     ) -> Task<Message> {
+        // Clear friend hover state when editing
+        state.ui_state.hovered_friend_block = None;
+
         // Don't change focus in PickFriend mode
         if state.document_mode == DocumentMode::PickFriend {
             return Task::none();
@@ -761,6 +805,7 @@ impl AppState {
             errors: vec![],
             llm_requests: LlmRequests::new(),
             focus: None,
+            ui_state: UiSingletonState::default(),
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,
             edit_session: None,

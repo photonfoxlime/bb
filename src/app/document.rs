@@ -397,6 +397,14 @@ impl<'a> TreeView<'a> {
         let is_target_block =
             is_pick_friend_mode && self.state.focus().is_some_and(|s| s.block_id != *block_id);
 
+        // Check if this block should be highlighted due to friend panel hover
+        let is_hovered_friend =
+            self.state.ui_state.hovered_friend_block.is_some_and(|hovered_id| {
+                hovered_id == *block_id
+                    && self.state.store.is_visible(block_id)
+                    && self.state.navigation.is_in_current_view(&self.state.store, block_id)
+            });
+
         let point_editor: Element<'a, Message> = if is_target_block {
             // In friend picker mode, render as plain text so the button wrapper can capture clicks
             let point_text = self.state.store.point(block_id).unwrap_or_default();
@@ -480,6 +488,10 @@ impl<'a> TreeView<'a> {
             | (DocumentMode::Normal, Some(focused)) if focused == *block_id => {
                 // Render the block as the focused block
                 container(block).style(theme::focused_block).into()
+            }
+            | (DocumentMode::Normal, _) if is_hovered_friend => {
+                // Highlight block when friend panel hovers over it
+                container(block).style(theme::friend_picker_hover).into()
             }
             | (DocumentMode::Normal, _) => block.into(),
             | (DocumentMode::PickFriend, Some(focused)) if focused == *block_id => {

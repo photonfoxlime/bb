@@ -58,6 +58,15 @@ pub enum FriendPanelMessage {
     ToggleParentLineageTelescope { target: BlockId, friend_id: BlockId },
     /// Toggle whether children telescope is enabled for a friend in LLM context.
     ToggleChildrenTelescope { target: BlockId, friend_id: BlockId },
+    /// Friend block clicked in panel - highlights the friend in the document tree.
+    ///
+    /// Note: Currently triggered on click rather than hover due to iced's closure
+    /// type system limitations with `mouse_area`. Future implementation may use
+    /// subscriptions for true hover detection.
+    HoverFriend(BlockId),
+    /// Friend click exited - clears the highlight (reserved for future hover implementation).
+    #[allow(dead_code)]
+    UnhoverFriend,
 }
 
 /// Handle friends panel messages.
@@ -69,6 +78,8 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
                 match current_state {
                     | Some(PanelBarState::Friends) => {
                         state.store.set_panel_state(&block_id, None);
+                        // Clear hover state when closing the friends panel
+                        state.ui_state.hovered_friend_block = None;
                     }
                     | _ => {
                         state.store.set_panel_state(&block_id, Some(PanelBarState::Friends));
@@ -182,6 +193,14 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
                     false
                 }
             });
+            Task::none()
+        }
+        | FriendPanelMessage::HoverFriend(friend_id) => {
+            state.ui_state.hovered_friend_block = Some(friend_id);
+            Task::none()
+        }
+        | FriendPanelMessage::UnhoverFriend => {
+            state.ui_state.hovered_friend_block = None;
             Task::none()
         }
     }
@@ -348,6 +367,28 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 .into()
         };
 
+        let point_text_element: Element<'a, Message> = {
+            // Use button with hover style to indicate interactivity
+            // Click to highlight the friend block in the document tree
+            button(text(truncated_point).font(theme::INTER).size(theme::FRIEND_POINT_SIZE))
+                .style(move |theme, status| {
+                    let p = theme::focused_palette(theme);
+                    button::Style {
+                        background: if matches!(status, button::Status::Hovered) {
+                            Some(p.tint.into())
+                        } else {
+                            None
+                        },
+                        text_color: p.ink,
+                        border: iced::Border::default(),
+                        shadow: Default::default(),
+                        snap: false,
+                    }
+                })
+                .on_press(Message::FriendPanel(FriendPanelMessage::HoverFriend(friend_id)))
+                .into()
+        };
+
         let line = row![]
             .spacing(theme::PANEL_BUTTON_GAP)
             .align_y(iced::alignment::Vertical::Top)
@@ -355,7 +396,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 row![]
                     .spacing(theme::FRIEND_ROW_GAP)
                     .align_y(iced::alignment::Vertical::Top)
-                    .push(text(truncated_point).font(theme::INTER).size(theme::FRIEND_POINT_SIZE))
+                    .push(point_text_element)
                     .push(iced::widget::Space::new().width(Length::Fixed(theme::FRIEND_AS_GAP)))
                     .push(
                         text(rust_i18n::t!("doc_friend_as").to_string())
