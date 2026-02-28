@@ -78,7 +78,7 @@ const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// - `editor_buffers`: widget-local text buffers + focus ids.
 /// - persistence flags: recovery guard for unsafe-on-disk state plus a runtime
 ///   write gate for side-effect-free runs.
-/// - `focus`: UI keyboard focus + overflow menu state.
+/// - `transient_ui`: non-persisted interaction state (focus, hover, inline editors, popovers).
 /// - `edit_session`: undo coalescing session tracker.
 /// - `document_mode`, `active_view`: view/controller state only.
 #[derive(Clone)]
@@ -104,16 +104,10 @@ pub struct AppState {
     /// `AppState::load()` initializes this to `false`; tests explicitly set it
     /// to `true` in `test_state` to avoid touching on-disk `blocks.json`.
     persistence_write_disabled: bool,
-    /// UI focus state: keyboard focus + overflow menu state.
-    focus: Option<FocusState>,
     /// Transient UI singleton state (hover effects, visual feedback).
     transient_ui: TransientUiState,
     /// Transient find-overlay state (query, matches, and selection).
     find_ui: FindUiState,
-    /// (target_block_id, friend_block_id) of friend perspective currently being edited inline.
-    editing_friend_perspective: Option<(BlockId, BlockId)>,
-    /// Current text input value when editing friend perspective.
-    editing_friend_perspective_input: Option<String>,
     /// Edit session: block currently coalescing point edits into a single undo entry.
     edit_session: Option<BlockId>,
     /// Current document interaction mode (normal vs picking a friend).
@@ -180,11 +174,8 @@ impl AppState {
             editor_buffers,
             persistence_blocked,
             persistence_write_disabled: false,
-            focus: None,
             transient_ui: TransientUiState::default(),
             find_ui: FindUiState::default(),
-            editing_friend_perspective: None,
-            editing_friend_perspective_input: None,
             edit_session: None,
             document_mode: DocumentMode::default(),
 
@@ -305,26 +296,26 @@ impl AppState {
 
     /// Get the current UI focus state.
     fn focus(&self) -> Option<FocusState> {
-        self.focus
+        self.transient_ui.focus
     }
 
     /// Set the focused block.
     fn set_focus(&mut self, block_id: BlockId) {
-        if let Some(state) = &mut self.focus {
+        if let Some(state) = &mut self.transient_ui.focus {
             state.block_id = block_id;
         } else {
-            self.focus = Some(FocusState { block_id, overflow_open: false });
+            self.transient_ui.focus = Some(FocusState { block_id, overflow_open: false });
         }
     }
 
     /// Clear the focus.
     fn clear_focus(&mut self) {
-        self.focus = None;
+        self.transient_ui.focus = None;
     }
 
     /// Set the overflow menu open/closed for the focused block.
     fn set_overflow_open(&mut self, open: bool) {
-        if let Some(state) = &mut self.focus {
+        if let Some(state) = &mut self.transient_ui.focus {
             state.overflow_open = open;
         }
     }
@@ -551,27 +542,29 @@ pub struct FocusState {
     pub overflow_open: bool,
 }
 
-/// UI singleton state: transient visual feedback state not tied to any specific block.
+/// UI singleton state: transient interaction state not persisted with the document.
 ///
-/// This struct holds ephemeral UI state that provides visual feedback to the user
-/// but does not need to be persisted or snapshot for undo/redo. The state is
-/// automatically cleared when no longer relevant (e.g., hover exits).
+/// This struct groups ephemeral UI-only state such as focus, hover feedback,
+/// inline editor buffers, and temporary confirmation/overflow toggles.
+/// It is intentionally excluded from undo snapshots and on-disk persistence.
 ///
 /// # Design Decisions
 ///
 /// ## Why a Separate Struct?
 ///
 /// - Keeps `AppState` organized by separating persistent state from transient UI feedback
-/// - Avoids cluttering undo snapshots with hover/visual-only state
+/// - Avoids cluttering undo snapshots with non-semantic UI state
 /// - Makes it clear which fields are not serialized or persisted
 ///
 /// ## Why Not Persisted?
 ///
-/// - Hover state is purely visual feedback with no semantic meaning
+/// - Focus/hover/inline editor UI state has no durable document meaning
 /// - Resetting on reload is acceptable and expected behavior
 /// - Keeps serialization lean and focused on user data
 #[derive(Debug, Clone, Default)]
 pub struct TransientUiState {
+    /// UI focus state: keyboard focus + overflow menu state.
+    pub focus: Option<FocusState>,
     /// The friend block currently being hovered in the Friends Panel.
     ///
     /// When `Some`, the corresponding block in the document tree is highlighted
@@ -596,6 +589,10 @@ pub struct TransientUiState {
     /// This drives the mount-header overflow UI (move/inline/inline-all).
     /// Only one mount overflow is open at a time.
     pub mount_action_overflow_block: Option<BlockId>,
+    /// (target_block_id, friend_block_id) currently being edited inline.
+    pub editing_friend_perspective: Option<(BlockId, BlockId)>,
+    /// Current text input value for friend perspective inline editing.
+    pub editing_friend_perspective_input: Option<String>,
 }
 
 /// Snapshot of undoable application state.
@@ -837,11 +834,8 @@ impl AppState {
             providers,
             errors: vec![],
             llm_requests: LlmRequests::new(),
-            focus: None,
             transient_ui: TransientUiState::default(),
             find_ui: FindUiState::default(),
-            editing_friend_perspective: None,
-            editing_friend_perspective_input: None,
             edit_session: None,
             document_mode: DocumentMode::default(),
             persistence_blocked: false,
