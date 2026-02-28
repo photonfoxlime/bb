@@ -51,7 +51,7 @@ use super::{
     settings::SettingsMessage,
 };
 use crate::{
-    store::{BlockId, ExpansionDraftRecord, PanelBarState, ReductionDraftRecord},
+    store::{BlockId, BlockPanelBarState, ExpansionDraftRecord, ReductionDraftRecord},
     text::truncate_for_display,
     theme,
 };
@@ -868,17 +868,21 @@ impl<'a> TreeView<'a> {
     /// that appear in the panel row below.
     ///
     /// The toggle buttons reflect panel-open state independently:
-    /// - `Friends` is highlighted only when `PanelBarState::Friends` is open.
-    /// - `Instruction` is highlighted only when `PanelBarState::Instruction` is open.
+    /// - `Friends` is highlighted only when [`BlockPanelBarState::Friends`] is open.
+    /// - `Instruction` is highlighted only when [`BlockPanelBarState::Instruction`] is open.
     fn render_panel_bar_only(&self, block_id: &BlockId, is_focused: bool) -> Element<'a, Message> {
         if !is_focused {
             return column![].into();
         }
 
-        let friends_panel_open =
-            matches!(self.state.store.panel_state(block_id), Some(PanelBarState::Friends));
-        let instruction_panel_open =
-            matches!(self.state.store.panel_state(block_id), Some(PanelBarState::Instruction));
+        let friends_panel_open = matches!(
+            self.state.store.block_panel_state(block_id),
+            Some(BlockPanelBarState::Friends)
+        );
+        let instruction_panel_open = matches!(
+            self.state.store.block_panel_state(block_id),
+            Some(BlockPanelBarState::Instruction)
+        );
 
         let button_row = row![]
             .spacing(theme::PANEL_BUTTON_GAP)
@@ -914,11 +918,11 @@ impl<'a> TreeView<'a> {
             return column![].into();
         }
 
-        match self.state.store.panel_state(block_id) {
-            | Some(PanelBarState::Friends) => {
+        match self.state.store.block_panel_state(block_id) {
+            | Some(BlockPanelBarState::Friends) => {
                 container(friends_panel::view(self.state)).width(Length::Fill).into()
             }
-            | Some(PanelBarState::Instruction) => {
+            | Some(BlockPanelBarState::Instruction) => {
                 container(instruction_panel::view(self.state)).width(Length::Fill).into()
             }
             | None => column![].into(),
@@ -932,8 +936,8 @@ impl<'a> TreeView<'a> {
     /// that can be shown inline (as opposed to draft panels which appear below).
     ///
     /// The toggle buttons reflect panel-open state independently:
-    /// - `Friends` is highlighted only when `PanelBarState::Friends` is open.
-    /// - `Instruction` is highlighted only when `PanelBarState::Instruction` is open.
+    /// - `Friends` is highlighted only when [`BlockPanelBarState::Friends`] is open.
+    /// - `Instruction` is highlighted only when [`BlockPanelBarState::Instruction`] is open.
     fn render_overlay_panel_bar(
         &self, block_id: &BlockId, is_focused: bool,
     ) -> Element<'a, Message> {
@@ -941,10 +945,14 @@ impl<'a> TreeView<'a> {
             return column![].into();
         }
 
-        let friends_panel_open =
-            matches!(self.state.store.panel_state(block_id), Some(PanelBarState::Friends));
-        let instruction_panel_open =
-            matches!(self.state.store.panel_state(block_id), Some(PanelBarState::Instruction));
+        let friends_panel_open = matches!(
+            self.state.store.block_panel_state(block_id),
+            Some(BlockPanelBarState::Friends)
+        );
+        let instruction_panel_open = matches!(
+            self.state.store.block_panel_state(block_id),
+            Some(BlockPanelBarState::Instruction)
+        );
 
         let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
         button_row = button_row.push(
@@ -967,11 +975,11 @@ impl<'a> TreeView<'a> {
         let mut col =
             column![].push(container(button_row).padding(Padding::ZERO.right(theme::INDENT)));
 
-        match self.state.store.panel_state(block_id) {
-            | Some(PanelBarState::Friends) => {
+        match self.state.store.block_panel_state(block_id) {
+            | Some(BlockPanelBarState::Friends) => {
                 col = col.push(container(friends_panel::view(self.state)).width(Length::Fill));
             }
-            | Some(PanelBarState::Instruction) => {
+            | Some(BlockPanelBarState::Instruction) => {
                 col = col.push(container(instruction_panel::view(self.state)).width(Length::Fill));
             }
             | None => {}

@@ -1450,7 +1450,7 @@ impl BlockCommands {
                 match id {
                     | None => (store, CliResult::Error("Unknown block ID".to_string())),
                     | Some(block_id) => {
-                        store.set_panel_state(&block_id, Some(cmd.panel.into()));
+                        store.set_block_panel_state(&block_id, Some(cmd.panel.into()));
                         (store, CliResult::Success)
                     }
                 }
@@ -1461,11 +1461,11 @@ impl BlockCommands {
                 match id {
                     | None => (store, CliResult::Error("Unknown block ID".to_string())),
                     | Some(block_id) => {
-                        let state = store.panel_state(&block_id).map(|s| match s {
-                            | store_module::PanelBarState::Friends => "friends",
-                            | store_module::PanelBarState::Instruction => "instruction",
+                        let state = store.block_panel_state(&block_id).map(|s| match s {
+                            | store_module::BlockPanelBarState::Friends => "friends",
+                            | store_module::BlockPanelBarState::Instruction => "instruction",
                         });
-                        (store, CliResult::PanelState(state.map(String::from)))
+                        (store, CliResult::BlockPanelState(state.map(String::from)))
                     }
                 }
             }
@@ -1475,7 +1475,7 @@ impl BlockCommands {
                 match id {
                     | None => (store, CliResult::Error("Unknown block ID".to_string())),
                     | Some(block_id) => {
-                        store.set_panel_state(&block_id, None);
+                        store.set_block_panel_state(&block_id, None);
                         (store, CliResult::Success)
                     }
                 }

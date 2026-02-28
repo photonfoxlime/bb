@@ -28,7 +28,7 @@
 //! block mount set 0xblock /path/to/file.md --format markdown
 //! ```
 
-use crate::store::{MountFormat as StoreMountFormat, PanelBarState as StorePanelBarState};
+use crate::store::{BlockPanelBarState, MountFormat as StoreMountFormat};
 use clap::ValueEnum;
 
 pub mod commands;
@@ -127,33 +127,34 @@ impl From<MountFormatCli> for StoreMountFormat {
 
 /// Panel state type for CLI argument parsing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-pub struct PanelBarStateCli(pub StorePanelBarState);
+pub struct BlockPanelBarStateCli(pub BlockPanelBarState);
 
-impl std::str::FromStr for PanelBarStateCli {
+impl std::str::FromStr for BlockPanelBarStateCli {
     type Err = String;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            | "friends" => Ok(Self(StorePanelBarState::Friends)),
-            | "instruction" => Ok(Self(StorePanelBarState::Instruction)),
-            | _ => {
-                Err(format!("Invalid panel state: '{}'. Expected 'friends' or 'instruction'.", s))
-            }
+            | "friends" => Ok(Self(BlockPanelBarState::Friends)),
+            | "instruction" => Ok(Self(BlockPanelBarState::Instruction)),
+            | _ => Err(format!(
+                "Invalid block panel state: '{}'. Expected 'friends' or 'instruction'.",
+                s
+            )),
         }
     }
 }
 
-impl std::fmt::Display for PanelBarStateCli {
+impl std::fmt::Display for BlockPanelBarStateCli {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
-            | StorePanelBarState::Friends => write!(f, "friends"),
-            | StorePanelBarState::Instruction => write!(f, "instruction"),
+            | BlockPanelBarState::Friends => write!(f, "friends"),
+            | BlockPanelBarState::Instruction => write!(f, "instruction"),
         }
     }
 }
 
-impl From<PanelBarStateCli> for StorePanelBarState {
-    fn from(s: PanelBarStateCli) -> Self {
+impl From<BlockPanelBarStateCli> for BlockPanelBarState {
+    fn from(s: BlockPanelBarStateCli) -> Self {
         s.0
     }
 }

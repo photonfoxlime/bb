@@ -43,7 +43,7 @@
 //! - append response to target point,
 //! - add response as a new child under the target.
 
-use crate::app::{AppState, Message, PanelBarState, RequestSignature};
+use crate::app::{AppState, BlockPanelBarState, Message, RequestSignature};
 use crate::llm;
 use crate::store::BlockId;
 use crate::theme;
@@ -100,11 +100,13 @@ pub fn handle(
 
     match msg {
         | InstructionPanelMessage::Toggle => {
-            let current_state = state.store.panel_state(&target_block_id).copied();
-            if matches!(current_state, Some(PanelBarState::Instruction)) {
-                state.store.set_panel_state(&target_block_id, None);
+            let current_state = state.store.block_panel_state(&target_block_id).copied();
+            if matches!(current_state, Some(BlockPanelBarState::Instruction)) {
+                state.store.set_block_panel_state(&target_block_id, None);
             } else {
-                state.store.set_panel_state(&target_block_id, Some(PanelBarState::Instruction));
+                state
+                    .store
+                    .set_block_panel_state(&target_block_id, Some(BlockPanelBarState::Instruction));
                 sync_instruction_panel_from_store(state, &target_block_id);
             }
             state.persist_with_context("after toggling instruction panel");
@@ -267,7 +269,7 @@ pub fn handle(
             state.store.set_instruction_draft(target_block_id, instruction.clone());
             state.persist_with_context("after persisting instruction draft for expand");
             state.editor_buffers.set_instruction_text("");
-            state.store.set_panel_state(&target_block_id, None);
+            state.store.set_block_panel_state(&target_block_id, None);
             state.persist_with_context("after closing instruction panel");
             crate::app::AppState::update(
                 state,
@@ -282,7 +284,7 @@ pub fn handle(
             state.store.set_instruction_draft(target_block_id, instruction.clone());
             state.persist_with_context("after persisting instruction draft for reduce");
             state.editor_buffers.set_instruction_text("");
-            state.store.set_panel_state(&target_block_id, None);
+            state.store.set_block_panel_state(&target_block_id, None);
             state.persist_with_context("after closing instruction panel");
             crate::app::AppState::update(
                 state,
@@ -378,12 +380,17 @@ fn sync_instruction_panel_from_store(state: &mut AppState, target_block_id: &Blo
 
 /// Render the instruction panel for the focused block.
 pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
-    use crate::store::PanelBarState;
+    use crate::store::BlockPanelBarState;
     use iced::Padding;
     use iced::widget::{column, row, scrollable};
 
     let block_id = match state.focus().map(|s| s.block_id) {
-        | Some(id) if matches!(state.store.panel_state(&id), Some(PanelBarState::Instruction)) => {
+        | Some(id)
+            if matches!(
+                state.store.block_panel_state(&id),
+                Some(BlockPanelBarState::Instruction)
+            ) =>
+        {
             id
         }
         | _ => return container(iced::widget::Text::new("")).into(),
@@ -615,7 +622,10 @@ mod tests {
             Message::InstructionPanel(root, InstructionPanelMessage::Toggle),
         );
 
-        assert_eq!(state.store.panel_state(&root).copied(), Some(PanelBarState::Instruction));
+        assert_eq!(
+            state.store.block_panel_state(&root).copied(),
+            Some(BlockPanelBarState::Instruction)
+        );
         assert_eq!(state.editor_buffers.instruction_content().text(), "keep this instruction");
     }
 
@@ -642,7 +652,7 @@ mod tests {
     fn instruction_toggle_closes_panel_and_preserves_draft_state() {
         let (mut state, root) = test_state();
         state.set_focus(root);
-        state.store.set_panel_state(&root, Some(PanelBarState::Instruction));
+        state.store.set_block_panel_state(&root, Some(BlockPanelBarState::Instruction));
         state.store.set_instruction_draft(root, "prompt".to_string());
         state.store.set_inquiry_draft(root, "result".to_string());
         let signature = state.block_context_signature(&root).expect("root has request signature");
@@ -654,7 +664,7 @@ mod tests {
             Message::InstructionPanel(root, InstructionPanelMessage::Toggle),
         );
 
-        assert_eq!(state.store.panel_state(&root).copied(), None);
+        assert_eq!(state.store.block_panel_state(&root).copied(), None);
         assert_eq!(
             state.store.instruction_draft(&root).map(|d| d.instruction.as_str()),
             Some("prompt")

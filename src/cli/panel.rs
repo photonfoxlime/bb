@@ -1,27 +1,27 @@
 //! Panel state commands.
 
-use super::{BlockId, PanelBarStateCli};
+use super::{BlockId, BlockPanelBarStateCli};
 use clap::Parser;
 
 /// Panel state operations.
 #[derive(Debug, Parser)]
 pub enum PanelCommands {
-    /// Set the panel state for a block.
+    /// Set the block panel state for a block.
     ///
     /// Persists which panel (Friends or Instruction) is open for a block.
     /// Example: `blooming-blockery block panel set 1v1 friends`.
     Set(SetPanelCommand),
 
-    /// Get the panel state for a block.
+    /// Get the block panel state for a block.
     /// Example: `blooming-blockery block panel get 1v1`.
     Get(GetPanelCommand),
 
-    /// Clear the panel state.
+    /// Clear the block panel state.
     /// Example: `blooming-blockery block panel clear 1v1`.
     Clear(ClearPanelCommand),
 }
 
-/// Set panel state.
+/// Set block panel state.
 #[derive(Debug, Parser)]
 pub struct SetPanelCommand {
     /// Target block.
@@ -33,10 +33,10 @@ pub struct SetPanelCommand {
     /// Use `friends` to show the friends panel or `instruction` to show the
     /// instruction editor.
     #[arg(value_name = "PANEL")]
-    pub panel: PanelBarStateCli,
+    pub panel: BlockPanelBarStateCli,
 }
 
-/// Get panel state.
+/// Get block panel state.
 #[derive(Debug, Parser)]
 pub struct GetPanelCommand {
     /// Target block.
@@ -44,7 +44,7 @@ pub struct GetPanelCommand {
     pub block_id: BlockId,
 }
 
-/// Clear panel state.
+/// Clear block panel state.
 #[derive(Debug, Parser)]
 pub struct ClearPanelCommand {
     /// Target block.

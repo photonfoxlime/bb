@@ -103,8 +103,8 @@ pub fn print_result(result: &CliResult, output: OutputFormat) {
         | CliResult::MountInlined(count) => {
             print_mount_inlined(*count, output);
         }
-        | CliResult::PanelState(state) => {
-            print_panel_state(state.as_deref(), output);
+        | CliResult::BlockPanelState(state) => {
+            print_block_panel_state(state.as_deref(), output);
         }
         | CliResult::Batch(report) => {
             print_batch_report(report, output);
@@ -391,7 +391,7 @@ fn print_mount_inlined(count: usize, output: OutputFormat) {
 }
 
 /// Print panel sidebar state.
-fn print_panel_state(state: Option<&str>, output: OutputFormat) {
+fn print_block_panel_state(state: Option<&str>, output: OutputFormat) {
     match output {
         | OutputFormat::Json => {
             println!("{}", serde_json::json!({ "panel": state }));

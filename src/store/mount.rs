@@ -32,7 +32,7 @@
 use super::drafts::{
     ExpansionDraftRecord, InquiryDraftRecord, InstructionDraftRecord, ReductionDraftRecord,
 };
-use super::{BlockId, BlockNode, BlockStore, FriendBlock, MountProjection, PanelBarState};
+use super::{BlockId, BlockNode, BlockPanelBarState, BlockStore, FriendBlock, MountProjection};
 use serde::{Deserialize, Serialize};
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
 use std::fs;
@@ -321,7 +321,7 @@ impl BlockStore {
             self.inquiry_drafts.remove(*id);
             self.view_collapsed.remove(*id);
             self.friend_blocks.remove(*id);
-            self.panel_state.remove(*id);
+            self.block_panel_state.remove(*id);
             self.mount_table.remove_origin(*id);
         }
         self.remove_friend_block_references(&removed_ids);
@@ -558,7 +558,7 @@ impl BlockStore {
                     self.inquiry_drafts.remove(id);
                     self.view_collapsed.remove(id);
                     self.friend_blocks.remove(id);
-                    self.panel_state.remove(id);
+                    self.block_panel_state.remove(id);
                 }
             }
         }
@@ -573,7 +573,7 @@ impl BlockStore {
             self.inquiry_drafts.remove(id);
             self.view_collapsed.remove(id);
             self.friend_blocks.remove(id);
-            self.panel_state.remove(id);
+            self.block_panel_state.remove(id);
             self.mount_table.remove_origin(id);
         }
         removed_friend_references.extend(own_ids.iter().copied());
@@ -609,7 +609,7 @@ impl BlockStore {
             SparseSecondaryMap::new();
         let mut sub_friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>> =
             SparseSecondaryMap::new();
-        let mut sub_panel_state: SparseSecondaryMap<BlockId, PanelBarState> =
+        let mut sub_block_panel_state: SparseSecondaryMap<BlockId, BlockPanelBarState> =
             SparseSecondaryMap::new();
         let mut id_map: std::collections::HashMap<BlockId, BlockId> =
             std::collections::HashMap::new();
@@ -700,9 +700,9 @@ impl BlockStore {
                 sub_friend_blocks.insert(new_target_id, remapped);
             }
         }
-        for (old_id, state) in &self.panel_state {
+        for (old_id, state) in &self.block_panel_state {
             if let Some(&new_id) = id_map.get(&old_id) {
-                sub_panel_state.insert(new_id, *state);
+                sub_block_panel_state.insert(new_id, *state);
             }
         }
         BlockStore::new_with_drafts(
@@ -715,7 +715,7 @@ impl BlockStore {
             sub_inquiry_drafts,
             sub_view_collapsed,
             sub_friend_blocks,
-            sub_panel_state,
+            sub_block_panel_state,
             hint,
         )
     }
@@ -813,9 +813,9 @@ impl BlockStore {
                 self.friend_blocks.insert(new_target_id, remapped);
             }
         }
-        for (old_id, state) in &sub_store.panel_state {
+        for (old_id, state) in &sub_store.block_panel_state {
             if let Some(&new_id) = id_map.get(&old_id) {
-                self.panel_state.insert(new_id, *state);
+                self.block_panel_state.insert(new_id, *state);
             }
         }
         (new_roots, all_new_ids)

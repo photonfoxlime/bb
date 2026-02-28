@@ -103,7 +103,7 @@ pub enum CliResult {
     /// Panel sidebar state.
     ///
     /// Returned by `panel get`, showing the current sidebar mode.
-    PanelState(Option<String>),
+    BlockPanelState(Option<String>),
     /// Batch execution report with per-item outputs and collected failures.
     ///
     /// Used by commands that support processing multiple target IDs in one run

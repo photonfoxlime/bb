@@ -314,14 +314,14 @@ blooming-blockery block mount info <BLOCK_ID>
 ### Panel Commands
 
 ```bash
-# Set panel state
+# Set block panel state
 blooming-blockery block panel set <BLOCK_ID> friends
 blooming-blockery block panel set <BLOCK_ID> instruction
 
-# Get panel state
+# Get block panel state
 blooming-blockery block panel get <BLOCK_ID>
 
-# Clear panel state
+# Clear block panel state
 blooming-blockery block panel clear <BLOCK_ID>
 ```
 

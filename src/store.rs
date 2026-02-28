@@ -32,7 +32,7 @@
 //! 1. Per-block data (user-authored content): `expansion_drafts`,
 //!    `reduction_drafts`, `view_collapsed`, `friend_blocks`, `instruction_drafts`.
 //!
-//! 2. Per-block UI state (ephemeral but worth persisting): `panel_state`.
+//! 2. Per-block UI state (ephemeral but worth persisting): `block_panel_state`.
 //!    This is not user-authored content but persists because it's useful to
 //!    remember which panel was open for each block.
 //!
@@ -139,12 +139,12 @@ pub enum Direction {
     Under,
 }
 
-/// Persisted panel bar state: which panel (if any) is open for a block.
+/// Persisted block panel bar state: which panel (if any) is open for a block.
 ///
 /// This is stored per-block so each block remembers its own panel state
 /// across app restarts. Unlike runtime UI state, this survives save/load.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum PanelBarState {
+pub enum BlockPanelBarState {
     /// Friends panel - shows user-selected friend blocks for LLM context.
     Friends,
     /// Instruction panel - text editor for LLM instructions.
@@ -237,50 +237,50 @@ pub struct BlockStore {
     /// When the mount is later expanded to an empty file, this hint is used to
     /// provide initial content.
     #[serde(default)]
-    pub(crate) hint: Option<String>,
+    pub hint: Option<String>,
     /// The ordered root block ids.
-    pub(crate) roots: Vec<BlockId>,
+    pub roots: Vec<BlockId>,
     /// The structural map of blocks, keyed by [`BlockId`].
-    pub(crate) nodes: SlotMap<BlockId, BlockNode>,
+    pub nodes: SlotMap<BlockId, BlockNode>,
     /// Text content for each block, keyed by [`BlockId`].
-    pub(crate) points: SecondaryMap<BlockId, String>,
+    pub points: SecondaryMap<BlockId, String>,
     /// Runtime-only mount tracking. Not serialized; reconstructed by
     /// re-expanding [`BlockNode::Mount`] nodes after deserialization.
     #[serde(skip)]
-    pub(crate) mount_table: MountTable,
+    pub mount_table: MountTable,
     /// Persisted per-block expansion drafts (rewrite + suggested children).
     ///
     /// Invariant: keys should reference existing blocks in [`Self::nodes`].
     /// Sparse by design: only blocks with pending expansion drafts are stored.
     #[serde(default)]
-    pub(crate) expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord>,
+    pub expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord>,
     /// Persisted per-block reduction drafts.
     ///
     /// Invariant: keys should reference existing blocks in [`Self::nodes`].
     /// Sparse by design: only blocks with pending reduction drafts are stored.
     #[serde(default)]
-    pub(crate) reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord>,
+    pub reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord>,
     /// Persisted per-block instruction drafts.
     #[serde(default)]
-    pub(crate) instruction_drafts: SparseSecondaryMap<BlockId, InstructionDraftRecord>,
+    pub instruction_drafts: SparseSecondaryMap<BlockId, InstructionDraftRecord>,
     /// Persisted per-block inquiry drafts.
     #[serde(default)]
-    pub(crate) inquiry_drafts: SparseSecondaryMap<BlockId, InquiryDraftRecord>,
+    pub inquiry_drafts: SparseSecondaryMap<BlockId, InquiryDraftRecord>,
     /// Persisted per-block fold (collapse) state.
     ///
     /// Presence of a key means the block's children are hidden in the UI.
     /// Stored in the authoritative graph so fold state survives reloads,
     /// participates in undo/redo snapshots, and follows save/load id remapping.
     #[serde(default)]
-    pub(crate) view_collapsed: SparseSecondaryMap<BlockId, bool>,
+    pub view_collapsed: SparseSecondaryMap<BlockId, bool>,
     #[serde(default)]
-    pub(crate) friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>>,
-    /// Persisted per-block panel bar state (which panel is open).
+    pub friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>>,
+    /// Persisted per-block block panel bar state (which panel is open).
     ///
     /// Stores whether the Friends or Instruction panel is open for each block.
     /// This survives reloads so the UI remembers which panel was last open.
     #[serde(default)]
-    pub(crate) panel_state: SparseSecondaryMap<BlockId, PanelBarState>,
+    pub block_panel_state: SparseSecondaryMap<BlockId, BlockPanelBarState>,
 }
 
 impl BlockStore {
@@ -311,7 +311,7 @@ impl BlockStore {
         )
     }
 
-    pub(crate) fn new_with_drafts(
+    pub fn new_with_drafts(
         roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
         points: SecondaryMap<BlockId, String>,
         expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord>,
@@ -320,7 +320,7 @@ impl BlockStore {
         inquiry_drafts: SparseSecondaryMap<BlockId, InquiryDraftRecord>,
         view_collapsed: SparseSecondaryMap<BlockId, bool>,
         friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>>,
-        panel_state: SparseSecondaryMap<BlockId, PanelBarState>, hint: Option<String>,
+        block_panel_state: SparseSecondaryMap<BlockId, BlockPanelBarState>, hint: Option<String>,
     ) -> Self {
         Self {
             roots,
@@ -333,7 +333,7 @@ impl BlockStore {
             inquiry_drafts,
             view_collapsed,
             friend_blocks,
-            panel_state,
+            block_panel_state,
             hint,
         }
     }
@@ -461,8 +461,11 @@ impl PartialEq for BlockStore {
                 .friend_blocks
                 .iter()
                 .all(|(id, blocks)| other.friend_blocks.get(id) == Some(blocks))
-            && self.panel_state.len() == other.panel_state.len()
-            && self.panel_state.iter().all(|(id, state)| other.panel_state.get(id) == Some(state))
+            && self.block_panel_state.len() == other.block_panel_state.len()
+            && self
+                .block_panel_state
+                .iter()
+                .all(|(id, state)| other.block_panel_state.get(id) == Some(state))
     }
 }
 

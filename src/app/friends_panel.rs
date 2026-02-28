@@ -29,7 +29,7 @@
 //! - Empty state with placeholder makes the affordance discoverable without cluttering the UI.
 
 use crate::app::{AppState, DocumentMode, Message, StructureMessage};
-use crate::store::{BlockId, PanelBarState};
+use crate::store::{BlockId, BlockPanelBarState};
 use crate::text::truncate_for_display;
 use crate::theme;
 use iced::widget::{
@@ -74,20 +74,22 @@ pub enum FriendPanelMessage {
 pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
     match msg {
         | FriendPanelMessage::Toggle(block_id) => {
-            let current_state = state.store.panel_state(&block_id).copied();
+            let current_state = state.store.block_panel_state(&block_id).copied();
             if state.focus().is_some_and(|s| s.block_id == block_id) {
                 match current_state {
-                    | Some(PanelBarState::Friends) => {
-                        state.store.set_panel_state(&block_id, None);
+                    | Some(BlockPanelBarState::Friends) => {
+                        state.store.set_block_panel_state(&block_id, None);
                         // Clear hover state when closing the friends panel
                         state.ui_mut().hovered_friend_block = None;
                     }
                     | _ => {
-                        state.store.set_panel_state(&block_id, Some(PanelBarState::Friends));
+                        state
+                            .store
+                            .set_block_panel_state(&block_id, Some(BlockPanelBarState::Friends));
                     }
                 }
             } else {
-                state.store.set_panel_state(&block_id, Some(PanelBarState::Friends));
+                state.store.set_block_panel_state(&block_id, Some(BlockPanelBarState::Friends));
             }
             state.persist_with_context("after toggling friends panel");
             Task::none()
@@ -214,7 +216,8 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         | None => return column![].into(),
     };
 
-    let is_picker_mode = matches!(state.store.panel_state(&block_id), Some(PanelBarState::Friends));
+    let is_picker_mode =
+        matches!(state.store.block_panel_state(&block_id), Some(BlockPanelBarState::Friends));
 
     let friends = state.store.friend_blocks_for(&block_id);
 

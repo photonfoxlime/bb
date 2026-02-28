@@ -52,7 +52,7 @@ use self::{
 };
 use crate::{
     i18n, llm,
-    store::{BlockId, BlockStore, PanelBarState, StoreLoadError},
+    store::{BlockId, BlockPanelBarState, BlockStore, StoreLoadError},
     undo::UndoHistory,
 };
 use iced::{
