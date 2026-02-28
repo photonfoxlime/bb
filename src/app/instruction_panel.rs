@@ -421,82 +421,87 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         panel = panel.push(button_row);
     }
 
-    if let Some(result) = inquiry_result {
-        let response_text = result.response.as_str();
-        let mut result_section = column![].spacing(theme::PANEL_INNER_GAP);
+    'inquiry: {
+        if let Some(result) = inquiry_result {
+            let response_text = result.response.as_str();
+            if response_text.is_empty() {
+                break 'inquiry;
+            }
+            let mut result_section = column![].spacing(theme::PANEL_INNER_GAP);
 
-        result_section = result_section.push(
-            container(
-                text(t!("instruction_response").to_string())
-                    .font(theme::INTER)
-                    .size(theme::INSTRUCTION_BUTTON_SIZE),
-            )
-            .width(iced::Length::Fill),
-        );
-
-        let result_content = container(
-            scrollable(text(response_text).font(theme::LXGW_WENKAI).size(14))
+            result_section = result_section.push(
+                container(
+                    text(t!("instruction_response").to_string())
+                        .font(theme::INTER)
+                        .size(theme::INSTRUCTION_BUTTON_SIZE),
+                )
                 .width(iced::Length::Fill),
-        )
-        .padding(Padding::from([6.0, 8.0]))
-        .style(theme::draft_panel)
-        .width(iced::Length::Fill);
+            );
 
-        result_section = result_section.push(result_content);
+            let result_content = container(
+                scrollable(text(response_text).font(theme::LXGW_WENKAI).size(14))
+                    .width(iced::Length::Fill),
+            )
+            .padding(Padding::from([6.0, 8.0]))
+            .style(theme::draft_panel)
+            .width(iced::Length::Fill);
 
-        let mut action_buttons = row![].spacing(theme::PANEL_BUTTON_GAP);
-        action_buttons = action_buttons.push(
-            button(
-                text(t!("instruction_apply_rewrite").to_string())
-                    .font(theme::INTER)
-                    .size(theme::INSTRUCTION_BUTTON_SIZE),
-            )
-            .style(theme::action_button)
-            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(
-                block_id,
-                InstructionPanelMessage::ApplyInstructionRewrite,
-            )),
-        );
-        action_buttons = action_buttons.push(
-            button(
-                text(t!("instruction_append_block").to_string())
-                    .font(theme::INTER)
-                    .size(theme::INSTRUCTION_BUTTON_SIZE),
-            )
-            .style(theme::action_button)
-            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(
-                block_id,
-                InstructionPanelMessage::AppendInstructionResponse,
-            )),
-        );
-        action_buttons = action_buttons.push(
-            button(
-                text(t!("instruction_add_child").to_string())
-                    .font(theme::INTER)
-                    .size(theme::INSTRUCTION_BUTTON_SIZE),
-            )
-            .style(theme::action_button)
-            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(
-                block_id,
-                InstructionPanelMessage::AddInstructionResponseAsChild,
-            )),
-        );
-        action_buttons = action_buttons.push(
-            button(
-                text(t!("ui_discard").to_string())
-                    .font(theme::INTER)
-                    .size(theme::INSTRUCTION_BUTTON_SIZE),
-            )
-            .style(theme::destructive_button)
-            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Dismiss)),
-        );
+            result_section = result_section.push(result_content);
 
-        result_section = result_section.push(action_buttons);
-        panel = panel.push(result_section);
+            let mut action_buttons = row![].spacing(theme::PANEL_BUTTON_GAP);
+            action_buttons = action_buttons.push(
+                button(
+                    text(t!("instruction_apply_rewrite").to_string())
+                        .font(theme::INTER)
+                        .size(theme::INSTRUCTION_BUTTON_SIZE),
+                )
+                .style(theme::action_button)
+                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::InstructionPanel(
+                    block_id,
+                    InstructionPanelMessage::ApplyInstructionRewrite,
+                )),
+            );
+            action_buttons = action_buttons.push(
+                button(
+                    text(t!("instruction_append_block").to_string())
+                        .font(theme::INTER)
+                        .size(theme::INSTRUCTION_BUTTON_SIZE),
+                )
+                .style(theme::action_button)
+                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::InstructionPanel(
+                    block_id,
+                    InstructionPanelMessage::AppendInstructionResponse,
+                )),
+            );
+            action_buttons = action_buttons.push(
+                button(
+                    text(t!("instruction_add_child").to_string())
+                        .font(theme::INTER)
+                        .size(theme::INSTRUCTION_BUTTON_SIZE),
+                )
+                .style(theme::action_button)
+                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::InstructionPanel(
+                    block_id,
+                    InstructionPanelMessage::AddInstructionResponseAsChild,
+                )),
+            );
+            action_buttons = action_buttons.push(
+                button(
+                    text(t!("ui_discard").to_string())
+                        .font(theme::INTER)
+                        .size(theme::INSTRUCTION_BUTTON_SIZE),
+                )
+                .style(theme::destructive_button)
+                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Dismiss)),
+            );
+
+            result_section = result_section.push(action_buttons);
+            panel = panel.push(result_section);
+        }
     }
 
     container(panel)
