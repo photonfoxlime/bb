@@ -133,17 +133,7 @@ impl<'a> DocumentView<'a> {
         .style(theme::action_button)
         .padding(theme::BUTTON_PAD);
 
-        // Open external document button – top-right, next to gear
-        let open_external_btn = button(
-            icons::icon_folder_open()
-                .size(16)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
-        )
-        .on_press(Message::Navigation(NavigationMessage::OpenExternalDialog))
-        .style(theme::action_button)
-        .padding(theme::BUTTON_PAD);
-
-        // Find button – top-right, next to open external and gear
+        // Find button – top-right, next to gear
         let find_btn = button(
             icons::icon_search()
                 .size(16)
@@ -153,8 +143,7 @@ impl<'a> DocumentView<'a> {
         .style(theme::action_button)
         .padding(theme::BUTTON_PAD);
 
-        let top_right_buttons =
-            row![find_btn, open_external_btn, gear_button].spacing(theme::ACTION_GAP);
+        let top_right_buttons = row![find_btn, gear_button].spacing(theme::ACTION_GAP);
         let floating_gear = container(
             container(top_right_buttons)
                 .width(Fill)
