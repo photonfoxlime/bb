@@ -105,38 +105,6 @@ impl<'a> DocumentView<'a> {
         .width(Fill)
         .height(Fill);
 
-        // Error banner
-        if let Some(error_banner) = ErrorBanner::from_state(state) {
-            let mut banner_content = column![
-                row![
-                    text(error_banner.title()),
-                    button(text(t!("ui_dismiss").to_string())).on_press(Message::Error(
-                        ErrorMessage::DismissAt(error_banner.latest.index)
-                    )),
-                ]
-                .spacing(8)
-            ]
-            .spacing(4);
-            for entry in &error_banner.previous_entries {
-                banner_content = banner_content.push(
-                    row![
-                        text(t!("error_earlier", message = entry.message.as_str()).to_string()),
-                        button(text(t!("ui_dismiss").to_string()))
-                            .on_press(Message::Error(ErrorMessage::DismissAt(entry.index))),
-                    ]
-                    .spacing(8),
-                );
-            }
-            if error_banner.hidden_previous_count > 0 {
-                banner_content = banner_content.push(text(
-                    t!("error_older_count", count = error_banner.hidden_previous_count).to_string(),
-                ));
-            }
-            layout = layout.push(
-                container(banner_content).style(theme::error_banner).padding(theme::BANNER_PAD),
-            );
-        }
-
         // Document tree
         let tree = TreeView::new(state).render_roots();
         let max_width = theme::canvas_max_width(state.window_size.width);
@@ -173,7 +141,29 @@ impl<'a> DocumentView<'a> {
         .style(theme::action_button)
         .padding(theme::BUTTON_PAD);
 
-        let top_right_buttons = row![open_external_btn, gear_button].spacing(theme::ACTION_GAP);
+        // Error banner button – top-right, shows when there are errors
+        let error_banner_btn = if let Some(error_banner) = ErrorBanner::from_state(state) {
+            let error_count = 1 + error_banner.previous_entries.len();
+            let error_label = if error_count > 1 {
+                format!("{} errors", error_count)
+            } else {
+                t!("error_title").to_string()
+            };
+            Some(
+                button(text(error_label).style(theme::spine_text))
+                    .on_press(Message::Error(ErrorMessage::DismissAt(error_banner.latest.index)))
+                    .style(theme::action_button)
+                    .padding(theme::BUTTON_PAD),
+            )
+        } else {
+            None
+        };
+
+        let mut top_right_buttons = row![open_external_btn, gear_button].spacing(theme::ACTION_GAP);
+        if let Some(btn) = error_banner_btn {
+            top_right_buttons = top_right_buttons.push(btn).spacing(theme::ACTION_GAP);
+        }
+
         let floating_gear = container(
             container(top_right_buttons)
                 .width(Fill)
