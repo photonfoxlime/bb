@@ -15,6 +15,7 @@ use crate::cli::{
         InstructionDraftCommand, ListDraftCommand, ReduceDraftCommand,
     },
     fold::{FoldCommands, StatusFoldCommand, ToggleFoldCommand},
+    friend::{AddFriendCommand, FriendCommands, ListFriendCommand, RemoveFriendCommand},
     mount::{
         ExpandMountCommand, ExtractMountCommand, InlineRecursiveMountCommand, MountCommands,
         MoveMountCommand, SaveMountsCommand, SetMountCommand,
@@ -602,4 +603,224 @@ fn batch_show_continues_and_reports_errors() {
         }
         | _ => panic!("expected batch report"),
     }
+}
+
+#[test]
+fn batch_tree_move_continues_and_reports_errors() {
+    let store = create_test_store();
+    let root_id = store.roots()[0];
+    let child1 = store.children(&root_id)[0];
+    let child2 = store.children(&root_id)[1];
+    let sources = format!("{},0v0", format_block_id(child1));
+
+    let cmd = BlockCommands::Tree(TreeCommands::Move(MoveCommand {
+        source_id: BlockId(sources),
+        target_id: BlockId(format_block_id(child2)),
+        before: false,
+        after: true,
+        under: false,
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+
+    match result {
+        | CliResult::Batch(report) => {
+            assert_eq!(report.successes, 1);
+            assert_eq!(report.failures, 1);
+            assert_eq!(report.operation, "tree.move");
+        }
+        | _ => panic!("expected batch report"),
+    }
+    assert!(store.children(&root_id).contains(&child1));
+}
+
+#[test]
+fn batch_friend_add_remove_continues_and_reports_errors() {
+    let store = create_test_store();
+    let root_id = store.roots()[0];
+    let target = store.children(&root_id)[0];
+    let friend = store.children(&root_id)[1];
+
+    let targets = format!("{},0v0", format_block_id(target));
+    let cmd = BlockCommands::Friend(FriendCommands::Add(AddFriendCommand {
+        target_id: BlockId(targets.clone()),
+        friend_id: BlockId(format_block_id(friend)),
+        perspective: None,
+        telescope_lineage: false,
+        telescope_children: false,
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+    match result {
+        | CliResult::Batch(report) => {
+            assert_eq!(report.successes, 1);
+            assert_eq!(report.failures, 1);
+            assert_eq!(report.operation, "friend.add");
+        }
+        | _ => panic!("expected batch report"),
+    }
+
+    let cmd = BlockCommands::Friend(FriendCommands::List(ListFriendCommand {
+        target_id: BlockId(format_block_id(target)),
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+    assert!(matches!(result, CliResult::FriendList(friends) if friends.len() == 1));
+
+    let cmd = BlockCommands::Friend(FriendCommands::Remove(RemoveFriendCommand {
+        target_id: BlockId(targets),
+        friend_id: BlockId(format_block_id(friend)),
+    }));
+    let (store, result) = cmd.execute(store, &PathBuf::from("."));
+    match result {
+        | CliResult::Batch(report) => {
+            assert_eq!(report.successes, 1);
+            assert_eq!(report.failures, 1);
+            assert_eq!(report.operation, "friend.remove");
+        }
+        | _ => panic!("expected batch report"),
+    }
+
+    let cmd = BlockCommands::Friend(FriendCommands::List(ListFriendCommand {
+        target_id: BlockId(format_block_id(target)),
+    }));
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+    assert!(matches!(result, CliResult::FriendList(friends) if friends.is_empty()));
+}
+
+#[test]
+fn batch_tree_move_pair_mismatch_reports_error() {
+    let store = create_test_store();
+    let root_id = store.roots()[0];
+    let child1 = store.children(&root_id)[0];
+    let child2 = store.children(&root_id)[1];
+
+    let cmd = BlockCommands::Tree(TreeCommands::Move(MoveCommand {
+        source_id: BlockId(format!("{},{}", format_block_id(child1), format_block_id(child2))),
+        target_id: BlockId("1v1,2v1,3v1".to_string()),
+        before: false,
+        after: true,
+        under: false,
+    }));
+    let (_store, result) = cmd.execute(store, &PathBuf::from("."));
+    assert!(matches!(result, CliResult::Error(msg) if msg.contains("batch pair mismatch")));
+}
+
+#[test]
+fn batch_mount_set_uses_directory_target_paths() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mount_dir = tmp.path().join("mounts");
+
+    let store = create_test_store();
+    let root_id = store.roots()[0];
+    let child1 = store.children(&root_id)[0];
+    let child2 = store.children(&root_id)[1];
+    let grandchild1 = store.children(&child1)[0];
+    let ids = format!("{},{}", format_block_id(child2), format_block_id(grandchild1));
+
+    let cmd = BlockCommands::Mount(MountCommands::Set(SetMountCommand {
+        block_id: BlockId(ids),
+        path: mount_dir,
+        format: MountFormatCli(MountFormat::Json),
+    }));
+    let (store, result) = cmd.execute(store, tmp.path());
+    match result {
+        | CliResult::Batch(report) => {
+            assert_eq!(report.successes, 2);
+            assert_eq!(report.failures, 0);
+            assert_eq!(report.operation, "mount.set");
+        }
+        | _ => panic!("expected batch report"),
+    }
+
+    match store.node(&child2) {
+        | Some(BlockNode::Mount { path, .. }) => {
+            assert!(path.display().to_string().ends_with(&format!("{}.json", child2)));
+        }
+        | _ => panic!("expected child2 mount node"),
+    }
+}
+
+#[test]
+fn batch_mount_extract_writes_each_target_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let out_dir = tmp.path().join("exports");
+
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+    let a = store.append_child(&root_id, "a".to_string()).unwrap();
+    let b = store.append_child(&root_id, "b".to_string()).unwrap();
+    store.append_child(&a, "a-1".to_string()).unwrap();
+    store.append_child(&b, "b-1".to_string()).unwrap();
+
+    let cmd = BlockCommands::Mount(MountCommands::Extract(ExtractMountCommand {
+        block_id: BlockId(format!("{},{}", format_block_id(a), format_block_id(b))),
+        output: out_dir.clone(),
+        format: Some(MountFormatCli(MountFormat::Json)),
+    }));
+    let (_store, result) = cmd.execute(store, tmp.path());
+    match result {
+        | CliResult::Batch(report) => {
+            assert_eq!(report.successes, 2);
+            assert_eq!(report.failures, 0);
+            assert_eq!(report.operation, "mount.extract");
+        }
+        | _ => panic!("expected batch report"),
+    }
+
+    assert!(out_dir.join(format!("{}.json", a)).exists());
+    assert!(out_dir.join(format!("{}.json", b)).exists());
+}
+
+#[test]
+fn batch_mount_move_uses_directory_target_paths() {
+    let tmp = tempfile::tempdir().unwrap();
+    let src_dir = tmp.path().join("src");
+    let dst_dir = tmp.path().join("dst");
+    std::fs::create_dir_all(&src_dir).unwrap();
+
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+    let first = store.append_child(&root_id, "first".to_string()).unwrap();
+    let second = store.append_child(&root_id, "second".to_string()).unwrap();
+
+    let first_src = src_dir.join("first.json");
+    let second_src = src_dir.join("second.json");
+    std::fs::write(&first_src, serde_json::to_string_pretty(&BlockStore::default()).unwrap())
+        .unwrap();
+    std::fs::write(&second_src, serde_json::to_string_pretty(&BlockStore::default()).unwrap())
+        .unwrap();
+
+    let cmd = BlockCommands::Mount(MountCommands::Set(SetMountCommand {
+        block_id: BlockId(format_block_id(first)),
+        path: first_src.clone(),
+        format: MountFormatCli(MountFormat::Json),
+    }));
+    let (store, result) = cmd.execute(store, tmp.path());
+    assert!(matches!(result, CliResult::Success));
+
+    let cmd = BlockCommands::Mount(MountCommands::Set(SetMountCommand {
+        block_id: BlockId(format_block_id(second)),
+        path: second_src.clone(),
+        format: MountFormatCli(MountFormat::Json),
+    }));
+    let (store, result) = cmd.execute(store, tmp.path());
+    assert!(matches!(result, CliResult::Success));
+
+    let ids = format!("{},{}", format_block_id(first), format_block_id(second));
+    let cmd = BlockCommands::Mount(MountCommands::Move(MoveMountCommand {
+        block_id: BlockId(ids),
+        path: dst_dir.clone(),
+    }));
+    let (_store, result) = cmd.execute(store, tmp.path());
+    match result {
+        | CliResult::Batch(report) => {
+            assert_eq!(report.successes, 2);
+            assert_eq!(report.failures, 0);
+            assert_eq!(report.operation, "mount.move");
+        }
+        | _ => panic!("expected batch report"),
+    }
+
+    assert!(dst_dir.join(format!("{}.json", first)).exists());
+    assert!(dst_dir.join(format!("{}.json", second)).exists());
+    assert!(!first_src.exists());
+    assert!(!second_src.exists());
 }

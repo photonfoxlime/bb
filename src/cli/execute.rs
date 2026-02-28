@@ -405,29 +405,60 @@ impl BlockCommands {
             }
             // Move a block relative to a target.
             | BlockCommands::Tree(TreeCommands::Move(cmd)) => {
-                let source = Self::resolve_block_id(&store, &cmd.source_id);
-                let target = Self::resolve_block_id(&store, &cmd.target_id);
-                match (source, target) {
-                    | (Some(src), Some(tgt)) => {
-                        let dir = if cmd.before {
-                            Direction::Before
-                        } else if cmd.after {
-                            Direction::After
-                        } else {
-                            Direction::Under
-                        };
-                        let result = store.move_block(&src, &tgt, dir);
-                        match result {
-                            | Some(()) => (store, CliResult::Success),
-                            | None => (
-                                store,
-                                CliResult::Error("Move failed (check constraints)".to_string()),
-                            ),
+                let pairs = match Self::expand_cli_pairs(&cmd.source_id, &cmd.target_id) {
+                    | Ok(pairs) => pairs,
+                    | Err(msg) => return (store, CliResult::Error(msg)),
+                };
+
+                let dir = if cmd.before {
+                    Direction::Before
+                } else if cmd.after {
+                    Direction::After
+                } else {
+                    Direction::Under
+                };
+
+                if pairs.len() == 1 {
+                    let source = Self::resolve_block_id(&store, &pairs[0].0);
+                    let target = Self::resolve_block_id(&store, &pairs[0].1);
+                    match (source, target) {
+                        | (Some(src), Some(tgt)) => {
+                            let result = store.move_block(&src, &tgt, dir);
+                            match result {
+                                | Some(()) => (store, CliResult::Success),
+                                | None => (
+                                    store,
+                                    CliResult::Error("Move failed (check constraints)".to_string()),
+                                ),
+                            }
+                        }
+                        | _ => (
+                            store,
+                            CliResult::Error("Unknown source or target block ID".to_string()),
+                        ),
+                    }
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for (source_cli, target_cli) in pairs {
+                        let input = format!("{} -> {}", source_cli.0, target_cli.0);
+                        let source = Self::resolve_block_id(&store, &source_cli);
+                        let target = Self::resolve_block_id(&store, &target_cli);
+                        match (source, target) {
+                            | (Some(src), Some(tgt)) => match store.move_block(&src, &tgt, dir) {
+                                | Some(()) => outputs.push(BatchOutput::Success { input }),
+                                | None => errors.push(BatchError {
+                                    input,
+                                    error: "Move failed (check constraints)".to_string(),
+                                }),
+                            },
+                            | _ => errors.push(BatchError {
+                                input,
+                                error: "Unknown source or target block ID".to_string(),
+                            }),
                         }
                     }
-                    | _ => {
-                        (store, CliResult::Error("Unknown source or target block ID".to_string()))
-                    }
+                    (store, CliResult::Batch(Self::make_batch_result("tree.move", outputs, errors)))
                 }
             }
             // ========================================================================
@@ -879,35 +910,98 @@ impl BlockCommands {
             // Cross-reference link management between blocks.
             // Add a friend (cross-reference) link.
             | BlockCommands::Friend(FriendCommands::Add(cmd)) => {
-                let target = Self::resolve_block_id(&store, &cmd.target_id);
-                let friend = Self::resolve_block_id(&store, &cmd.friend_id);
-                match (target, friend) {
-                    | (Some(tid), Some(fid)) => {
-                        let mut friends = store.friend_blocks_for(&tid).to_vec();
-                        friends.push(store_module::FriendBlock {
-                            block_id: fid,
-                            perspective: cmd.perspective,
-                            parent_lineage_telescope: cmd.telescope_lineage,
-                            children_telescope: cmd.telescope_children,
-                        });
-                        store.set_friend_blocks_for(&tid, friends);
-                        (store, CliResult::Success)
+                let pairs = match Self::expand_cli_pairs(&cmd.target_id, &cmd.friend_id) {
+                    | Ok(pairs) => pairs,
+                    | Err(msg) => return (store, CliResult::Error(msg)),
+                };
+
+                if pairs.len() == 1 {
+                    let target = Self::resolve_block_id(&store, &pairs[0].0);
+                    let friend = Self::resolve_block_id(&store, &pairs[0].1);
+                    match (target, friend) {
+                        | (Some(tid), Some(fid)) => {
+                            let mut friends = store.friend_blocks_for(&tid).to_vec();
+                            friends.push(store_module::FriendBlock {
+                                block_id: fid,
+                                perspective: cmd.perspective,
+                                parent_lineage_telescope: cmd.telescope_lineage,
+                                children_telescope: cmd.telescope_children,
+                            });
+                            store.set_friend_blocks_for(&tid, friends);
+                            (store, CliResult::Success)
+                        }
+                        | _ => (store, CliResult::Error("Unknown block ID".to_string())),
                     }
-                    | _ => (store, CliResult::Error("Unknown block ID".to_string())),
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for (target_cli, friend_cli) in pairs {
+                        let input = format!("{} -> {}", target_cli.0, friend_cli.0);
+                        let target = Self::resolve_block_id(&store, &target_cli);
+                        let friend = Self::resolve_block_id(&store, &friend_cli);
+                        match (target, friend) {
+                            | (Some(tid), Some(fid)) => {
+                                let mut friends = store.friend_blocks_for(&tid).to_vec();
+                                friends.push(store_module::FriendBlock {
+                                    block_id: fid,
+                                    perspective: cmd.perspective.clone(),
+                                    parent_lineage_telescope: cmd.telescope_lineage,
+                                    children_telescope: cmd.telescope_children,
+                                });
+                                store.set_friend_blocks_for(&tid, friends);
+                                outputs.push(BatchOutput::Success { input });
+                            }
+                            | _ => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("friend.add", outputs, errors)),
+                    )
                 }
             }
             // Remove a friend (cross-reference) link.
             | BlockCommands::Friend(FriendCommands::Remove(cmd)) => {
-                let target = Self::resolve_block_id(&store, &cmd.target_id);
-                let friend = Self::resolve_block_id(&store, &cmd.friend_id);
-                match (target, friend) {
-                    | (Some(tid), Some(fid)) => {
-                        let mut friends = store.friend_blocks_for(&tid).to_vec();
-                        friends.retain(|f| f.block_id != fid);
-                        store.set_friend_blocks_for(&tid, friends);
-                        (store, CliResult::Success)
+                let pairs = match Self::expand_cli_pairs(&cmd.target_id, &cmd.friend_id) {
+                    | Ok(pairs) => pairs,
+                    | Err(msg) => return (store, CliResult::Error(msg)),
+                };
+
+                if pairs.len() == 1 {
+                    let target = Self::resolve_block_id(&store, &pairs[0].0);
+                    let friend = Self::resolve_block_id(&store, &pairs[0].1);
+                    match (target, friend) {
+                        | (Some(tid), Some(fid)) => {
+                            let mut friends = store.friend_blocks_for(&tid).to_vec();
+                            friends.retain(|f| f.block_id != fid);
+                            store.set_friend_blocks_for(&tid, friends);
+                            (store, CliResult::Success)
+                        }
+                        | _ => (store, CliResult::Error("Unknown block ID".to_string())),
                     }
-                    | _ => (store, CliResult::Error("Unknown block ID".to_string())),
+                } else {
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for (target_cli, friend_cli) in pairs {
+                        let input = format!("{} -> {}", target_cli.0, friend_cli.0);
+                        let target = Self::resolve_block_id(&store, &target_cli);
+                        let friend = Self::resolve_block_id(&store, &friend_cli);
+                        match (target, friend) {
+                            | (Some(tid), Some(fid)) => {
+                                let mut friends = store.friend_blocks_for(&tid).to_vec();
+                                friends.retain(|f| f.block_id != fid);
+                                store.set_friend_blocks_for(&tid, friends);
+                                outputs.push(BatchOutput::Success { input });
+                            }
+                            | _ => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                        }
+                    }
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("friend.remove", outputs, errors)),
+                    )
                 }
             }
             // List all friends (cross-references) of a block.
@@ -936,26 +1030,60 @@ impl BlockCommands {
             // External file integration for importing/exporting block trees.
             // Set mount path and format for a block.
             | BlockCommands::Mount(MountCommands::Set(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        let result = store.set_mount_path_with_format(
-                            &block_id,
-                            cmd.path,
-                            cmd.format.into(),
-                        );
-                        match result {
-                            | Some(()) => (store, CliResult::Success),
-                            | None => (
-                                store,
-                                CliResult::Error(
-                                    "Failed to set mount path (block may have children)"
-                                        .to_string(),
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                let format: store_module::MountFormat = cmd.format.into();
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            let result =
+                                store.set_mount_path_with_format(&block_id, cmd.path, format);
+                            match result {
+                                | Some(()) => (store, CliResult::Success),
+                                | None => (
+                                    store,
+                                    CliResult::Error(
+                                        "Failed to set mount path (block may have children)"
+                                            .to_string(),
+                                    ),
                                 ),
-                            ),
+                            }
                         }
                     }
+                } else {
+                    if !Self::is_directory_like(&cmd.path) {
+                        return (
+                            store,
+                            CliResult::Error(
+                                "Batch mount set requires a directory-like PATH".to_string(),
+                            ),
+                        );
+                    }
+
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    let ext = Self::mount_format_extension(format);
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                let path = Self::batch_child_file_path(&cmd.path, &input, ext);
+                                match store.set_mount_path_with_format(&block_id, path, format) {
+                                    | Some(()) => outputs.push(BatchOutput::Success { input }),
+                                    | None => errors.push(BatchError {
+                                        input,
+                                        error: "Failed to set mount path (block may have children)"
+                                            .to_string(),
+                                    }),
+                                }
+                            }
+                        }
+                    }
+
+                    (store, CliResult::Batch(Self::make_batch_result("mount.set", outputs, errors)))
                 }
             }
             // Expand a mount by loading external file contents.
@@ -1037,14 +1165,58 @@ impl BlockCommands {
             }
             // Move a mount file and update mount metadata.
             | BlockCommands::Mount(MountCommands::Move(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => match store.move_mount_file(&block_id, &cmd.path, base_dir)
-                    {
-                        | Ok(()) => (store, CliResult::Success),
-                        | Err(e) => (store, CliResult::Error(format!("Move failed: {}", e))),
-                    },
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            match store.move_mount_file(&block_id, &cmd.path, base_dir) {
+                                | Ok(()) => (store, CliResult::Success),
+                                | Err(e) => {
+                                    (store, CliResult::Error(format!("Move failed: {}", e)))
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    if !Self::is_directory_like(&cmd.path) {
+                        return (
+                            store,
+                            CliResult::Error(
+                                "Batch mount move requires a directory-like PATH".to_string(),
+                            ),
+                        );
+                    }
+
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                let ext = Self::mount_format_extension(
+                                    Self::mount_format_for_block(&store, &block_id)
+                                        .unwrap_or(store_module::MountFormat::Json),
+                                );
+                                let path = Self::batch_child_file_path(&cmd.path, &input, ext);
+                                match store.move_mount_file(&block_id, &path, base_dir) {
+                                    | Ok(()) => outputs.push(BatchOutput::Success { input }),
+                                    | Err(e) => errors.push(BatchError {
+                                        input,
+                                        error: format!("Move failed: {}", e),
+                                    }),
+                                }
+                            }
+                        }
+                    }
+
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("mount.move", outputs, errors)),
+                    )
                 }
             }
             // Inline one mount into the current store.
@@ -1130,20 +1302,68 @@ impl BlockCommands {
             }
             // Extract block subtree to a file.
             | BlockCommands::Mount(MountCommands::Extract(cmd)) => {
-                let id = Self::resolve_block_id(&store, &cmd.block_id);
-                match id {
-                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
-                    | Some(block_id) => {
-                        match store.save_subtree_to_file_with_format(
-                            &block_id,
-                            &cmd.output,
-                            base_dir,
-                            cmd.format.map(Into::into),
-                        ) {
-                            | Ok(()) => (store, CliResult::Success),
-                            | Err(e) => (store, CliResult::Error(format!("Extract failed: {}", e))),
+                let targets = Self::expand_cli_targets(&cmd.block_id);
+                let format_override = cmd.format.map(Into::into);
+                if targets.len() == 1 {
+                    let id = Self::resolve_block_id(&store, &targets[0]);
+                    match id {
+                        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                        | Some(block_id) => {
+                            match store.save_subtree_to_file_with_format(
+                                &block_id,
+                                &cmd.output,
+                                base_dir,
+                                format_override,
+                            ) {
+                                | Ok(()) => (store, CliResult::Success),
+                                | Err(e) => {
+                                    (store, CliResult::Error(format!("Extract failed: {}", e)))
+                                }
+                            }
                         }
                     }
+                } else {
+                    if !Self::is_directory_like(&cmd.output) {
+                        return (
+                            store,
+                            CliResult::Error(
+                                "Batch mount extract requires a directory-like --output PATH"
+                                    .to_string(),
+                            ),
+                        );
+                    }
+
+                    let mut outputs = Vec::new();
+                    let mut errors = Vec::new();
+                    let ext = format_override.map(Self::mount_format_extension).unwrap_or("json");
+
+                    for target in targets {
+                        let input = target.0.clone();
+                        match Self::resolve_block_id(&store, &target) {
+                            | None => errors
+                                .push(BatchError { input, error: "Unknown block ID".to_string() }),
+                            | Some(block_id) => {
+                                let path = Self::batch_child_file_path(&cmd.output, &input, ext);
+                                match store.save_subtree_to_file_with_format(
+                                    &block_id,
+                                    &path,
+                                    base_dir,
+                                    format_override,
+                                ) {
+                                    | Ok(()) => outputs.push(BatchOutput::Success { input }),
+                                    | Err(e) => errors.push(BatchError {
+                                        input,
+                                        error: format!("Extract failed: {}", e),
+                                    }),
+                                }
+                            }
+                        }
+                    }
+
+                    (
+                        store,
+                        CliResult::Batch(Self::make_batch_result("mount.extract", outputs, errors)),
+                    )
                 }
             }
             // Get mount information (path, format, expanded state).
@@ -1322,6 +1542,71 @@ impl BlockCommands {
             all.push(single.clone());
         }
         all
+    }
+
+    /// Expand two CLI ID fields into operation pairs.
+    ///
+    /// Pairing rules:
+    /// - same lengths: zip by index,
+    /// - one side has length 1: broadcast over the other side,
+    /// - otherwise: return an error.
+    fn expand_cli_pairs(
+        left: &BlockId, right: &BlockId,
+    ) -> Result<Vec<(BlockId, BlockId)>, String> {
+        let lefts = Self::expand_cli_targets(left);
+        let rights = Self::expand_cli_targets(right);
+
+        if lefts.len() == rights.len() {
+            return Ok(lefts.into_iter().zip(rights).collect());
+        }
+
+        if lefts.len() == 1 {
+            let left = lefts[0].clone();
+            return Ok(rights.into_iter().map(|right| (left.clone(), right)).collect());
+        }
+
+        if rights.len() == 1 {
+            let right = rights[0].clone();
+            return Ok(lefts.into_iter().map(|left| (left, right.clone())).collect());
+        }
+
+        Err(
+            "batch pair mismatch: ID list lengths must match, or one side must contain exactly one ID"
+                .to_string(),
+        )
+    }
+
+    /// Returns true when a path should be treated as a directory target.
+    fn is_directory_like(path: &std::path::Path) -> bool {
+        path.is_dir() || path.extension().is_none()
+    }
+
+    /// Build a per-target file path under a directory-like base path.
+    fn batch_child_file_path(
+        base: &std::path::Path, target: &str, ext: &str,
+    ) -> std::path::PathBuf {
+        base.join(format!("{}.{}", target, ext))
+    }
+
+    /// File extension used for each mount format in batch path generation.
+    fn mount_format_extension(format: store_module::MountFormat) -> &'static str {
+        match format {
+            | store_module::MountFormat::Json => "json",
+            | store_module::MountFormat::Markdown => "md",
+        }
+    }
+
+    /// Best-effort mount format lookup for a block.
+    fn mount_format_for_block(
+        store: &BlockStore, block_id: &store_module::BlockId,
+    ) -> Option<store_module::MountFormat> {
+        if let Some(entry) = store.mount_table().entry(*block_id) {
+            return Some(entry.format);
+        }
+        match store.node(block_id) {
+            | Some(store_module::BlockNode::Mount { format, .. }) => Some(*format),
+            | _ => None,
+        }
     }
 
     /// Build a standardized continue-on-error batch result.

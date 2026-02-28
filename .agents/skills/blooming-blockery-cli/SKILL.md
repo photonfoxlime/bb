@@ -232,11 +232,15 @@ block context 1v1
    - `mount extract --format` overrides path-extension inference
 4. Batch-capable commands support comma-separated IDs:
    - `show`, `point`
-   - `tree add-child|add-sibling|wrap|duplicate|delete`
+   - `tree add-child|add-sibling|wrap|duplicate|delete|move`
    - `nav next|prev|lineage`
+   - `friend add|remove`
    - `fold toggle|status`
    - `draft instruction|inquiry|list|clear`
-   - `mount expand|collapse|inline|inline-recursive|info`
+   - `mount set|expand|collapse|move|extract|inline|inline-recursive|info`
    - `context`
+   - For `mount set|move|extract` batch mode, pass a directory-like path
+     (`existing/dir` or a path without extension), and each target will use
+     `<BLOCK_ID>.<ext>` under that directory.
 5. Panel states are `friends` or `instruction`
 6. The GUI launches by default if no subcommand is given
