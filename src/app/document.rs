@@ -1069,9 +1069,9 @@ impl<'a> TreeView<'a> {
             t!("action_inline_mount_all").to_string()
         };
 
-        let move_btn: Element<'a, Message> = if is_compact_actions {
+        let move_btn: Element<'a, Message> = {
             let icon = centered_icon(
-                icons::icon_hard_drive_upload()
+                icons::icon_folder_input()
                     .size(theme::TOOLBAR_ICON_SIZE)
                     .line_height(iced::widget::text::LineHeight::Relative(1.0))
                     .into(),
@@ -1087,17 +1087,11 @@ impl<'a> TreeView<'a> {
                 .padding(theme::TOOLTIP_PAD)
                 .gap(theme::TOOLTIP_GAP)
                 .into()
-        } else {
-            button(text(move_label).font(theme::INTER))
-                .style(theme::action_button)
-                .padding(theme::BUTTON_PAD)
-                .on_press(Message::MountFile(MountFileMessage::MoveMount(*block_id)))
-                .into()
         };
 
-        let inline_btn: Element<'a, Message> = if is_compact_actions {
+        let inline_btn: Element<'a, Message> = {
             let icon = centered_icon(
-                icons::icon_log_in()
+                icons::icon_chevron_down()
                     .size(theme::TOOLBAR_ICON_SIZE)
                     .line_height(iced::widget::text::LineHeight::Relative(1.0))
                     .into(),
@@ -1113,24 +1107,14 @@ impl<'a> TreeView<'a> {
                 .padding(theme::TOOLTIP_PAD)
                 .gap(theme::TOOLTIP_GAP)
                 .into()
-        } else {
-            button(text(inline_label).font(theme::INTER))
-                .style(theme::action_button)
-                .padding(theme::BUTTON_PAD)
-                .on_press(Message::MountFile(MountFileMessage::InlineMount(*block_id)))
-                .into()
         };
 
-        let inline_all_btn: Element<'a, Message> = if is_compact_actions {
+        let inline_all_btn: Element<'a, Message> = {
             let icon = centered_icon(
-                if is_inline_confirmation_armed {
-                    icons::icon_check_check()
-                } else {
-                    icons::icon_check_check()
-                }
-                .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
+                icons::icon_chevrons_down()
+                    .size(theme::TOOLBAR_ICON_SIZE)
+                    .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                    .into(),
             );
             let btn = button(icon)
                 .style(if is_inline_confirmation_armed {
@@ -1151,16 +1135,6 @@ impl<'a> TreeView<'a> {
             .padding(theme::TOOLTIP_PAD)
             .gap(theme::TOOLTIP_GAP)
             .into()
-        } else {
-            button(text(inline_all_label).font(theme::INTER))
-                .style(if is_inline_confirmation_armed {
-                    theme::destructive_button
-                } else {
-                    theme::action_button
-                })
-                .padding(theme::BUTTON_PAD)
-                .on_press(Message::MountFile(MountFileMessage::InlineMountAll(*block_id)))
-                .into()
         };
 
         let mut header = if is_inline_confirmation_armed && !is_compact_actions {
