@@ -1163,15 +1163,25 @@ impl<'a> TreeView<'a> {
                 .into()
         };
 
-        let mut header = row![
-            text(mount_path.display().to_string())
-                .font(theme::INTER)
-                .size(theme::MOUNT_HEADER_TEXT_SIZE)
-                .style(theme::spine_text),
-            space::horizontal(),
-            move_btn,
-            inline_btn,
-        ]
+        let mut header = if is_inline_confirmation_armed && !is_compact_actions {
+            row![
+                text(mount_path.display().to_string())
+                    .font(theme::INTER)
+                    .size(theme::MOUNT_HEADER_TEXT_SIZE)
+                    .style(theme::spine_text),
+                space::horizontal(),
+            ]
+        } else {
+            row![
+                text(mount_path.display().to_string())
+                    .font(theme::INTER)
+                    .size(theme::MOUNT_HEADER_TEXT_SIZE)
+                    .style(theme::spine_text),
+                space::horizontal(),
+                move_btn,
+                inline_btn,
+            ]
+        }
         .spacing(theme::ACTION_GAP)
         .align_y(iced::Alignment::Center);
         if is_inline_confirmation_armed && !is_compact_actions {
