@@ -401,6 +401,7 @@ pub enum Message {
     InstructionPanel(BlockId, InstructionPanelMessage),
     Settings(SettingsMessage),
     WindowResized(WindowSize),
+    KeyboardModifiersChanged(keyboard::Modifiers),
     DocumentMode(DocumentMode),
     SystemThemeChanged(iced::theme::Mode),
     Navigation(NavigationMessage),
@@ -443,6 +444,10 @@ impl AppState {
                 self.ui_mut().window_size = size;
                 Task::none()
             }
+            | Message::KeyboardModifiersChanged(modifiers) => {
+                self.ui_mut().keyboard_modifiers = modifiers;
+                Task::none()
+            }
             | Message::DocumentMode(mode) => {
                 // Clear friend hover state when changing document modes
                 self.ui_mut().hovered_friend_block = None;
@@ -478,6 +483,9 @@ impl AppState {
     pub fn subscription(_state: &AppState) -> Subscription<Message> {
         Subscription::batch([
             event::listen_with(|event, status, _window| match event {
+                | Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
+                    Some(Message::KeyboardModifiersChanged(modifiers))
+                }
                 | Event::Keyboard(keyboard::Event::KeyPressed {
                     key: keyboard::Key::Named(keyboard::key::Named::Escape),
                     ..
@@ -602,6 +610,11 @@ pub struct TransientUiState {
     pub active_view: ViewMode,
     /// Current window dimensions for responsive layout.
     pub window_size: WindowSize,
+    /// Last observed keyboard modifier state from global events.
+    ///
+    /// This is used to filter command-shortcut key leaks (for example,
+    /// suppressing `Cmd/Ctrl+F` text insertion into active editors/inputs).
+    pub keyboard_modifiers: keyboard::Modifiers,
     /// Whether the current theme is dark.
     ///
     /// Initialized from the system at startup and updated by
@@ -722,9 +735,28 @@ mod edit {
         Down,
     }
 
+    fn is_command_shortcut_editor_insert(
+        action: &text_editor::Action, modifiers: keyboard::Modifiers,
+    ) -> bool {
+        if !modifiers.command() {
+            return false;
+        }
+
+        matches!(
+            action,
+            text_editor::Action::Edit(text_editor::Edit::Insert(c))
+                if matches!(c.to_ascii_lowercase(), 'f' | 'g' | 'z')
+        )
+    }
+
     pub fn handle_point_edited(
         state: &mut AppState, block_id: BlockId, action: text_editor::Action,
     ) -> Task<Message> {
+        if is_command_shortcut_editor_insert(&action, state.ui().keyboard_modifiers) {
+            tracing::debug!("ignored command-shortcut editor insert leak");
+            return Task::none();
+        }
+
         // Clear friend hover state when editing
         state.ui_mut().hovered_friend_block = None;
 

@@ -12,7 +12,7 @@ use crate::theme;
 use iced::widget::{
     Id, button, column, container, operation::focus, row, scrollable, text, text_input,
 };
-use iced::{Alignment, Element, Length, Padding, Task};
+use iced::{Alignment, Element, Length, Padding, Task, keyboard};
 use rust_i18n::t;
 use std::time::Duration;
 
@@ -184,6 +184,19 @@ pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
             )
         }
         | FindMessage::QueryChanged(query) => {
+            let previous_query = state.ui().find_ui.query();
+            if is_command_shortcut_query_leak(previous_query, &query, state.ui().keyboard_modifiers)
+            {
+                tracing::debug!("ignored command-shortcut query leak");
+                return Task::none();
+            }
+
+            // Ignore late text-input events when the panel is already closed.
+            // This prevents shortcut-driven close (Cmd/Ctrl+F) from leaking a
+            // trailing character into the stored query.
+            if !state.ui().find_ui.is_open() {
+                return Task::none();
+            }
             let query_revision = state.ui_mut().find_ui.set_query(query);
             if state.ui().find_ui.query().trim().is_empty() {
                 refresh_matches(state);
@@ -375,6 +388,58 @@ fn refresh_matches(state: &mut AppState) {
     state.ui_mut().find_ui.replace_matches(matches);
 }
 
+/// Returns true when `next` looks like a leaked global command shortcut key.
+///
+/// Iced text inputs insert printable `text` even with command modifiers.
+/// For global shortcuts (Cmd/Ctrl+F/G/Z), this can leak a single character
+/// into the query before our global handler runs.
+fn is_command_shortcut_query_leak(
+    previous: &str, next: &str, modifiers: keyboard::Modifiers,
+) -> bool {
+    if !modifiers.command() {
+        return false;
+    }
+    let Some(inserted_char) = single_inserted_char(previous, next) else {
+        return false;
+    };
+    matches!(inserted_char.to_ascii_lowercase(), 'f' | 'g' | 'z')
+}
+
+/// Returns the inserted character if `next` is exactly `previous` plus one char.
+fn single_inserted_char(previous: &str, next: &str) -> Option<char> {
+    let previous_chars = previous.chars().collect::<Vec<_>>();
+    let next_chars = next.chars().collect::<Vec<_>>();
+
+    if next_chars.len() != previous_chars.len() + 1 {
+        return None;
+    }
+
+    let mut previous_index = 0;
+    let mut next_index = 0;
+    let mut inserted_char = None;
+
+    while previous_index < previous_chars.len() && next_index < next_chars.len() {
+        if previous_chars[previous_index] == next_chars[next_index] {
+            previous_index += 1;
+            next_index += 1;
+            continue;
+        }
+
+        if inserted_char.is_some() {
+            return None;
+        }
+
+        inserted_char = Some(next_chars[next_index]);
+        next_index += 1;
+    }
+
+    if inserted_char.is_none() {
+        inserted_char = next_chars.last().copied();
+    }
+
+    inserted_char
+}
+
 fn jump_to_selected(state: &mut AppState) -> Task<Message> {
     if !state.ui().find_ui.is_open() {
         return Task::none();
@@ -459,6 +524,52 @@ mod tests {
 
         assert_eq!(state.ui().find_ui.matches(), &[target]);
         assert_eq!(state.ui().find_ui.selected_block_id(), Some(target));
+    }
+
+    #[test]
+    fn query_changed_is_ignored_when_panel_closed() {
+        let (mut state, root) = test_state();
+        state.store.update_point(&root, "root".to_string());
+        let _ = state.store.append_child(&root, "alpha beta".to_string()).expect("append child");
+
+        let _ = AppState::update(&mut state, Message::Find(FindMessage::Open));
+        let _ = AppState::update(
+            &mut state,
+            Message::Find(FindMessage::QueryChanged("beta".to_string())),
+        );
+        flush_debounced_query(&mut state);
+        assert_eq!(state.ui().find_ui.query(), "beta");
+
+        let _ = AppState::update(&mut state, Message::Find(FindMessage::Close));
+        let _ = AppState::update(
+            &mut state,
+            Message::Find(FindMessage::QueryChanged("betaf".to_string())),
+        );
+
+        assert_eq!(state.ui().find_ui.query(), "beta");
+    }
+
+    #[test]
+    fn query_changed_ignores_command_shortcut_leak() {
+        let (mut state, root) = test_state();
+        state.store.update_point(&root, "root".to_string());
+        let _ = state.store.append_child(&root, "alpha beta".to_string()).expect("append child");
+
+        let _ = AppState::update(&mut state, Message::Find(FindMessage::Open));
+        let _ = AppState::update(
+            &mut state,
+            Message::Find(FindMessage::QueryChanged("beta".to_string())),
+        );
+        flush_debounced_query(&mut state);
+        assert_eq!(state.ui().find_ui.query(), "beta");
+
+        state.ui_mut().keyboard_modifiers = keyboard::Modifiers::COMMAND;
+        let _ = AppState::update(
+            &mut state,
+            Message::Find(FindMessage::QueryChanged("betaf".to_string())),
+        );
+
+        assert_eq!(state.ui().find_ui.query(), "beta");
     }
 
     #[test]
