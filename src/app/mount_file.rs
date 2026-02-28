@@ -38,6 +38,8 @@ pub enum MountFileMessage {
     MoveMountPicked { block_id: BlockId, path: Option<std::path::PathBuf> },
     /// Inline only this mount point (shallow).
     InlineMount(BlockId),
+    /// Cancel inline-all confirmation for this mount point.
+    CancelInlineMountAllConfirm(BlockId),
     /// Inline all mounted files reachable from this block.
     ///
     /// Uses a two-click confirmation flow: first click arms, second click executes.
@@ -195,6 +197,7 @@ pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> 
         }
         | MountFileMessage::MoveMount(block_id) => {
             state.set_overflow_open(false);
+            state.ui_state.mount_action_overflow_block = None;
             let title = t!("move_mounted_file").to_string();
             Task::perform(
                 async move {
@@ -241,6 +244,7 @@ pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> 
             Task::none()
         }
         | MountFileMessage::InlineMount(block_id) => {
+            state.ui_state.mount_action_overflow_block = None;
             let base_dir = AppPaths::data_dir().unwrap_or_default();
             state.mutate_with_undo_and_persist("after inlining one mount", |state| {
                 match state.store.inline_mount(&block_id, &base_dir) {
@@ -258,7 +262,15 @@ pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> 
             });
             Task::none()
         }
+        | MountFileMessage::CancelInlineMountAllConfirm(block_id) => {
+            if state.ui_state.pending_inline_mount_confirmation == Some(block_id) {
+                tracing::info!(block_id = ?block_id, "cancelled inline-all confirmation");
+                state.ui_state.pending_inline_mount_confirmation = None;
+            }
+            Task::none()
+        }
         | MountFileMessage::InlineMountAll(block_id) => {
+            state.ui_state.mount_action_overflow_block = None;
             if state.ui_state.pending_inline_mount_confirmation != Some(block_id) {
                 state.ui_state.pending_inline_mount_confirmation = Some(block_id);
                 tracing::info!(block_id = ?block_id, "armed inline-all confirmation for mount");

@@ -107,7 +107,7 @@ pub struct AppState {
     /// UI focus state: keyboard focus + overflow menu state.
     focus: Option<FocusState>,
     /// Transient UI singleton state (hover effects, visual feedback).
-    ui_state: UiSingletonState,
+    ui_state: UiState,
     /// Transient find-overlay state (query, matches, and selection).
     find_ui: FindUiState,
     /// (target_block_id, friend_block_id) of friend perspective currently being edited inline.
@@ -181,7 +181,7 @@ impl AppState {
             persistence_blocked,
             persistence_write_disabled: false,
             focus: None,
-            ui_state: UiSingletonState::default(),
+            ui_state: UiState::default(),
             find_ui: FindUiState::default(),
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,
@@ -399,6 +399,12 @@ impl AppState {
             self.ui_state.pending_inline_mount_confirmation = None;
         }
 
+        let keep_mount_action_overflow =
+            matches!(&message, Message::Overlay(OverlayMessage::ToggleMountActionsOverflow(_)));
+        if !keep_mount_action_overflow {
+            self.ui_state.mount_action_overflow_block = None;
+        }
+
         match message {
             | Message::UndoRedo(message) => undo_redo::handle(self, message),
             | Message::Shortcut(message) => shortcut::handle(self, message),
@@ -565,7 +571,7 @@ pub struct FocusState {
 /// - Resetting on reload is acceptable and expected behavior
 /// - Keeps serialization lean and focused on user data
 #[derive(Debug, Clone, Default)]
-pub struct UiSingletonState {
+pub struct UiState {
     /// The friend block currently being hovered in the Friends Panel.
     ///
     /// When `Some`, the corresponding block in the document tree is highlighted
@@ -585,6 +591,11 @@ pub struct UiSingletonState {
     /// block. Any unrelated message clears it. A second click on the same block
     /// performs the inline operation.
     pub pending_inline_mount_confirmation: Option<BlockId>,
+    /// Mount block id whose path-operations overflow menu is open.
+    ///
+    /// This drives the mount-header overflow UI (move/inline/inline-all).
+    /// Only one mount overflow is open at a time.
+    pub mount_action_overflow_block: Option<BlockId>,
 }
 
 /// Snapshot of undoable application state.
@@ -827,7 +838,7 @@ impl AppState {
             errors: vec![],
             llm_requests: LlmRequests::new(),
             focus: None,
-            ui_state: UiSingletonState::default(),
+            ui_state: UiState::default(),
             find_ui: FindUiState::default(),
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,

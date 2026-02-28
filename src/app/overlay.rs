@@ -17,6 +17,8 @@ use iced::Task;
 #[derive(Debug, Clone)]
 pub enum OverlayMessage {
     ToggleOverflow(BlockId),
+    /// Toggle the mount header path-operations overflow menu.
+    ToggleMountActionsOverflow(BlockId),
 }
 
 /// Process one overlay message and return a follow-up task (if any).
@@ -33,6 +35,14 @@ pub fn handle(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
             } else {
                 state.set_focus(block_id);
                 state.set_overflow_open(true);
+            }
+            Task::none()
+        }
+        | OverlayMessage::ToggleMountActionsOverflow(block_id) => {
+            if state.ui_state.mount_action_overflow_block == Some(block_id) {
+                state.ui_state.mount_action_overflow_block = None;
+            } else {
+                state.ui_state.mount_action_overflow_block = Some(block_id);
             }
             Task::none()
         }

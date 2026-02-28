@@ -1047,19 +1047,17 @@ impl<'a> TreeView<'a> {
     /// Render a mount header showing file path and mount actions.
     ///
     /// Displayed above mount-backed nodes (both expanded and unexpanded).
-    /// Provides quick access to mount relocation, shallow inline, and
+    /// Provides an overflow menu for mount relocation, shallow inline, and
     /// recursive inline-all.
     /// Inline-all uses a two-step confirmation button to reduce accidental
     /// irreversible operations.
     fn render_mount_indicator(
         &self, block_id: &BlockId, mount_path: &'a std::path::Path,
     ) -> Element<'a, Message> {
-        let is_compact_actions = matches!(
-            self.viewport_bucket(),
-            ViewportBucket::Compact | ViewportBucket::TouchCompact
-        );
         let is_inline_confirmation_armed =
             self.state.ui_state.pending_inline_mount_confirmation == Some(*block_id);
+        let is_mount_action_overflow_open =
+            self.state.ui_state.mount_action_overflow_block == Some(*block_id);
 
         let move_label = t!("action_move_mount_file").to_string();
         let inline_label = t!("action_inline_mount").to_string();
@@ -1137,36 +1135,80 @@ impl<'a> TreeView<'a> {
             .into()
         };
 
-        let mut header = if is_inline_confirmation_armed && !is_compact_actions {
-            row![
-                text(mount_path.display().to_string())
-                    .font(theme::INTER)
-                    .size(theme::MOUNT_HEADER_TEXT_SIZE)
-                    .style(theme::spine_text),
-                space::horizontal(),
-            ]
-        } else {
-            row![
-                text(mount_path.display().to_string())
-                    .font(theme::INTER)
-                    .size(theme::MOUNT_HEADER_TEXT_SIZE)
-                    .style(theme::spine_text),
-                space::horizontal(),
-                move_btn,
-                inline_btn,
-            ]
-        }
+        let overflow_toggle_btn: Element<'a, Message> = {
+            let (icon, tooltip_label) = if is_mount_action_overflow_open {
+                (icons::icon_x(), t!("ui_close").to_string())
+            } else {
+                (icons::icon_ellipsis(), t!("ui_more").to_string())
+            };
+            let btn = button(centered_icon(
+                icon.size(theme::TOOLBAR_ICON_SIZE)
+                    .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                    .into(),
+            ))
+            .style(theme::action_button)
+            .padding(0)
+            .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::Overlay(OverlayMessage::ToggleMountActionsOverflow(*block_id)));
+            tooltip(btn, text(tooltip_label).size(12).font(theme::INTER), tooltip::Position::Bottom)
+                .style(theme::tooltip)
+                .padding(theme::TOOLTIP_PAD)
+                .gap(theme::TOOLTIP_GAP)
+                .into()
+        };
+
+        let confirm_close_btn: Element<'a, Message> = {
+            let btn = button(centered_icon(
+                icons::icon_x()
+                    .size(theme::TOOLBAR_ICON_SIZE)
+                    .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                    .into(),
+            ))
+            .style(theme::action_button)
+            .padding(0)
+            .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::MountFile(MountFileMessage::CancelInlineMountAllConfirm(*block_id)));
+            tooltip(
+                btn,
+                text(t!("ui_close").to_string()).size(12).font(theme::INTER),
+                tooltip::Position::Bottom,
+            )
+            .style(theme::tooltip)
+            .padding(theme::TOOLTIP_PAD)
+            .gap(theme::TOOLTIP_GAP)
+            .into()
+        };
+
+        let mut header = row![
+            text(mount_path.display().to_string())
+                .font(theme::INTER)
+                .size(theme::MOUNT_HEADER_TEXT_SIZE)
+                .style(theme::spine_text),
+            space::horizontal(),
+        ]
         .spacing(theme::ACTION_GAP)
         .align_y(iced::Alignment::Center);
-        if is_inline_confirmation_armed && !is_compact_actions {
+
+        if is_inline_confirmation_armed {
             header = header.push(
                 text(t!("mount_inline_confirm_hint").to_string())
                     .font(theme::INTER)
                     .size(12)
                     .style(theme::spine_text),
             );
+            header = header.push(inline_all_btn);
+            header = header.push(confirm_close_btn);
+            return header.into();
         }
-        header = header.push(inline_all_btn);
+
+        if is_mount_action_overflow_open {
+            header = header.push(move_btn);
+            header = header.push(inline_btn);
+            header = header.push(inline_all_btn);
+        }
+        header = header.push(overflow_toggle_btn);
         header.into()
     }
 }
