@@ -19,11 +19,6 @@ Winget
 winget install --id Miorin.BloomingBlockery
 ```
 
-Cargo
-```ignore
-cargo install blooming-blockery
-```
-
 
 ## Skills
 
