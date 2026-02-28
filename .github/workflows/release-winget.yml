@@ -1,0 +1,44 @@
+name: Winget Update
+
+on:
+  workflow_run:
+    workflows: ["Release"] # <-- must match your cargo-dist workflow name
+    types: [completed]
+
+permissions:
+  contents: read
+
+jobs:
+  winget:
+    runs-on: windows-latest
+    steps:
+      - name: Install wingetcreate
+        shell: pwsh
+        run: |
+          winget install wingetcreate --accept-source-agreements --accept-package-agreements
+
+      - name: Submit WinGet manifest update PR
+        shell: pwsh
+        env:
+          WINGET_GITHUB_TOKEN: ${{ secrets.WINGET_GITHUB_TOKEN }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          if (-not $env:WINGET_GITHUB_TOKEN) {
+            throw "Missing secret WINGET_GITHUB_TOKEN"
+          }
+
+          # WinGet versions generally shouldn't include a leading 'v'
+          $version = $env:TAG -replace '^v',''
+
+          # Your MSI asset name as published by cargo-dist
+          $msi = "blooming-blockery-x86_64-pc-windows-msvc.msi"
+          $url = "https://github.com/photonfoxlime/bb/releases/download/$env:TAG/$msi"
+
+          wingetcreate update `
+            --id "Miorin.BloomingBlockery" `
+            --version $version `
+            --urls $url `
+            --token $env:WINGET_GITHUB_TOKEN `
+            --submit `
+            --prtitle "Update Miorin.BloomingBlockery to $version" `
+            --no-open

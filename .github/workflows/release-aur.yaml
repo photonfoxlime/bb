@@ -1,0 +1,156 @@
+name: Release to AUR (after cargo-dist)
+
+on:
+  workflow_run:
+    workflows: ["Release"] # <-- must match your cargo-dist workflow name
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: aur-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  aur:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+
+    env:
+      # AUR package repo name (the AUR git repo)
+      # Example: blooming-blockery-bin OR blooming-blockery
+      AUR_PKG: blooming-blockery-bin
+
+      # The app name used in cargo-dist artifact names
+      APP_NAME: blooming-blockery
+
+      # The Linux asset name cargo-dist publishes (from your v0.0.4 release)
+      LINUX_ASSET: blooming-blockery-x86_64-unknown-linux-gnu.tar.xz
+
+    steps:
+      - name: Install tools
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install CLI deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq openssh-client
+
+      - name: Determine release tag for this workflow_run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          # Find the most recent release whose target_commitish matches the workflow's head SHA.
+          TAG="$(gh api "repos/${REPO}/releases?per_page=50" --jq \
+            "[.[] | select(.target_commitish == \"${SHA}\")][0].tag_name")"
+
+          if [ "${TAG}" = "null" ] || [ -z "${TAG}" ]; then
+            echo "No release found with target_commitish == ${SHA}"
+            echo "Recent releases:"
+            gh api "repos/${REPO}/releases?per_page=10" --jq '.[] | {tag_name, target_commitish, published_at}'
+            exit 1
+          fi
+
+          echo "TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "Detected release tag: ${TAG}"
+
+      - name: Download Linux asset + compute SHA256
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+
+          gh release download "${TAG}" \
+            --repo "${REPO}" \
+            --pattern "${LINUX_ASSET}" \
+            --dir dist
+
+          test -f "dist/${LINUX_ASSET}"
+
+          SHA256="$(sha256sum "dist/${LINUX_ASSET}" | awk '{print $1}')"
+          echo "SHA256=${SHA256}" >> "$GITHUB_ENV"
+
+          # pkgver for AUR should not include leading "v"
+          PKGVER="${TAG#v}"
+          echo "PKGVER=${PKGVER}" >> "$GITHUB_ENV"
+
+          echo "PKGVER=${PKGVER}"
+          echo "SHA256=${SHA256}"
+
+      - name: Prepare SSH for AUR push
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          # Private key: create an SSH keypair and add the public key to your AUR account
+          echo "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+          # Trust AUR host key
+          ssh-keyscan -H aur.archlinux.org >> ~/.ssh/known_hosts
+
+      - name: Clone AUR repo
+        run: |
+          set -euo pipefail
+          git clone "ssh://aur@aur.archlinux.org/${AUR_PKG}.git" aur
+
+      - name: Update PKGBUILD and .SRCINFO
+        working-directory: aur
+        run: |
+          set -euo pipefail
+
+          SRC_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${LINUX_ASSET}"
+
+          # Update PKGBUILD fields (expects typical pkgver/pkgrel/source/sha256sums format)
+          sed -i -E \
+            -e "s/^pkgver=.*/pkgver=${PKGVER}/" \
+            -e "s/^pkgrel=.*/pkgrel=1/" \
+            PKGBUILD
+
+          # Replace source URL line(s) that mention releases/download
+          # Keep it simple: replace any github releases/download URL inside source=()
+          perl -0777 -i -pe "s|(source=\\([^\\)]*?)https://github\\.com/[^\\s\\)]+/releases/download/[^\\s\\)]+/[^\\s\\)]+|(\\1${SRC_URL}|s" PKGBUILD
+
+          # Replace first sha256sums value (common for single-source binary PKGBUILDs)
+          perl -0777 -i -pe "s|sha256sums=\\('([0-9a-f]{64}|SKIP)'\\)|sha256sums=('${SHA256}')|s" PKGBUILD
+
+          # Keep .SRCINFO in sync (many AUR maintainers commit it)
+          if [ -f .SRCINFO ]; then
+            sed -i -E \
+              -e "s/^\\s*pkgver = .*/pkgver = ${PKGVER}/" \
+              -e "s/^\\s*pkgrel = .*/pkgrel = 1/" \
+              -e "s|^\\s*source = .*|source = ${SRC_URL}|" \
+              -e "s/^\\s*sha256sums = .*/sha256sums = ${SHA256}/" \
+              .SRCINFO
+          fi
+
+          git status --porcelain
+          git diff -- PKGBUILD .SRCINFO || true
+
+      - name: Commit and push to AUR
+        working-directory: aur
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions"
+          git config user.email "github-actions@users.noreply.github.com"
+
+          git add PKGBUILD .SRCINFO || true
+
+          # If nothing changed, avoid failing
+          if git diff --cached --quiet; then
+            echo "No changes to commit."
+            exit 0
+          fi
+
+          git commit -m "Update to ${PKGVER}"
+          git push
