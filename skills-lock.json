@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "blooming-blockery-cli": {
+      "source": "photonfoxlime/bb",
+      "sourceType": "github",
+      "computedHash": "f260671da58512dd93cf557e25b797f2244ed5947852ee030231a4edb05f0a7b"
+    },
+    "opencode-kanban-cli": {
+      "source": "qrafty-ai/opencode-kanban",
+      "sourceType": "github",
+      "computedHash": "1195bbb41f3707997679287f846bb847bbc80874ba89bfeca6bada76b4af877f"
+    }
+  }
+}
