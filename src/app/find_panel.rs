@@ -2,7 +2,8 @@
 //!
 //! This panel is transient UI state (not persisted). It provides phrase-aware
 //! search via [`crate::store::BlockStore::find_block_point`] and fast keyboard
-//! navigation (`Cmd/Ctrl+F`, `Cmd/Ctrl+G`, `Esc`).
+//! navigation (`Cmd/Ctrl+F`, `Cmd/Ctrl+G`, `Esc`). Query updates are debounced
+//! to avoid running expensive searches while users are still typing.
 
 use crate::app::{AppState, Message, friends_panel::FriendPanelMessage};
 use crate::store::BlockId;
@@ -13,8 +14,11 @@ use iced::widget::{
 };
 use iced::{Alignment, Element, Length, Padding, Task};
 use rust_i18n::t;
+use std::time::Duration;
 
 const FIND_QUERY_INPUT_ID: &str = "find-query-input";
+/// Delay after the last query edit before running search.
+const FIND_QUERY_DEBOUNCE_MS: u64 = 300;
 
 /// Transient state for the global find overlay.
 ///
@@ -27,6 +31,7 @@ pub struct FindUiState {
     query: String,
     matches: Vec<BlockId>,
     selected: Option<usize>,
+    query_revision: u64,
 }
 
 impl FindUiState {
@@ -60,9 +65,19 @@ impl FindUiState {
         self.open = false;
     }
 
-    /// Replace the query text.
-    pub fn set_query(&mut self, query: String) {
+    /// Replace the query text and advance the debounce revision.
+    ///
+    /// The returned revision is attached to delayed refresh tasks so stale
+    /// tasks can be ignored after subsequent edits.
+    pub fn set_query(&mut self, query: String) -> u64 {
         self.query = query;
+        self.query_revision = self.query_revision.wrapping_add(1);
+        self.query_revision
+    }
+
+    /// Whether a debounced task revision is still current.
+    pub fn is_current_revision(&self, revision: u64) -> bool {
+        self.query_revision == revision
     }
 
     /// Replace matches and keep selection stable when possible.
@@ -124,6 +139,8 @@ pub enum FindMessage {
     Escape,
     /// Update query text.
     QueryChanged(String),
+    /// Debounce timer elapsed for one query revision.
+    DebounceElapsed(u64),
     /// Jump to the selected match.
     JumpSelected,
     /// Select and jump to the next match.
@@ -167,7 +184,23 @@ pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
             )
         }
         | FindMessage::QueryChanged(query) => {
-            state.ui_mut().find_ui.set_query(query);
+            let query_revision = state.ui_mut().find_ui.set_query(query);
+            if state.ui().find_ui.query().trim().is_empty() {
+                refresh_matches(state);
+                return Task::none();
+            }
+            Task::perform(
+                async move {
+                    tokio::time::sleep(Duration::from_millis(FIND_QUERY_DEBOUNCE_MS)).await;
+                    query_revision
+                },
+                |revision| Message::Find(FindMessage::DebounceElapsed(revision)),
+            )
+        }
+        | FindMessage::DebounceElapsed(revision) => {
+            if !state.ui().find_ui.is_open() || !state.ui().find_ui.is_current_revision(revision) {
+                return Task::none();
+            }
             refresh_matches(state);
             Task::none()
         }
@@ -393,6 +426,11 @@ mod tests {
         AppState::test_state()
     }
 
+    fn flush_debounced_query(state: &mut AppState) {
+        let revision = state.ui().find_ui.query_revision;
+        let _ = AppState::update(state, Message::Find(FindMessage::DebounceElapsed(revision)));
+    }
+
     #[test]
     fn toggle_opens_and_closes_overlay() {
         let (mut state, _) = test_state();
@@ -417,7 +455,38 @@ mod tests {
             &mut state,
             Message::Find(FindMessage::QueryChanged("beta".to_string())),
         );
+        flush_debounced_query(&mut state);
 
+        assert_eq!(state.ui().find_ui.matches(), &[target]);
+        assert_eq!(state.ui().find_ui.selected_block_id(), Some(target));
+    }
+
+    #[test]
+    fn stale_debounce_elapsed_is_ignored() {
+        let (mut state, root) = test_state();
+        state.store.update_point(&root, "root".to_string());
+        let _ = state.store.append_child(&root, "alpha".to_string()).expect("append child");
+        let target = state.store.append_child(&root, "alpine".to_string()).expect("append child");
+
+        let _ = AppState::update(&mut state, Message::Find(FindMessage::Open));
+        let _ = AppState::update(
+            &mut state,
+            Message::Find(FindMessage::QueryChanged("alp".to_string())),
+        );
+        let stale_revision = state.ui().find_ui.query_revision;
+
+        let _ = AppState::update(
+            &mut state,
+            Message::Find(FindMessage::QueryChanged("alpi".to_string())),
+        );
+
+        let _ = AppState::update(
+            &mut state,
+            Message::Find(FindMessage::DebounceElapsed(stale_revision)),
+        );
+        assert!(state.ui().find_ui.matches().is_empty());
+
+        flush_debounced_query(&mut state);
         assert_eq!(state.ui().find_ui.matches(), &[target]);
         assert_eq!(state.ui().find_ui.selected_block_id(), Some(target));
     }
@@ -434,6 +503,7 @@ mod tests {
             &mut state,
             Message::Find(FindMessage::QueryChanged("alp".to_string())),
         );
+        flush_debounced_query(&mut state);
 
         let _ = AppState::update(&mut state, Message::Find(FindMessage::JumpNext));
         assert_eq!(state.focus().map(|focus| focus.block_id), Some(second));
@@ -456,6 +526,7 @@ mod tests {
             &mut state,
             Message::Find(FindMessage::QueryChanged("target text".to_string())),
         );
+        flush_debounced_query(&mut state);
         let _ = AppState::update(&mut state, Message::Find(FindMessage::JumpSelected));
 
         assert_eq!(state.focus().map(|focus| focus.block_id), Some(target));
