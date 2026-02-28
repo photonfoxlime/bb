@@ -385,6 +385,8 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                         snap: false,
                     }
                 })
+                .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+                .padding(0)
                 .on_press(Message::FriendPanel(FriendPanelMessage::HoverFriend(friend_id)))
                 .into()
         };
