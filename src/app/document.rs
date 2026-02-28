@@ -265,7 +265,7 @@ impl<'a> DocumentView<'a> {
             return row![].into();
         }
 
-        let mut crumbs = row![].spacing(theme::ACTION_GAP);
+        let mut crumbs = row![].spacing(theme::ACTION_GAP).align_y(iced::Alignment::Center);
 
         // Home button
         let home_btn = button(
@@ -309,7 +309,10 @@ impl<'a> DocumentView<'a> {
             } else {
                 // Current layer - not clickable, emphasize as plain text in a container
                 let current_crumb: Element<'a, Message> = text(full_label).into();
-                crumbs = crumbs.push(current_crumb);
+                crumbs = crumbs.push(
+                    container(current_crumb)
+                        .padding(Padding::ZERO.top(theme::BREADCRUMB_CURRENT_TEXT_TOP_PAD)),
+                );
             }
 
             // Separator (not after last item)

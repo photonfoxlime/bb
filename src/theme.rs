@@ -138,6 +138,8 @@ pub const SPINE_WIDTH: f32 = 4.0;
 
 /// Padding inside buttons and tooltips.
 pub const BUTTON_PAD: f32 = 4.0;
+/// Vertical offset applied to the current breadcrumb label to align with nav controls.
+pub const BREADCRUMB_CURRENT_TEXT_TOP_PAD: f32 = 1.0;
 /// Shared square footprint for icon-like controls in block rows.
 ///
 /// Used by fold toggles, non-foldable ring markers, and overflow/action glyph buttons.
