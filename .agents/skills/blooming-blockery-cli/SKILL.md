@@ -162,9 +162,21 @@ block mount expand <BLOCK_ID>
 # Collapse mount (remove loaded blocks, restore mount node)
 block mount collapse <BLOCK_ID>
 
+# Move mount backing file and update metadata
+block mount move <BLOCK_ID> <PATH>
+
+# Inline mounted content into current store
+block mount inline <BLOCK_ID>
+
+# Inline all mounts recursively under a subtree
+block mount inline-recursive <BLOCK_ID>
+
 # Extract subtree to external file
 block mount extract <BLOCK_ID> --output <PATH> [--format json|markdown]
 block mount extract 1v1 --output /backup/notes.json
+
+# Persist all expanded mounts to their source files
+block mount save
 
 # Show mount info
 block mount info <BLOCK_ID>
@@ -207,5 +219,6 @@ block context 1v1
 1. Use `--output json` for scripting and parsing results
 2. Block IDs are case-insensitive
 3. Mount format defaults to `json` but supports `markdown`
+   - `mount extract --format` overrides path-extension inference
 4. Panel states are `friends` or `instruction`
 5. The GUI launches by default if no subcommand is given

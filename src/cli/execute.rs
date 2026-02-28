@@ -545,13 +545,54 @@ impl BlockCommands {
                     },
                 }
             }
+            // Move a mount file and update mount metadata.
+            | BlockCommands::Mount(MountCommands::Move(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    | Some(block_id) => match store.move_mount_file(&block_id, &cmd.path, base_dir)
+                    {
+                        | Ok(()) => (store, CliResult::Success),
+                        | Err(e) => (store, CliResult::Error(format!("Move failed: {}", e))),
+                    },
+                }
+            }
+            // Inline one mount into the current store.
+            | BlockCommands::Mount(MountCommands::Inline(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    | Some(block_id) => match store.inline_mount(&block_id, base_dir) {
+                        | Ok(()) => (store, CliResult::Success),
+                        | Err(e) => (store, CliResult::Error(format!("Inline failed: {}", e))),
+                    },
+                }
+            }
+            // Inline all mounts recursively under a block.
+            | BlockCommands::Mount(MountCommands::InlineRecursive(cmd)) => {
+                let id = Self::resolve_block_id(&store, &cmd.block_id);
+                match id {
+                    | None => (store, CliResult::Error("Unknown block ID".to_string())),
+                    | Some(block_id) => match store.inline_mount_recursive(&block_id, base_dir) {
+                        | Ok(count) => (store, CliResult::MountInlined(count)),
+                        | Err(e) => {
+                            (store, CliResult::Error(format!("Inline recursive failed: {}", e)))
+                        }
+                    },
+                }
+            }
             // Extract block subtree to a file.
             | BlockCommands::Mount(MountCommands::Extract(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
                     | None => (store, CliResult::Error("Unknown block ID".to_string())),
                     | Some(block_id) => {
-                        match store.save_subtree_to_file(&block_id, &cmd.output, base_dir) {
+                        match store.save_subtree_to_file_with_format(
+                            &block_id,
+                            &cmd.output,
+                            base_dir,
+                            cmd.format.map(Into::into),
+                        ) {
                             | Ok(()) => (store, CliResult::Success),
                             | Err(e) => (store, CliResult::Error(format!("Extract failed: {}", e))),
                         }
@@ -585,6 +626,11 @@ impl BlockCommands {
                     }
                 }
             }
+            // Save all expanded mounts to their source files.
+            | BlockCommands::Mount(MountCommands::Save(_)) => match store.save_mounts() {
+                | Ok(()) => (store, CliResult::Success),
+                | Err(e) => (store, CliResult::Error(format!("Save mounts failed: {}", e))),
+            },
             // ========================================================================
             // Panel Commands
             // ========================================================================

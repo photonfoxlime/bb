@@ -480,6 +480,21 @@ impl BlockStore {
     pub fn save_subtree_to_file(
         &mut self, block_id: &BlockId, path: &Path, base_dir: &Path,
     ) -> Result<(), MountError> {
+        self.save_subtree_to_file_with_format(block_id, path, base_dir, None)
+    }
+
+    /// Extract a block's subtree and persist it with an optional format override.
+    ///
+    /// When `format_override` is `None`, format is inferred from `path`
+    /// extension (`.md`/`.markdown` -> markdown, otherwise json).
+    ///
+    /// This method has the same subtree extraction and cleanup behavior as
+    /// [`Self::save_subtree_to_file`], but lets callers explicitly force
+    /// the persisted format.
+    pub fn save_subtree_to_file_with_format(
+        &mut self, block_id: &BlockId, path: &Path, base_dir: &Path,
+        format_override: Option<MountFormat>,
+    ) -> Result<(), MountError> {
         let node = self.nodes.get(*block_id).ok_or(MountError::UnknownBlock)?;
         let hint = self
             .points
@@ -508,7 +523,7 @@ impl BlockStore {
         let sub_store =
             self.build_projected_store(&own_ids, hint, &children, &mount_path_overrides);
 
-        let format = Self::format_from_path(path);
+        let format = format_override.unwrap_or_else(|| Self::format_from_path(path));
 
         // Write to file.
         if let Some(parent) = path.parent() {

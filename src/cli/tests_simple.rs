@@ -8,13 +8,17 @@
 //! Tests use the in-memory store to avoid modifying the real block store.
 
 use crate::cli::{
-    BlockCommands, BlockId, OutputFormat,
+    BlockCommands, BlockId, MountFormatCli, OutputFormat,
     commands::RootCommand,
     draft::{
         ClearDraftCommand, DraftCommands, ExpandDraftCommand, InquiryDraftCommand,
         InstructionDraftCommand, ListDraftCommand, ReduceDraftCommand,
     },
     fold::{FoldCommands, StatusFoldCommand, ToggleFoldCommand},
+    mount::{
+        ExpandMountCommand, ExtractMountCommand, InlineRecursiveMountCommand, MountCommands,
+        MoveMountCommand, SaveMountsCommand, SetMountCommand,
+    },
     nav::{
         FindNextCommand, FindPrevCommand, LineageCommand, NavCommands, NextCommand, PrevCommand,
     },
@@ -27,7 +31,7 @@ use crate::cli::{
         TreeCommands, WrapCommand,
     },
 };
-use crate::store::BlockStore;
+use crate::store::{BlockNode, BlockStore, MountFormat};
 use std::path::PathBuf;
 
 fn create_test_store() -> BlockStore {
@@ -413,4 +417,123 @@ fn move_with_unknown_source() {
     }));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Error(msg) if msg.contains("Unknown")));
+}
+
+#[test]
+fn mount_move_command_moves_backing_file() {
+    let tmp = tempfile::tempdir().unwrap();
+    let source_path = tmp.path().join("source.json");
+    let moved_path = tmp.path().join("moved.json");
+
+    std::fs::write(&source_path, serde_json::to_string_pretty(&BlockStore::default()).unwrap())
+        .unwrap();
+
+    let store = BlockStore::default();
+    let root_id = store.roots()[0];
+
+    let cmd = BlockCommands::Mount(MountCommands::Set(SetMountCommand {
+        block_id: BlockId(format_block_id(root_id)),
+        path: source_path.clone(),
+        format: MountFormatCli(MountFormat::Json),
+    }));
+    let (store, result) = cmd.execute(store, tmp.path());
+    assert!(matches!(result, CliResult::Success));
+
+    let cmd = BlockCommands::Mount(MountCommands::Move(MoveMountCommand {
+        block_id: BlockId(format_block_id(root_id)),
+        path: moved_path.clone(),
+    }));
+    let (_store, result) = cmd.execute(store, tmp.path());
+    assert!(matches!(result, CliResult::Success));
+    assert!(moved_path.exists());
+    assert!(!source_path.exists());
+}
+
+#[test]
+fn mount_inline_recursive_reports_inlined_count() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mount_path = tmp.path().join("mounted.json");
+    std::fs::write(&mount_path, serde_json::to_string_pretty(&BlockStore::default()).unwrap())
+        .unwrap();
+
+    let store = BlockStore::default();
+    let root_id = store.roots()[0];
+
+    let cmd = BlockCommands::Mount(MountCommands::Set(SetMountCommand {
+        block_id: BlockId(format_block_id(root_id)),
+        path: mount_path,
+        format: MountFormatCli(MountFormat::Json),
+    }));
+    let (store, result) = cmd.execute(store, tmp.path());
+    assert!(matches!(result, CliResult::Success));
+
+    let cmd = BlockCommands::Mount(MountCommands::Expand(ExpandMountCommand {
+        block_id: BlockId(format_block_id(root_id)),
+    }));
+    let (store, result) = cmd.execute(store, tmp.path());
+    assert!(matches!(result, CliResult::Success));
+
+    let cmd = BlockCommands::Mount(MountCommands::InlineRecursive(InlineRecursiveMountCommand {
+        block_id: BlockId(format_block_id(root_id)),
+    }));
+    let (_store, result) = cmd.execute(store, tmp.path());
+    assert!(matches!(result, CliResult::MountInlined(1)));
+}
+
+#[test]
+fn mount_save_command_persists_expanded_mount_content() {
+    let tmp = tempfile::tempdir().unwrap();
+    let mount_path = tmp.path().join("mounted.json");
+    std::fs::write(&mount_path, serde_json::to_string_pretty(&BlockStore::default()).unwrap())
+        .unwrap();
+
+    let store = BlockStore::default();
+    let root_id = store.roots()[0];
+
+    let cmd = BlockCommands::Mount(MountCommands::Set(SetMountCommand {
+        block_id: BlockId(format_block_id(root_id)),
+        path: mount_path.clone(),
+        format: MountFormatCli(MountFormat::Json),
+    }));
+    let (store, result) = cmd.execute(store, tmp.path());
+    assert!(matches!(result, CliResult::Success));
+
+    let cmd = BlockCommands::Mount(MountCommands::Expand(ExpandMountCommand {
+        block_id: BlockId(format_block_id(root_id)),
+    }));
+    let (mut store, result) = cmd.execute(store, tmp.path());
+    assert!(matches!(result, CliResult::Success));
+
+    let mounted_root = store.children(&root_id)[0];
+    store.update_point(&mounted_root, "updated from cli".to_string());
+
+    let cmd = BlockCommands::Mount(MountCommands::Save(SaveMountsCommand {}));
+    let (_store, result) = cmd.execute(store, tmp.path());
+    assert!(matches!(result, CliResult::Success));
+
+    let written = std::fs::read_to_string(&mount_path).unwrap();
+    assert!(written.contains("updated from cli"));
+}
+
+#[test]
+fn mount_extract_respects_format_override() {
+    let tmp = tempfile::tempdir().unwrap();
+    let output_path = tmp.path().join("subtree.json");
+
+    let mut store = BlockStore::default();
+    let root_id = store.roots()[0];
+    store.append_child(&root_id, "child".to_string()).unwrap();
+
+    let cmd = BlockCommands::Mount(MountCommands::Extract(ExtractMountCommand {
+        block_id: BlockId(format_block_id(root_id)),
+        output: output_path,
+        format: Some(MountFormatCli(MountFormat::Markdown)),
+    }));
+    let (store, result) = cmd.execute(store, tmp.path());
+    assert!(matches!(result, CliResult::Success));
+
+    match store.node(&root_id) {
+        | Some(BlockNode::Mount { format, .. }) => assert_eq!(*format, MountFormat::Markdown),
+        | _ => panic!("expected root to become markdown mount"),
+    }
 }

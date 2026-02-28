@@ -41,7 +41,6 @@ pub enum MountCommands {
     /// # Arguments
     ///
     /// - `block_id`: Mount point block
-    /// - `--base-dir`: Base directory for resolving relative paths
     ///
     /// # Returns
     ///
@@ -56,7 +55,6 @@ pub enum MountCommands {
     /// # Example
     /// ```bash
     /// block mount expand 1v1
-    /// block mount expand 1v1 --base-dir /projects/app
     /// ```
     Expand(ExpandMountCommand),
 
@@ -83,6 +81,56 @@ pub enum MountCommands {
     /// ```
     Collapse(CollapseMountCommand),
 
+    /// Move a mount file and update mount metadata.
+    ///
+    /// Works for both expanded and unexpanded mounts:
+    /// - expanded: writes current mounted content to the new path,
+    /// - unexpanded: moves the existing backing file.
+    ///
+    /// # Arguments
+    ///
+    /// - `block_id`: Mount point block
+    /// - `path`: New mount file path (absolute or relative)
+    ///
+    /// # Example
+    /// ```bash
+    /// block mount move 1v1 /data/moved.md
+    /// ```
+    Move(MoveMountCommand),
+
+    /// Inline a single mount into the current store.
+    ///
+    /// If the mount is not expanded yet, this expands it first and then removes
+    /// runtime mount tracking while keeping the loaded children as normal blocks.
+    ///
+    /// # Arguments
+    ///
+    /// - `block_id`: Mount point block
+    ///
+    /// # Example
+    /// ```bash
+    /// block mount inline 1v1
+    /// ```
+    Inline(InlineMountCommand),
+
+    /// Inline all mounts recursively under a mount point.
+    ///
+    /// Traverses the subtree and inlines every reachable mount.
+    ///
+    /// # Arguments
+    ///
+    /// - `block_id`: Root block to start recursive inlining from
+    ///
+    /// # Returns
+    ///
+    /// Number of inlined mount points.
+    ///
+    /// # Example
+    /// ```bash
+    /// block mount inline-recursive 1v1
+    /// ```
+    InlineRecursive(InlineRecursiveMountCommand),
+
     /// Extract a subtree to an external file.
     ///
     /// Saves the block's children (and their subtrees) to a file, then replaces
@@ -92,7 +140,6 @@ pub enum MountCommands {
     ///
     /// - `block_id`: Block to extract
     /// - `--output`: Output file path
-    /// - `--base-dir`: Base directory for relative path computation
     ///
     /// # Returns
     ///
@@ -122,6 +169,17 @@ pub enum MountCommands {
     /// block mount info 1v1
     /// ```
     Info(InfoMountCommand),
+
+    /// Save all expanded mounts back to their source files.
+    ///
+    /// This writes each expanded mount subtree to its tracked file path and
+    /// format. Useful after editing mounted content through CLI commands.
+    ///
+    /// # Example
+    /// ```bash
+    /// block mount save
+    /// ```
+    Save(SaveMountsCommand),
 }
 
 /// Set mount path.
@@ -162,6 +220,34 @@ pub struct CollapseMountCommand {
     pub block_id: BlockId,
 }
 
+/// Move mount file.
+#[derive(Debug, Parser)]
+pub struct MoveMountCommand {
+    /// Mount point block.
+    #[arg(value_name = "BLOCK_ID")]
+    pub block_id: BlockId,
+
+    /// New path for the mounted file.
+    #[arg(value_name = "PATH")]
+    pub path: std::path::PathBuf,
+}
+
+/// Inline one mount.
+#[derive(Debug, Parser)]
+pub struct InlineMountCommand {
+    /// Mount point block.
+    #[arg(value_name = "BLOCK_ID")]
+    pub block_id: BlockId,
+}
+
+/// Inline all mounts under a subtree.
+#[derive(Debug, Parser)]
+pub struct InlineRecursiveMountCommand {
+    /// Root block to traverse.
+    #[arg(value_name = "BLOCK_ID")]
+    pub block_id: BlockId,
+}
+
 /// Extract subtree to file.
 #[derive(Debug, Parser)]
 pub struct ExtractMountCommand {
@@ -185,3 +271,7 @@ pub struct InfoMountCommand {
     #[arg(value_name = "BLOCK_ID")]
     pub block_id: BlockId,
 }
+
+/// Save all expanded mounts.
+#[derive(Debug, Parser)]
+pub struct SaveMountsCommand {}

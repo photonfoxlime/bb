@@ -97,6 +97,9 @@ pub fn print_result(result: &CliResult, output: OutputFormat) {
         | CliResult::MountInfo { path, format, expanded } => {
             print_mount_info(path.as_deref(), format, *expanded, output);
         }
+        | CliResult::MountInlined(count) => {
+            print_mount_inlined(*count, output);
+        }
         | CliResult::PanelState(state) => {
             print_panel_state(state.as_deref(), output);
         }
@@ -285,6 +288,18 @@ fn print_mount_info(path: Option<&str>, format: &str, expanded: bool, output: Ou
             println!("Path: {}", path.unwrap_or("(none)"));
             println!("Format: {}", format);
             println!("Expanded: {}", expanded);
+        }
+    }
+}
+
+/// Print recursive mount inline count.
+fn print_mount_inlined(count: usize, output: OutputFormat) {
+    match output {
+        | OutputFormat::Json => {
+            println!("{}", serde_json::json!({ "inlined_mounts": count }));
+        }
+        | OutputFormat::Table => {
+            println!("Inlined mounts: {}", count);
         }
     }
 }

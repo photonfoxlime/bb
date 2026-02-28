@@ -96,6 +96,10 @@ pub enum CliResult {
     /// Returned by `mount info`, describing the mount path, format,
     /// and expansion state.
     MountInfo { path: Option<String>, format: String, expanded: bool },
+    /// Number of inlined mount points.
+    ///
+    /// Returned by `mount inline-recursive`.
+    MountInlined(usize),
     /// Panel sidebar state.
     ///
     /// Returned by `panel get`, showing the current sidebar mode.
