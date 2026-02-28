@@ -51,6 +51,7 @@ use super::{
     settings::SettingsMessage,
 };
 use crate::{
+    component::icon_button::IconButton,
     store::{BlockId, BlockPanelBarState, ExpansionDraftRecord, ReductionDraftRecord},
     text::truncate_for_display,
     theme,
@@ -85,28 +86,22 @@ impl<'a> DocumentView<'a> {
         let is_find_mode = state.ui().find_ui.is_open();
         let is_normal_mode = state.ui().document_mode == DocumentMode::Normal && !is_find_mode;
 
-        let normal_mode_btn = button(centered_icon(
+        let normal_mode_btn = IconButton::mode(
             icons::icon_mouse_pointer_2()
                 .size(theme::TOOLBAR_ICON_SIZE)
                 .line_height(iced::widget::text::LineHeight::Relative(1.0))
                 .into(),
-        ))
-        .style(move |theme, status| theme::mode_button(theme, status, is_normal_mode))
-        .padding(0)
-        .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+            is_normal_mode,
+        )
         .on_press(Message::DocumentMode(DocumentMode::Normal));
 
-        let find_mode_btn = button(centered_icon(
+        let find_mode_btn = IconButton::mode(
             icons::icon_search()
                 .size(theme::TOOLBAR_ICON_SIZE)
                 .line_height(iced::widget::text::LineHeight::Relative(1.0))
                 .into(),
-        ))
-        .style(move |theme, status| theme::mode_button(theme, status, is_find_mode))
-        .padding(0)
-        .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+            is_find_mode,
+        )
         .on_press(Message::Find(if is_find_mode {
             FindMessage::Close
         } else {
@@ -141,37 +136,34 @@ impl<'a> DocumentView<'a> {
         let main_content = container(layout).style(theme::canvas).width(Fill).height(Fill);
 
         // Settings gear button – top-right corner
-        let gear_button = button(
+        let gear_button = IconButton::action(
             lucide_icons::iced::icon_settings()
-                .size(16)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
+                .size(theme::TOOLBAR_ICON_SIZE)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into(),
         )
-        .on_press(Message::Settings(SettingsMessage::Open))
-        .style(theme::action_button)
-        .padding(theme::BUTTON_PAD);
+        .on_press(Message::Settings(SettingsMessage::Open));
 
         // Undo/redo buttons – top-right, before settings
         let can_undo = state.can_undo();
         let can_redo = state.can_redo();
 
-        let mut undo_button = button(
+        let mut undo_button = IconButton::action(
             icons::icon_undo_2()
-                .size(16)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
-        )
-        .style(theme::action_button)
-        .padding(theme::BUTTON_PAD);
+                .size(theme::TOOLBAR_ICON_SIZE)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into(),
+        );
         if can_undo {
             undo_button = undo_button.on_press(Message::UndoRedo(UndoRedoMessage::Undo));
         }
 
-        let mut redo_button = button(
+        let mut redo_button = IconButton::action(
             icons::icon_redo_2()
-                .size(16)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
-        )
-        .style(theme::action_button)
-        .padding(theme::BUTTON_PAD);
+                .size(theme::TOOLBAR_ICON_SIZE)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into(),
+        );
         if can_redo {
             redo_button = redo_button.on_press(Message::UndoRedo(UndoRedoMessage::Redo));
         }
@@ -268,13 +260,12 @@ impl<'a> DocumentView<'a> {
         let mut crumbs = row![].spacing(theme::ACTION_GAP).align_y(iced::Alignment::Center);
 
         // Home button
-        let home_btn = button(
+        let home_btn = IconButton::action(
             icons::icon_house()
                 .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into(),
         )
-        .style(theme::action_button)
-        .padding(theme::BUTTON_PAD)
         .on_press(Message::Navigation(NavigationMessage::Home));
         crumbs = crumbs.push(home_btn);
 
@@ -401,24 +392,13 @@ impl<'a> TreeView<'a> {
             } else {
                 Message::Structure(StructureMessage::ToggleFold(*block_id))
             };
-            button(centered_icon(action_icon(icon)))
-                .style(theme::action_button)
-                .padding(0)
-                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(msg)
-                .into()
+            IconButton::action(action_icon(icon)).on_press(msg).into()
         } else {
             let ring_icon: Element<'a, Message> = icons::icon_circle()
                 .size(theme::LEAF_RING_ICON_SIZE)
                 .line_height(iced::widget::text::LineHeight::Relative(1.0))
                 .into();
-            button(centered_icon(ring_icon))
-                .style(theme::action_button)
-                .padding(0)
-                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .into()
+            IconButton::action(ring_icon).into()
         };
 
         let is_focused = self.state.focus().map_or(false, |s| s.block_id == *block_id);
@@ -1008,16 +988,12 @@ impl<'a> TreeView<'a> {
                 for descriptor in &vm.overflow {
                     actions_row = actions_row.push(self.render_action_button(block_id, descriptor));
                 }
-                let btn = button(centered_icon(
+                let btn = IconButton::action(
                     icons::icon_x()
-                        .size(16)
+                        .size(theme::TOOLBAR_ICON_SIZE)
                         .line_height(iced::widget::text::LineHeight::Relative(1.0))
                         .into(),
-                ))
-                .style(theme::action_button)
-                .padding(0)
-                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                )
                 .on_press(Message::Overlay(OverlayMessage::ToggleOverflow(*block_id)));
 
                 actions_row = actions_row.push(
@@ -1032,16 +1008,12 @@ impl<'a> TreeView<'a> {
                 );
             } else {
                 // When closed, show "More" button
-                let btn = button(centered_icon(
+                let btn = IconButton::action(
                     icons::icon_ellipsis()
-                        .size(16)
+                        .size(theme::TOOLBAR_ICON_SIZE)
                         .line_height(iced::widget::text::LineHeight::Relative(1.0))
                         .into(),
-                ))
-                .style(theme::action_button)
-                .padding(0)
-                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                )
                 .on_press(Message::Overlay(OverlayMessage::ToggleOverflow(*block_id)));
 
                 actions_row = actions_row.push(
@@ -1063,17 +1035,11 @@ impl<'a> TreeView<'a> {
     fn render_action_button(
         &self, block_id: &BlockId, descriptor: &ActionDescriptor,
     ) -> Element<'a, Message> {
-        let style = if descriptor.destructive {
-            theme::destructive_button as fn(&iced::Theme, button::Status) -> button::Style
+        let base = if descriptor.destructive {
+            IconButton::destructive(action_icon(descriptor.id))
         } else {
-            theme::action_button
+            IconButton::action(action_icon(descriptor.id))
         };
-        let icon = centered_icon(action_icon(descriptor.id));
-        let base = button(icon)
-            .style(style)
-            .padding(0)
-            .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .height(Length::Fixed(theme::ICON_BUTTON_SIZE));
         let btn = if descriptor.availability == ActionAvailability::Enabled {
             if let Some(message) = action_to_message(self.state, block_id, descriptor) {
                 base.on_press(message)
@@ -1115,18 +1081,13 @@ impl<'a> TreeView<'a> {
         };
 
         let move_btn: Element<'a, Message> = {
-            let icon = centered_icon(
+            let btn = IconButton::action(
                 icons::icon_folder_input()
                     .size(theme::TOOLBAR_ICON_SIZE)
                     .line_height(iced::widget::text::LineHeight::Relative(1.0))
                     .into(),
-            );
-            let btn = button(icon)
-                .style(theme::action_button)
-                .padding(0)
-                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::MountFile(MountFileMessage::MoveMount(*block_id)));
+            )
+            .on_press(Message::MountFile(MountFileMessage::MoveMount(*block_id)));
             tooltip(btn, text(move_label).size(12).font(theme::INTER), tooltip::Position::Bottom)
                 .style(theme::tooltip)
                 .padding(theme::TOOLTIP_PAD)
@@ -1135,18 +1096,13 @@ impl<'a> TreeView<'a> {
         };
 
         let inline_btn: Element<'a, Message> = {
-            let icon = centered_icon(
+            let btn = IconButton::action(
                 icons::icon_chevron_down()
                     .size(theme::TOOLBAR_ICON_SIZE)
                     .line_height(iced::widget::text::LineHeight::Relative(1.0))
                     .into(),
-            );
-            let btn = button(icon)
-                .style(theme::action_button)
-                .padding(0)
-                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::MountFile(MountFileMessage::InlineMount(*block_id)));
+            )
+            .on_press(Message::MountFile(MountFileMessage::InlineMount(*block_id)));
             tooltip(btn, text(inline_label).size(12).font(theme::INTER), tooltip::Position::Bottom)
                 .style(theme::tooltip)
                 .padding(theme::TOOLTIP_PAD)
@@ -1155,22 +1111,22 @@ impl<'a> TreeView<'a> {
         };
 
         let inline_all_btn: Element<'a, Message> = {
-            let icon = centered_icon(
-                icons::icon_chevrons_down()
-                    .size(theme::TOOLBAR_ICON_SIZE)
-                    .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                    .into(),
-            );
-            let btn = button(icon)
-                .style(if is_inline_confirmation_armed {
-                    theme::destructive_button
-                } else {
-                    theme::action_button
-                })
-                .padding(0)
-                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::MountFile(MountFileMessage::InlineMountAll(*block_id)));
+            let btn = if is_inline_confirmation_armed {
+                IconButton::destructive(
+                    icons::icon_chevrons_down()
+                        .size(theme::TOOLBAR_ICON_SIZE)
+                        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                        .into(),
+                )
+            } else {
+                IconButton::action(
+                    icons::icon_chevrons_down()
+                        .size(theme::TOOLBAR_ICON_SIZE)
+                        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                        .into(),
+                )
+            }
+            .on_press(Message::MountFile(MountFileMessage::InlineMountAll(*block_id)));
             tooltip(
                 btn,
                 text(inline_all_label).size(12).font(theme::INTER),
@@ -1188,15 +1144,11 @@ impl<'a> TreeView<'a> {
             } else {
                 (icons::icon_ellipsis(), t!("ui_more").to_string())
             };
-            let btn = button(centered_icon(
+            let btn = IconButton::action(
                 icon.size(theme::TOOLBAR_ICON_SIZE)
                     .line_height(iced::widget::text::LineHeight::Relative(1.0))
                     .into(),
-            ))
-            .style(theme::action_button)
-            .padding(0)
-            .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+            )
             .on_press(Message::Overlay(OverlayMessage::ToggleMountActionsOverflow(*block_id)));
             tooltip(btn, text(tooltip_label).size(12).font(theme::INTER), tooltip::Position::Bottom)
                 .style(theme::tooltip)
@@ -1206,16 +1158,12 @@ impl<'a> TreeView<'a> {
         };
 
         let confirm_close_btn: Element<'a, Message> = {
-            let btn = button(centered_icon(
+            let btn = IconButton::action(
                 icons::icon_x()
                     .size(theme::TOOLBAR_ICON_SIZE)
                     .line_height(iced::widget::text::LineHeight::Relative(1.0))
                     .into(),
-            ))
-            .style(theme::action_button)
-            .padding(0)
-            .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+            )
             .on_press(Message::MountFile(MountFileMessage::CancelInlineMountAllConfirm(*block_id)));
             tooltip(
                 btn,
@@ -1292,15 +1240,7 @@ fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
         | ActionId::LoadFromFile => icons::icon_hard_drive_upload(),
         | ActionId::EnterBlock => icons::icon_log_in(),
     };
-    icon.size(16).line_height(iced::widget::text::LineHeight::Relative(1.0)).into()
-}
-
-fn centered_icon<'a>(icon: Element<'a, Message>) -> Element<'a, Message> {
-    container(icon)
-        .padding(theme::BUTTON_PAD)
-        .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-        .align_x(iced::alignment::Horizontal::Center)
-        .align_y(iced::alignment::Vertical::Center)
+    icon.size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
         .into()
 }

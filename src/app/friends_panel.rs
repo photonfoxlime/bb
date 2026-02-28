@@ -29,6 +29,7 @@
 //! - Empty state with placeholder makes the affordance discoverable without cluttering the UI.
 
 use crate::app::{AppState, DocumentMode, Message, StructureMessage};
+use crate::component::icon_button::IconButton;
 use crate::store::{BlockId, BlockPanelBarState};
 use crate::text::truncate_for_display;
 use crate::theme;
@@ -300,25 +301,23 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     ),
                 }));
 
-            let accept_btn = button(icons::icon_check().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE))
-                .padding(2)
-                .style(theme::action_button)
-                .width(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-                .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-                .on_press(Message::FriendPanel(FriendPanelMessage::AcceptFriendPerspective {
-                    target,
-                    friend_id,
-                }));
+            let accept_btn = IconButton::action_with_size(
+                icons::icon_check().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE).into(),
+                theme::FRIEND_PERSPECTIVE_HEIGHT,
+                theme::FRIEND_PERSPECTIVE_BUTTON_PAD,
+            )
+            .on_press(Message::FriendPanel(
+                FriendPanelMessage::AcceptFriendPerspective { target, friend_id },
+            ));
 
-            let cancel_btn = button(icons::icon_x().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE))
-                .padding(2)
-                .style(theme::destructive_button)
-                .width(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-                .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-                .on_press(Message::FriendPanel(FriendPanelMessage::ClearFriendPerspective {
-                    target,
-                    friend_id,
-                }));
+            let cancel_btn = IconButton::destructive_with_size(
+                icons::icon_x().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE).into(),
+                theme::FRIEND_PERSPECTIVE_HEIGHT,
+                theme::FRIEND_PERSPECTIVE_BUTTON_PAD,
+            )
+            .on_press(Message::FriendPanel(
+                FriendPanelMessage::ClearFriendPerspective { target, friend_id },
+            ));
 
             row![].spacing(4).push(input_field).push(accept_btn).push(cancel_btn).into()
         } else if perspective_label.is_empty() {
@@ -356,14 +355,14 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     )),
                 )
                 .push(
-                    button(icons::icon_x().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE))
-                        .padding(2)
-                        .style(theme::destructive_button)
-                        .width(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-                        .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-                        .on_press(Message::FriendPanel(
-                            FriendPanelMessage::ClearFriendPerspective { target, friend_id },
-                        )),
+                    IconButton::destructive_with_size(
+                        icons::icon_x().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE).into(),
+                        theme::FRIEND_PERSPECTIVE_HEIGHT,
+                        theme::FRIEND_PERSPECTIVE_BUTTON_PAD,
+                    )
+                    .on_press(Message::FriendPanel(
+                        FriendPanelMessage::ClearFriendPerspective { target, friend_id },
+                    )),
                 )
                 .into()
         };
@@ -418,13 +417,14 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     .align_y(iced::alignment::Vertical::Center)
                     .push(
                         tooltip(
-                            button(
-                                icons::icon_corner_up_left().size(theme::FRIEND_TOGGLE_ICON_SIZE).center(),
+                            IconButton::toggle_with_size(
+                                icons::icon_corner_up_left()
+                                    .size(theme::FRIEND_TOGGLE_ICON_SIZE)
+                                    .into(),
+                                friend.parent_lineage_telescope,
+                                theme::FRIEND_TOGGLE_SIZE,
+                                0.0,
                             )
-                            .style(theme::toggle_button(friend.parent_lineage_telescope))
-                            .height(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
-                            .width(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
-                            .padding(0)
                             .on_press(Message::FriendPanel(
                                 FriendPanelMessage::ToggleParentLineageTelescope { target, friend_id },
                             )),
@@ -439,13 +439,14 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     )
                     .push(
                         tooltip(
-                            button(
-                                icons::icon_corner_down_right().size(theme::FRIEND_TOGGLE_ICON_SIZE).center(),
+                            IconButton::toggle_with_size(
+                                icons::icon_corner_down_right()
+                                    .size(theme::FRIEND_TOGGLE_ICON_SIZE)
+                                    .into(),
+                                friend.children_telescope,
+                                theme::FRIEND_TOGGLE_SIZE,
+                                0.0,
                             )
-                            .style(theme::toggle_button(friend.children_telescope))
-                            .height(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
-                            .width(Length::Fixed(theme::FRIEND_TOGGLE_SIZE))
-                            .padding(0)
                             .on_press(Message::FriendPanel(
                                 FriendPanelMessage::ToggleChildrenTelescope { target, friend_id },
                             )),

@@ -37,6 +37,7 @@
 
 use super::config::{self, AppConfig};
 use super::{AppState, Message, ViewMode};
+use crate::component::icon_button::IconButton;
 use crate::i18n;
 use crate::llm;
 use crate::paths::AppPaths;
@@ -375,14 +376,13 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let palette = if state.ui().is_dark { &theme::DARK } else { &theme::LIGHT };
 
     // ── Header ───────────────────────────────────────────────────────
-    let back_button = button(
+    let back_button = IconButton::action(
         lucide_icons::iced::icon_arrow_left()
-            .size(16)
-            .line_height(iced::widget::text::LineHeight::Relative(1.0)),
+            .size(theme::TOOLBAR_ICON_SIZE)
+            .line_height(iced::widget::text::LineHeight::Relative(1.0))
+            .into(),
     )
-    .on_press(Message::Settings(SettingsMessage::Close))
-    .style(theme::action_button)
-    .padding(theme::BUTTON_PAD);
+    .on_press(Message::Settings(SettingsMessage::Close));
 
     let header =
         row![back_button, text(t!("settings_title").to_string()).size(20).font(theme::INTER),]
@@ -650,19 +650,13 @@ fn path_row(
         row![label_text, path_text].spacing(8).align_y(iced::Alignment::Center).width(Fill);
 
     if let Some(message) = copy_message {
-        let copy_icon = container(
+        let copy_button = IconButton::action(
             icons::icon_copy()
                 .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into(),
         )
-        .padding(theme::BUTTON_PAD)
-        .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-        .align_x(iced::alignment::Horizontal::Center)
-        .align_y(iced::alignment::Vertical::Center);
-
-        let copy_button =
-            button(copy_icon).on_press(message).style(theme::action_button).padding(0);
+        .on_press(message);
         let copy_with_tooltip = tooltip(
             copy_button,
             text(copy_tooltip).size(12).font(theme::INTER),
