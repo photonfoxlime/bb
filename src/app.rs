@@ -107,7 +107,7 @@ pub struct AppState {
     /// UI focus state: keyboard focus + overflow menu state.
     focus: Option<FocusState>,
     /// Transient UI singleton state (hover effects, visual feedback).
-    ui_state: UiState,
+    transient_ui: TransientUiState,
     /// Transient find-overlay state (query, matches, and selection).
     find_ui: FindUiState,
     /// (target_block_id, friend_block_id) of friend perspective currently being edited inline.
@@ -181,7 +181,7 @@ impl AppState {
             persistence_blocked,
             persistence_write_disabled: false,
             focus: None,
-            ui_state: UiState::default(),
+            transient_ui: TransientUiState::default(),
             find_ui: FindUiState::default(),
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,
@@ -396,13 +396,13 @@ impl AppState {
         let keep_inline_confirmation =
             matches!(&message, Message::MountFile(MountFileMessage::InlineMountAll(_)));
         if !keep_inline_confirmation {
-            self.ui_state.pending_inline_mount_confirmation = None;
+            self.transient_ui.pending_inline_mount_confirmation = None;
         }
 
         let keep_mount_action_overflow =
             matches!(&message, Message::Overlay(OverlayMessage::ToggleMountActionsOverflow(_)));
         if !keep_mount_action_overflow {
-            self.ui_state.mount_action_overflow_block = None;
+            self.transient_ui.mount_action_overflow_block = None;
         }
 
         match message {
@@ -429,7 +429,7 @@ impl AppState {
             }
             | Message::DocumentMode(mode) => {
                 // Clear friend hover state when changing document modes
-                self.ui_state.hovered_friend_block = None;
+                self.transient_ui.hovered_friend_block = None;
                 self.document_mode = mode;
                 Task::none()
             }
@@ -571,7 +571,7 @@ pub struct FocusState {
 /// - Resetting on reload is acceptable and expected behavior
 /// - Keeps serialization lean and focused on user data
 #[derive(Debug, Clone, Default)]
-pub struct UiState {
+pub struct TransientUiState {
     /// The friend block currently being hovered in the Friends Panel.
     ///
     /// When `Some`, the corresponding block in the document tree is highlighted
@@ -687,7 +687,7 @@ mod edit {
         state: &mut AppState, block_id: BlockId, action: text_editor::Action,
     ) -> Task<Message> {
         // Clear friend hover state when editing
-        state.ui_state.hovered_friend_block = None;
+        state.transient_ui.hovered_friend_block = None;
 
         // Don't change focus in PickFriend mode
         if state.document_mode == DocumentMode::PickFriend {
@@ -838,7 +838,7 @@ impl AppState {
             errors: vec![],
             llm_requests: LlmRequests::new(),
             focus: None,
-            ui_state: UiState::default(),
+            transient_ui: TransientUiState::default(),
             find_ui: FindUiState::default(),
             editing_friend_perspective: None,
             editing_friend_perspective_input: None,

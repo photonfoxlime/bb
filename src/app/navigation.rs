@@ -278,7 +278,7 @@ impl NavigationStack {
 /// `Task::none()` after synchronous state updates.
 pub fn handle(state: &mut AppState, message: NavigationMessage) -> Task<Message> {
     // Clear friend hover state on navigation
-    state.ui_state.hovered_friend_block = None;
+    state.transient_ui.hovered_friend_block = None;
 
     match message {
         | NavigationMessage::Enter(block_id) => {

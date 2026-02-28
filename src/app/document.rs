@@ -405,7 +405,7 @@ impl<'a> TreeView<'a> {
 
         // Check if this block should be highlighted due to friend panel hover
         let is_hovered_friend =
-            self.state.ui_state.hovered_friend_block.is_some_and(|hovered_id| {
+            self.state.transient_ui.hovered_friend_block.is_some_and(|hovered_id| {
                 hovered_id == *block_id
                     && self.state.store.is_visible(block_id)
                     && self.state.navigation.is_in_current_view(&self.state.store, block_id)
@@ -455,17 +455,20 @@ impl<'a> TreeView<'a> {
         // Panel row (shown only when a panel is open)
         let panel_row = self.render_panel_row(block_id, is_focused);
 
-        let mut block = column![].spacing(theme::BLOCK_INNER_GAP);
-
-        // Mount header: path and mount actions.
-        if let Some(mount_path) = mount_display_path {
-            block = block.push(
+        let head_row: Element<'a, Message> = if let Some(mount_path) = mount_display_path {
+            column![
                 container(self.render_mount_indicator(block_id, mount_path))
                     .padding(Padding::ZERO.left(theme::INDENT)),
-            );
-        }
+                row_content,
+            ]
+            .spacing(theme::MOUNT_HEADER_ROW_GAP)
+            .into()
+        } else {
+            row_content.into()
+        };
 
-        block = block.push(row_content);
+        let mut block = column![].spacing(theme::BLOCK_INNER_GAP);
+        block = block.push(head_row);
         block = block.push(bar_row);
         block = block.push(panel_row);
         if action_bar.status_chip.is_some() {
@@ -1055,9 +1058,9 @@ impl<'a> TreeView<'a> {
         &self, block_id: &BlockId, mount_path: &'a std::path::Path,
     ) -> Element<'a, Message> {
         let is_inline_confirmation_armed =
-            self.state.ui_state.pending_inline_mount_confirmation == Some(*block_id);
+            self.state.transient_ui.pending_inline_mount_confirmation == Some(*block_id);
         let is_mount_action_overflow_open =
-            self.state.ui_state.mount_action_overflow_block == Some(*block_id);
+            self.state.transient_ui.mount_action_overflow_block == Some(*block_id);
 
         let move_label = t!("action_move_mount_file").to_string();
         let inline_label = t!("action_inline_mount").to_string();

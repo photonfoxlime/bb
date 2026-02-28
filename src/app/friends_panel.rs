@@ -80,7 +80,7 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
                     | Some(PanelBarState::Friends) => {
                         state.store.set_panel_state(&block_id, None);
                         // Clear hover state when closing the friends panel
-                        state.ui_state.hovered_friend_block = None;
+                        state.transient_ui.hovered_friend_block = None;
                     }
                     | _ => {
                         state.store.set_panel_state(&block_id, Some(PanelBarState::Friends));
@@ -197,11 +197,11 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             Task::none()
         }
         | FriendPanelMessage::HoverFriend(friend_id) => {
-            state.ui_state.hovered_friend_block = Some(friend_id);
+            state.transient_ui.hovered_friend_block = Some(friend_id);
             Task::none()
         }
         | FriendPanelMessage::UnhoverFriend => {
-            state.ui_state.hovered_friend_block = None;
+            state.transient_ui.hovered_friend_block = None;
             Task::none()
         }
     }
