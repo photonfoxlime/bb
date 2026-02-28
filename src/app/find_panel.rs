@@ -5,7 +5,7 @@
 //! navigation (`Cmd/Ctrl+F`, `Cmd/Ctrl+G`, `Esc`). Query updates are debounced
 //! to avoid running expensive searches while users are still typing.
 
-use crate::app::{AppState, Message, friends_panel::FriendPanelMessage};
+use crate::app::{AppState, DocumentMode, Message, friends_panel::FriendPanelMessage};
 use crate::store::BlockId;
 use crate::text::truncate_for_display;
 use crate::theme;
@@ -135,7 +135,7 @@ pub enum FindMessage {
     Open,
     /// Close the find overlay.
     Close,
-    /// Escape key behavior: close find if open, otherwise fall back.
+    /// Escape key behavior: close find if open, otherwise run fallback chain.
     Escape,
     /// Update query text.
     QueryChanged(String),
@@ -178,10 +178,18 @@ pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
                 state.ui_mut().find_ui.close();
                 return Task::none();
             }
-            AppState::update(
-                state,
-                Message::FriendPanel(FriendPanelMessage::CancelEditingFriendPerspective),
-            )
+
+            let friend_escape_active = state.ui().editing_friend_perspective.is_some()
+                || state.ui().document_mode == DocumentMode::PickFriend;
+            if friend_escape_active {
+                return AppState::update(
+                    state,
+                    Message::FriendPanel(FriendPanelMessage::CancelEditingFriendPerspective),
+                );
+            }
+
+            let _ = state.close_focused_block_panel();
+            Task::none()
         }
         | FindMessage::QueryChanged(query) => {
             let previous_query = state.ui().find_ui.query();
@@ -654,5 +662,32 @@ mod tests {
         let _ = AppState::update(&mut state, Message::Find(FindMessage::Escape));
 
         assert_eq!(state.ui().document_mode, DocumentMode::Normal);
+    }
+
+    #[test]
+    fn escape_closes_focused_panel_when_no_other_action_is_triggered() {
+        let (mut state, root) = test_state();
+        state.set_focus(root);
+        state.store.set_block_panel_state(&root, Some(BlockPanelBarState::Instruction));
+
+        let _ = AppState::update(&mut state, Message::Find(FindMessage::Escape));
+
+        assert_eq!(state.store.block_panel_state(&root).copied(), None);
+    }
+
+    #[test]
+    fn escape_keeps_panel_open_when_friend_cancel_handles_it() {
+        let (mut state, root) = test_state();
+        state.set_focus(root);
+        state.ui_mut().document_mode = DocumentMode::PickFriend;
+        state.store.set_block_panel_state(&root, Some(BlockPanelBarState::Friends));
+
+        let _ = AppState::update(&mut state, Message::Find(FindMessage::Escape));
+
+        assert_eq!(state.ui().document_mode, DocumentMode::Normal);
+        assert_eq!(
+            state.store.block_panel_state(&root).copied(),
+            Some(BlockPanelBarState::Friends)
+        );
     }
 }

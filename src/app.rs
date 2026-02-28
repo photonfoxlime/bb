@@ -355,6 +355,28 @@ impl AppState {
         }
     }
 
+    /// Close the focused block panel, if one is currently open.
+    ///
+    /// Returns `true` when Escape consumed this fallback by closing a panel.
+    /// This is intentionally side-effecting because panel-open state is
+    /// persisted per block.
+    fn close_focused_block_panel(&mut self) -> bool {
+        let Some(block_id) = self.focus().map(|state| state.block_id) else {
+            return false;
+        };
+        let Some(panel_state) = self.store.block_panel_state(&block_id).copied() else {
+            return false;
+        };
+
+        self.store.set_block_panel_state(&block_id, None);
+        if panel_state == BlockPanelBarState::Friends {
+            self.ui_mut().hovered_friend_block = None;
+        }
+        self.persist_with_context("after closing focused block panel");
+        tracing::info!(block_id = ?block_id, panel = ?panel_state, "closed focused panel");
+        true
+    }
+
     /// Snapshot the current store into undo history before a mutation.
     fn snapshot_for_undo(&mut self) {
         self.undo_history
