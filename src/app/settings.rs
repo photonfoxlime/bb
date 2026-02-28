@@ -160,12 +160,12 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
     match message {
         | SettingsMessage::Open => {
             state.settings = SettingsState::from_providers(&state.providers, &state.config);
-            state.active_view = ViewMode::Settings;
+            state.transient_ui.active_view = ViewMode::Settings;
             tracing::info!("settings view opened");
             Task::none()
         }
         | SettingsMessage::Close => {
-            state.active_view = ViewMode::Document;
+            state.transient_ui.active_view = ViewMode::Document;
             tracing::info!("settings view closed");
             Task::none()
         }

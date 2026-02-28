@@ -78,9 +78,8 @@ const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// - `editor_buffers`: widget-local text buffers + focus ids.
 /// - persistence flags: recovery guard for unsafe-on-disk state plus a runtime
 ///   write gate for side-effect-free runs.
-/// - `transient_ui`: non-persisted interaction state (focus, hover, inline editors, popovers).
+/// - `transient_ui`: non-persisted interaction state (focus, mode/view, hover, inline editors, popovers).
 /// - `edit_session`: undo coalescing session tracker.
-/// - `document_mode`, `active_view`: view/controller state only.
 #[derive(Clone)]
 pub struct AppState {
     store: BlockStore,
@@ -110,10 +109,6 @@ pub struct AppState {
     find_ui: FindUiState,
     /// Edit session: block currently coalescing point edits into a single undo entry.
     edit_session: Option<BlockId>,
-    /// Current document interaction mode (normal vs picking a friend).
-    document_mode: DocumentMode,
-    /// Which top-level screen is currently shown.
-    active_view: ViewMode,
     /// Draft form state for the settings screen.
     pub settings: SettingsState,
     /// Current window dimensions for responsive layout.
@@ -177,9 +172,6 @@ impl AppState {
             transient_ui: TransientUiState::default(),
             find_ui: FindUiState::default(),
             edit_session: None,
-            document_mode: DocumentMode::default(),
-
-            active_view: ViewMode::default(),
             settings,
             window_size: WindowSize::default(),
             is_dark,
@@ -421,7 +413,7 @@ impl AppState {
             | Message::DocumentMode(mode) => {
                 // Clear friend hover state when changing document modes
                 self.transient_ui.hovered_friend_block = None;
-                self.document_mode = mode;
+                self.transient_ui.document_mode = mode;
                 Task::none()
             }
             | Message::SystemThemeChanged(mode) => {
@@ -440,7 +432,7 @@ impl AppState {
 impl AppState {
     pub fn view(&self) -> Element<'_, Message> {
         i18n::set_app_locale(&self.effective_locale());
-        match self.active_view {
+        match self.transient_ui.active_view {
             | ViewMode::Document => document::DocumentView::new(self).view(),
             | ViewMode::Settings => settings::view(self),
         }
@@ -565,6 +557,10 @@ pub struct FocusState {
 pub struct TransientUiState {
     /// UI focus state: keyboard focus + overflow menu state.
     pub focus: Option<FocusState>,
+    /// Current document interaction mode (normal vs picking a friend).
+    pub document_mode: DocumentMode,
+    /// Which top-level screen is currently shown.
+    pub active_view: ViewMode,
     /// The friend block currently being hovered in the Friends Panel.
     ///
     /// When `Some`, the corresponding block in the document tree is highlighted
@@ -687,7 +683,7 @@ mod edit {
         state.transient_ui.hovered_friend_block = None;
 
         // Don't change focus in PickFriend mode
-        if state.document_mode == DocumentMode::PickFriend {
+        if state.transient_ui.document_mode == DocumentMode::PickFriend {
             return Task::none();
         }
         state.set_focus(block_id);
@@ -730,7 +726,7 @@ mod edit {
             && let Some(wid) = state.editor_buffers.widget_id(&target_id)
         {
             // Only change focus in Normal mode
-            if state.document_mode == DocumentMode::Normal {
+            if state.transient_ui.document_mode == DocumentMode::Normal {
                 let wid_clone = wid.clone();
                 state.set_focus(target_id);
                 tracing::debug!(
@@ -765,7 +761,7 @@ mod shortcut {
             }
             | ShortcutMessage::ForBlock { block_id, action_id } => {
                 // Don't change focus in PickFriend mode
-                if state.document_mode != DocumentMode::PickFriend {
+                if state.transient_ui.document_mode != DocumentMode::PickFriend {
                     state.set_focus(block_id);
                 }
                 run_shortcut_for_block(state, block_id, action_id)
@@ -837,10 +833,8 @@ impl AppState {
             transient_ui: TransientUiState::default(),
             find_ui: FindUiState::default(),
             edit_session: None,
-            document_mode: DocumentMode::default(),
             persistence_blocked: false,
             persistence_write_disabled: true,
-            active_view: ViewMode::default(),
             window_size: WindowSize::default(),
             is_dark: false,
             config,

@@ -82,7 +82,7 @@ impl<'a> DocumentView<'a> {
         let mut layout = column![].spacing(theme::LAYOUT_GAP);
 
         // Modebar buttons (normal, pick friend) - top-left corner
-        let is_normal_mode = state.document_mode == DocumentMode::Normal;
+        let is_normal_mode = state.transient_ui.document_mode == DocumentMode::Normal;
 
         let normal_mode_btn = button(centered_icon(
             icons::icon_mouse_pointer_2()
@@ -399,7 +399,7 @@ impl<'a> TreeView<'a> {
                 .into()
         };
 
-        let is_pick_friend_mode = self.state.document_mode == DocumentMode::PickFriend;
+        let is_pick_friend_mode = self.state.transient_ui.document_mode == DocumentMode::PickFriend;
         let is_target_block =
             is_pick_friend_mode && self.state.focus().is_some_and(|s| s.block_id != *block_id);
 
@@ -495,7 +495,7 @@ impl<'a> TreeView<'a> {
             }
         }
 
-        match (self.state.document_mode, self.state.focus().map(|s| s.block_id)) {
+        match (self.state.transient_ui.document_mode, self.state.focus().map(|s| s.block_id)) {
             | (DocumentMode::Normal, Some(focused)) if focused == *block_id => {
                 // Render the block as the focused block
                 container(block).style(theme::focused_block).into()

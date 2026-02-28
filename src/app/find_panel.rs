@@ -429,10 +429,10 @@ mod tests {
     #[test]
     fn escape_falls_back_to_friend_picker_cancel_when_closed() {
         let (mut state, _) = test_state();
-        state.document_mode = DocumentMode::PickFriend;
+        state.transient_ui.document_mode = DocumentMode::PickFriend;
 
         let _ = AppState::update(&mut state, Message::Find(FindMessage::Escape));
 
-        assert_eq!(state.document_mode, DocumentMode::Normal);
+        assert_eq!(state.transient_ui.document_mode, DocumentMode::Normal);
     }
 }

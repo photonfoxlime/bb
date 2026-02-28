@@ -94,7 +94,7 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
         }
         | FriendPanelMessage::StartFriendPicker(_block_id) => {
             state.set_overflow_open(false);
-            state.document_mode = DocumentMode::PickFriend;
+            state.transient_ui.document_mode = DocumentMode::PickFriend;
             Task::none()
         }
         | FriendPanelMessage::StartEditingFriendPerspective { target, friend_id } => {
@@ -115,8 +115,8 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             // Clear editing state regardless of what's being edited
             state.transient_ui.editing_friend_perspective = None;
             state.transient_ui.editing_friend_perspective_input = None;
-            if state.document_mode == DocumentMode::PickFriend {
-                state.document_mode = DocumentMode::Normal;
+            if state.transient_ui.document_mode == DocumentMode::PickFriend {
+                state.transient_ui.document_mode = DocumentMode::Normal;
             }
             Task::none()
         }
