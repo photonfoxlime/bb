@@ -7,7 +7,7 @@ mod i18n;
 mod store;
 mod llm;
 mod paths;
-mod text;
+pub mod text;
 mod theme;
 mod undo;
 

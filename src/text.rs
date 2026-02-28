@@ -1,18 +1,28 @@
+//! Mixed-language text tokenization utilities.
+//!
+//! This module turns user input into search-friendly phrases without hard splits.
+//! It keeps punctuation boundaries, supports Han tokenization via Jieba, and
+//! performs lightweight normalization and token merging (for example `16` + `GB`).
+
 use jieba_rs::Jieba;
 use regex::Regex;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
+/// Coarse script bucket used by tokenizer run splitting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Script {
+pub enum Script {
+    /// CJK Unified Ideographs basic range (Han).
     Han,
+    /// ASCII alnum and punctuation run handled by Latin tokenizer.
     Latin,
+    /// Whitespace and remaining symbols.
     Other,
 }
 
 /// Classify a char into a coarse script bucket.
 /// This is intentionally simple and optimized for "mixed input search phrases".
-fn script_of(ch: char) -> Script {
+pub fn script_of(ch: char) -> Script {
     if ('\u{4E00}'..='\u{9FFF}').contains(&ch) {
         Script::Han
     } else if ch.is_ascii_alphanumeric() || (ch.is_ascii() && ch.is_ascii_punctuation()) {
@@ -27,7 +37,7 @@ fn script_of(ch: char) -> Script {
 }
 
 /// Split input into contiguous runs of the same Script.
-fn split_by_script(s: &str) -> Vec<(Script, String)> {
+pub fn split_by_script(s: &str) -> Vec<(Script, String)> {
     let mut out: Vec<(Script, String)> = Vec::new();
     let mut cur_script: Option<Script> = None;
     let mut buf = String::new();
@@ -35,12 +45,12 @@ fn split_by_script(s: &str) -> Vec<(Script, String)> {
     for ch in s.chars() {
         let sc = script_of(ch);
         match cur_script {
-            None => {
+            | None => {
                 cur_script = Some(sc);
                 buf.push(ch);
             }
-            Some(cs) if cs == sc => buf.push(ch),
-            Some(cs) => {
+            | Some(cs) if cs == sc => buf.push(ch),
+            | Some(cs) => {
                 out.push((cs, buf));
                 buf = String::new();
                 buf.push(ch);
@@ -57,32 +67,22 @@ fn split_by_script(s: &str) -> Vec<(Script, String)> {
     out
 }
 
-/// Tokenize Latin/number-ish segments in a search-friendly way.
+/// Tokenize Latin/number-ish segments and keep boundaries in lexical order.
 ///
-/// Keeps patterns like:
-/// - "node.js", "foo-bar", "x86_64", "v1.2.3", "path/to", "C++" (partially)
-///
-/// You can tune the allowed connectors depending on your domain.
-fn tokenize_latin(seg: &str) -> Vec<String> {
-    static TOKEN_RE: LazyLock<Regex> = LazyLock::new(|| {
-        // A-Za-z0-9 chunks joined by connector chars.
-        Regex::new(r"[A-Za-z0-9]+(?:[._+\-/][A-Za-z0-9]+)*").expect("valid regex")
+/// For example, `alpha,beta` becomes `alpha`, `,`, `beta`.
+pub fn tokenize_latin(seg: &str) -> Vec<String> {
+    static TOKEN_OR_BOUNDARY_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"[A-Za-z0-9]+(?:[._+\-/][A-Za-z0-9]+)*|[。！？!?\n;；，,、:：（）()\[\]]")
+            .expect("valid regex")
     });
 
-    TOKEN_RE
-        .find_iter(seg)
-        .map(|m| m.as_str().to_string())
-        .collect()
+    TOKEN_OR_BOUNDARY_RE.find_iter(seg).map(|m| m.as_str().to_string()).collect()
 }
 
 /// Tokenize Han segments using Jieba's search mode, which tends to produce
 /// tokens closer to search keywords.
 fn tokenize_han(jieba: &Jieba, seg: &str) -> Vec<String> {
-    jieba
-        .cut_for_search(seg, true)
-        .into_iter()
-        .map(|t| t.to_string())
-        .collect()
+    jieba.cut_for_search(seg, true).into_iter().map(|t| t.to_string()).collect()
 }
 
 /// Strong boundaries: always flush the current phrase.
@@ -93,10 +93,7 @@ fn is_strong_boundary_token(tok: &str) -> bool {
 /// Weak boundaries: for search phrases, it's often beneficial to flush too.
 /// You can change this behavior if you want longer phrases.
 fn is_weak_boundary_token(tok: &str) -> bool {
-    matches!(
-        tok,
-        "，" | "," | "、" | ":" | "：" | "(" | ")" | "（" | "）" | "[" | "]"
-    )
+    matches!(tok, "，" | "," | "、" | ":" | "：" | "(" | ")" | "（" | "）" | "[" | "]")
 }
 
 /// Minimal unit list (extend for your domain).
@@ -104,21 +101,25 @@ fn is_unit(tok: &str) -> bool {
     matches!(
         tok.to_ascii_lowercase().as_str(),
         "kb" | "mb" | "gb" | "tb" | "hz" | "khz" | "mhz" | "ghz" | "w" | "kw" | "v" | "mah"
-    ) || matches!(
-        tok,
-        "个" | "条" | "张" | "杯" | "瓶" | "元" | "块" | "秒" | "分" | "小时" | "天"
-    )
+    ) || matches!(tok, "个" | "条" | "张" | "杯" | "瓶" | "元" | "块" | "秒" | "分" | "小时" | "天")
 }
 
 fn is_number(tok: &str) -> bool {
     tok.chars().all(|c| c.is_ascii_digit())
 }
 
-/// Collapse whitespace into a single space and trim.
-fn normalize_space(s: &str) -> String {
-    static SPACE_RE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"\s+").expect("valid regex"));
-    SPACE_RE.replace_all(s, " ").trim().to_string()
+/// Collapse horizontal whitespace and trim while preserving newlines.
+///
+/// Newlines are retained because they are strong phrase boundaries.
+pub fn normalize_space(s: &str) -> String {
+    static HSPACE_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"[^\S\n]+").expect("valid regex"));
+    static NEWLINE_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r" *\n+ *").expect("valid regex"));
+
+    let normalized_newline = s.replace("\r\n", "\n").replace('\r', "\n");
+    let collapsed = HSPACE_RE.replace_all(&normalized_newline, " ");
+    NEWLINE_RE.replace_all(&collapsed, "\n").trim().to_string()
 }
 
 /// Extract "search phrases" from mixed-language user input (pure Rust).
@@ -132,9 +133,8 @@ pub fn extract_search_phrases(input: &str, user_words: &[&str]) -> Vec<String> {
     let input = normalize_space(input);
 
     // Boundary punctuation we keep as standalone tokens for phrase splitting.
-    static BOUNDARY_RE: LazyLock<Regex> = LazyLock::new(|| {
-        Regex::new(r"[。！？!?\n;；，,、:：（）()\[\]]").expect("valid regex")
-    });
+    static BOUNDARY_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"[。！？!?\n;；，,、:：（）()\[\]]").expect("valid regex"));
 
     let mut jieba = Jieba::new();
     // User dictionary: brand names, product names, model numbers, library names, etc.
@@ -149,19 +149,16 @@ pub fn extract_search_phrases(input: &str, user_words: &[&str]) -> Vec<String> {
     let mut tokens: Vec<String> = Vec::new();
     for (sc, seg) in runs {
         match sc {
-            Script::Other => {
+            | Script::Other => {
                 for m in BOUNDARY_RE.find_iter(&seg) {
                     tokens.push(m.as_str().to_string());
                 }
             }
-            Script::Han => {
+            | Script::Han => {
                 tokens.extend(tokenize_han(&jieba, &seg));
             }
-            Script::Latin => {
+            | Script::Latin => {
                 tokens.extend(tokenize_latin(&seg));
-                for m in BOUNDARY_RE.find_iter(&seg) {
-                    tokens.push(m.as_str().to_string());
-                }
             }
         }
     }
@@ -170,7 +167,7 @@ pub fn extract_search_phrases(input: &str, user_words: &[&str]) -> Vec<String> {
     let mut phrases: Vec<String> = Vec::new();
     let mut cur: Vec<String> = Vec::new();
 
-    let mut flush = |cur: &mut Vec<String>, phrases: &mut Vec<String>| {
+    let flush = |cur: &mut Vec<String>, phrases: &mut Vec<String>| {
         if cur.is_empty() {
             return;
         }
@@ -206,21 +203,19 @@ pub fn extract_search_phrases(input: &str, user_words: &[&str]) -> Vec<String> {
 
     // 4) Stable de-duplication while preserving order
     let mut seen: HashSet<String> = HashSet::new();
-    phrases
-        .into_iter()
-        .filter(|p| seen.insert(p.clone()))
-        .collect()
+    phrases.into_iter().filter(|p| seen.insert(p.clone())).collect()
 }
 
 #[cfg(test)]
 mod tests {
-    use super::extract_search_phrases;
+    use super::{
+        Script, extract_search_phrases, normalize_space, script_of, split_by_script, tokenize_latin,
+    };
 
     fn assert_any_contains<'a>(phrases: &'a [String], needle: &str) -> &'a String {
-        phrases
-            .iter()
-            .find(|p| p.contains(needle))
-            .unwrap_or_else(|| panic!("Expected some phrase to contain `{}`. Got: {:?}", needle, phrases))
+        phrases.iter().find(|p| p.contains(needle)).unwrap_or_else(|| {
+            panic!("Expected some phrase to contain `{}`. Got: {:?}", needle, phrases)
+        })
     }
 
     fn assert_eq_vec(got: Vec<String>, expected: &[&str]) {
@@ -285,7 +280,7 @@ mod tests {
         // Same phrase repeated should appear once.
         // We craft input that would generate identical phrases with our current logic.
         let input = "alpha alpha, alpha";
-        let phrases = extract_search_phrases(input, &[]);
+        let _phrases = extract_search_phrases(input, &[]);
 
         // Likely tokens => phrases ["alpha alpha", "alpha"]? Actually:
         // - "alpha alpha" (no boundary yet)
@@ -329,5 +324,80 @@ mod tests {
         // '(' and ')' are weak boundaries => flush around them.
         // Latin tokenizer extracts alpha beta gamma.
         assert_eq_vec(phrases, &["alpha", "beta", "gamma"]);
+    }
+
+    #[test]
+    fn empty_input_returns_no_phrases() {
+        let phrases = extract_search_phrases("", &[]);
+        assert!(phrases.is_empty());
+    }
+
+    #[test]
+    fn one_character_tokens_are_filtered_out() {
+        let phrases = extract_search_phrases("a,b", &[]);
+        assert!(phrases.is_empty());
+    }
+
+    #[test]
+    fn merges_number_and_latin_unit_case_insensitive() {
+        let input = "power 500 w 1 kHz";
+        let phrases = extract_search_phrases(input, &[]);
+
+        assert_any_contains(&phrases, "500w");
+        assert_any_contains(&phrases, "1kHz");
+    }
+
+    #[test]
+    fn unknown_unit_is_not_merged() {
+        let input = "alpha 16 xb";
+        let phrases = extract_search_phrases(input, &[]);
+        let phrase = phrases.first().expect("at least one phrase");
+
+        assert!(phrase.contains("16 xb"));
+        assert!(!phrase.contains("16xb"));
+    }
+
+    #[test]
+    fn crlf_is_normalized_to_newline_boundary() {
+        let phrases = extract_search_phrases("alpha\r\n\r\nbeta", &[]);
+        assert_eq_vec(phrases, &["alpha", "beta"]);
+    }
+
+    #[test]
+    fn semicolon_boundaries_flush_phrases() {
+        let phrases = extract_search_phrases("alpha;beta；gamma", &[]);
+        assert_eq_vec(phrases, &["alpha", "beta", "gamma"]);
+    }
+
+    #[test]
+    fn symbols_do_not_force_boundary_without_punctuation_match() {
+        let phrases = extract_search_phrases("alpha😀beta", &[]);
+        assert_eq_vec(phrases, &["alpha beta"]);
+    }
+
+    #[test]
+    fn tokenize_latin_keeps_connectors_and_boundaries_in_order() {
+        let tokens = tokenize_latin("foo-bar,baz/qux");
+        assert_eq!(tokens, vec!["foo-bar", ",", "baz/qux"]);
+    }
+
+    #[test]
+    fn exported_helpers_classify_and_split_script_runs() {
+        assert_eq!(script_of('你'), Script::Han);
+        assert_eq!(script_of('-'), Script::Latin);
+        assert_eq!(script_of(' '), Script::Other);
+
+        let runs = split_by_script("abc中文 123");
+        assert_eq!(runs.len(), 4);
+        assert_eq!(runs[0], (Script::Latin, "abc".to_string()));
+        assert_eq!(runs[1], (Script::Han, "中文".to_string()));
+        assert_eq!(runs[2], (Script::Other, " ".to_string()));
+        assert_eq!(runs[3], (Script::Latin, "123".to_string()));
+    }
+
+    #[test]
+    fn normalize_space_preserves_newline_and_trims_edges() {
+        let normalized = normalize_space("  alpha\t beta \n  gamma  ");
+        assert_eq!(normalized, "alpha beta\ngamma");
     }
 }
