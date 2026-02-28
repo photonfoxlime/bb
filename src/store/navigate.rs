@@ -5,9 +5,60 @@
 //! for LLM requests.
 
 use super::{BlockId, BlockStore, FriendBlock};
-use crate::llm;
+use crate::{llm, text::extract_search_phrases};
 
 impl BlockStore {
+    /// Find blocks whose point text matches a user query.
+    ///
+    /// Matching strategy:
+    /// - case-insensitive full-query substring match, or
+    /// - case-insensitive phrase-token match using [`extract_search_phrases`].
+    ///
+    /// Result order is deterministic DFS order across all roots.
+    /// Empty queries match all blocks.
+    pub fn find_block_point(&self, query: &str) -> Vec<BlockId> {
+        let normalized_query = query.trim();
+
+        let query_lower = normalized_query.to_lowercase();
+        let mut query_terms = extract_search_phrases(normalized_query, &[])
+            .into_iter()
+            .map(|phrase| phrase.to_lowercase())
+            .filter(|phrase| !phrase.is_empty())
+            .collect::<Vec<_>>();
+        if query_terms.is_empty() {
+            query_terms.push(query_lower.clone());
+        }
+
+        let mut matched = Vec::new();
+        for root in &self.roots {
+            self.find_block_point_in_subtree(root, &query_lower, &query_terms, &mut matched);
+        }
+
+        tracing::debug!(
+            query = %normalized_query,
+            token_count = query_terms.len(),
+            match_count = matched.len(),
+            "searched block points"
+        );
+        matched
+    }
+
+    fn find_block_point_in_subtree(
+        &self, current: &BlockId, query_lower: &str, query_terms: &[String], out: &mut Vec<BlockId>,
+    ) {
+        let point = self.points.get(*current).map(String::as_str).unwrap_or_default();
+        let point_lower = point.to_lowercase();
+        let is_match = point_lower.contains(query_lower)
+            || query_terms.iter().any(|phrase| point_lower.contains(phrase));
+        if is_match {
+            out.push(*current);
+        }
+
+        for child in self.children(current) {
+            self.find_block_point_in_subtree(child, query_lower, query_terms, out);
+        }
+    }
+
     /// Return lineage points from one root to the target id (DFS).
     ///
     /// # Requires

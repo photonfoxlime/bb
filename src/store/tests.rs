@@ -79,6 +79,31 @@ fn roots_returns_root_list() {
     assert_eq!(store.roots(), &[root]);
 }
 
+#[test]
+fn find_block_point_empty_query_matches_all_in_dfs_order() {
+    let (store, root, child_a, child_b) = simple_store();
+    assert_eq!(store.find_block_point("   "), vec![root, child_a, child_b]);
+}
+
+#[test]
+fn find_block_point_is_case_insensitive_and_dfs_ordered() {
+    let (mut store, root, child_a, child_b) = simple_store();
+    store.update_point(&root, "ROOT child marker".to_string());
+
+    let matches = store.find_block_point("ChIlD");
+    assert_eq!(matches, vec![root, child_a, child_b]);
+}
+
+#[test]
+fn find_block_point_uses_phrase_tokenization_for_mixed_query() {
+    let (mut store, _root, child_a, child_b) = simple_store();
+    store.update_point(&child_a, "想买 显卡 RTX-4090 on macOS".to_string());
+    store.update_point(&child_b, "普通办公本".to_string());
+
+    let matches = store.find_block_point("RTX-4090,macOS");
+    assert_eq!(matches, vec![child_a]);
+}
+
 // -- update_point --
 
 #[test]

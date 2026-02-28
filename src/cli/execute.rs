@@ -92,12 +92,15 @@ impl BlockCommands {
                     }
                 }
             }
-            // Search blocks by text content (case-insensitive substring match).
+            // Search blocks by text content using store-level query matching.
             | BlockCommands::Find(cmd) => {
                 let matches: Vec<Match> = store
-                    .roots()
-                    .iter()
-                    .flat_map(|root| Self::find_in_subtree(&store, root, &cmd.query))
+                    .find_block_point(&cmd.query)
+                    .into_iter()
+                    .filter_map(|id| {
+                        let text = store.point(&id)?;
+                        Some(Match { id: format!("{}", id), text })
+                    })
                     .take(cmd.limit)
                     .collect();
                 (store, CliResult::Find(matches))
@@ -632,45 +635,5 @@ impl BlockCommands {
             }
         }
         None
-    }
-
-    // Find all blocks matching a query in their text content.
-    ///
-    // Performs a case-insensitive substring search starting from the given
-    // root and traversing all descendants in DFS order.
-    ///
-    // # Arguments
-    ///
-    // - `store`: The store to search
-    // - `root`: The root block to start from
-    // - `query`: The search query string
-    ///
-    // # Returns
-    ///
-    // A vector of matches containing block IDs and full text content.
-    fn find_in_subtree(
-        store: &BlockStore, root: &crate::store::BlockId, query: &str,
-    ) -> Vec<Match> {
-        let query_lower = query.to_lowercase();
-        let mut results = Vec::new();
-        Self::find_recursive(store, root, &query_lower, &mut results);
-        results
-    }
-
-    // Recursively search blocks in DFS order.
-    ///
-    // Helper function for `find_in_subtree` that accumulates results
-    // into the provided vector.
-    fn find_recursive(
-        store: &BlockStore, id: &crate::store::BlockId, query: &str, results: &mut Vec<Match>,
-    ) {
-        if let Some(text) = store.point(id) {
-            if text.to_lowercase().contains(query) {
-                results.push(Match { id: format!("{}", id), text });
-            }
-        }
-        for child in store.children(id) {
-            Self::find_recursive(store, child, query, results);
-        }
     }
 }
