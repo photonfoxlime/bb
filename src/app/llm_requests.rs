@@ -28,6 +28,7 @@ pub struct LlmRequests {
     pending_reduce_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
     pending_expand_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
     pending_inquiry_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
+    inquiry_errors: SparseSecondaryMap<BlockId, UiError>,
 }
 
 impl LlmRequests {
@@ -45,6 +46,7 @@ impl LlmRequests {
         self.pending_reduce_signatures.clear();
         self.pending_expand_signatures.clear();
         self.pending_inquiry_signatures.clear();
+        self.inquiry_errors.clear();
     }
 
     pub fn is_reducing(&self, block_id: BlockId) -> bool {
@@ -86,6 +88,7 @@ impl LlmRequests {
     pub fn mark_inquiry_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
         self.inquiry_states.insert(block_id, InquiryState::Loading);
         self.pending_inquiry_signatures.insert(block_id, request_signature);
+        self.inquiry_errors.remove(block_id);
     }
 
     pub fn replace_reduce_handle(&mut self, block_id: BlockId, handle: task::Handle) {
@@ -129,14 +132,21 @@ impl LlmRequests {
         self.pending_expand_signatures.remove(block_id)
     }
 
-    /// Finalize an inquiry request and return its captured context signature.
+    /// Finalize an inquiry request and return signature + deferred error.
     ///
-    /// Finalization is atomic per block: loading marker, handle, and pending
-    /// signature are cleared together.
-    pub fn finish_inquiry_request(&mut self, block_id: BlockId) -> Option<RequestSignature> {
+    /// Finalization is atomic per block: loading marker, handle, pending
+    /// signature, and deferred stream error are cleared together.
+    pub fn finish_inquiry_request(
+        &mut self, block_id: BlockId,
+    ) -> (Option<RequestSignature>, Option<UiError>) {
         self.inquiry_handles.remove(block_id);
         self.inquiry_states.remove(block_id);
-        self.pending_inquiry_signatures.remove(block_id)
+        (self.pending_inquiry_signatures.remove(block_id), self.inquiry_errors.remove(block_id))
+    }
+
+    /// Record a deferred inquiry stream error for later finalization.
+    pub fn set_inquiry_error(&mut self, block_id: BlockId, reason: UiError) {
+        self.inquiry_errors.insert(block_id, reason);
     }
 
     pub fn set_reduce_error(&mut self, block_id: BlockId, reason: UiError) {
@@ -180,6 +190,7 @@ impl LlmRequests {
         }
         self.inquiry_states.remove(block_id);
         self.pending_inquiry_signatures.remove(block_id);
+        self.inquiry_errors.remove(block_id);
         true
     }
 
@@ -196,6 +207,7 @@ impl LlmRequests {
         self.pending_reduce_signatures.remove(block_id);
         self.pending_expand_signatures.remove(block_id);
         self.pending_inquiry_signatures.remove(block_id);
+        self.inquiry_errors.remove(block_id);
         self.reduce_states.remove(block_id);
         self.expand_states.remove(block_id);
         self.inquiry_states.remove(block_id);
@@ -249,8 +261,6 @@ pub enum ExpandState {
 }
 
 /// Per-block inquiry operation state: Idle → Loading → Idle.
-///
-/// Unlike reduce/expand, inquiry has no error state (errors are recorded in AppState).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum InquiryState {
     #[default]

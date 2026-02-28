@@ -65,12 +65,16 @@ pub enum InstructionPanelMessage {
     TextEdited(iced::widget::text_editor::Action),
     /// Send inquiry to LLM with the instruction.
     Inquire,
-    /// Inquiry request completed.
-    InquireDone {
+    /// One inquiry response chunk arrived.
+    InquireChunk { block_id: BlockId, request_signature: RequestSignature, chunk: String },
+    /// Inquiry stream reported an error.
+    InquireFailed {
         block_id: BlockId,
         request_signature: RequestSignature,
-        result: Result<String, crate::app::UiError>,
+        reason: crate::app::UiError,
     },
+    /// Inquiry request completed (successfully or with error).
+    InquireFinished { block_id: BlockId, request_signature: RequestSignature },
     /// Cancel an in-flight inquiry request.
     CancelInquire,
     /// Expand with instruction as system prompt.
@@ -133,38 +137,75 @@ pub fn handle(
             state.persist_with_context("after storing inquiry and consuming instruction draft");
             state.editor_buffers.set_instruction_text("");
             tracing::info!(block_id = ?target_block_id, "instruction inquiry started");
-            let request_task = iced::Task::perform(
-                async move {
-                    let client = llm::LlmClient::new(config);
-                    AppState::resolve_llm_request(
-                        tokio::time::timeout(
-                            LLM_REQUEST_TIMEOUT,
-                            client.inquire(&context, &instruction),
-                        )
-                        .await,
-                        format!(
-                            "inquire request timed out after {} seconds",
-                            LLM_REQUEST_TIMEOUT.as_secs()
-                        ),
-                    )
-                },
-                move |result| {
-                    Message::InstructionPanel(
+            let client = llm::LlmClient::new(config);
+            let request_task = iced::Task::run(
+                client.inquire_stream(context, instruction, LLM_REQUEST_TIMEOUT),
+                move |event| match event {
+                    | llm::InquireStreamEvent::Chunk(chunk) => Message::InstructionPanel(
                         target_block_id,
-                        InstructionPanelMessage::InquireDone {
+                        InstructionPanelMessage::InquireChunk {
                             block_id: target_block_id,
                             request_signature,
-                            result,
+                            chunk,
                         },
-                    )
+                    ),
+                    | llm::InquireStreamEvent::Failed(err) => Message::InstructionPanel(
+                        target_block_id,
+                        InstructionPanelMessage::InquireFailed {
+                            block_id: target_block_id,
+                            request_signature,
+                            reason: crate::app::UiError::from_message(err),
+                        },
+                    ),
+                    | llm::InquireStreamEvent::Finished => Message::InstructionPanel(
+                        target_block_id,
+                        InstructionPanelMessage::InquireFinished {
+                            block_id: target_block_id,
+                            request_signature,
+                        },
+                    ),
                 },
             );
             let (request_task, handle) = iced::Task::abortable(request_task);
             state.llm_requests.replace_inquiry_handle(target_block_id, handle);
             request_task
         }
-        | InstructionPanelMessage::InquireDone { block_id, request_signature, result } => {
-            let pending_signature = state.llm_requests.finish_inquiry_request(block_id);
+        | InstructionPanelMessage::InquireChunk { block_id, request_signature, chunk } => {
+            if state.store.node(&block_id).is_none() {
+                return iced::Task::none();
+            }
+            if state.is_stale_response(&block_id, request_signature) {
+                tracing::info!(
+                    block_id = ?block_id,
+                    "discarded stale instruction inquiry chunk after context changed"
+                );
+                return iced::Task::none();
+            }
+            state.store.append_inquiry_response_chunk(block_id, &chunk);
+            iced::Task::none()
+        }
+        | InstructionPanelMessage::InquireFailed { block_id, request_signature, reason } => {
+            if state.store.node(&block_id).is_none() {
+                return iced::Task::none();
+            }
+            if state.is_stale_response(&block_id, request_signature) {
+                tracing::info!(
+                    block_id = ?block_id,
+                    "discarded stale instruction inquiry error after context changed"
+                );
+                return iced::Task::none();
+            }
+            tracing::error!(
+                block_id = ?block_id,
+                reason = %reason.as_str(),
+                "instruction inquiry stream failed"
+            );
+            state.llm_requests.set_inquiry_error(block_id, reason);
+            iced::Task::none()
+        }
+        | InstructionPanelMessage::InquireFinished { block_id, request_signature } => {
+            let (pending_signature, pending_error) =
+                state.llm_requests.finish_inquiry_request(block_id);
             if state.store.node(&block_id).is_none() {
                 return iced::Task::none();
             }
@@ -177,25 +218,38 @@ pub fn handle(
                 );
                 return iced::Task::none();
             }
-            match result {
-                | Ok(response) => {
-                    tracing::info!(
-                        block_id = ?block_id,
-                        chars = response.len(),
-                        "instruction inquiry succeeded"
-                    );
-                    state.store.set_inquiry_draft(block_id, response);
+            let response_len = state
+                .store
+                .inquiry_draft(&block_id)
+                .map(|record| record.response.trim())
+                .filter(|response| !response.is_empty())
+                .map(str::len)
+                .unwrap_or(0);
+            let had_stream_error = pending_error.is_some();
+
+            if let Some(reason) = pending_error {
+                state.record_error(crate::app::AppError::Inquire(reason));
+            }
+
+            if response_len > 0 {
+                tracing::info!(block_id = ?block_id, chars = response_len, "instruction inquiry completed");
+                if !had_stream_error {
                     state.errors.retain(|err| !matches!(err, crate::app::AppError::Inquire(_)));
-                    state.persist_with_context("after persisting instruction inquiry draft");
                 }
-                | Err(reason) => {
-                    tracing::error!(
-                        block_id = ?block_id,
-                        reason = %reason.as_str(),
-                        "instruction inquiry failed"
-                    );
-                    state.record_error(crate::app::AppError::Inquire(reason));
-                }
+                state.persist_with_context("after persisting streamed instruction inquiry draft");
+            } else if !had_stream_error {
+                state.record_error(crate::app::AppError::Inquire(
+                    crate::app::UiError::from_message("inquire returned no usable text"),
+                ));
+                tracing::error!(
+                    block_id = ?block_id,
+                    "instruction inquiry finished without usable response"
+                );
+            } else {
+                tracing::error!(
+                    block_id = ?block_id,
+                    "instruction inquiry finished after stream error"
+                );
             }
             iced::Task::none()
         }
@@ -474,58 +528,63 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
             result_section = result_section.push(result_content);
 
-            let mut action_buttons = row![].spacing(theme::PANEL_BUTTON_GAP);
-            action_buttons = action_buttons.push(
-                button(
-                    text(t!("instruction_apply_rewrite").to_string())
-                        .font(theme::INTER)
-                        .size(theme::INSTRUCTION_BUTTON_SIZE),
-                )
-                .style(theme::action_button)
-                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(
-                    block_id,
-                    InstructionPanelMessage::ApplyInstructionRewrite,
-                )),
-            );
-            action_buttons = action_buttons.push(
-                button(
-                    text(t!("instruction_append_block").to_string())
-                        .font(theme::INTER)
-                        .size(theme::INSTRUCTION_BUTTON_SIZE),
-                )
-                .style(theme::action_button)
-                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(
-                    block_id,
-                    InstructionPanelMessage::AppendInstructionResponse,
-                )),
-            );
-            action_buttons = action_buttons.push(
-                button(
-                    text(t!("instruction_add_child").to_string())
-                        .font(theme::INTER)
-                        .size(theme::INSTRUCTION_BUTTON_SIZE),
-                )
-                .style(theme::action_button)
-                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(
-                    block_id,
-                    InstructionPanelMessage::AddInstructionResponseAsChild,
-                )),
-            );
-            action_buttons = action_buttons.push(
-                button(
-                    text(t!("ui_discard").to_string())
-                        .font(theme::INTER)
-                        .size(theme::INSTRUCTION_BUTTON_SIZE),
-                )
-                .style(theme::destructive_button)
-                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Dismiss)),
-            );
+            if !is_inquiring {
+                let mut action_buttons = row![].spacing(theme::PANEL_BUTTON_GAP);
+                action_buttons = action_buttons.push(
+                    button(
+                        text(t!("instruction_apply_rewrite").to_string())
+                            .font(theme::INTER)
+                            .size(theme::INSTRUCTION_BUTTON_SIZE),
+                    )
+                    .style(theme::action_button)
+                    .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .on_press(Message::InstructionPanel(
+                        block_id,
+                        InstructionPanelMessage::ApplyInstructionRewrite,
+                    )),
+                );
+                action_buttons = action_buttons.push(
+                    button(
+                        text(t!("instruction_append_block").to_string())
+                            .font(theme::INTER)
+                            .size(theme::INSTRUCTION_BUTTON_SIZE),
+                    )
+                    .style(theme::action_button)
+                    .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .on_press(Message::InstructionPanel(
+                        block_id,
+                        InstructionPanelMessage::AppendInstructionResponse,
+                    )),
+                );
+                action_buttons = action_buttons.push(
+                    button(
+                        text(t!("instruction_add_child").to_string())
+                            .font(theme::INTER)
+                            .size(theme::INSTRUCTION_BUTTON_SIZE),
+                    )
+                    .style(theme::action_button)
+                    .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .on_press(Message::InstructionPanel(
+                        block_id,
+                        InstructionPanelMessage::AddInstructionResponseAsChild,
+                    )),
+                );
+                action_buttons = action_buttons.push(
+                    button(
+                        text(t!("ui_discard").to_string())
+                            .font(theme::INTER)
+                            .size(theme::INSTRUCTION_BUTTON_SIZE),
+                    )
+                    .style(theme::destructive_button)
+                    .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .on_press(Message::InstructionPanel(
+                        block_id,
+                        InstructionPanelMessage::Dismiss,
+                    )),
+                );
 
-            result_section = result_section.push(action_buttons);
+                result_section = result_section.push(action_buttons);
+            }
             panel = panel.push(result_section);
         }
     }
@@ -674,7 +733,7 @@ mod tests {
     }
 
     #[test]
-    fn inquire_done_persists_inquiry_draft() {
+    fn inquire_finished_persists_streamed_inquiry_draft() {
         let (mut state, root) = test_state();
         let request_signature =
             state.block_context_signature(&root).expect("root has request signature");
@@ -683,11 +742,29 @@ mod tests {
             &mut state,
             Message::InstructionPanel(
                 root,
-                InstructionPanelMessage::InquireDone {
+                InstructionPanelMessage::InquireChunk {
                     block_id: root,
                     request_signature,
-                    result: Ok("persisted response".to_string()),
+                    chunk: "persisted ".to_string(),
                 },
+            ),
+        );
+        let _ = AppState::update(
+            &mut state,
+            Message::InstructionPanel(
+                root,
+                InstructionPanelMessage::InquireChunk {
+                    block_id: root,
+                    request_signature,
+                    chunk: "response".to_string(),
+                },
+            ),
+        );
+        let _ = AppState::update(
+            &mut state,
+            Message::InstructionPanel(
+                root,
+                InstructionPanelMessage::InquireFinished { block_id: root, request_signature },
             ),
         );
 
@@ -721,7 +798,7 @@ mod tests {
     }
 
     #[test]
-    fn inquire_done_discards_stale_response_after_context_change() {
+    fn inquire_finished_discards_stale_response_after_context_change() {
         let (mut state, root) = test_state();
         let request_signature =
             state.block_context_signature(&root).expect("root has request signature");
@@ -733,15 +810,52 @@ mod tests {
             &mut state,
             Message::InstructionPanel(
                 root,
-                InstructionPanelMessage::InquireDone {
+                InstructionPanelMessage::InquireChunk {
                     block_id: root,
                     request_signature,
-                    result: Ok("stale response".to_string()),
+                    chunk: "stale response".to_string(),
                 },
+            ),
+        );
+        let _ = AppState::update(
+            &mut state,
+            Message::InstructionPanel(
+                root,
+                InstructionPanelMessage::InquireFinished { block_id: root, request_signature },
             ),
         );
 
         assert_eq!(state.store.inquiry_draft(&root).map(|draft| draft.response.as_str()), Some(""));
+    }
+
+    #[test]
+    fn inquire_stream_error_is_recorded_on_finish() {
+        let (mut state, root) = test_state();
+        let request_signature =
+            state.block_context_signature(&root).expect("root has request signature");
+        state.llm_requests.mark_inquiry_loading(root, request_signature);
+        state.store.set_inquiry(root, "question".to_string());
+
+        let _ = AppState::update(
+            &mut state,
+            Message::InstructionPanel(
+                root,
+                InstructionPanelMessage::InquireFailed {
+                    block_id: root,
+                    request_signature,
+                    reason: crate::app::UiError::from_message("network failed"),
+                },
+            ),
+        );
+        let _ = AppState::update(
+            &mut state,
+            Message::InstructionPanel(
+                root,
+                InstructionPanelMessage::InquireFinished { block_id: root, request_signature },
+            ),
+        );
+
+        assert!(state.errors.iter().any(|err| matches!(err, crate::app::AppError::Inquire(_))));
     }
 
     #[test]

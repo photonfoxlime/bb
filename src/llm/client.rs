@@ -3,11 +3,26 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::time::Duration;
 
 use crate::llm::config::LlmConfig;
 use crate::llm::context::{BlockContext, ExpandResult, ExpandSuggestion, ReduceResult};
 use crate::llm::error::{ApiError, LlmError};
 use crate::llm::prompt::Prompt;
+use iced::futures::SinkExt;
+use iced::futures::Stream;
+use iced::futures::StreamExt;
+
+/// Incremental inquiry stream event emitted by [`LlmClient::inquire_stream`].
+#[derive(Debug)]
+pub enum InquireStreamEvent {
+    /// One response delta chunk from the model.
+    Chunk(String),
+    /// Non-recoverable error while producing inquiry chunks.
+    Failed(LlmError),
+    /// Terminal event emitted exactly once when the request ends.
+    Finished,
+}
 
 /// HTTP client for the OpenAI-compatible chat completions endpoint.
 ///
@@ -54,7 +69,7 @@ impl LlmClient {
             !context.existing_children.is_empty() || !context.friend_blocks.is_empty();
         let prompt = Prompt::reduce_from_context(context, instruction);
         let max_tokens = if has_children { 400 } else { 200 };
-        let content = self.request_completion("reduce", prompt, 0.2, max_tokens).await?;
+        let content = self.request_completion("reduce", &prompt, 0.2, max_tokens).await?;
 
         if has_children {
             // Try structured JSON first; fall back to plain-text reduction.
@@ -108,7 +123,7 @@ impl LlmClient {
         }
 
         let prompt = Prompt::expand_from_context(context, instruction);
-        let content = self.request_completion("expand", prompt, 0.7, 500).await?;
+        let content = self.request_completion("expand", &prompt, 0.7, 500).await?;
         let payload: ExpandResponsePayload =
             serde_json::from_str(&content).map_err(|_| LlmError::InvalidExpandResponse)?;
 
@@ -157,7 +172,7 @@ impl LlmClient {
         }
 
         let prompt = Prompt::inquire_from_context(context, instruction);
-        let content = self.request_completion("inquire", prompt, 0.7, 700).await?;
+        let content = self.request_completion("inquire", &prompt, 0.7, 700).await?;
         let trimmed = content.trim();
         if trimmed.is_empty() {
             return Err(LlmError::InvalidResponse);
@@ -167,13 +182,78 @@ impl LlmClient {
         Ok(trimmed.to_string())
     }
 
+    /// Stream inquiry response chunks as they are produced by the model.
+    ///
+    /// The method prefers true server-sent-event streaming (`stream: true`). If
+    /// the provider does not support streaming and no chunks were emitted, it
+    /// falls back to a one-shot inquiry request and emits that full response as
+    /// one [`InquireStreamEvent::Chunk`].
+    ///
+    /// # Requires
+    /// - `context` must not be empty (must have a lineage).
+    /// - `instruction` must not be empty.
+    ///
+    /// # Ensures
+    /// - Emits zero or more [`InquireStreamEvent::Chunk`] events.
+    /// - Emits exactly one terminal [`InquireStreamEvent::Finished`] event.
+    /// - Emits [`InquireStreamEvent::Failed`] before `Finished` on failure.
+    pub fn inquire_stream(
+        self, context: BlockContext, instruction: String, timeout: Duration,
+    ) -> impl Stream<Item = InquireStreamEvent> {
+        iced::stream::channel(64, async move |mut output| {
+            let request = async {
+                if context.is_empty() || instruction.is_empty() {
+                    return Err(LlmError::InvalidRequest);
+                }
+
+                let prompt = Prompt::inquire_from_context(&context, &instruction);
+
+                match self.stream_inquiry_chunks(&prompt, &mut output).await {
+                    | Ok(stats) if stats.has_output() => {
+                        tracing::info!(
+                            chunks = stats.chunk_count,
+                            chars = stats.char_count,
+                            "llm inquire streaming completed"
+                        );
+                        Ok(())
+                    }
+                    | Ok(_) => {
+                        tracing::warn!(
+                            "llm inquire streaming emitted no chunks; retrying with one-shot request"
+                        );
+                        self.emit_inquiry_fallback(&context, &instruction, &mut output).await
+                    }
+                    | Err(err) if should_fallback_to_non_stream(&err) => {
+                        tracing::warn!(
+                            error = %err,
+                            "llm inquire streaming unsupported; retrying with one-shot request"
+                        );
+                        self.emit_inquiry_fallback(&context, &instruction, &mut output).await
+                    }
+                    | Err(err) => Err(err),
+                }
+            };
+
+            let result = match tokio::time::timeout(timeout, request).await {
+                | Ok(result) => result,
+                | Err(_) => Err(LlmError::Timeout),
+            };
+
+            if let Err(err) = result {
+                let _ = output.send(InquireStreamEvent::Failed(err)).await;
+            }
+
+            let _ = output.send(InquireStreamEvent::Finished).await;
+        })
+    }
+
     async fn request_completion(
-        &self, purpose: &'static str, prompt: Prompt, temperature: f32, max_completion_tokens: u32,
+        &self, purpose: &'static str, prompt: &Prompt, temperature: f32, max_completion_tokens: u32,
     ) -> Result<String, LlmError> {
         let url = self.chat_url();
         tracing::info!(model = %self.config.model, url = %url, purpose, max_completion_tokens, "llm request");
         let (value, body) =
-            self.send_completion_request(&url, &prompt, temperature, max_completion_tokens).await?;
+            self.send_completion_request(&url, prompt, temperature, max_completion_tokens).await?;
 
         if let Some(content) = extract_completion_content_from_chat_value(&value) {
             tracing::info!(purpose, chars = content.len(), "llm completion response");
@@ -190,7 +270,7 @@ impl LlmClient {
                     "llm response reached token limit with no extractable text; retrying once"
                 );
                 let (retry_value, retry_body) = self
-                    .send_completion_request(&url, &prompt, temperature, retry_max_tokens)
+                    .send_completion_request(&url, prompt, temperature, retry_max_tokens)
                     .await?;
                 if let Some(content) = extract_completion_content_from_chat_value(&retry_value) {
                     tracing::info!(
@@ -222,6 +302,68 @@ impl LlmClient {
         Err(LlmError::InvalidResponse)
     }
 
+    async fn emit_inquiry_fallback(
+        &self, context: &BlockContext, instruction: &str,
+        output: &mut iced::futures::channel::mpsc::Sender<InquireStreamEvent>,
+    ) -> Result<(), LlmError> {
+        let content = self.inquire(context, instruction).await?;
+        let _ = output.send(InquireStreamEvent::Chunk(content.clone())).await;
+        tracing::info!(chars = content.len(), "llm inquire fallback response");
+        Ok(())
+    }
+
+    async fn stream_inquiry_chunks(
+        &self, prompt: &Prompt,
+        output: &mut iced::futures::channel::mpsc::Sender<InquireStreamEvent>,
+    ) -> Result<StreamStats, LlmError> {
+        let url = self.chat_url();
+        tracing::info!(model = %self.config.model, url = %url, purpose = "inquire", "llm streaming request");
+        let response = self.send_streaming_completion_request(&url, prompt, 0.7, 700).await?;
+        let mut bytes = response.bytes_stream();
+        let mut decoder = SseDataDecoder::new();
+        let mut stats = StreamStats::default();
+        let mut done = false;
+
+        while let Some(chunk_result) = bytes.next().await {
+            let chunk = chunk_result?;
+            for event_payload in decoder.push_bytes(&chunk) {
+                match parse_stream_event_payload(&event_payload)? {
+                    | ParsedStreamEvent::Done => {
+                        done = true;
+                        break;
+                    }
+                    | ParsedStreamEvent::Delta(delta) => {
+                        stats.record_chunk(&delta);
+                        if output.send(InquireStreamEvent::Chunk(delta)).await.is_err() {
+                            return Ok(stats);
+                        }
+                    }
+                    | ParsedStreamEvent::Ignore => {}
+                }
+            }
+            if done {
+                break;
+            }
+        }
+
+        if !done {
+            for event_payload in decoder.finish() {
+                match parse_stream_event_payload(&event_payload)? {
+                    | ParsedStreamEvent::Done => break,
+                    | ParsedStreamEvent::Delta(delta) => {
+                        stats.record_chunk(&delta);
+                        if output.send(InquireStreamEvent::Chunk(delta)).await.is_err() {
+                            return Ok(stats);
+                        }
+                    }
+                    | ParsedStreamEvent::Ignore => {}
+                }
+            }
+        }
+
+        Ok(stats)
+    }
+
     async fn send_completion_request(
         &self, url: &str, prompt: &Prompt, temperature: f32, max_completion_tokens: u32,
     ) -> Result<(Value, String), LlmError> {
@@ -233,6 +375,7 @@ impl LlmClient {
             ],
             temperature,
             max_completion_tokens,
+            stream: None,
         };
 
         let response = self
@@ -261,6 +404,35 @@ impl LlmClient {
         Ok((value, body))
     }
 
+    async fn send_streaming_completion_request(
+        &self, url: &str, prompt: &Prompt, temperature: f32, max_completion_tokens: u32,
+    ) -> Result<reqwest::Response, LlmError> {
+        let request = ChatRequest {
+            model: self.config.model.clone(),
+            messages: vec![
+                Message { role: Role::System, content: prompt.system.clone() },
+                Message { role: Role::User, content: prompt.user.clone() },
+            ],
+            temperature,
+            max_completion_tokens,
+            stream: Some(true),
+        };
+
+        let response = self
+            .http
+            .post(url)
+            .bearer_auth(self.config.api_key.clone())
+            .json(&request)
+            .send()
+            .await?;
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            return Err(ApiError { status, body }.into());
+        }
+        Ok(response)
+    }
+
     fn chat_url(&self) -> String {
         format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'))
     }
@@ -276,6 +448,8 @@ struct ChatRequest {
     messages: Vec<Message>,
     temperature: f32,
     max_completion_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
 }
 
 #[derive(Serialize)]
@@ -339,6 +513,178 @@ pub struct ReduceResponsePayload {
     reduction: String,
     #[serde(default)]
     redundant_children: Vec<usize>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct StreamStats {
+    chunk_count: usize,
+    char_count: usize,
+}
+
+impl StreamStats {
+    fn record_chunk(&mut self, chunk: &str) {
+        self.chunk_count += 1;
+        self.char_count += chunk.chars().count();
+    }
+
+    fn has_output(self) -> bool {
+        self.char_count > 0
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ParsedStreamEvent {
+    Done,
+    Delta(String),
+    Ignore,
+}
+
+/// Incremental SSE decoder for OpenAI-compatible `data:` events.
+#[derive(Debug, Default)]
+struct SseDataDecoder {
+    line_buffer: String,
+    event_data_lines: Vec<String>,
+}
+
+impl SseDataDecoder {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn push_bytes(&mut self, bytes: &[u8]) -> Vec<String> {
+        self.line_buffer.push_str(&String::from_utf8_lossy(bytes));
+        let mut events = Vec::new();
+
+        while let Some(newline) = self.line_buffer.find('\n') {
+            let mut line = self.line_buffer.drain(..=newline).collect::<String>();
+            if line.ends_with('\n') {
+                line.pop();
+            }
+            if line.ends_with('\r') {
+                line.pop();
+            }
+
+            if line.is_empty() {
+                if let Some(event) = self.flush_event_data() {
+                    events.push(event);
+                }
+                continue;
+            }
+
+            if let Some(data) = line.strip_prefix("data:") {
+                self.event_data_lines.push(data.trim_start().to_string());
+            }
+        }
+
+        events
+    }
+
+    fn finish(mut self) -> Vec<String> {
+        if !self.line_buffer.is_empty() {
+            let mut line = std::mem::take(&mut self.line_buffer);
+            if line.ends_with('\r') {
+                line.pop();
+            }
+            if let Some(data) = line.strip_prefix("data:") {
+                self.event_data_lines.push(data.trim_start().to_string());
+            }
+        }
+
+        self.flush_event_data().into_iter().collect()
+    }
+
+    fn flush_event_data(&mut self) -> Option<String> {
+        if self.event_data_lines.is_empty() {
+            return None;
+        }
+        let payload = self.event_data_lines.join("\n");
+        self.event_data_lines.clear();
+        Some(payload)
+    }
+}
+
+fn should_fallback_to_non_stream(err: &LlmError) -> bool {
+    match err {
+        | LlmError::Api(api) => matches!(api.status.as_u16(), 400 | 404 | 405 | 415 | 422 | 501),
+        | LlmError::InvalidResponse => true,
+        | _ => false,
+    }
+}
+
+fn parse_stream_event_payload(payload: &str) -> Result<ParsedStreamEvent, LlmError> {
+    let data = payload.trim();
+    if data.is_empty() {
+        return Ok(ParsedStreamEvent::Ignore);
+    }
+    if data == "[DONE]" {
+        return Ok(ParsedStreamEvent::Done);
+    }
+
+    let value: Value = serde_json::from_str(data).map_err(|err| {
+        tracing::error!(error = %err, body_preview = %preview_body(data), "invalid streaming json");
+        LlmError::InvalidResponse
+    })?;
+
+    if let Some(delta) = extract_stream_delta_from_value(&value) {
+        return Ok(ParsedStreamEvent::Delta(delta));
+    }
+
+    Ok(ParsedStreamEvent::Ignore)
+}
+
+fn extract_stream_delta_from_value(value: &Value) -> Option<String> {
+    extract_chat_stream_delta(value).or_else(|| extract_response_api_stream_delta(value)).or_else(
+        || {
+            value
+                .get("delta")
+                .and_then(extract_stream_content_value)
+                .or_else(|| value.get("content").and_then(extract_stream_content_value))
+        },
+    )
+}
+
+fn extract_chat_stream_delta(value: &Value) -> Option<String> {
+    value.get("choices").and_then(Value::as_array).and_then(|choices| {
+        choices.iter().find_map(|choice| {
+            choice
+                .get("delta")
+                .and_then(extract_stream_content_value)
+                .or_else(|| choice.get("text").and_then(extract_stream_content_value))
+        })
+    })
+}
+
+fn extract_response_api_stream_delta(value: &Value) -> Option<String> {
+    let event_type = value.get("type").and_then(Value::as_str);
+    if event_type == Some("response.output_text.delta") {
+        return value.get("delta").and_then(extract_stream_content_value);
+    }
+    None
+}
+
+fn extract_stream_content_value(content: &Value) -> Option<String> {
+    match content {
+        | Value::String(text) => (!text.is_empty()).then(|| text.to_string()),
+        | Value::Array(parts) => {
+            let joined = parts.iter().filter_map(extract_stream_text_from_part).collect::<String>();
+            (!joined.is_empty()).then_some(joined)
+        }
+        | Value::Object(_) => extract_stream_text_from_part(content),
+        | _ => None,
+    }
+}
+
+fn extract_stream_text_from_part(part: &Value) -> Option<String> {
+    match part {
+        | Value::String(text) => (!text.is_empty()).then(|| text.to_string()),
+        | Value::Object(obj) => obj
+            .get("text")
+            .and_then(Value::as_str)
+            .map(ToString::to_string)
+            .or_else(|| obj.get("content").and_then(Value::as_str).map(ToString::to_string))
+            .or_else(|| obj.get("value").and_then(Value::as_str).map(ToString::to_string)),
+        | _ => None,
+    }
 }
 
 // ============================================================================
@@ -638,5 +984,38 @@ mod tests {
         assert!(extract_completion_content_from_chat_value(&value).is_none());
         assert_eq!(completion_tokens(&value), Some(500));
         assert_eq!(first_choice_finish_reason(&value), Some("length"));
+    }
+
+    #[test]
+    fn stream_delta_extracts_chat_completion_delta_content() {
+        let value = serde_json::json!({
+            "choices": [
+                {
+                    "delta": {
+                        "content": "hello"
+                    }
+                }
+            ]
+        });
+        assert_eq!(extract_stream_delta_from_value(&value).as_deref(), Some("hello"));
+    }
+
+    #[test]
+    fn stream_delta_extracts_responses_api_delta_content() {
+        let value = serde_json::json!({
+            "type": "response.output_text.delta",
+            "delta": "streaming"
+        });
+        assert_eq!(extract_stream_delta_from_value(&value).as_deref(), Some("streaming"));
+    }
+
+    #[test]
+    fn sse_decoder_joins_multiline_data_and_done_event() {
+        let mut decoder = SseDataDecoder::new();
+        let first = decoder.push_bytes(b"data: {\"choices\":[{\"delta\":{\"content\":\"hel\"");
+        assert!(first.is_empty());
+        let second = decoder.push_bytes(b"}}]}\n\ndata: [DONE]\n\n");
+        assert_eq!(second.len(), 2);
+        assert!(matches!(parse_stream_event_payload(&second[1]), Ok(ParsedStreamEvent::Done)));
     }
 }

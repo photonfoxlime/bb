@@ -14,6 +14,8 @@ pub enum LlmError {
     Api(#[from] ApiError),
     #[error("request failed: {0}")]
     Http(#[from] reqwest::Error),
+    #[error("request timed out")]
+    Timeout,
     #[error("invalid response")]
     InvalidResponse,
     #[error("invalid expand response")]

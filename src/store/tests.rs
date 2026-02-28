@@ -499,6 +499,19 @@ fn set_inquiry_replaces_question_and_clears_old_response() {
 }
 
 #[test]
+fn append_inquiry_response_chunk_builds_incremental_response() {
+    let (mut store, root, _child_a, _child_b) = simple_store();
+    store.set_inquiry(root, "question".to_string());
+
+    store.append_inquiry_response_chunk(root, "hello ");
+    store.append_inquiry_response_chunk(root, "world");
+
+    let draft = store.inquiry_draft(&root).expect("inquiry draft exists");
+    assert_eq!(draft.inquiry, "question");
+    assert_eq!(draft.response, "hello world");
+}
+
+#[test]
 fn remove_subtree_cleans_persisted_drafts() {
     let (mut store, _root, child_a, child_b) = simple_store();
     store.expansion_drafts.insert(

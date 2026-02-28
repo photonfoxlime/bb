@@ -16,7 +16,7 @@ pub mod context;
 pub mod error;
 pub mod prompt;
 
-pub use client::LlmClient;
+pub use client::{InquireStreamEvent, LlmClient};
 pub use config::{CustomProvider, LlmConfig, LlmProviders, PresetConfig, PresetProvider};
 pub use context::{
     BlockContext, ExpandResult, ExpandSuggestion, FriendContext, Lineage, ReduceResult,

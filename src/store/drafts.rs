@@ -165,6 +165,26 @@ impl BlockStore {
         }
     }
 
+    /// Append one streaming response chunk to a block's inquiry draft.
+    ///
+    /// # Ensures
+    /// - No-op if `chunk` is empty.
+    /// - Preserves existing inquiry text.
+    /// - Creates a draft with empty inquiry if none exists yet.
+    pub fn append_inquiry_response_chunk(&mut self, id: BlockId, chunk: &str) {
+        if chunk.is_empty() {
+            return;
+        }
+
+        if let Some(record) = self.inquiry_drafts.get_mut(id) {
+            record.response.push_str(chunk);
+            return;
+        }
+
+        self.inquiry_drafts
+            .insert(id, InquiryDraftRecord { inquiry: String::new(), response: chunk.to_string() });
+    }
+
     /// Remove the inquiry draft for a block, returning the removed draft if any.
     pub fn remove_inquiry_draft(&mut self, id: &BlockId) -> Option<InquiryDraftRecord> {
         self.inquiry_drafts.remove(*id)
