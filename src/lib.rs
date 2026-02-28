@@ -1,4 +1,4 @@
-#![doc = include_str!("../README.md")]
+#![doc = include_str!("../DESIGN.md")]
 rust_i18n::i18n!("locales", fallback = "en-US");
 
 mod app;

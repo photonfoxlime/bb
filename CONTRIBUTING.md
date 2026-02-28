@@ -1,6 +1,6 @@
 # Contributing
 
-`bb` is a standard Rust project that follows common Rust project contribution procedures.
+`blooming-blockery` is a standard Rust project that follows common Rust project contribution procedures.
 
 ## Setup
 
