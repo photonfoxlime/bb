@@ -329,7 +329,6 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
         let inquiry_content = container(
             scrollable(text(inquiry_text).font(theme::LXGW_WENKAI).size(14))
-                .height(iced::Length::Fixed(80.0))
                 .width(iced::Length::Fill),
         )
         .padding(Padding::from([6.0, 8.0]))
@@ -437,7 +436,6 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
         let result_content = container(
             scrollable(text(response_text).font(theme::LXGW_WENKAI).size(14))
-                .height(iced::Length::Fixed(120.0))
                 .width(iced::Length::Fill),
         )
         .padding(Padding::from([6.0, 8.0]))
