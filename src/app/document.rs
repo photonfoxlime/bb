@@ -81,7 +81,6 @@ impl<'a> DocumentView<'a> {
 
         // Modebar buttons (normal, pick friend) - top-left corner
         let is_normal_mode = state.document_mode == DocumentMode::Normal;
-        let is_pick_friend_mode = state.document_mode == DocumentMode::PickFriend;
 
         let normal_mode_btn = button(centered_icon(
             icons::icon_mouse_pointer_2()
@@ -95,19 +94,7 @@ impl<'a> DocumentView<'a> {
         .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
         .on_press(Message::DocumentMode(DocumentMode::Normal));
 
-        let pick_friend_btn = button(centered_icon(
-            icons::icon_user_plus()
-                .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
-        ))
-        .style(move |theme, status| theme::mode_button(theme, status, is_pick_friend_mode))
-        .padding(0)
-        .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
-        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-        .on_press(Message::DocumentMode(DocumentMode::PickFriend));
-
-        let toolbar = row![normal_mode_btn, pick_friend_btn].spacing(theme::ACTION_GAP);
+        let toolbar = row![normal_mode_btn].spacing(theme::ACTION_GAP);
 
         let toolbar_container = container(
             container(toolbar)
