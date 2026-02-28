@@ -1047,7 +1047,8 @@ impl<'a> TreeView<'a> {
     /// Render a mount header showing file path and mount actions.
     ///
     /// Displayed above mount-backed nodes (both expanded and unexpanded).
-    /// Provides quick access to mount relocation and recursive inlining.
+    /// Provides quick access to mount relocation, shallow inline, and
+    /// recursive inline-all.
     /// Inline-all uses a two-step confirmation button to reduce accidental
     /// irreversible operations.
     fn render_mount_indicator(
@@ -1061,7 +1062,8 @@ impl<'a> TreeView<'a> {
             self.state.ui_state.pending_inline_mount_confirmation == Some(*block_id);
 
         let move_label = t!("action_move_mount_file").to_string();
-        let inline_label = if is_inline_confirmation_armed {
+        let inline_label = t!("action_inline_mount").to_string();
+        let inline_all_label = if is_inline_confirmation_armed {
             t!("action_confirm_inline_mount_all").to_string()
         } else {
             t!("action_inline_mount_all").to_string()
@@ -1095,10 +1097,36 @@ impl<'a> TreeView<'a> {
 
         let inline_btn: Element<'a, Message> = if is_compact_actions {
             let icon = centered_icon(
+                icons::icon_log_in()
+                    .size(theme::TOOLBAR_ICON_SIZE)
+                    .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                    .into(),
+            );
+            let btn = button(icon)
+                .style(theme::action_button)
+                .padding(0)
+                .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::MountFile(MountFileMessage::InlineMount(*block_id)));
+            tooltip(btn, text(inline_label).size(12).font(theme::INTER), tooltip::Position::Bottom)
+                .style(theme::tooltip)
+                .padding(theme::TOOLTIP_PAD)
+                .gap(theme::TOOLTIP_GAP)
+                .into()
+        } else {
+            button(text(inline_label).font(theme::INTER))
+                .style(theme::action_button)
+                .padding(theme::BUTTON_PAD)
+                .on_press(Message::MountFile(MountFileMessage::InlineMount(*block_id)))
+                .into()
+        };
+
+        let inline_all_btn: Element<'a, Message> = if is_compact_actions {
+            let icon = centered_icon(
                 if is_inline_confirmation_armed {
                     icons::icon_check_check()
                 } else {
-                    icons::icon_log_in()
+                    icons::icon_check_check()
                 }
                 .size(theme::TOOLBAR_ICON_SIZE)
                 .line_height(iced::widget::text::LineHeight::Relative(1.0))
@@ -1114,13 +1142,17 @@ impl<'a> TreeView<'a> {
                 .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .on_press(Message::MountFile(MountFileMessage::InlineMountAll(*block_id)));
-            tooltip(btn, text(inline_label).size(12).font(theme::INTER), tooltip::Position::Bottom)
-                .style(theme::tooltip)
-                .padding(theme::TOOLTIP_PAD)
-                .gap(theme::TOOLTIP_GAP)
-                .into()
+            tooltip(
+                btn,
+                text(inline_all_label).size(12).font(theme::INTER),
+                tooltip::Position::Bottom,
+            )
+            .style(theme::tooltip)
+            .padding(theme::TOOLTIP_PAD)
+            .gap(theme::TOOLTIP_GAP)
+            .into()
         } else {
-            button(text(inline_label).font(theme::INTER))
+            button(text(inline_all_label).font(theme::INTER))
                 .style(if is_inline_confirmation_armed {
                     theme::destructive_button
                 } else {
@@ -1150,6 +1182,7 @@ impl<'a> TreeView<'a> {
                     .style(theme::spine_text),
             );
         }
+        header = header.push(inline_all_btn);
         header.into()
     }
 }

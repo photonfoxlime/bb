@@ -807,6 +807,48 @@ fn move_mount_file_rewrites_expanded_mount_and_updates_entry() {
 }
 
 #[test]
+fn inline_mount_shallow_keeps_nested_mount_nodes() {
+    let tmp = tempfile::tempdir().unwrap();
+
+    let (inner_store, _, _, _) = simple_store();
+    write_store(tmp.path(), "inner.json", &inner_store);
+
+    let mut outer_nodes = SlotMap::with_key();
+    let mut outer_points = SecondaryMap::new();
+    let inner_mount =
+        outer_nodes.insert(BlockNode::with_path(std::path::PathBuf::from("inner.json")));
+    outer_points.insert(inner_mount, String::new());
+    let outer_root = outer_nodes.insert(BlockNode::with_children(vec![inner_mount]));
+    outer_points.insert(outer_root, "outer root".to_string());
+    let outer_store = BlockStore::new(vec![outer_root], outer_nodes, outer_points);
+    write_store(tmp.path(), "outer.json", &outer_store);
+
+    let mut main_nodes = SlotMap::with_key();
+    let mut main_points = SecondaryMap::new();
+    let outer_mount =
+        main_nodes.insert(BlockNode::with_path(std::path::PathBuf::from("outer.json")));
+    main_points.insert(outer_mount, String::new());
+    let mut store = BlockStore::new(vec![outer_mount], main_nodes, main_points);
+
+    store.inline_mount(&outer_mount, tmp.path()).unwrap();
+
+    assert!(store.mount_table().entry(outer_mount).is_none());
+    assert!(store.node(&outer_mount).unwrap().mount_path().is_none());
+    let outer_children = store.children(&outer_mount);
+    assert_eq!(outer_children.len(), 1);
+
+    let nested_mount = *store
+        .children(&outer_children[0])
+        .iter()
+        .find(|id| store.node(id).is_some_and(|node| node.mount_path().is_some()))
+        .unwrap();
+    assert_eq!(
+        store.node(&nested_mount).and_then(|node| node.mount_path()),
+        Some(std::path::Path::new("inner.json"))
+    );
+}
+
+#[test]
 fn inline_mount_recursive_inlines_nested_mounts_into_main_store() {
     let tmp = tempfile::tempdir().unwrap();
 

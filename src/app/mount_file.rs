@@ -7,7 +7,7 @@
 //! hardcode UI strings; add keys to the locale files instead.
 //!
 //! Handles expanding/collapsing mount points (blocks backed by external files),
-//! save/load dialogs, mount relocation, and mount inlining.
+//! save/load dialogs, mount relocation, and mount inlining (shallow/recursive).
 
 use super::editor_buffers::EditorBuffers;
 use super::error::{AppError, UiError};
@@ -36,6 +36,8 @@ pub enum MountFileMessage {
     MoveMount(BlockId),
     /// Move-mount save-file picker result.
     MoveMountPicked { block_id: BlockId, path: Option<std::path::PathBuf> },
+    /// Inline only this mount point (shallow).
+    InlineMount(BlockId),
     /// Inline all mounted files reachable from this block.
     ///
     /// Uses a two-click confirmation flow: first click arms, second click executes.
@@ -236,6 +238,24 @@ pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> 
                     }
                 });
             }
+            Task::none()
+        }
+        | MountFileMessage::InlineMount(block_id) => {
+            let base_dir = AppPaths::data_dir().unwrap_or_default();
+            state.mutate_with_undo_and_persist("after inlining one mount", |state| {
+                match state.store.inline_mount(&block_id, &base_dir) {
+                    | Ok(()) => {
+                        tracing::info!(block_id = ?block_id, "inlined one mount into current store");
+                        state.editor_buffers = EditorBuffers::from_store(&state.store);
+                        true
+                    }
+                    | Err(err) => {
+                        tracing::error!(block_id = ?block_id, %err, "failed to inline mount");
+                        state.record_error(AppError::Mount(UiError::from_message(&err)));
+                        false
+                    }
+                }
+            });
             Task::none()
         }
         | MountFileMessage::InlineMountAll(block_id) => {
