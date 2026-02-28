@@ -153,6 +153,58 @@ fn find_block_point_does_not_duplicate_when_multiple_rules_match() {
     assert_eq!(store.find_block_point("alpha,beta"), vec![root]);
 }
 
+#[test]
+fn find_block_point_matches_chinese_substring() {
+    let (mut store, _root, child_a, child_b) = simple_store();
+    store.update_point(&child_a, "我想买显卡".to_string());
+    store.update_point(&child_b, "我想买键盘".to_string());
+
+    assert_eq!(store.find_block_point("显卡"), vec![child_a]);
+}
+
+#[test]
+fn find_block_point_handles_chinese_boundary_query() {
+    let (mut store, _root, child_a, child_b) = simple_store();
+    store.update_point(&child_a, "升级显卡".to_string());
+    store.update_point(&child_b, "升级电源".to_string());
+
+    assert_eq!(store.find_block_point("显卡，电源"), vec![child_a, child_b]);
+}
+
+#[test]
+fn find_block_point_matches_chinese_and_latin_mixed_query() {
+    let (mut store, _root, child_a, child_b) = simple_store();
+    store.update_point(&child_a, "购买 RTX-4090 显卡".to_string());
+    store.update_point(&child_b, "购买普通显示器".to_string());
+
+    assert_eq!(store.find_block_point("RTX-4090，显卡"), vec![child_a]);
+}
+
+#[test]
+fn find_block_point_matches_japanese_hiragana_by_full_query_fallback() {
+    let (mut store, _root, child_a, _child_b) = simple_store();
+    store.update_point(&child_a, "きょうはねこを見た".to_string());
+
+    assert_eq!(store.find_block_point("ねこ"), vec![child_a]);
+}
+
+#[test]
+fn find_block_point_matches_japanese_katakana_by_full_query_fallback() {
+    let (mut store, _root, child_a, _child_b) = simple_store();
+    store.update_point(&child_a, "ノートPCが欲しい".to_string());
+
+    assert_eq!(store.find_block_point("ノート"), vec![child_a]);
+}
+
+#[test]
+fn find_block_point_matches_japanese_punctuation_query_by_full_query_fallback() {
+    let (mut store, _root, child_a, child_b) = simple_store();
+    store.update_point(&child_a, "ねこ、いぬ".to_string());
+    store.update_point(&child_b, "ねこといぬ".to_string());
+
+    assert_eq!(store.find_block_point("ねこ、いぬ"), vec![child_a]);
+}
+
 // -- update_point --
 
 #[test]
