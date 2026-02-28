@@ -486,7 +486,7 @@ impl AppState {
                     if modifiers.command() {
                         match &key {
                             | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("f") => {
-                                return Some(Message::Find(FindMessage::Open));
+                                return Some(Message::Find(FindMessage::Toggle));
                             }
                             | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("g") => {
                                 return if modifiers.shift() {

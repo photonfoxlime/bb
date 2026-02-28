@@ -81,8 +81,9 @@ impl<'a> DocumentView<'a> {
         // Floating overlay
         let mut layout = column![].spacing(theme::LAYOUT_GAP);
 
-        // Modebar buttons (normal, pick friend) - top-left corner
-        let is_normal_mode = state.ui().document_mode == DocumentMode::Normal;
+        // Modebar buttons (normal, find) - top-left corner
+        let is_find_mode = state.ui().find_ui.is_open();
+        let is_normal_mode = state.ui().document_mode == DocumentMode::Normal && !is_find_mode;
 
         let normal_mode_btn = button(centered_icon(
             icons::icon_mouse_pointer_2()
@@ -96,7 +97,23 @@ impl<'a> DocumentView<'a> {
         .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
         .on_press(Message::DocumentMode(DocumentMode::Normal));
 
-        let toolbar = row![normal_mode_btn].spacing(theme::ACTION_GAP);
+        let find_mode_btn = button(centered_icon(
+            icons::icon_search()
+                .size(theme::TOOLBAR_ICON_SIZE)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into(),
+        ))
+        .style(move |theme, status| theme::mode_button(theme, status, is_find_mode))
+        .padding(0)
+        .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .on_press(Message::Find(if is_find_mode {
+            FindMessage::Close
+        } else {
+            FindMessage::Open
+        }));
+
+        let toolbar = row![normal_mode_btn, find_mode_btn].spacing(theme::ACTION_GAP);
 
         let toolbar_container = container(
             container(toolbar)
@@ -133,7 +150,7 @@ impl<'a> DocumentView<'a> {
         .style(theme::action_button)
         .padding(theme::BUTTON_PAD);
 
-        // Undo/redo buttons – top-right, before find/settings
+        // Undo/redo buttons – top-right, before settings
         let can_undo = state.can_undo();
         let can_redo = state.can_redo();
 
@@ -159,18 +176,8 @@ impl<'a> DocumentView<'a> {
             redo_button = redo_button.on_press(Message::UndoRedo(UndoRedoMessage::Redo));
         }
 
-        // Find button – top-right, next to gear
-        let find_btn = button(
-            icons::icon_search()
-                .size(16)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
-        )
-        .on_press(Message::Find(FindMessage::Open))
-        .style(theme::action_button)
-        .padding(theme::BUTTON_PAD);
-
         let top_right_buttons =
-            row![undo_button, redo_button, find_btn, gear_button].spacing(theme::ACTION_GAP);
+            row![undo_button, redo_button, gear_button].spacing(theme::ACTION_GAP);
         let floating_gear = container(
             container(top_right_buttons)
                 .width(Fill)

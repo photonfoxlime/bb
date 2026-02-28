@@ -114,6 +114,8 @@ impl FindUiState {
 /// Messages for find overlay interactions.
 #[derive(Debug, Clone)]
 pub enum FindMessage {
+    /// Toggle the find overlay visibility.
+    Toggle,
     /// Open the find overlay.
     Open,
     /// Close the find overlay.
@@ -135,6 +137,16 @@ pub enum FindMessage {
 /// Handle one find-overlay message.
 pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
     match message {
+        | FindMessage::Toggle => {
+            if state.ui().find_ui.is_open() {
+                state.ui_mut().find_ui.close();
+                Task::none()
+            } else {
+                state.ui_mut().find_ui.open();
+                refresh_matches(state);
+                focus(find_query_input_id())
+            }
+        }
         | FindMessage::Open => {
             state.ui_mut().find_ui.open();
             refresh_matches(state);
@@ -379,6 +391,18 @@ mod tests {
 
     fn test_state() -> (AppState, BlockId) {
         AppState::test_state()
+    }
+
+    #[test]
+    fn toggle_opens_and_closes_overlay() {
+        let (mut state, _) = test_state();
+        assert!(!state.ui().find_ui.is_open());
+
+        let _ = AppState::update(&mut state, Message::Find(FindMessage::Toggle));
+        assert!(state.ui().find_ui.is_open());
+
+        let _ = AppState::update(&mut state, Message::Find(FindMessage::Toggle));
+        assert!(!state.ui().find_ui.is_open());
     }
 
     #[test]
