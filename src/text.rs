@@ -122,6 +122,96 @@ pub fn normalize_space(s: &str) -> String {
     NEWLINE_RE.replace_all(&collapsed, "\n").trim().to_string()
 }
 
+/// Truncate text for compact UI labels without splitting on bytes.
+///
+/// The returned string is limited to `max_chars` Unicode scalar values and uses
+/// `...` as suffix when truncation happens. The function prefers to cut at a
+/// nearby token boundary (for example whitespace or punctuation) and falls back
+/// to a hard character boundary when no such boundary exists.
+pub fn truncate_for_display(s: &str, max_chars: usize) -> String {
+    const ELLIPSIS: &str = "...";
+
+    if max_chars == 0 {
+        return String::new();
+    }
+
+    let char_count = s.chars().count();
+    if char_count <= max_chars {
+        return s.to_string();
+    }
+
+    if max_chars <= ELLIPSIS.len() {
+        return ELLIPSIS.chars().take(max_chars).collect();
+    }
+
+    let budget = max_chars - ELLIPSIS.len();
+    let hard_cut = byte_index_at_char(s, budget);
+    let token_cut = find_last_display_boundary(s, hard_cut);
+    let cut = token_cut.filter(|idx| *idx > 0).unwrap_or(hard_cut);
+    let head = s[..cut].trim_end();
+    format!("{head}{ELLIPSIS}")
+}
+
+fn byte_index_at_char(s: &str, char_index: usize) -> usize {
+    if char_index == 0 {
+        return 0;
+    }
+    s.char_indices().nth(char_index).map_or(s.len(), |(idx, _)| idx)
+}
+
+fn find_last_display_boundary(s: &str, limit: usize) -> Option<usize> {
+    let mut last_boundary: Option<usize> = None;
+    let mut iter = s.char_indices().peekable();
+
+    while let Some((idx, ch)) = iter.next() {
+        if idx >= limit {
+            break;
+        }
+
+        let next_idx = idx + ch.len_utf8();
+        if next_idx > limit {
+            break;
+        }
+
+        if is_display_delimiter(ch) {
+            last_boundary = Some(idx);
+            continue;
+        }
+
+        if let Some((_, next_ch)) = iter.peek().copied()
+            && script_of(ch) != script_of(next_ch)
+        {
+            last_boundary = Some(next_idx);
+        }
+    }
+
+    last_boundary
+}
+
+fn is_display_delimiter(ch: char) -> bool {
+    ch.is_whitespace()
+        || matches!(
+            ch,
+            '。' | '！'
+                | '？'
+                | '!'
+                | '?'
+                | ';'
+                | '；'
+                | '，'
+                | ','
+                | '、'
+                | ':'
+                | '：'
+                | '('
+                | ')'
+                | '（'
+                | '）'
+                | '['
+                | ']'
+        )
+}
+
 /// Extract "search phrases" from mixed-language user input (pure Rust).
 ///
 /// - Splits by script runs (Han vs Latin-ish)
@@ -209,7 +299,8 @@ pub fn extract_search_phrases(input: &str, user_words: &[&str]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Script, extract_search_phrases, normalize_space, script_of, split_by_script, tokenize_latin,
+        Script, extract_search_phrases, normalize_space, script_of, split_by_script,
+        tokenize_latin, truncate_for_display,
     };
 
     fn assert_any_contains<'a>(phrases: &'a [String], needle: &str) -> &'a String {
@@ -399,5 +490,25 @@ mod tests {
     fn normalize_space_preserves_newline_and_trims_edges() {
         let normalized = normalize_space("  alpha\t beta \n  gamma  ");
         assert_eq!(normalized, "alpha beta\ngamma");
+    }
+
+    #[test]
+    fn truncate_for_display_keeps_short_text_unchanged() {
+        assert_eq!(truncate_for_display("alpha", 10), "alpha");
+    }
+
+    #[test]
+    fn truncate_for_display_prefers_word_boundary() {
+        assert_eq!(truncate_for_display("alpha beta gamma", 11), "alpha...");
+    }
+
+    #[test]
+    fn truncate_for_display_falls_back_to_hard_character_cut() {
+        assert_eq!(truncate_for_display("abcdefghijk", 7), "abcd...");
+    }
+
+    #[test]
+    fn truncate_for_display_handles_tiny_limits() {
+        assert_eq!(truncate_for_display("alphabet", 2), "..");
     }
 }

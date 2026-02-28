@@ -30,6 +30,7 @@
 
 use crate::app::{AppState, DocumentMode, Message, StructureMessage};
 use crate::store::{BlockId, PanelBarState};
+use crate::text::truncate_for_display;
 use crate::theme;
 use iced::widget::{
     Id, button, column, container, operation::focus, row, text, text_input, tooltip,
@@ -271,11 +272,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         let placeholder = rust_i18n::t!("doc_friend_perspective_placeholder").to_string();
 
         // Layout: "[start of point text] as [perspective]"
-        let truncated_point = if point_text.len() > theme::FRIEND_POINT_TRUNCATE {
-            format!("{}...", &point_text[..theme::FRIEND_POINT_TRUNCATE])
-        } else {
-            point_text.clone()
-        };
+        let truncated_point = truncate_for_display(&point_text, theme::FRIEND_POINT_TRUNCATE);
 
         let content: Element<'a, Message> = if is_editing_this {
             // Inline editing for perspective with accept/cancel buttons
