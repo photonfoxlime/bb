@@ -214,6 +214,16 @@ impl AppState {
         self.ui().is_dark
     }
 
+    /// Whether undo has at least one available snapshot.
+    pub(crate) fn can_undo(&self) -> bool {
+        self.undo_history.can_undo()
+    }
+
+    /// Whether redo has at least one available snapshot.
+    pub(crate) fn can_redo(&self) -> bool {
+        self.undo_history.can_redo()
+    }
+
     fn startup_store_from_load_result(
         load_result: Result<BlockStore, StoreLoadError>,
     ) -> (BlockStore, bool, Vec<AppError>) {

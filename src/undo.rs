@@ -48,6 +48,20 @@ impl<T> UndoHistory<T> {
         self.undo_stack.push(current);
         Some(next)
     }
+
+    /// Whether an undo operation can be performed.
+    ///
+    /// Returns `true` when at least one snapshot exists in the undo stack.
+    pub fn can_undo(&self) -> bool {
+        !self.undo_stack.is_empty()
+    }
+
+    /// Whether a redo operation can be performed.
+    ///
+    /// Returns `true` when at least one snapshot exists in the redo stack.
+    pub fn can_redo(&self) -> bool {
+        !self.redo_stack.is_empty()
+    }
 }
 
 #[cfg(test)]
@@ -151,5 +165,25 @@ mod tests {
         history.push(100);
         assert_eq!(history.undo(0), Some(100));
         assert_eq!(history.undo(1), None);
+    }
+
+    #[test]
+    fn can_undo_and_redo_flags_track_stack_state() {
+        let mut history = UndoHistory::with_capacity(10);
+
+        assert!(!history.can_undo());
+        assert!(!history.can_redo());
+
+        history.push(42);
+        assert!(history.can_undo());
+        assert!(!history.can_redo());
+
+        let _ = history.undo(100);
+        assert!(!history.can_undo());
+        assert!(history.can_redo());
+
+        let _ = history.redo(42);
+        assert!(history.can_undo());
+        assert!(!history.can_redo());
     }
 }

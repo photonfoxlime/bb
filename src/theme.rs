@@ -192,8 +192,10 @@ pub const FRIEND_TOGGLE_SIZE: f32 = 14.0;
 /// Gap between visibility toggles in friends panel.
 pub const FRIEND_TOGGLE_GAP: f32 = 8.0;
 
-/// Top offset for the floating find panel overlay.
-pub const FIND_PANEL_TOP: f32 = 16.0;
+/// Outer margin for the floating find panel overlay.
+pub const FIND_PANEL_MARGIN: f32 = 16.0;
+/// Top offset ratio for the floating find panel (`0.382` = 38.2% of viewport height).
+pub const FIND_PANEL_TOP_RATIO: f32 = 0.382;
 /// Maximum width for the floating find panel.
 pub const FIND_PANEL_MAX_WIDTH: f32 = 680.0;
 /// Font size for find panel title text.

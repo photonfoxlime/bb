@@ -282,6 +282,19 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
         scrollable(rows).height(Length::Fixed(theme::FIND_RESULT_LIST_HEIGHT)).into()
     };
 
+    let viewport_width = state.ui().window_size.width;
+    let viewport_height = state.ui().window_size.height;
+    let panel_width = if viewport_width > 0.0 {
+        (viewport_width - (theme::FIND_PANEL_MARGIN * 2.0)).min(theme::FIND_PANEL_MAX_WIDTH)
+    } else {
+        theme::FIND_PANEL_MAX_WIDTH
+    };
+    let panel_top_offset = if viewport_height > 0.0 {
+        (viewport_height * theme::FIND_PANEL_TOP_RATIO).max(theme::FIND_PANEL_MARGIN)
+    } else {
+        theme::FIND_PANEL_MARGIN
+    };
+
     let panel = container(
         column![]
             .spacing(theme::PANEL_INNER_GAP)
@@ -299,15 +312,16 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     )
     .style(theme::draft_panel)
     .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
-    .max_width(theme::FIND_PANEL_MAX_WIDTH)
-    .width(Length::Fill);
+    .width(Length::Fixed(panel_width));
 
-    container(container(panel).padding(Padding::ZERO.top(theme::FIND_PANEL_TOP)))
-        .align_x(iced::alignment::Horizontal::Center)
-        .align_y(iced::alignment::Vertical::Top)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+    container(
+        container(panel).padding(Padding::new(theme::FIND_PANEL_MARGIN).top(panel_top_offset)),
+    )
+    .align_x(iced::alignment::Horizontal::Center)
+    .align_y(iced::alignment::Vertical::Top)
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
 }
 
 fn refresh_matches(state: &mut AppState) {

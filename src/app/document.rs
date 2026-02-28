@@ -38,7 +38,7 @@
 use super::{
     AppState, DocumentMode, EditMessage, ErrorBanner, ErrorMessage, ExpandMessage, FindMessage,
     Message, MountFileMessage, NavigationMessage, OverlayMessage, ReduceMessage, ShortcutMessage,
-    StructureMessage,
+    StructureMessage, UndoRedoMessage,
     action_bar::{
         ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
         ViewportBucket, action_i18n_key, action_to_message, build_action_bar_vm,
@@ -133,6 +133,32 @@ impl<'a> DocumentView<'a> {
         .style(theme::action_button)
         .padding(theme::BUTTON_PAD);
 
+        // Undo/redo buttons – top-right, before find/settings
+        let can_undo = state.can_undo();
+        let can_redo = state.can_redo();
+
+        let mut undo_button = button(
+            icons::icon_undo_2()
+                .size(16)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
+        )
+        .style(theme::action_button)
+        .padding(theme::BUTTON_PAD);
+        if can_undo {
+            undo_button = undo_button.on_press(Message::UndoRedo(UndoRedoMessage::Undo));
+        }
+
+        let mut redo_button = button(
+            icons::icon_redo_2()
+                .size(16)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0)),
+        )
+        .style(theme::action_button)
+        .padding(theme::BUTTON_PAD);
+        if can_redo {
+            redo_button = redo_button.on_press(Message::UndoRedo(UndoRedoMessage::Redo));
+        }
+
         // Find button – top-right, next to gear
         let find_btn = button(
             icons::icon_search()
@@ -143,7 +169,8 @@ impl<'a> DocumentView<'a> {
         .style(theme::action_button)
         .padding(theme::BUTTON_PAD);
 
-        let top_right_buttons = row![find_btn, gear_button].spacing(theme::ACTION_GAP);
+        let top_right_buttons =
+            row![undo_button, redo_button, find_btn, gear_button].spacing(theme::ACTION_GAP);
         let floating_gear = container(
             container(top_right_buttons)
                 .width(Fill)
