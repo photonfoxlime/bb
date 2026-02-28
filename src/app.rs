@@ -82,6 +82,11 @@ const LLM_REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 /// - `edit_session`: undo coalescing session tracker.
 #[derive(Clone)]
 pub struct AppState {
+    /// Draft form state for the settings screen.
+    pub settings: SettingsState,
+    /// Persisted app preferences (e.g. optional locale). Loaded at startup from
+    /// `<config_dir>/app.toml`; effective locale is derived via [`i18n::resolved_locale_from_config`].
+    pub config: AppConfig,
     store: BlockStore,
     undo_history: UndoHistory<UndoSnapshot>,
     providers: llm::LlmProviders,
@@ -111,11 +116,6 @@ pub struct AppState {
     transient_ui: TransientUiState,
     /// Edit session: block currently coalescing point edits into a single undo entry.
     edit_session: Option<BlockId>,
-    /// Draft form state for the settings screen.
-    pub settings: SettingsState,
-    /// Persisted app preferences (e.g. optional locale). Loaded at startup from
-    /// `<config_dir>/app.toml`; effective locale is derived via [`i18n::resolved_locale_from_config`].
-    pub config: AppConfig,
     /// Navigation stack: tracks drill-down path through block subtrees.
     ///
     /// Enables "drilling down" into a block's children, showing only that
@@ -163,6 +163,8 @@ impl AppState {
             ..TransientUiState::default()
         };
         Self {
+            settings,
+            config,
             store,
             undo_history: UndoHistory::with_capacity(UNDO_CAPACITY),
             providers,
@@ -173,8 +175,6 @@ impl AppState {
             persistence_write_disabled: false,
             transient_ui,
             edit_session: None,
-            settings,
-            config,
             navigation: NavigationStack::default(),
         }
     }
@@ -858,19 +858,21 @@ impl AppState {
         let root = *store.roots().first().expect("default store has a root");
         let providers = llm::LlmProviders::test_valid();
         let config = AppConfig::default();
+        let settings = SettingsState::from_providers(&providers, &config);
+        let editor_buffers = EditorBuffers::from_store(&store);
         let state = Self {
-            editor_buffers: EditorBuffers::from_store(&store),
+            settings,
+            config,
             store,
             undo_history: UndoHistory::with_capacity(64),
-            settings: SettingsState::from_providers(&providers, &config),
             providers,
             errors: vec![],
             llm_requests: LlmRequests::new(),
-            transient_ui: TransientUiState::default(),
-            edit_session: None,
+            editor_buffers,
             persistence_blocked: false,
             persistence_write_disabled: true,
-            config,
+            transient_ui: TransientUiState::default(),
+            edit_session: None,
             navigation: NavigationStack::default(),
         };
         (state, root)
