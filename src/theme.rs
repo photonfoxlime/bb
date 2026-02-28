@@ -406,8 +406,8 @@ pub fn draft_panel(theme: &Theme) -> container::Style {
 pub fn error_banner(theme: &Theme) -> container::Style {
     let p = focused_palette(theme);
     container::Style {
-        background: Some(Color { a: 0.08, ..p.danger }.into()),
-        border: border::rounded(4).width(1).color(Color { a: 0.3, ..p.danger }),
+        background: Some(Color { a: 0.15, ..p.danger }.into()),
+        border: border::rounded(4).width(1).color(Color { a: 0.5, ..p.danger }),
         text_color: Some(p.danger),
         ..Default::default()
     }
