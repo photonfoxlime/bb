@@ -104,6 +104,55 @@ fn find_block_point_uses_phrase_tokenization_for_mixed_query() {
     assert_eq!(matches, vec![child_a]);
 }
 
+#[test]
+fn find_block_point_returns_empty_when_no_match_exists() {
+    let (store, _, _, _) = simple_store();
+    assert!(store.find_block_point("nonexistent-keyword").is_empty());
+}
+
+#[test]
+fn find_block_point_empty_query_includes_deep_descendants_in_dfs_order() {
+    let (mut store, root, child_a, child_b) = simple_store();
+    let grandchild = store.append_child(&child_a, "nested".to_string()).unwrap();
+
+    assert_eq!(store.find_block_point(""), vec![root, child_a, grandchild, child_b]);
+}
+
+#[test]
+fn find_block_point_handles_multiple_roots_in_order() {
+    let mut nodes = SlotMap::with_key();
+    let mut points = SecondaryMap::new();
+
+    let child_a = nodes.insert(BlockNode::with_children(vec![]));
+    points.insert(child_a, "alpha child".to_string());
+    let root_a = nodes.insert(BlockNode::with_children(vec![child_a]));
+    points.insert(root_a, "alpha root".to_string());
+
+    let child_b = nodes.insert(BlockNode::with_children(vec![]));
+    points.insert(child_b, "beta child".to_string());
+    let root_b = nodes.insert(BlockNode::with_children(vec![child_b]));
+    points.insert(root_b, "beta root".to_string());
+
+    let store = BlockStore::new(vec![root_a, root_b], nodes, points);
+    assert_eq!(store.find_block_point(""), vec![root_a, child_a, root_b, child_b]);
+}
+
+#[test]
+fn find_block_point_uses_full_query_fallback_when_no_phrase_tokens() {
+    let (mut store, _root, child_a, _child_b) = simple_store();
+    store.update_point(&child_a, "hello😀world".to_string());
+
+    assert_eq!(store.find_block_point("😀"), vec![child_a]);
+}
+
+#[test]
+fn find_block_point_does_not_duplicate_when_multiple_rules_match() {
+    let (mut store, root, _child_a, _child_b) = simple_store();
+    store.update_point(&root, "alpha,beta".to_string());
+
+    assert_eq!(store.find_block_point("alpha,beta"), vec![root]);
+}
+
 // -- update_point --
 
 #[test]
