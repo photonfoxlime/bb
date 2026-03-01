@@ -6,7 +6,7 @@
 //! All user-facing text must be internationalized via `rust_i18n::t!`. Never
 //! hardcode UI strings; add keys to the locale files instead.
 //!
-//! Stores optional UI locale and other app-level preferences in
+//! Stores optional UI locale, appearance preference, and other app-level preferences in
 //! `<config_dir>/app.toml`. Loaded at startup; changes are saved via
 //! [`save`] or [`AppState::save_app_config`](crate::app::AppState::save_app_config).
 
@@ -14,7 +14,7 @@ use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
 use std::{fs, io};
 
-/// Persisted app preferences (e.g. optional locale).
+/// Persisted app preferences (locale override and optional appearance override).
 ///
 /// Stored in `<config_dir>/app.toml`; see [`AppPaths::app_config`].
 /// The effective locale is derived via [`crate::i18n::resolved_locale_from_config`].
@@ -23,6 +23,23 @@ pub struct AppConfig {
     /// Override UI locale; if absent or empty, env then default is used.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub locale: Option<String>,
+    /// Override UI dark mode preference.
+    ///
+    /// - `None`: follow current system appearance and live system theme changes.
+    /// - `Some(true)`: force dark appearance.
+    /// - `Some(false)`: force light appearance.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub dark_mode: Option<bool>,
+}
+
+impl AppConfig {
+    /// Resolve the effective dark mode for this session.
+    ///
+    /// Uses the persisted override when present; otherwise falls back to
+    /// the caller-provided system appearance value.
+    pub fn resolved_dark_mode(&self, system_is_dark: bool) -> bool {
+        self.dark_mode.unwrap_or(system_is_dark)
+    }
 }
 
 /// Load app config from `<config_dir>/app.toml`. Returns default on missing or parse error.
@@ -68,4 +85,33 @@ pub enum SaveError {
     Serialize(toml::ser::Error),
     #[error("failed to write config: {0}")]
     Write(io::Error),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppConfig;
+
+    #[test]
+    fn resolved_dark_mode_prefers_override() {
+        let config = AppConfig { locale: None, dark_mode: Some(true) };
+        assert!(config.resolved_dark_mode(false));
+
+        let config = AppConfig { locale: None, dark_mode: Some(false) };
+        assert!(!config.resolved_dark_mode(true));
+    }
+
+    #[test]
+    fn resolved_dark_mode_falls_back_to_system_when_unset() {
+        let config = AppConfig::default();
+        assert!(config.resolved_dark_mode(true));
+        assert!(!config.resolved_dark_mode(false));
+    }
+
+    #[test]
+    fn toml_omits_dark_mode_when_unset() {
+        let config = AppConfig { locale: Some("en-US".to_string()), dark_mode: None };
+        let toml = toml::to_string(&config).expect("serialize app config");
+        assert!(!toml.contains("dark_mode"));
+        assert!(toml.contains("locale"));
+    }
 }

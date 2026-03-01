@@ -8,7 +8,8 @@
 //!
 //! The settings view is an alternative screen accessible from the document view
 //! via a gear icon button. It exposes editable LLM provider configurations with
-//! CRUD support (add, edit, delete, switch active), a light/dark theme toggle,
+//! CRUD support (add, edit, delete, switch active), a persisted light/dark
+//! theme toggle,
 //! and read-only display of resolved data and config paths.
 //!
 //! # Preset vs custom providers
@@ -334,7 +335,15 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
         }
         | SettingsMessage::ToggleTheme(is_dark) => {
             state.ui_mut().is_dark = is_dark;
-            tracing::info!(is_dark, "theme toggled from settings");
+            state.config.dark_mode = Some(is_dark);
+            state.settings.config.dark_mode = Some(is_dark);
+            if let Err(err) = config::save(&state.config) {
+                state.settings.status =
+                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                tracing::error!(%err, is_dark, "failed to persist dark mode preference");
+            } else {
+                tracing::info!(is_dark, "theme toggled and persisted from settings");
+            }
             Task::none()
         }
         | SettingsMessage::SetLocale(locale) => {

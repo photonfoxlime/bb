@@ -153,9 +153,15 @@ impl AppState {
         errors.extend(persistence_errors);
         let editor_buffers = EditorBuffers::from_store(&store);
 
-        let is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
-        tracing::info!(is_dark, "detected system appearance");
         let config = crate::app::config::load();
+        let system_is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
+        let is_dark = config.resolved_dark_mode(system_is_dark);
+        tracing::info!(
+            system_is_dark,
+            config_dark_mode = ?config.dark_mode,
+            is_dark,
+            "resolved startup appearance"
+        );
         let settings = SettingsState::from_providers(&providers, &config);
         let transient_ui = TransientUiState {
             is_dark,
@@ -487,6 +493,13 @@ impl AppState {
                 Task::none()
             }
             | Message::SystemThemeChanged(mode) => {
+                if self.config.dark_mode.is_some() {
+                    tracing::debug!(
+                        config_dark_mode = ?self.config.dark_mode,
+                        "ignored system theme change due to persisted override"
+                    );
+                    return Task::none();
+                }
                 let dark = matches!(mode, iced::theme::Mode::Dark);
                 if self.ui().is_dark != dark {
                     tracing::info!(is_dark = dark, "system theme changed");
@@ -661,8 +674,9 @@ pub struct TransientUiState {
     pub keyboard_modifiers: keyboard::Modifiers,
     /// Whether the current theme is dark.
     ///
-    /// Initialized from the system at startup and updated by
-    /// `iced::system::theme_changes()` during runtime.
+    /// Initialized from persisted app config when available; otherwise from
+    /// system appearance. Runtime system theme-change events only apply while
+    /// no persisted override exists.
     pub is_dark: bool,
     /// The friend block currently being hovered in the Friends Panel.
     ///
@@ -1697,5 +1711,27 @@ mod tests {
         state.persist_with_context("test-only persistence noop");
 
         assert!(state.errors.is_empty());
+    }
+
+    #[test]
+    fn system_theme_changes_apply_without_persisted_override() {
+        let (mut state, _root) = test_state();
+        state.config.dark_mode = None;
+        state.ui_mut().is_dark = false;
+
+        let _ = state.update(Message::SystemThemeChanged(iced::theme::Mode::Dark));
+
+        assert!(state.ui().is_dark);
+    }
+
+    #[test]
+    fn system_theme_changes_are_ignored_with_persisted_override() {
+        let (mut state, _root) = test_state();
+        state.config.dark_mode = Some(true);
+        state.ui_mut().is_dark = true;
+
+        let _ = state.update(Message::SystemThemeChanged(iced::theme::Mode::Light));
+
+        assert!(state.ui().is_dark);
     }
 }
