@@ -2,7 +2,7 @@ name: Release to AUR
 
 on:
   workflow_run:
-    workflows: ["Release"] # <-- must match your cargo-dist workflow name
+    workflows: ["Release"]
     types: [completed]
 
 permissions:
@@ -16,20 +16,21 @@ jobs:
   aur:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+    container:
+      image: archlinux:latest
 
     env:
-      # AUR package repo name (the AUR git repo)
-      # Example: blooming-blockery-bin OR blooming-blockery
       AUR_PKG: blooming-blockery-bin
-
-      # The Linux asset name cargo-dist publishes
       LINUX_ASSET: blooming-blockery-x86_64-unknown-linux-gnu.tar.xz
 
     steps:
-      - name: Install CLI deps
+      - name: Install deps (Arch)
         run: |
-          sudo apt-get update
-          sudo apt-get install -y jq openssh-client
+          set -euo pipefail
+          pacman -Sy --noconfirm archlinux-keyring ca-certificates
+          pacman -Syu --noconfirm
+          pacman -S --noconfirm --needed \
+            base-devel git openssh jq github-cli
 
       - name: Determine release tag for this workflow_run
         env:
@@ -39,18 +40,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Find the most recent release whose target_commitish matches the workflow's head SHA.
           TAG="$(gh api "repos/${REPO}/releases?per_page=50" --jq \
             "[.[] | select(.target_commitish == \"${SHA}\")][0].tag_name")"
 
           if [ "${TAG}" = "null" ] || [ -z "${TAG}" ]; then
             echo "No release found with target_commitish == ${SHA}"
-            echo "Recent releases:"
             gh api "repos/${REPO}/releases?per_page=10" --jq '.[] | {tag_name, target_commitish, published_at}'
             exit 1
           fi
 
           echo "TAG=${TAG}" >> "$GITHUB_ENV"
+          echo "PKGVER=${TAG#v}" >> "$GITHUB_ENV"
           echo "Detected release tag: ${TAG}"
 
       - name: Download Linux asset + compute SHA256
@@ -71,10 +71,6 @@ jobs:
           SHA256="$(sha256sum "dist/${LINUX_ASSET}" | awk '{print $1}')"
           echo "SHA256=${SHA256}" >> "$GITHUB_ENV"
 
-          # pkgver for AUR should not include leading "v"
-          PKGVER="${TAG#v}"
-          echo "PKGVER=${PKGVER}" >> "$GITHUB_ENV"
-
           echo "PKGVER=${PKGVER}"
           echo "SHA256=${SHA256}"
 
@@ -94,34 +90,21 @@ jobs:
           set -euo pipefail
           git clone "ssh://aur@aur.archlinux.org/${AUR_PKG}.git" aur
 
-      - name: Update PKGBUILD and .SRCINFO
+      - name: Update PKGBUILD + regenerate .SRCINFO
         working-directory: aur
         run: |
           set -euo pipefail
 
-          SRC_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}/${LINUX_ASSET}"
-
-          # Update PKGBUILD fields (expects typical pkgver/pkgrel/source/sha256sums format)
           sed -i -E \
             -e "s/^pkgver=.*/pkgver=${PKGVER}/" \
             -e "s/^pkgrel=.*/pkgrel=1/" \
+            -e "s/^sha256sums=.*/sha256sums=('${SHA256}')/" \
             PKGBUILD
 
-          # Replace a GitHub releases/download URL inside source=()
-          perl -0777 -i -pe "s|(source=\\([^\\)]*?)https://github\\.com/[^\\s\\)]+/releases/download/[^\\s\\)]+/[^\\s\\)]+|(\\1${SRC_URL}|s" PKGBUILD
+          makepkg --printsrcinfo > .SRCINFO
 
-          # Replace first sha256sums entry (single-source PKGBUILD)
-          perl -0777 -i -pe "s|sha256sums=\\('([0-9a-f]{64}|SKIP)'\\)|sha256sums=('${SHA256}')|s" PKGBUILD
-
-          # Keep .SRCINFO in sync if present
-          if [ -f .SRCINFO ]; then
-            sed -i -E \
-              -e "s/^\\s*pkgver = .*/pkgver = ${PKGVER}/" \
-              -e "s/^\\s*pkgrel = .*/pkgrel = 1/" \
-              -e "s|^\\s*source = .*|source = ${SRC_URL}|" \
-              -e "s/^\\s*sha256sums = .*/sha256sums = ${SHA256}/" \
-              .SRCINFO
-          fi
+          # Sanity check: .SRCINFO source should contain v${PKGVER} and the correct asset
+          grep -q "source = https://github.com/.*/releases/download/v${PKGVER}/${LINUX_ASSET}" .SRCINFO
 
           git status --porcelain
           git diff -- PKGBUILD .SRCINFO || true
@@ -133,7 +116,7 @@ jobs:
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
 
-          git add PKGBUILD .SRCINFO || true
+          git add PKGBUILD .SRCINFO
 
           if git diff --cached --quiet; then
             echo "No changes to commit."
