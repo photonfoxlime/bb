@@ -813,6 +813,14 @@ mod edit {
         )
     }
 
+    /// Detect editor actions leaked from `Alt/Option + Arrow` key chords.
+    ///
+    /// Design decision: movement shortcuts are handled in the global keyboard
+    /// subscription path so behavior is consistent across focused widgets. Some
+    /// backends still emit editor `Move`/`Select` actions for the same key
+    /// press; those leaked actions must be ignored here to avoid double
+    /// execution (for example, sibling focus wrapping then immediately moving
+    /// again).
     fn is_alt_movement_shortcut_editor_action(
         action: &text_editor::Action, modifiers: keyboard::Modifiers,
     ) -> bool {
@@ -1056,6 +1064,10 @@ mod shortcut {
         Movement(MovementShortcut),
     }
 
+    /// Direction for sibling traversal and reordering helpers.
+    ///
+    /// Both directions use cyclic (wrap-around) semantics within one sibling
+    /// slice.
     #[derive(Debug, Clone, Copy)]
     enum SiblingDirection {
         Previous,
@@ -1066,6 +1078,11 @@ mod shortcut {
     ///
     /// Returns `None` when the key chord is not one of the declared movement
     /// shortcuts or when extra command/control modifiers are pressed.
+    ///
+    /// Design decision: this parser intentionally treats movement shortcuts as
+    /// global commands, independent of editor widget internals. The edit module
+    /// filters leaked editor actions so this parser remains the single source
+    /// of truth for movement dispatch.
     pub fn movement_shortcut_from_key(
         key: &keyboard::Key, modifiers: keyboard::Modifiers,
     ) -> Option<ShortcutMessage> {
@@ -1144,6 +1161,10 @@ mod shortcut {
         }
     }
 
+    /// Resolve sibling focus target with cyclic wrap-around.
+    ///
+    /// - Previous from index `0` wraps to the last sibling.
+    /// - Next from the last sibling wraps to index `0`.
     fn sibling_wrap_target(
         state: &AppState, block_id: BlockId, direction: SiblingDirection,
     ) -> Option<BlockId> {
@@ -1172,7 +1193,15 @@ mod shortcut {
         siblings.get(target_index).copied()
     }
 
+    /// Focus a block and keep it visible in both fold and navigation scopes.
+    ///
+    /// Order matters:
+    /// 1. unfold collapsed ancestors,
+    /// 2. reveal navigation path if needed,
+    /// 3. set focus and request widget focus.
     fn focus_block(state: &mut AppState, block_id: BlockId) -> Task<Message> {
+        unfold_folded_ancestors_for_focus(state, block_id);
+
         if !state.navigation.is_in_current_view(&state.store, &block_id) {
             state.navigation.reveal_parent_path(&state.store, &block_id);
         }
@@ -1182,6 +1211,33 @@ mod shortcut {
             return widget::operation::focus(widget_id.clone());
         }
         Task::none()
+    }
+
+    /// Ensure the focused target is visible by unfolding collapsed ancestors.
+    ///
+    /// This is used by movement shortcuts that navigate or move blocks "into"
+    /// another block. If any ancestor on the target path is folded, it is
+    /// expanded before focus is applied.
+    fn unfold_folded_ancestors_for_focus(state: &mut AppState, block_id: BlockId) {
+        let mut changed = false;
+        let mut cursor = state.store.parent(&block_id);
+
+        while let Some(parent_id) = cursor {
+            if state.store.is_collapsed(&parent_id) {
+                state.store.toggle_collapsed(&parent_id);
+                tracing::info!(
+                    focused_block_id = ?block_id,
+                    unfolded_block_id = ?parent_id,
+                    "unfolded collapsed ancestor for movement shortcut"
+                );
+                changed = true;
+            }
+            cursor = state.store.parent(&parent_id);
+        }
+
+        if changed {
+            state.persist_with_context("after unfolding folded ancestors for movement shortcut");
+        }
     }
 
     fn focus_sibling(
@@ -1194,6 +1250,11 @@ mod shortcut {
         focus_block(state, target_id)
     }
 
+    /// Move a block within its sibling list using cyclic semantics.
+    ///
+    /// Boundary behavior mirrors focus navigation:
+    /// - Previous on first sibling moves to the end.
+    /// - Next on last sibling moves to the front.
     fn move_block_within_siblings(
         state: &mut AppState, block_id: BlockId, direction: SiblingDirection,
     ) -> Task<Message> {
@@ -1503,6 +1564,47 @@ mod shortcut {
             let first_children = state.store.children(&first);
             assert_eq!(first_children.first().copied(), Some(second));
             assert!(first_children.contains(&existing));
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(second));
+        }
+
+        #[test]
+        fn focus_first_child_unfolds_current_block() {
+            let (mut state, root) = AppState::test_state();
+            let child = state
+                .store
+                .append_child(&root, "child".to_string())
+                .expect("append child succeeds");
+            state.store.toggle_collapsed(&root);
+            state.set_focus(root);
+
+            let _ =
+                handle(&mut state, ShortcutMessage::Movement(MovementShortcut::FocusFirstChild));
+
+            assert!(!state.store.is_collapsed(&root));
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(child));
+        }
+
+        #[test]
+        fn indent_into_previous_sibling_unfolds_target_parent() {
+            let (mut state, root) = AppState::test_state();
+            let first = state
+                .store
+                .append_child(&root, "first".to_string())
+                .expect("append first child succeeds");
+            let second = state
+                .store
+                .append_sibling(&first, "second".to_string())
+                .expect("append second child succeeds");
+            state.store.toggle_collapsed(&first);
+            state.set_focus(second);
+
+            let _ = handle(
+                &mut state,
+                ShortcutMessage::Movement(MovementShortcut::MoveToPreviousSiblingFirstChild),
+            );
+
+            assert!(!state.store.is_collapsed(&first));
+            assert_eq!(state.store.parent(&second), Some(first));
             assert_eq!(state.focus().map(|focus| focus.block_id), Some(second));
         }
     }
