@@ -411,8 +411,11 @@ pub fn project_for_viewport(mut vm: ActionBarVm, bucket: ViewportBucket) -> Acti
 }
 
 /// Map a key press to an action shortcut, if any.
+///
+/// Uses `Modifiers::command()` so the same shortcut set works as
+/// `Cmd+...` on macOS and `Ctrl+...` on other platforms.
 pub fn shortcut_to_action(key: Key, modifiers: Modifiers) -> Option<ActionId> {
-    if !modifiers.control() {
+    if !modifiers.command() {
         return None;
     }
 
@@ -723,49 +726,49 @@ mod tests {
     }
 
     #[test]
-    fn shortcut_ctrl_dot_expands() {
+    fn shortcut_command_dot_expands() {
         let key = Key::Character(".".into());
-        let modifiers = Modifiers::CTRL;
+        let modifiers = Modifiers::COMMAND;
         let action = shortcut_to_action(key, modifiers);
         assert_eq!(action, Some(ActionId::Expand));
     }
 
     #[test]
-    fn shortcut_ctrl_comma_reduces() {
+    fn shortcut_command_comma_reduces() {
         let key = Key::Character(",".into());
-        let modifiers = Modifiers::CTRL;
+        let modifiers = Modifiers::COMMAND;
         let action = shortcut_to_action(key, modifiers);
         assert_eq!(action, Some(ActionId::Reduce));
     }
 
     #[test]
-    fn shortcut_ctrl_enter_adds_child() {
+    fn shortcut_command_enter_adds_child() {
         let key = Key::Named(Named::Enter);
-        let modifiers = Modifiers::CTRL;
+        let modifiers = Modifiers::COMMAND;
         let action = shortcut_to_action(key, modifiers);
         assert_eq!(action, Some(ActionId::AddChild));
     }
 
     #[test]
-    fn shortcut_ctrl_backspace_archives() {
+    fn shortcut_command_backspace_archives() {
         let key = Key::Named(Named::Backspace);
-        let modifiers = Modifiers::CTRL;
+        let modifiers = Modifiers::COMMAND;
         let action = shortcut_to_action(key, modifiers);
         assert_eq!(action, Some(ActionId::ArchiveBlock));
     }
 
     #[test]
-    fn shortcut_ctrl_shift_enter_adds_sibling() {
+    fn shortcut_command_shift_enter_adds_sibling() {
         let key = Key::Named(Named::Enter);
-        let modifiers = Modifiers::CTRL | Modifiers::SHIFT;
+        let modifiers = Modifiers::COMMAND | Modifiers::SHIFT;
         let action = shortcut_to_action(key, modifiers);
         assert_eq!(action, Some(ActionId::AddSibling));
     }
 
     #[test]
-    fn shortcut_ctrl_shift_a_accepts_all() {
+    fn shortcut_command_shift_a_accepts_all() {
         let key = Key::Character("a".into());
-        let modifiers = Modifiers::CTRL | Modifiers::SHIFT;
+        let modifiers = Modifiers::COMMAND | Modifiers::SHIFT;
         let action = shortcut_to_action(key, modifiers);
         assert_eq!(action, Some(ActionId::AcceptAll));
     }
@@ -781,7 +784,7 @@ mod tests {
     #[test]
     fn shortcut_unknown_key_returns_none() {
         let key = Key::Character("x".into());
-        let modifiers = Modifiers::CTRL;
+        let modifiers = Modifiers::COMMAND;
         let action = shortcut_to_action(key, modifiers);
         assert_eq!(action, None);
     }

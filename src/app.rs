@@ -546,13 +546,21 @@ impl AppState {
                         }
                     }
 
+                    let action_shortcut = action_bar::shortcut_to_action(key, modifiers);
+
                     if status == event::Status::Captured {
-                        return None;
+                        // Text editors can capture command+punctuation while still emitting
+                        // insert actions. Keep expand/reduce available through the global
+                        // subscription path so `Cmd/Ctrl+.` and `Cmd/Ctrl+,` remain reliable.
+                        return action_shortcut
+                            .filter(|action_id| {
+                                matches!(action_id, ActionId::Expand | ActionId::Reduce)
+                            })
+                            .map(ShortcutMessage::Trigger)
+                            .map(Message::Shortcut);
                     }
 
-                    action_bar::shortcut_to_action(key, modifiers)
-                        .map(ShortcutMessage::Trigger)
-                        .map(Message::Shortcut)
+                    action_shortcut.map(ShortcutMessage::Trigger).map(Message::Shortcut)
                 }
                 | Event::Window(window::Event::Resized(size)) => {
                     Some(Message::WindowResized(WindowSize {
@@ -767,6 +775,20 @@ mod edit {
         Down,
     }
 
+    fn command_shortcut_action_from_editor_insert(
+        action: &text_editor::Action, modifiers: keyboard::Modifiers,
+    ) -> Option<ActionId> {
+        if !modifiers.command() {
+            return None;
+        }
+
+        match action {
+            | text_editor::Action::Edit(text_editor::Edit::Insert('.')) => Some(ActionId::Expand),
+            | text_editor::Action::Edit(text_editor::Edit::Insert(',')) => Some(ActionId::Reduce),
+            | _ => None,
+        }
+    }
+
     fn is_command_shortcut_editor_insert(
         action: &text_editor::Action, modifiers: keyboard::Modifiers,
     ) -> bool {
@@ -777,20 +799,40 @@ mod edit {
         matches!(
             action,
             text_editor::Action::Edit(text_editor::Edit::Insert(c))
-                if matches!(c.to_ascii_lowercase(), 'f' | 'g' | 'z')
+                if matches!(c.to_ascii_lowercase(), 'f' | 'g' | 'z' | '.' | ',')
         )
     }
 
     pub fn handle_point_edited(
         state: &mut AppState, block_id: BlockId, action: text_editor::Action,
     ) -> Task<Message> {
+        // Clear friend hover state when editing
+        state.ui_mut().hovered_friend_block = None;
+
+        if let Some(action_id) =
+            command_shortcut_action_from_editor_insert(&action, state.ui().keyboard_modifiers)
+        {
+            // Keep app-level block focus aligned with the active editor and run
+            // the shortcut with an explicit block target. This avoids reliance
+            // on global focus synchronization order for command+punctuation.
+            if state.ui().document_mode == DocumentMode::Normal {
+                state.set_focus(block_id);
+            }
+            return AppState::update(
+                state,
+                Message::Shortcut(ShortcutMessage::ForBlock { block_id, action_id }),
+            );
+        }
+
         if is_command_shortcut_editor_insert(&action, state.ui().keyboard_modifiers) {
+            // Keep app-level block focus aligned with the active editor even when
+            // the insert action is ignored as a leaked command shortcut.
+            if state.ui().document_mode == DocumentMode::Normal {
+                state.set_focus(block_id);
+            }
             tracing::debug!("ignored command-shortcut editor insert leak");
             return Task::none();
         }
-
-        // Clear friend hover state when editing
-        state.ui_mut().hovered_friend_block = None;
 
         // Don't change focus in PickFriend mode
         if state.ui().document_mode == DocumentMode::PickFriend {
@@ -848,6 +890,55 @@ mod edit {
             }
         }
         Task::none()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn command_shortcut_insert_keeps_focus_in_sync() {
+            let (mut state, root) = AppState::test_state();
+            state.ui_mut().keyboard_modifiers = keyboard::Modifiers::COMMAND;
+
+            let _ = handle_point_edited(
+                &mut state,
+                root,
+                text_editor::Action::Edit(text_editor::Edit::Insert('.')),
+            );
+
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(root));
+        }
+
+        #[test]
+        fn command_dot_insert_triggers_expand_for_block() {
+            let (mut state, root) = AppState::test_state();
+            state.ui_mut().keyboard_modifiers = keyboard::Modifiers::COMMAND;
+
+            let _ = handle_point_edited(
+                &mut state,
+                root,
+                text_editor::Action::Edit(text_editor::Edit::Insert('.')),
+            );
+
+            assert!(state.llm_requests.is_expanding(root));
+        }
+
+        #[test]
+        fn command_comma_insert_triggers_reduce_for_block() {
+            let (mut state, root) = AppState::test_state();
+            state.ui_mut().keyboard_modifiers = keyboard::Modifiers::COMMAND;
+            state.store.update_point(&root, "needs reduce".to_string());
+            state.editor_buffers.set_text(&root, "needs reduce");
+
+            let _ = handle_point_edited(
+                &mut state,
+                root,
+                text_editor::Action::Edit(text_editor::Edit::Insert(',')),
+            );
+
+            assert!(state.llm_requests.is_reducing(root));
+        }
     }
 }
 
@@ -918,6 +1009,22 @@ mod shortcut {
         }
 
         Task::none()
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn trigger_uses_edit_session_when_focus_is_missing() {
+            let (mut state, root) = AppState::test_state();
+            assert!(state.focus().is_none());
+            state.edit_session = Some(root);
+
+            let _ = handle(&mut state, ShortcutMessage::Trigger(ActionId::Expand));
+
+            assert!(state.llm_requests.is_expanding(root));
+        }
     }
 }
 
