@@ -55,6 +55,7 @@ pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> 
                     match state.store.expand_mount(&block_id, &base_dir) {
                         | Ok(new_roots) => {
                             tracing::info!(block_id = ?block_id, children = new_roots.len(), "expanded mount");
+                            sync_mount_point_editor_buffer(state, block_id);
                             for &id in &new_roots {
                                 state.editor_buffers.ensure_subtree(&state.store, &id);
                             }
@@ -112,6 +113,7 @@ pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> 
                                 tracing::info!(block_id = ?block_id, path = %path.display(), ?mount_format, "saved subtree to file");
                                 match state.store.expand_mount(&block_id, &base_dir) {
                                     | Ok(new_roots) => {
+                                        sync_mount_point_editor_buffer(state, block_id);
                                         for &id in &new_roots {
                                             state.editor_buffers.ensure_subtree(&state.store, &id);
                                         }
@@ -181,6 +183,7 @@ pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> 
                         match state.store.expand_mount(&block_id, &base_dir) {
                             | Ok(new_roots) => {
                                 tracing::info!(block_id = ?block_id, path = %path.display(), children = new_roots.len(), "loaded file into block");
+                                sync_mount_point_editor_buffer(state, block_id);
                                 for &id in &new_roots {
                                     state.editor_buffers.ensure_subtree(&state.store, &id);
                                 }
@@ -300,5 +303,75 @@ pub fn handle(state: &mut AppState, message: MountFileMessage) -> Task<Message> 
             );
             Task::none()
         }
+    }
+}
+
+/// Synchronize the mount-point editor buffer with the persisted store value.
+///
+/// Mount expansion can update the mount-point text from `BlockStore::hint`
+/// when the point is empty. The text editor renders from `EditorBuffers`, so we
+/// must mirror this value immediately to keep UI and store consistent.
+fn sync_mount_point_editor_buffer(state: &mut AppState, mount_point: BlockId) {
+    if let Some(point) = state.store.point(&mount_point) {
+        state.editor_buffers.set_text(&mount_point, &point);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{MountFileMessage, handle};
+    use crate::app::AppState;
+    use crate::store::BlockStore;
+    use std::fs;
+
+    fn write_hinted_mount_store(path: &std::path::Path, hint: &str) {
+        let mut mounted = BlockStore::default();
+        mounted.hint = Some(hint.to_string());
+        let json = serde_json::to_string_pretty(&mounted).unwrap();
+        fs::write(path, json).unwrap();
+    }
+
+    #[test]
+    fn expand_mount_updates_editor_buffer_from_hint() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("hinted.json");
+        let hint = "mount hint";
+        write_hinted_mount_store(&path, hint);
+
+        let (mut state, root) = AppState::test_state();
+        state.store.update_point(&root, String::new());
+        state.editor_buffers.set_text(&root, "");
+        assert!(state.store.set_mount_path(&root, path.clone()).is_some());
+
+        let _ = handle(&mut state, MountFileMessage::ExpandMount(root));
+
+        assert_eq!(state.store.point(&root), Some(hint.to_string()));
+        assert_eq!(
+            state.editor_buffers.get(&root).map(iced::widget::text_editor::Content::text),
+            Some(hint.to_string())
+        );
+    }
+
+    #[test]
+    fn load_from_file_updates_editor_buffer_from_hint() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("hinted.json");
+        let hint = "mount hint";
+        write_hinted_mount_store(&path, hint);
+
+        let (mut state, root) = AppState::test_state();
+        state.store.update_point(&root, String::new());
+        state.editor_buffers.set_text(&root, "");
+
+        let _ = handle(
+            &mut state,
+            MountFileMessage::LoadFromFilePicked { block_id: root, path: Some(path) },
+        );
+
+        assert_eq!(state.store.point(&root), Some(hint.to_string()));
+        assert_eq!(
+            state.editor_buffers.get(&root).map(iced::widget::text_editor::Content::text),
+            Some(hint.to_string())
+        );
     }
 }
