@@ -160,6 +160,40 @@ impl ThemePreference {
     }
 }
 
+/// Point-editor behavior for plain Enter on one-line points.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FirstLineEnterBehavior {
+    /// At line end, plain Enter inserts an empty child at index 0.
+    AddChild,
+    /// Plain Enter always inserts a newline.
+    InsertNewline,
+}
+
+impl FirstLineEnterBehavior {
+    /// Convert persisted config flag to a concrete behavior variant.
+    fn from_flag(first_line_enter_add_child: bool) -> Self {
+        if first_line_enter_add_child { Self::AddChild } else { Self::InsertNewline }
+    }
+
+    /// Convert behavior variant to persisted config flag.
+    fn as_flag(self) -> bool {
+        match self {
+            | Self::AddChild => true,
+            | Self::InsertNewline => false,
+        }
+    }
+}
+
+impl std::fmt::Display for FirstLineEnterBehavior {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let label = match self {
+            | Self::AddChild => t!("settings_enter_behavior_add_child").to_string(),
+            | Self::InsertNewline => t!("settings_enter_behavior_newline").to_string(),
+        };
+        f.write_str(&label)
+    }
+}
+
 /// Messages produced by the settings view.
 #[derive(Debug, Clone)]
 pub enum SettingsMessage {
@@ -187,6 +221,8 @@ pub enum SettingsMessage {
     Save,
     /// Update appearance mode via the three-state slider.
     SetThemePreference(ThemePreference),
+    /// Update plain Enter behavior for one-line points.
+    SetFirstLineEnterBehavior(FirstLineEnterBehavior),
     /// Change the locale override.
     SetLocale(Option<String>),
     /// Copy a resolved settings path to the system clipboard.
@@ -417,6 +453,23 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             }
             Task::none()
         }
+        | SettingsMessage::SetFirstLineEnterBehavior(behavior) => {
+            let first_line_enter_add_child = behavior.as_flag();
+            state.config.first_line_enter_add_child = first_line_enter_add_child;
+            state.settings.config.first_line_enter_add_child = first_line_enter_add_child;
+            if let Err(err) = config::save(&state.config) {
+                state.settings.status =
+                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                tracing::error!(
+                    %err,
+                    ?behavior,
+                    "failed to persist first-line enter behavior setting"
+                );
+            } else {
+                tracing::info!(?behavior, "first-line enter behavior changed and persisted");
+            }
+            Task::none()
+        }
         | SettingsMessage::SetLocale(locale) => {
             // Update both the main config and settings config so effective_locale()
             // returns the new locale for immediate UI re-render.
@@ -612,6 +665,20 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         column![appearance_mode_label, appearance_mode_slider, appearance_mode_labels]
             .spacing(theme::ROW_GAP);
 
+    let enter_behavior =
+        FirstLineEnterBehavior::from_flag(state.settings.config.first_line_enter_add_child);
+    let enter_behavior_options =
+        vec![FirstLineEnterBehavior::AddChild, FirstLineEnterBehavior::InsertNewline];
+    let enter_behavior_control = column![
+        text(t!("settings_first_line_enter_behavior").to_string()).size(14).font(theme::INTER),
+        pick_list(enter_behavior_options, Some(enter_behavior), |behavior| {
+            Message::Settings(SettingsMessage::SetFirstLineEnterBehavior(behavior))
+        })
+        .text_size(14)
+        .padding(8),
+    ]
+    .spacing(theme::ROW_GAP);
+
     // Locale picker: None = system default, Some("en-US") = override.
     let locale_labels: Vec<String> = vec![t!("settings_system_default").to_string()]
         .into_iter()
@@ -639,8 +706,10 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     .padding(8);
 
     let appearance_title = t!("settings_appearance").to_string();
-    let appearance_section =
-        section(appearance_title, column![locale_picker, appearance_mode_control].spacing(10));
+    let appearance_section = section(
+        appearance_title,
+        column![locale_picker, appearance_mode_control, enter_behavior_control].spacing(10),
+    );
 
     // ── Data Paths section ───────────────────────────────────────────
     let data_path = AppPaths::data_file().map(|p| p.display().to_string());
@@ -778,7 +847,7 @@ fn path_row(
 
 #[cfg(test)]
 mod tests {
-    use super::ThemePreference;
+    use super::{FirstLineEnterBehavior, ThemePreference};
 
     #[test]
     fn theme_preference_roundtrips_dark_mode_override() {
@@ -800,5 +869,14 @@ mod tests {
         assert_eq!(ThemePreference::from_slider_value(0), ThemePreference::Light);
         assert_eq!(ThemePreference::from_slider_value(1), ThemePreference::System);
         assert_eq!(ThemePreference::from_slider_value(2), ThemePreference::Dark);
+    }
+
+    #[test]
+    fn first_line_enter_behavior_roundtrips_flag() {
+        assert_eq!(FirstLineEnterBehavior::from_flag(true), FirstLineEnterBehavior::AddChild);
+        assert_eq!(FirstLineEnterBehavior::from_flag(false), FirstLineEnterBehavior::InsertNewline);
+
+        assert!(FirstLineEnterBehavior::AddChild.as_flag());
+        assert!(!FirstLineEnterBehavior::InsertNewline.as_flag());
     }
 }

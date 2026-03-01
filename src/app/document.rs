@@ -1185,6 +1185,15 @@ fn editor_key_binding(
     block_id: BlockId, key_press: text_editor::KeyPress,
 ) -> Option<text_editor::Binding<Message>> {
     if let Some(action_id) = shortcut_to_action(key_press.key.clone(), key_press.modifiers) {
+        // Design decision: map `Cmd/Ctrl+Enter` to a dedicated edit message so
+        // add-child shortcut behavior does not rely on asynchronous keyboard
+        // modifier subscription ordering.
+        if action_id == ActionId::AddChild {
+            return Some(text_editor::Binding::Custom(Message::Edit(
+                EditMessage::AddEmptyFirstChild { block_id },
+            )));
+        }
+
         return Some(text_editor::Binding::Custom(Message::Shortcut(ShortcutMessage::ForBlock {
             block_id,
             action_id,

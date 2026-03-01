@@ -464,9 +464,7 @@ impl AppState {
             | Message::UndoRedo(message) => undo_redo::handle(self, message),
             | Message::Shortcut(message) => shortcut::handle(self, message),
             | Message::Error(message) => error::handle(self, message),
-            | Message::Edit(EditMessage::PointEdited { block_id, action }) => {
-                edit::handle_point_edited(self, block_id, action)
-            }
+            | Message::Edit(message) => edit::handle(self, message),
             | Message::Reduce(message) => reduce::handle(self, message),
             | Message::Expand(message) => expand::handle(self, message),
             | Message::Find(message) => find_panel::handle(self, message),
@@ -781,7 +779,29 @@ mod edit {
     /// Messages for point text editing.
     #[derive(Debug, Clone)]
     pub enum EditMessage {
-        PointEdited { block_id: BlockId, action: text_editor::Action },
+        PointEdited {
+            block_id: BlockId,
+            action: text_editor::Action,
+        },
+        /// Insert an empty first child for `block_id`.
+        ///
+        /// Used by `Cmd/Ctrl+Enter` key binding so shortcut behavior does not
+        /// depend on the async keyboard-modifier subscription timing.
+        AddEmptyFirstChild {
+            block_id: BlockId,
+        },
+    }
+
+    /// Handle a point-editing message.
+    pub fn handle(state: &mut AppState, message: EditMessage) -> Task<Message> {
+        match message {
+            | EditMessage::PointEdited { block_id, action } => {
+                handle_point_edited(state, block_id, action)
+            }
+            | EditMessage::AddEmptyFirstChild { block_id } => {
+                add_empty_first_child_from_enter(state, block_id)
+            }
+        }
     }
 
     /// Direction tag for vertical cursor movement edge-detection.
@@ -862,6 +882,122 @@ mod edit {
         )
     }
 
+    /// Returns whether the cursor is at the end of a one-line point.
+    fn is_cursor_at_end_of_only_line(content: &text_editor::Content) -> bool {
+        if content.line_count() != 1 {
+            return false;
+        }
+
+        let cursor = content.cursor().position;
+        if cursor.line != 0 {
+            return false;
+        }
+
+        content.line(0).is_some_and(|line| cursor.column >= line.text.chars().count())
+    }
+
+    /// Whether plain Enter should create a new child at index 0.
+    ///
+    /// Design decision:
+    /// - `Cmd/Ctrl+Enter` is handled by a dedicated custom edit message in the
+    ///   key-binding layer.
+    /// - Plain `Enter` keeps normal multiline editing semantics by default, and
+    ///   only inserts a child at index 0 when
+    ///   `AppConfig::first_line_enter_add_child` is enabled and the cursor is
+    ///   at the end of the only line.
+    fn should_add_first_child_on_enter(
+        state: &AppState, block_id: BlockId, action: &text_editor::Action,
+    ) -> bool {
+        if !matches!(action, text_editor::Action::Edit(text_editor::Edit::Enter)) {
+            return false;
+        }
+
+        let modifiers = state.ui().keyboard_modifiers;
+        if modifiers.shift() || modifiers.alt() {
+            return false;
+        }
+
+        if modifiers.command() || modifiers.control() {
+            return false;
+        }
+
+        if !state.config.first_line_enter_add_child {
+            return false;
+        }
+
+        let Some(content) = state.editor_buffers.get(&block_id) else {
+            return false;
+        };
+
+        is_cursor_at_end_of_only_line(content)
+    }
+
+    /// Insert an empty child block at index 0 for `block_id`.
+    ///
+    /// Existing point text is left unchanged; the new child is focused with the
+    /// cursor at the start of its empty text.
+    fn add_empty_first_child_from_enter(state: &mut AppState, block_id: BlockId) -> Task<Message> {
+        state.ui_mut().hovered_friend_block = None;
+
+        if state.ui().document_mode == DocumentMode::PickFriend {
+            return Task::none();
+        }
+
+        state.set_focus(block_id);
+        state.editor_buffers.ensure_block(&state.store, &block_id);
+
+        if state.edit_session.as_ref() != Some(&block_id) {
+            state.snapshot_for_undo();
+            state.edit_session = Some(block_id);
+        }
+
+        let previous_first_child = state.store.children(&block_id).first().copied();
+
+        let Some(child_id) = state.store.append_child(&block_id, String::new()) else {
+            tracing::error!(block_id = ?block_id, "failed to append child while handling enter");
+            return Task::none();
+        };
+
+        if let Some(first_child_id) = previous_first_child {
+            let moved =
+                state.store.move_block(&child_id, &first_child_id, crate::store::Direction::Before);
+            if moved.is_none() {
+                tracing::error!(
+                    block_id = ?block_id,
+                    child_id = ?child_id,
+                    first_child_id = ?first_child_id,
+                    "failed to move enter-created child to index 0"
+                );
+            }
+        }
+
+        state.editor_buffers.set_text(&child_id, "");
+        if let Some(child_content) = state.editor_buffers.get_mut(&child_id) {
+            child_content.move_to(text_editor::Cursor {
+                position: text_editor::Position { line: 0, column: 0 },
+                selection: None,
+            });
+        }
+
+        state.set_overflow_open(false);
+        state.persist_with_context("after adding first child from enter");
+        tracing::info!(
+            block_id = ?block_id,
+            child_id = ?child_id,
+            command_shortcut = is_shortcut_modifier(state.ui().keyboard_modifiers),
+            "inserted empty first child from enter"
+        );
+
+        state.set_focus(child_id);
+        state.edit_session = None;
+
+        if let Some(widget_id) = state.editor_buffers.widget_id(&child_id) {
+            return widget::operation::focus(widget_id.clone());
+        }
+
+        Task::none()
+    }
+
     pub fn handle_point_edited(
         state: &mut AppState, block_id: BlockId, action: text_editor::Action,
     ) -> Task<Message> {
@@ -905,6 +1041,11 @@ mod edit {
         if state.ui().document_mode == DocumentMode::PickFriend {
             return Task::none();
         }
+
+        if should_add_first_child_on_enter(state, block_id, &action) {
+            return add_empty_first_child_from_enter(state, block_id);
+        }
+
         state.set_focus(block_id);
         if state.edit_session.as_ref() != Some(&block_id) {
             state.snapshot_for_undo();
@@ -1019,6 +1160,175 @@ mod edit {
             );
 
             assert!(state.llm_requests.is_expanding(root));
+        }
+
+        #[test]
+        fn enter_at_end_of_only_line_inserts_empty_first_child_when_enabled() {
+            let (mut state, root) = AppState::test_state();
+            state.store.update_point(&root, "hello".to_string());
+            let existing = state
+                .store
+                .append_child(&root, "existing".to_string())
+                .expect("append child succeeds");
+            state.editor_buffers.set_text(&root, "hello");
+            if let Some(content) = state.editor_buffers.get_mut(&root) {
+                content.move_to(text_editor::Cursor {
+                    position: text_editor::Position { line: 0, column: 5 },
+                    selection: None,
+                });
+            }
+
+            let _ = handle_point_edited(
+                &mut state,
+                root,
+                text_editor::Action::Edit(text_editor::Edit::Enter),
+            );
+
+            let children = state.store.children(&root);
+            assert_eq!(children.len(), 2);
+            let child = children[0];
+            assert_eq!(state.store.point(&root).as_deref(), Some("hello"));
+            assert_eq!(state.store.point(&child).as_deref(), Some(""));
+            assert_eq!(children[1], existing);
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(child));
+        }
+
+        #[test]
+        fn enter_in_middle_of_line_keeps_edit_in_place() {
+            let (mut state, root) = AppState::test_state();
+            state.store.update_point(&root, "abcd".to_string());
+            state.editor_buffers.set_text(&root, "abcd");
+            if let Some(content) = state.editor_buffers.get_mut(&root) {
+                content.move_to(text_editor::Cursor {
+                    position: text_editor::Position { line: 0, column: 2 },
+                    selection: None,
+                });
+            }
+
+            let _ = handle_point_edited(
+                &mut state,
+                root,
+                text_editor::Action::Edit(text_editor::Edit::Enter),
+            );
+
+            assert!(state.store.children(&root).is_empty());
+            assert_eq!(state.store.point(&root).as_deref(), Some("ab\ncd"));
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(root));
+        }
+
+        #[test]
+        fn enter_on_multi_line_point_inserts_newline() {
+            let (mut state, root) = AppState::test_state();
+            state.store.update_point(&root, "ab\ncd".to_string());
+            state.editor_buffers.set_text(&root, "ab\ncd");
+            if let Some(content) = state.editor_buffers.get_mut(&root) {
+                content.move_to(text_editor::Cursor {
+                    position: text_editor::Position { line: 1, column: 1 },
+                    selection: None,
+                });
+            }
+
+            let _ = handle_point_edited(
+                &mut state,
+                root,
+                text_editor::Action::Edit(text_editor::Edit::Enter),
+            );
+
+            assert!(state.store.children(&root).is_empty());
+            assert_eq!(state.store.point(&root).as_deref(), Some("ab\nc\nd"));
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(root));
+        }
+
+        #[test]
+        fn enter_at_end_of_only_line_inserts_newline_when_disabled() {
+            let (mut state, root) = AppState::test_state();
+            state.config.first_line_enter_add_child = false;
+            state.store.update_point(&root, "hello".to_string());
+            state.editor_buffers.set_text(&root, "hello");
+            if let Some(content) = state.editor_buffers.get_mut(&root) {
+                content.move_to(text_editor::Cursor {
+                    position: text_editor::Position { line: 0, column: 5 },
+                    selection: None,
+                });
+            }
+
+            let _ = handle_point_edited(
+                &mut state,
+                root,
+                text_editor::Action::Edit(text_editor::Edit::Enter),
+            );
+
+            assert!(state.store.children(&root).is_empty());
+            assert_eq!(state.store.point(&root).as_deref(), Some("hello\n"));
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(root));
+        }
+
+        #[test]
+        fn enter_in_middle_of_only_line_ignores_stale_command_modifier() {
+            let (mut state, root) = AppState::test_state();
+            state.store.update_point(&root, "abcd".to_string());
+            state.editor_buffers.set_text(&root, "abcd");
+            if let Some(content) = state.editor_buffers.get_mut(&root) {
+                content.move_to(text_editor::Cursor {
+                    position: text_editor::Position { line: 0, column: 2 },
+                    selection: None,
+                });
+            }
+            state.ui_mut().keyboard_modifiers = keyboard::Modifiers::COMMAND;
+
+            let _ = handle_point_edited(
+                &mut state,
+                root,
+                text_editor::Action::Edit(text_editor::Edit::Enter),
+            );
+
+            assert!(state.store.children(&root).is_empty());
+            assert_eq!(state.store.point(&root).as_deref(), Some("ab\ncd"));
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(root));
+        }
+
+        #[test]
+        fn command_enter_inserts_empty_first_child_without_splitting_point() {
+            let (mut state, root) = AppState::test_state();
+            state.config.first_line_enter_add_child = false;
+            state.store.update_point(&root, "abcdef".to_string());
+            let existing = state
+                .store
+                .append_child(&root, "existing".to_string())
+                .expect("append child succeeds");
+            state.editor_buffers.set_text(&root, "abcdef");
+            if let Some(content) = state.editor_buffers.get_mut(&root) {
+                content.move_to(text_editor::Cursor {
+                    position: text_editor::Position { line: 0, column: 2 },
+                    selection: None,
+                });
+            }
+
+            let _ = handle(&mut state, EditMessage::AddEmptyFirstChild { block_id: root });
+
+            let children = state.store.children(&root);
+            assert_eq!(children.len(), 2);
+            let child = children[0];
+            assert_eq!(state.store.point(&root).as_deref(), Some("abcdef"));
+            assert_eq!(state.store.point(&child).as_deref(), Some(""));
+            assert_eq!(children[1], existing);
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(child));
+        }
+
+        #[test]
+        fn command_enter_inserts_empty_child_for_empty_point() {
+            let (mut state, root) = AppState::test_state();
+            state.store.update_point(&root, String::new());
+            state.editor_buffers.set_text(&root, "");
+
+            let _ = handle(&mut state, EditMessage::AddEmptyFirstChild { block_id: root });
+
+            let children = state.store.children(&root);
+            assert_eq!(children.len(), 1);
+            let child = children[0];
+            assert_eq!(state.store.point(&root).as_deref(), Some(""));
+            assert_eq!(state.store.point(&child).as_deref(), Some(""));
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(child));
         }
 
         #[test]

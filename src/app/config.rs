@@ -6,7 +6,7 @@
 //! All user-facing text must be internationalized via `rust_i18n::t!`. Never
 //! hardcode UI strings; add keys to the locale files instead.
 //!
-//! Stores optional UI locale, appearance preference, and other app-level preferences in
+//! Stores optional UI locale, appearance preference, and editor-key behavior in
 //! `<config_dir>/app.toml`. Loaded at startup; changes are saved via
 //! [`save`] or [`AppState::save_app_config`](crate::app::AppState::save_app_config).
 
@@ -14,11 +14,12 @@ use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
 use std::{fs, io};
 
-/// Persisted app preferences (locale override and optional appearance override).
+/// Persisted app preferences (locale override, optional appearance override,
+/// and point-editor Enter behavior).
 ///
 /// Stored in `<config_dir>/app.toml`; see [`AppPaths::app_config`].
 /// The effective locale is derived via [`crate::i18n::resolved_locale_from_config`].
-#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AppConfig {
     /// Override UI locale; if absent or empty, env then default is used.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -30,6 +31,36 @@ pub struct AppConfig {
     /// - `Some(false)`: force light appearance.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub dark_mode: Option<bool>,
+    /// Whether plain `Enter` at the end of a one-line point inserts an empty
+    /// first child instead of a newline.
+    ///
+    /// `Cmd/Ctrl+Enter` always inserts a first child independent of this
+    /// setting. This preference only affects plain `Enter` on one-line points.
+    #[serde(
+        rename = "first-line-enter-add-child",
+        alias = "first_line_enter_add_child",
+        default = "default_first_line_enter_add_child",
+        skip_serializing_if = "is_true"
+    )]
+    pub first_line_enter_add_child: bool,
+}
+
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            locale: None,
+            dark_mode: None,
+            first_line_enter_add_child: default_first_line_enter_add_child(),
+        }
+    }
+}
+
+fn default_first_line_enter_add_child() -> bool {
+    true
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
 }
 
 impl AppConfig {
@@ -93,10 +124,12 @@ mod tests {
 
     #[test]
     fn resolved_dark_mode_prefers_override() {
-        let config = AppConfig { locale: None, dark_mode: Some(true) };
+        let config =
+            AppConfig { locale: None, dark_mode: Some(true), first_line_enter_add_child: true };
         assert!(config.resolved_dark_mode(false));
 
-        let config = AppConfig { locale: None, dark_mode: Some(false) };
+        let config =
+            AppConfig { locale: None, dark_mode: Some(false), first_line_enter_add_child: true };
         assert!(!config.resolved_dark_mode(true));
     }
 
@@ -109,9 +142,21 @@ mod tests {
 
     #[test]
     fn toml_omits_dark_mode_when_unset() {
-        let config = AppConfig { locale: Some("en-US".to_string()), dark_mode: None };
+        let config = AppConfig {
+            locale: Some("en-US".to_string()),
+            dark_mode: None,
+            first_line_enter_add_child: true,
+        };
         let toml = toml::to_string(&config).expect("serialize app config");
         assert!(!toml.contains("dark_mode"));
+        assert!(!toml.contains("first-line-enter-add-child"));
         assert!(toml.contains("locale"));
+    }
+
+    #[test]
+    fn toml_serializes_first_line_enter_add_child_when_disabled() {
+        let config = AppConfig { locale: None, dark_mode: None, first_line_enter_add_child: false };
+        let toml = toml::to_string(&config).expect("serialize app config");
+        assert!(toml.contains("first-line-enter-add-child"));
     }
 }
