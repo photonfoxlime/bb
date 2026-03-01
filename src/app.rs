@@ -523,6 +523,10 @@ impl AppState {
                     ..
                 }) => Some(Message::Find(FindMessage::Escape)),
                 | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                    if let Some(shortcut) = shortcut::movement_shortcut_from_key(&key, modifiers) {
+                        return Some(Message::Shortcut(shortcut));
+                    }
+
                     if modifiers.command() {
                         match &key {
                             | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("f") => {
@@ -809,6 +813,33 @@ mod edit {
         )
     }
 
+    fn is_alt_movement_shortcut_editor_action(
+        action: &text_editor::Action, modifiers: keyboard::Modifiers,
+    ) -> bool {
+        if !modifiers.alt() || modifiers.command() || modifiers.control() {
+            return false;
+        }
+
+        matches!(
+            action,
+            text_editor::Action::Move(
+                text_editor::Motion::Up
+                    | text_editor::Motion::Down
+                    | text_editor::Motion::Left
+                    | text_editor::Motion::Right
+                    | text_editor::Motion::WordLeft
+                    | text_editor::Motion::WordRight
+            ) | text_editor::Action::Select(
+                text_editor::Motion::Up
+                    | text_editor::Motion::Down
+                    | text_editor::Motion::Left
+                    | text_editor::Motion::Right
+                    | text_editor::Motion::WordLeft
+                    | text_editor::Motion::WordRight
+            )
+        )
+    }
+
     pub fn handle_point_edited(
         state: &mut AppState, block_id: BlockId, action: text_editor::Action,
     ) -> Task<Message> {
@@ -837,6 +868,14 @@ mod edit {
                 state.set_focus(block_id);
             }
             tracing::debug!("ignored command-shortcut editor insert leak");
+            return Task::none();
+        }
+
+        if is_alt_movement_shortcut_editor_action(&action, state.ui().keyboard_modifiers) {
+            // Option/Alt arrow shortcuts are handled by the global subscription
+            // path. Ignore editor cursor-motion actions here to avoid handling
+            // the same key chord twice.
+            tracing::debug!("ignored alt-movement editor action leak");
             return Task::none();
         }
 
@@ -959,23 +998,120 @@ mod edit {
 
             assert!(state.llm_requests.is_expanding(root));
         }
+
+        #[test]
+        fn alt_up_editor_motion_is_ignored_to_prevent_double_navigation() {
+            let (mut state, root) = AppState::test_state();
+            let sibling = state
+                .store
+                .append_sibling(&root, "sibling".to_string())
+                .expect("append sibling succeeds");
+            state.set_focus(sibling);
+            state.ui_mut().keyboard_modifiers = keyboard::Modifiers::ALT;
+
+            let _ = handle_point_edited(
+                &mut state,
+                sibling,
+                text_editor::Action::Move(text_editor::Motion::Up),
+            );
+
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(sibling));
+        }
     }
 }
 
 mod shortcut {
     use super::*;
+    use crate::store::Direction;
+
+    /// Keyboard shortcuts for block focus navigation and structural movement.
+    ///
+    /// Keymap (Option on macOS, Alt on other platforms):
+    /// - `Alt+Up` / `Alt+Down`: focus previous/next sibling (wrap at boundaries).
+    /// - `Alt+Left`: focus parent.
+    /// - `Alt+Right`: focus first child (if any).
+    /// - `Alt+Shift+Up` / `Alt+Shift+Down`: move block among siblings (wrap).
+    /// - `Alt+Shift+Left`: outdent block to be after its parent.
+    /// - `Alt+Shift+Right`: indent block as first child of previous sibling.
+    ///
+    /// These shortcuts are document-view operations and are ignored in settings
+    /// view and pick-friend mode.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum MovementShortcut {
+        FocusSiblingPrevious,
+        FocusSiblingNext,
+        FocusParent,
+        FocusFirstChild,
+        MoveSiblingPrevious,
+        MoveSiblingNext,
+        MoveAfterParent,
+        MoveToPreviousSiblingFirstChild,
+    }
 
     /// Messages for keyboard shortcut dispatch.
     #[derive(Debug, Clone)]
     pub enum ShortcutMessage {
         Trigger(ActionId),
         ForBlock { block_id: BlockId, action_id: ActionId },
+        Movement(MovementShortcut),
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    enum SiblingDirection {
+        Previous,
+        Next,
+    }
+
+    /// Parse Option/Alt navigation and movement shortcuts from a key press.
+    ///
+    /// Returns `None` when the key chord is not one of the declared movement
+    /// shortcuts or when extra command/control modifiers are pressed.
+    pub fn movement_shortcut_from_key(
+        key: &keyboard::Key, modifiers: keyboard::Modifiers,
+    ) -> Option<ShortcutMessage> {
+        if !modifiers.alt() || modifiers.command() || modifiers.control() {
+            return None;
+        }
+
+        let shortcut = match key {
+            | keyboard::Key::Named(keyboard::key::Named::ArrowUp) => {
+                if modifiers.shift() {
+                    MovementShortcut::MoveSiblingPrevious
+                } else {
+                    MovementShortcut::FocusSiblingPrevious
+                }
+            }
+            | keyboard::Key::Named(keyboard::key::Named::ArrowDown) => {
+                if modifiers.shift() {
+                    MovementShortcut::MoveSiblingNext
+                } else {
+                    MovementShortcut::FocusSiblingNext
+                }
+            }
+            | keyboard::Key::Named(keyboard::key::Named::ArrowLeft) => {
+                if modifiers.shift() {
+                    MovementShortcut::MoveAfterParent
+                } else {
+                    MovementShortcut::FocusParent
+                }
+            }
+            | keyboard::Key::Named(keyboard::key::Named::ArrowRight) => {
+                if modifiers.shift() {
+                    MovementShortcut::MoveToPreviousSiblingFirstChild
+                } else {
+                    MovementShortcut::FocusFirstChild
+                }
+            }
+            | _ => return None,
+        };
+
+        Some(ShortcutMessage::Movement(shortcut))
     }
 
     pub fn handle(state: &mut AppState, message: ShortcutMessage) -> Task<Message> {
         match message {
             | ShortcutMessage::Trigger(action_id) => {
-                let Some(block_id) = state.focus().map(|s| s.block_id) else {
+                let Some(block_id) = trigger_target_block_id(state) else {
                     return Task::none();
                 };
                 run_shortcut_for_block(state, block_id, action_id)
@@ -986,6 +1122,210 @@ mod shortcut {
                     state.set_focus(block_id);
                 }
                 run_shortcut_for_block(state, block_id, action_id)
+            }
+            | ShortcutMessage::Movement(shortcut) => run_movement_shortcut(state, shortcut),
+        }
+    }
+
+    /// Resolve the active block target for a global shortcut.
+    ///
+    /// Priority:
+    /// 1. Explicit UI focus (`TransientUiState::focus`)
+    /// 2. Current edit session block (fallback for captured editor paths)
+    fn trigger_target_block_id(state: &AppState) -> Option<BlockId> {
+        state.focus().map(|s| s.block_id).or(state.edit_session)
+    }
+
+    fn sibling_slice<'a>(state: &'a AppState, parent: Option<BlockId>) -> &'a [BlockId] {
+        if let Some(parent_id) = parent {
+            state.store.children(&parent_id)
+        } else {
+            state.store.roots()
+        }
+    }
+
+    fn sibling_wrap_target(
+        state: &AppState, block_id: BlockId, direction: SiblingDirection,
+    ) -> Option<BlockId> {
+        let (parent, index) = state.store.parent_and_index_of(&block_id)?;
+        let siblings = sibling_slice(state, parent);
+        if siblings.is_empty() {
+            return None;
+        }
+
+        let target_index = match direction {
+            | SiblingDirection::Previous => {
+                if index == 0 {
+                    siblings.len().saturating_sub(1)
+                } else {
+                    index - 1
+                }
+            }
+            | SiblingDirection::Next => {
+                if index + 1 >= siblings.len() {
+                    0
+                } else {
+                    index + 1
+                }
+            }
+        };
+        siblings.get(target_index).copied()
+    }
+
+    fn focus_block(state: &mut AppState, block_id: BlockId) -> Task<Message> {
+        if !state.navigation.is_in_current_view(&state.store, &block_id) {
+            state.navigation.reveal_parent_path(&state.store, &block_id);
+        }
+        state.set_focus(block_id);
+        state.editor_buffers.ensure_block(&state.store, &block_id);
+        if let Some(widget_id) = state.editor_buffers.widget_id(&block_id) {
+            return widget::operation::focus(widget_id.clone());
+        }
+        Task::none()
+    }
+
+    fn focus_sibling(
+        state: &mut AppState, block_id: BlockId, direction: SiblingDirection,
+    ) -> Task<Message> {
+        let Some(target_id) = sibling_wrap_target(state, block_id, direction) else {
+            return Task::none();
+        };
+        tracing::debug!(from = ?block_id, to = ?target_id, ?direction, "focused sibling by shortcut");
+        focus_block(state, target_id)
+    }
+
+    fn move_block_within_siblings(
+        state: &mut AppState, block_id: BlockId, direction: SiblingDirection,
+    ) -> Task<Message> {
+        let Some((parent, index)) = state.store.parent_and_index_of(&block_id) else {
+            return Task::none();
+        };
+        let siblings = sibling_slice(state, parent).to_vec();
+        if siblings.len() <= 1 {
+            return Task::none();
+        }
+
+        let (target_id, move_dir) = match direction {
+            | SiblingDirection::Previous => {
+                if index == 0 {
+                    (siblings[siblings.len() - 1], Direction::After)
+                } else {
+                    (siblings[index - 1], Direction::Before)
+                }
+            }
+            | SiblingDirection::Next => {
+                if index + 1 >= siblings.len() {
+                    (siblings[0], Direction::Before)
+                } else {
+                    (siblings[index + 1], Direction::After)
+                }
+            }
+        };
+
+        state.mutate_with_undo_and_persist("after moving block within siblings by shortcut", |state| {
+            if state.store.move_block(&block_id, &target_id, move_dir).is_some() {
+                tracing::info!(block_id = ?block_id, target_id = ?target_id, ?move_dir, ?direction, "moved block within siblings by shortcut");
+                true
+            } else {
+                false
+            }
+        });
+        focus_block(state, block_id)
+    }
+
+    fn move_block_after_parent(state: &mut AppState, block_id: BlockId) -> Task<Message> {
+        let Some(parent_id) = state.store.parent(&block_id) else {
+            return Task::none();
+        };
+
+        state.mutate_with_undo_and_persist("after outdenting block by shortcut", |state| {
+            if state.store.move_block(&block_id, &parent_id, Direction::After).is_some() {
+                tracing::info!(block_id = ?block_id, parent_id = ?parent_id, "outdented block after parent by shortcut");
+                true
+            } else {
+                false
+            }
+        });
+        focus_block(state, block_id)
+    }
+
+    fn move_block_to_previous_sibling_first_child(
+        state: &mut AppState, block_id: BlockId,
+    ) -> Task<Message> {
+        let Some((parent, index)) = state.store.parent_and_index_of(&block_id) else {
+            return Task::none();
+        };
+        if index == 0 {
+            return Task::none();
+        }
+        let siblings = sibling_slice(state, parent);
+        let previous_sibling_id = siblings[index - 1];
+        let first_child_of_previous = state.store.children(&previous_sibling_id).first().copied();
+
+        let (target_id, move_dir) = if let Some(first_child_id) = first_child_of_previous {
+            (first_child_id, Direction::Before)
+        } else {
+            (previous_sibling_id, Direction::Under)
+        };
+
+        state.mutate_with_undo_and_persist("after indenting block by shortcut", |state| {
+            if state.store.move_block(&block_id, &target_id, move_dir).is_some() {
+                tracing::info!(
+                    block_id = ?block_id,
+                    target_id = ?target_id,
+                    previous_sibling_id = ?previous_sibling_id,
+                    ?move_dir,
+                    "indented block into previous sibling by shortcut"
+                );
+                true
+            } else {
+                false
+            }
+        });
+        focus_block(state, block_id)
+    }
+
+    fn run_movement_shortcut(state: &mut AppState, shortcut: MovementShortcut) -> Task<Message> {
+        if state.ui().active_view != ViewMode::Document
+            || state.ui().document_mode != DocumentMode::Normal
+        {
+            return Task::none();
+        }
+
+        let Some(block_id) = trigger_target_block_id(state) else {
+            return Task::none();
+        };
+
+        match shortcut {
+            | MovementShortcut::FocusSiblingPrevious => {
+                focus_sibling(state, block_id, SiblingDirection::Previous)
+            }
+            | MovementShortcut::FocusSiblingNext => {
+                focus_sibling(state, block_id, SiblingDirection::Next)
+            }
+            | MovementShortcut::FocusParent => {
+                let Some(parent_id) = state.store.parent(&block_id) else {
+                    return Task::none();
+                };
+                tracing::debug!(from = ?block_id, to = ?parent_id, "focused parent by shortcut");
+                focus_block(state, parent_id)
+            }
+            | MovementShortcut::FocusFirstChild => {
+                let Some(child_id) = state.store.children(&block_id).first().copied() else {
+                    return Task::none();
+                };
+                tracing::debug!(from = ?block_id, to = ?child_id, "focused first child by shortcut");
+                focus_block(state, child_id)
+            }
+            | MovementShortcut::MoveSiblingPrevious => {
+                move_block_within_siblings(state, block_id, SiblingDirection::Previous)
+            }
+            | MovementShortcut::MoveSiblingNext => {
+                move_block_within_siblings(state, block_id, SiblingDirection::Next)
+            }
+            | MovementShortcut::MoveAfterParent => move_block_after_parent(state, block_id),
+            | MovementShortcut::MoveToPreviousSiblingFirstChild => {
+                move_block_to_previous_sibling_first_child(state, block_id)
             }
         }
     }
@@ -1044,6 +1384,126 @@ mod shortcut {
             let _ = handle(&mut state, ShortcutMessage::Trigger(ActionId::Expand));
 
             assert!(state.llm_requests.is_expanding(root));
+        }
+
+        #[test]
+        fn alt_arrow_shortcuts_map_to_movement_commands() {
+            let modifiers = keyboard::Modifiers::ALT;
+            let up = movement_shortcut_from_key(
+                &keyboard::Key::Named(keyboard::key::Named::ArrowUp),
+                modifiers,
+            );
+            let left = movement_shortcut_from_key(
+                &keyboard::Key::Named(keyboard::key::Named::ArrowLeft),
+                modifiers,
+            );
+            assert!(matches!(
+                up,
+                Some(ShortcutMessage::Movement(MovementShortcut::FocusSiblingPrevious))
+            ));
+            assert!(matches!(left, Some(ShortcutMessage::Movement(MovementShortcut::FocusParent))));
+        }
+
+        #[test]
+        fn alt_shift_arrow_shortcuts_map_to_move_commands() {
+            let modifiers = keyboard::Modifiers::ALT | keyboard::Modifiers::SHIFT;
+            let down = movement_shortcut_from_key(
+                &keyboard::Key::Named(keyboard::key::Named::ArrowDown),
+                modifiers,
+            );
+            let right = movement_shortcut_from_key(
+                &keyboard::Key::Named(keyboard::key::Named::ArrowRight),
+                modifiers,
+            );
+            assert!(matches!(
+                down,
+                Some(ShortcutMessage::Movement(MovementShortcut::MoveSiblingNext))
+            ));
+            assert!(matches!(
+                right,
+                Some(ShortcutMessage::Movement(MovementShortcut::MoveToPreviousSiblingFirstChild))
+            ));
+        }
+
+        #[test]
+        fn focus_sibling_previous_wraps_within_level() {
+            let (mut state, root) = AppState::test_state();
+            let sibling = state
+                .store
+                .append_sibling(&root, "sibling".to_string())
+                .expect("append sibling succeeds");
+            state.set_focus(root);
+
+            let _ = handle(
+                &mut state,
+                ShortcutMessage::Movement(MovementShortcut::FocusSiblingPrevious),
+            );
+
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(sibling));
+        }
+
+        #[test]
+        fn move_sibling_previous_wraps_within_level() {
+            let (mut state, root) = AppState::test_state();
+            let sibling = state
+                .store
+                .append_sibling(&root, "sibling".to_string())
+                .expect("append sibling succeeds");
+            state.set_focus(root);
+
+            let _ = handle(
+                &mut state,
+                ShortcutMessage::Movement(MovementShortcut::MoveSiblingPrevious),
+            );
+
+            assert_eq!(state.store.roots(), &[sibling, root]);
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(root));
+        }
+
+        #[test]
+        fn move_after_parent_outdents_block() {
+            let (mut state, root) = AppState::test_state();
+            let child = state
+                .store
+                .append_child(&root, "child".to_string())
+                .expect("append child succeeds");
+            state.set_focus(child);
+
+            let _ =
+                handle(&mut state, ShortcutMessage::Movement(MovementShortcut::MoveAfterParent));
+
+            assert_eq!(state.store.parent(&child), None);
+            assert_eq!(state.store.roots(), &[root, child]);
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(child));
+        }
+
+        #[test]
+        fn move_to_previous_sibling_first_child_inserts_as_first_child() {
+            let (mut state, root) = AppState::test_state();
+            let first = state
+                .store
+                .append_child(&root, "first".to_string())
+                .expect("append first child succeeds");
+            let second = state
+                .store
+                .append_sibling(&first, "second".to_string())
+                .expect("append second child succeeds");
+            let existing = state
+                .store
+                .append_child(&first, "existing".to_string())
+                .expect("append existing grandchild succeeds");
+            state.set_focus(second);
+
+            let _ = handle(
+                &mut state,
+                ShortcutMessage::Movement(MovementShortcut::MoveToPreviousSiblingFirstChild),
+            );
+
+            assert_eq!(state.store.parent(&second), Some(first));
+            let first_children = state.store.children(&first);
+            assert_eq!(first_children.first().copied(), Some(second));
+            assert!(first_children.contains(&existing));
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(second));
         }
     }
 }
