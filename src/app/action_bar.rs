@@ -412,10 +412,16 @@ pub fn project_for_viewport(mut vm: ActionBarVm, bucket: ViewportBucket) -> Acti
 
 /// Map a key press to an action shortcut, if any.
 ///
-/// Uses `Modifiers::command()` so the same shortcut set works as
-/// `Cmd+...` on macOS and `Ctrl+...` on other platforms.
+/// Primary modifier policy uses `Modifiers::command()` so the same shortcut set
+/// works as `Cmd+...` on macOS and `Ctrl+...` on other platforms.
+///
+/// The resolver also accepts `control()` as a compatibility fallback for event
+/// paths that surface Command through the control bit.
 pub fn shortcut_to_action(key: Key, modifiers: Modifiers) -> Option<ActionId> {
-    if !modifiers.command() {
+    // `text_editor` key events may report the Command key via `control()` on
+    // some platforms/input backends. Accept either modifier flag so keyboard
+    // shortcuts resolve consistently regardless of event source.
+    if !(modifiers.command() || modifiers.control()) {
         return None;
     }
 
@@ -779,6 +785,14 @@ mod tests {
         let modifiers = Modifiers::empty();
         let action = shortcut_to_action(key, modifiers);
         assert_eq!(action, None);
+    }
+
+    #[test]
+    fn shortcut_ctrl_dot_is_supported() {
+        let key = Key::Character(".".into());
+        let modifiers = Modifiers::CTRL;
+        let action = shortcut_to_action(key, modifiers);
+        assert_eq!(action, Some(ActionId::Expand));
     }
 
     #[test]

@@ -775,10 +775,16 @@ mod edit {
         Down,
     }
 
+    fn is_shortcut_modifier(modifiers: keyboard::Modifiers) -> bool {
+        // Keep this aligned with `action_bar::shortcut_to_action`: some
+        // text-editor input paths may surface the Command key via `control()`.
+        modifiers.command() || modifiers.control()
+    }
+
     fn command_shortcut_action_from_editor_insert(
         action: &text_editor::Action, modifiers: keyboard::Modifiers,
     ) -> Option<ActionId> {
-        if !modifiers.command() {
+        if !is_shortcut_modifier(modifiers) {
             return None;
         }
 
@@ -792,7 +798,7 @@ mod edit {
     fn is_command_shortcut_editor_insert(
         action: &text_editor::Action, modifiers: keyboard::Modifiers,
     ) -> bool {
-        if !modifiers.command() {
+        if !is_shortcut_modifier(modifiers) {
             return false;
         }
 
@@ -938,6 +944,20 @@ mod edit {
             );
 
             assert!(state.llm_requests.is_reducing(root));
+        }
+
+        #[test]
+        fn ctrl_dot_insert_triggers_expand_for_block() {
+            let (mut state, root) = AppState::test_state();
+            state.ui_mut().keyboard_modifiers = keyboard::Modifiers::CTRL;
+
+            let _ = handle_point_edited(
+                &mut state,
+                root,
+                text_editor::Action::Edit(text_editor::Edit::Insert('.')),
+            );
+
+            assert!(state.llm_requests.is_expanding(root));
         }
     }
 }
