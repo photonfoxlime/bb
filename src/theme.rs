@@ -158,6 +158,8 @@ pub const TOOLTIP_GAP: f32 = 4.0;
 /// Padding inside status chips.
 pub const CHIP_PAD_V: f32 = 2.0;
 pub const CHIP_PAD_H: f32 = 8.0;
+/// Fixed width for the settings appearance-mode slider and labels.
+pub const SETTINGS_APPEARANCE_SLIDER_WIDTH: f32 = 220.0;
 /// Vertical/horizontal padding inside draft panels.
 pub const PANEL_PAD_V: f32 = 8.0;
 pub const PANEL_PAD_H: f32 = 16.0;

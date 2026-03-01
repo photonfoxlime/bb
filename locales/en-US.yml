@@ -100,7 +100,10 @@ action_confirm_inline_mount_all: "Confirm inline"
 action_archive: "Archive"
 
 # Settings (additional)
-settings_dark_mode: "Dark mode"
+settings_appearance_mode: "Color scheme"
+settings_appearance_light: "Light"
+settings_appearance_system: "Follow system"
+settings_appearance_dark: "Dark"
 settings_system_default: "System default"
 settings_data_file: "Data file"
 settings_llm_config: "LLM config"

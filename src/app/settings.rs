@@ -1,4 +1,4 @@
-//! Settings view: multi-provider LLM configuration, appearance toggle, and data path display.
+//! Settings view: multi-provider LLM configuration, appearance controls, and data path display.
 //!
 //! Please use or create constants in `theme.rs` for all UI numeric values
 //! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
@@ -8,8 +8,8 @@
 //!
 //! The settings view is an alternative screen accessible from the document view
 //! via a gear icon button. It exposes editable LLM provider configurations with
-//! CRUD support (add, edit, delete, switch active), a persisted light/dark
-//! theme toggle,
+//! CRUD support (add, edit, delete, switch active), a persisted three-state
+//! appearance mode slider (light / follow system / dark),
 //! and read-only display of resolved data and config paths.
 //!
 //! # Preset vs custom providers
@@ -44,7 +44,7 @@ use crate::i18n;
 use crate::llm;
 use crate::paths::AppPaths;
 use crate::theme;
-use iced::widget::{column, container, pick_list, row, text, text_input, toggler, tooltip};
+use iced::widget::{column, container, pick_list, row, slider, text, text_input, tooltip};
 use iced::{Element, Fill, Length, Task};
 use lucide_icons::iced as icons;
 use rust_i18n::t;
@@ -92,6 +92,74 @@ pub enum SettingsStatus {
     Error(String),
 }
 
+/// User-facing appearance preference presented by the settings slider.
+///
+/// This type wraps persisted `Option<bool>` dark-mode semantics with explicit
+/// named variants:
+/// - [`Self::Light`] => `Some(false)`
+/// - [`Self::System`] => `None`
+/// - [`Self::Dark`] => `Some(true)`
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ThemePreference {
+    /// Always render light appearance.
+    Light,
+    /// Follow current system appearance and system theme change events.
+    System,
+    /// Always render dark appearance.
+    Dark,
+}
+
+impl ThemePreference {
+    const LIGHT_SLIDER_VALUE: i32 = 0;
+    const SYSTEM_SLIDER_VALUE: i32 = 1;
+    const DARK_SLIDER_VALUE: i32 = 2;
+
+    /// Construct preference from persisted dark-mode override.
+    fn from_dark_mode(dark_mode: Option<bool>) -> Self {
+        match dark_mode {
+            | Some(false) => Self::Light,
+            | None => Self::System,
+            | Some(true) => Self::Dark,
+        }
+    }
+
+    /// Convert preference into persisted dark-mode override.
+    fn as_dark_mode(self) -> Option<bool> {
+        match self {
+            | Self::Light => Some(false),
+            | Self::System => None,
+            | Self::Dark => Some(true),
+        }
+    }
+
+    /// Resolve concrete dark/light rendering using current system appearance.
+    fn resolve_dark(self, system_is_dark: bool) -> bool {
+        self.as_dark_mode().unwrap_or(system_is_dark)
+    }
+
+    /// Slider coordinate representing this preference.
+    fn slider_value(self) -> i32 {
+        match self {
+            | Self::Light => Self::LIGHT_SLIDER_VALUE,
+            | Self::System => Self::SYSTEM_SLIDER_VALUE,
+            | Self::Dark => Self::DARK_SLIDER_VALUE,
+        }
+    }
+
+    /// Construct a preference from a slider coordinate.
+    fn from_slider_value(value: i32) -> Self {
+        match value {
+            | Self::LIGHT_SLIDER_VALUE => Self::Light,
+            | Self::SYSTEM_SLIDER_VALUE => Self::System,
+            | Self::DARK_SLIDER_VALUE => Self::Dark,
+            | _ => {
+                tracing::error!(value, "invalid appearance slider value; defaulting to system");
+                Self::System
+            }
+        }
+    }
+}
+
 /// Messages produced by the settings view.
 #[derive(Debug, Clone)]
 pub enum SettingsMessage {
@@ -117,8 +185,8 @@ pub enum SettingsMessage {
     ModelChanged(String),
     /// Persist draft values to the TOML config file and reload.
     Save,
-    /// Toggle between light and dark appearance.
-    ToggleTheme(bool),
+    /// Update appearance mode via the three-state slider.
+    SetThemePreference(ThemePreference),
     /// Change the locale override.
     SetLocale(Option<String>),
     /// Copy a resolved settings path to the system clipboard.
@@ -333,16 +401,19 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             }
             Task::none()
         }
-        | SettingsMessage::ToggleTheme(is_dark) => {
+        | SettingsMessage::SetThemePreference(preference) => {
+            let dark_mode = preference.as_dark_mode();
+            let system_is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
+            let is_dark = preference.resolve_dark(system_is_dark);
             state.ui_mut().is_dark = is_dark;
-            state.config.dark_mode = Some(is_dark);
-            state.settings.config.dark_mode = Some(is_dark);
+            state.config.dark_mode = dark_mode;
+            state.settings.config.dark_mode = dark_mode;
             if let Err(err) = config::save(&state.config) {
                 state.settings.status =
                     Some(SettingsStatus::Error(format!("failed to save config: {err}")));
-                tracing::error!(%err, is_dark, "failed to persist dark mode preference");
+                tracing::error!(%err, ?preference, "failed to persist appearance mode preference");
             } else {
-                tracing::info!(is_dark, "theme toggled and persisted from settings");
+                tracing::info!(?preference, is_dark, "appearance mode changed and persisted");
             }
             Task::none()
         }
@@ -510,10 +581,36 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     .width(Fill);
 
     // ── Appearance section ───────────────────────────────────────────
-    let theme_toggler = toggler(state.ui().is_dark)
-        .on_toggle(|v| Message::Settings(SettingsMessage::ToggleTheme(v)))
-        .label(t!("settings_dark_mode").to_string())
-        .text_size(14);
+    let theme_preference = ThemePreference::from_dark_mode(state.settings.config.dark_mode);
+    let appearance_mode_label =
+        text(t!("settings_appearance_mode").to_string()).size(14).font(theme::INTER);
+    let appearance_mode_slider = slider(
+        ThemePreference::LIGHT_SLIDER_VALUE..=ThemePreference::DARK_SLIDER_VALUE,
+        theme_preference.slider_value(),
+        |value| {
+            Message::Settings(SettingsMessage::SetThemePreference(
+                ThemePreference::from_slider_value(value),
+            ))
+        },
+    )
+    .width(Length::Fixed(theme::SETTINGS_APPEARANCE_SLIDER_WIDTH))
+    .step(1);
+    let appearance_mode_labels = row![
+        container(text(t!("settings_appearance_light").to_string()).size(12))
+            .width(Length::FillPortion(1))
+            .center_x(Fill),
+        container(text(t!("settings_appearance_system").to_string()).size(12))
+            .width(Length::FillPortion(1))
+            .center_x(Fill),
+        container(text(t!("settings_appearance_dark").to_string()).size(12))
+            .width(Length::FillPortion(1))
+            .center_x(Fill),
+    ]
+    .spacing(theme::ROW_GAP)
+    .width(Length::Fixed(theme::SETTINGS_APPEARANCE_SLIDER_WIDTH));
+    let appearance_mode_control =
+        column![appearance_mode_label, appearance_mode_slider, appearance_mode_labels]
+            .spacing(theme::ROW_GAP);
 
     // Locale picker: None = system default, Some("en-US") = override.
     let locale_labels: Vec<String> = vec![t!("settings_system_default").to_string()]
@@ -543,7 +640,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 
     let appearance_title = t!("settings_appearance").to_string();
     let appearance_section =
-        section(appearance_title, column![locale_picker, theme_toggler].spacing(10));
+        section(appearance_title, column![locale_picker, appearance_mode_control].spacing(10));
 
     // ── Data Paths section ───────────────────────────────────────────
     let data_path = AppPaths::data_file().map(|p| p.display().to_string());
@@ -677,4 +774,31 @@ fn path_row(
     }
 
     content.into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ThemePreference;
+
+    #[test]
+    fn theme_preference_roundtrips_dark_mode_override() {
+        assert_eq!(ThemePreference::from_dark_mode(Some(false)), ThemePreference::Light);
+        assert_eq!(ThemePreference::from_dark_mode(None), ThemePreference::System);
+        assert_eq!(ThemePreference::from_dark_mode(Some(true)), ThemePreference::Dark);
+
+        assert_eq!(ThemePreference::Light.as_dark_mode(), Some(false));
+        assert_eq!(ThemePreference::System.as_dark_mode(), None);
+        assert_eq!(ThemePreference::Dark.as_dark_mode(), Some(true));
+    }
+
+    #[test]
+    fn theme_preference_slider_mapping_matches_three_positions() {
+        assert_eq!(ThemePreference::Light.slider_value(), 0);
+        assert_eq!(ThemePreference::System.slider_value(), 1);
+        assert_eq!(ThemePreference::Dark.slider_value(), 2);
+
+        assert_eq!(ThemePreference::from_slider_value(0), ThemePreference::Light);
+        assert_eq!(ThemePreference::from_slider_value(1), ThemePreference::System);
+        assert_eq!(ThemePreference::from_slider_value(2), ThemePreference::Dark);
+    }
 }
