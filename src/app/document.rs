@@ -159,7 +159,11 @@ impl<'a> DocumentView<'a> {
             container(toolbar)
                 .align_y(iced::alignment::Vertical::Top)
                 .align_x(iced::alignment::Horizontal::Left)
-                .padding(iced::Padding::new(16.0).left(theme::CANVAS_PAD).top(theme::CANVAS_TOP)),
+                .padding(
+                    iced::Padding::new(theme::PANEL_PAD_H)
+                        .left(theme::CANVAS_PAD)
+                        .top(theme::CANVAS_TOP),
+                ),
         )
         .width(Fill)
         .height(Fill);
@@ -231,7 +235,11 @@ impl<'a> DocumentView<'a> {
                 .width(Fill)
                 .align_y(iced::alignment::Vertical::Top)
                 .align_x(iced::alignment::Horizontal::Right)
-                .padding(iced::Padding::new(16.0).right(theme::CANVAS_PAD).bottom(16.0)),
+                .padding(
+                    iced::Padding::new(theme::PANEL_PAD_H)
+                        .right(theme::CANVAS_PAD)
+                        .bottom(theme::PANEL_PAD_H),
+                ),
         )
         .width(Fill)
         .height(Fill);
@@ -248,10 +256,10 @@ impl<'a> DocumentView<'a> {
                         ErrorMessage::DismissAt(error_banner.latest.index)
                     )),
                 ]
-                .spacing(8)
+                .spacing(theme::PANEL_BUTTON_GAP)
                 .align_y(iced::Alignment::Center)
             ]
-            .spacing(4);
+            .spacing(theme::INLINE_GAP);
             for entry in &error_banner.previous_entries {
                 banner_content = banner_content.push(
                     row![
@@ -259,7 +267,7 @@ impl<'a> DocumentView<'a> {
                         button(text(t!("ui_dismiss").to_string()))
                             .on_press(Message::Error(ErrorMessage::DismissAt(entry.index))),
                     ]
-                    .spacing(8)
+                    .spacing(theme::PANEL_BUTTON_GAP)
                     .align_y(iced::Alignment::Center),
                 );
             }
@@ -1011,10 +1019,12 @@ impl<'a> TreeView<'a> {
             | None => String::new(),
         };
 
-        container(text(label).size(12).font(theme::INTER).style(theme::status_text))
-            .padding(Padding::from([theme::CHIP_PAD_V, theme::CHIP_PAD_H]))
-            .width(Length::Shrink)
-            .into()
+        container(
+            text(label).size(theme::SMALL_TEXT_SIZE).font(theme::INTER).style(theme::status_text),
+        )
+        .padding(Padding::from([theme::CHIP_PAD_V, theme::CHIP_PAD_H]))
+        .width(Length::Shrink)
+        .into()
     }
 
     /// Renders the panel bar containing toggle buttons for overlay panels.
@@ -1164,7 +1174,9 @@ impl<'a> TreeView<'a> {
                 actions_row = actions_row.push(
                     tooltip(
                         btn,
-                        text(t!("ui_close").to_string()).size(12).font(theme::INTER),
+                        text(t!("ui_close").to_string())
+                            .size(theme::SMALL_TEXT_SIZE)
+                            .font(theme::INTER),
                         tooltip::Position::Bottom,
                     )
                     .style(theme::tooltip)
@@ -1184,7 +1196,9 @@ impl<'a> TreeView<'a> {
                 actions_row = actions_row.push(
                     tooltip(
                         btn,
-                        text(t!("ui_more").to_string()).size(12).font(theme::INTER),
+                        text(t!("ui_more").to_string())
+                            .size(theme::SMALL_TEXT_SIZE)
+                            .font(theme::INTER),
                         tooltip::Position::Bottom,
                     )
                     .style(theme::tooltip)
@@ -1215,11 +1229,15 @@ impl<'a> TreeView<'a> {
             base
         };
         let label = t!(action_i18n_key(descriptor.id)).to_string();
-        tooltip(btn, text(label).size(12).font(theme::INTER), tooltip::Position::Bottom)
-            .style(theme::tooltip)
-            .padding(theme::TOOLTIP_PAD)
-            .gap(theme::TOOLTIP_GAP)
-            .into()
+        tooltip(
+            btn,
+            text(label).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
+            tooltip::Position::Bottom,
+        )
+        .style(theme::tooltip)
+        .padding(theme::TOOLTIP_PAD)
+        .gap(theme::TOOLTIP_GAP)
+        .into()
     }
 
     /// Render a mount header showing file path and mount actions.
@@ -1253,11 +1271,15 @@ impl<'a> TreeView<'a> {
                     .into(),
             )
             .on_press(Message::MountFile(MountFileMessage::MoveMount(*block_id)));
-            tooltip(btn, text(move_label).size(12).font(theme::INTER), tooltip::Position::Bottom)
-                .style(theme::tooltip)
-                .padding(theme::TOOLTIP_PAD)
-                .gap(theme::TOOLTIP_GAP)
-                .into()
+            tooltip(
+                btn,
+                text(move_label).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
+                tooltip::Position::Bottom,
+            )
+            .style(theme::tooltip)
+            .padding(theme::TOOLTIP_PAD)
+            .gap(theme::TOOLTIP_GAP)
+            .into()
         };
 
         let inline_btn: Element<'a, Message> = {
@@ -1268,11 +1290,15 @@ impl<'a> TreeView<'a> {
                     .into(),
             )
             .on_press(Message::MountFile(MountFileMessage::InlineMount(*block_id)));
-            tooltip(btn, text(inline_label).size(12).font(theme::INTER), tooltip::Position::Bottom)
-                .style(theme::tooltip)
-                .padding(theme::TOOLTIP_PAD)
-                .gap(theme::TOOLTIP_GAP)
-                .into()
+            tooltip(
+                btn,
+                text(inline_label).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
+                tooltip::Position::Bottom,
+            )
+            .style(theme::tooltip)
+            .padding(theme::TOOLTIP_PAD)
+            .gap(theme::TOOLTIP_GAP)
+            .into()
         };
 
         let inline_all_btn: Element<'a, Message> = {
@@ -1294,7 +1320,7 @@ impl<'a> TreeView<'a> {
             .on_press(Message::MountFile(MountFileMessage::InlineMountAll(*block_id)));
             tooltip(
                 btn,
-                text(inline_all_label).size(12).font(theme::INTER),
+                text(inline_all_label).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
                 tooltip::Position::Bottom,
             )
             .style(theme::tooltip)
@@ -1315,11 +1341,15 @@ impl<'a> TreeView<'a> {
                     .into(),
             )
             .on_press(Message::Overlay(OverlayMessage::ToggleMountActionsOverflow(*block_id)));
-            tooltip(btn, text(tooltip_label).size(12).font(theme::INTER), tooltip::Position::Bottom)
-                .style(theme::tooltip)
-                .padding(theme::TOOLTIP_PAD)
-                .gap(theme::TOOLTIP_GAP)
-                .into()
+            tooltip(
+                btn,
+                text(tooltip_label).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
+                tooltip::Position::Bottom,
+            )
+            .style(theme::tooltip)
+            .padding(theme::TOOLTIP_PAD)
+            .gap(theme::TOOLTIP_GAP)
+            .into()
         };
 
         let confirm_close_btn: Element<'a, Message> = {
@@ -1332,7 +1362,7 @@ impl<'a> TreeView<'a> {
             .on_press(Message::MountFile(MountFileMessage::CancelInlineMountAllConfirm(*block_id)));
             tooltip(
                 btn,
-                text(t!("ui_close").to_string()).size(12).font(theme::INTER),
+                text(t!("ui_close").to_string()).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
                 tooltip::Position::Bottom,
             )
             .style(theme::tooltip)
@@ -1355,7 +1385,7 @@ impl<'a> TreeView<'a> {
             header = header.push(
                 text(t!("mount_inline_confirm_hint").to_string())
                     .font(theme::INTER)
-                    .size(12)
+                    .size(theme::SMALL_TEXT_SIZE)
                     .style(theme::spine_text),
             );
             header = header.push(inline_all_btn);
