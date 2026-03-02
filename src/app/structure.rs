@@ -12,7 +12,7 @@
 
 use super::{AppState, DocumentMode, Message};
 use crate::store::{BlockId, FriendBlock};
-use iced::Task;
+use iced::{Task, widget};
 
 /// Messages for tree structure mutations.
 #[derive(Debug, Clone)]
@@ -76,15 +76,25 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
             Task::none()
         }
         | StructureMessage::AddSibling(block_id) => {
+            let mut created_sibling = None;
             state.mutate_with_undo_and_persist("after adding sibling", |state| {
                     if let Some(sibling_id) = state.store.append_sibling(&block_id, String::new()) {
                         tracing::info!(block_id = ?block_id, sibling_block_id = ?sibling_id, "added sibling block");
                         state.editor_buffers.set_text(&sibling_id, "");
+                        state.set_focus(sibling_id);
+                        created_sibling = Some(sibling_id);
                         state.set_overflow_open(false);
                         return true;
                     }
                     false
                 });
+
+            if let Some(sibling_id) = created_sibling
+                && let Some(widget_id) = state.editor_buffers.widget_id(&sibling_id)
+            {
+                return widget::operation::focus(widget_id.clone());
+            }
+
             Task::none()
         }
         | StructureMessage::DuplicateBlock(block_id) => {
@@ -187,5 +197,23 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
             });
             Task::none()
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_sibling_focuses_new_sibling_after_current_block() {
+        let (mut state, root) = AppState::test_state();
+
+        let _ = handle(&mut state, StructureMessage::AddSibling(root));
+
+        let roots = state.store.roots();
+        assert_eq!(roots.len(), 2);
+        let sibling = roots[1];
+        assert_eq!(state.store.point(&sibling).as_deref(), Some(""));
+        assert_eq!(state.focus().map(|focus| focus.block_id), Some(sibling));
     }
 }
