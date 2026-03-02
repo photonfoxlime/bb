@@ -63,9 +63,9 @@
 //! while preserving discoverability of less obvious chords.
 
 use super::{
-    AppState, DocumentMode, EditMessage, ErrorBanner, ErrorMessage, ExpandMessage, FindMessage,
-    Message, MountFileMessage, NavigationMessage, OverlayMessage, ReduceMessage, ShortcutMessage,
-    StructureMessage, UndoRedoMessage,
+    AppState, ContextMenuAction, ContextMenuMessage, DocumentMode, EditMessage, ErrorBanner,
+    ErrorMessage, ExpandMessage, FindMessage, Message, MountFileMessage, NavigationMessage,
+    OverlayMessage, ReduceMessage, ShortcutMessage, StructureMessage, UndoRedoMessage,
     action_bar::{
         ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
         ViewportBucket, action_i18n_key, action_to_message, build_action_bar_vm,
@@ -85,10 +85,10 @@ use crate::{
     theme,
 };
 use iced::{
-    Color, Element, Fill, Length, Padding,
+    Color, Element, Fill, Length, Padding, Point,
     widget::{
-        button, column, container, rich_text, row, rule, scrollable, space, span, stack, text,
-        text_editor, tooltip,
+        button, column, container, mouse_area, rich_text, row, rule, scrollable, space, span,
+        stack, text, text_editor, tooltip,
     },
 };
 use lucide_icons::iced as icons;
@@ -327,7 +327,8 @@ impl<'a> DocumentView<'a> {
             toolbar_container,
             find_panel::floating_overlay(state),
             breadcrumbs_container,
-            floating_bottom_right
+            floating_bottom_right,
+            self.render_context_menu(),
         ]
         .width(Fill)
         .height(Fill)
@@ -497,6 +498,47 @@ impl<'a> DocumentView<'a> {
 
         crumbs.into()
     }
+
+    /// Render the context menu overlay when visible.
+    fn render_context_menu(&self) -> Element<'a, Message> {
+        let Some((_block_id, position)) = self.state.ui().context_menu else {
+            return container(iced::widget::Space::new()).width(Fill).height(Fill).into();
+        };
+
+        let menu_items: Element<'a, Message> = column![
+            context_menu_button(t!("ctx_undo").to_string(), ContextMenuAction::Undo),
+            context_menu_button(t!("ctx_redo").to_string(), ContextMenuAction::Redo),
+            rule::horizontal(1),
+            context_menu_button(t!("ctx_cut").to_string(), ContextMenuAction::Cut),
+            context_menu_button(t!("ctx_copy").to_string(), ContextMenuAction::Copy),
+            context_menu_button(t!("ctx_paste").to_string(), ContextMenuAction::Paste),
+            rule::horizontal(1),
+            context_menu_button(t!("ctx_select_all").to_string(), ContextMenuAction::SelectAll),
+        ]
+        .spacing(2)
+        .padding(4)
+        .into();
+
+        // Use stack to position menu at cursor location
+        // Layer 1: Background with click-to-dismiss
+        let background: Element<'a, Message> = mouse_area(
+            container(iced::widget::Space::new())
+                .width(Fill)
+                .height(Fill)
+                .style(theme::transparent),
+        )
+        .on_press(Message::ContextMenu(ContextMenuMessage::Hide))
+        .into();
+
+        // Layer 2: Menu positioned at cursor
+        let menu = container(menu_items).style(theme::context_menu).width(Length::Fixed(180.0));
+        let menu_container = container(menu)
+            .align_x(iced::alignment::Horizontal::Left)
+            .align_y(iced::alignment::Vertical::Top)
+            .padding(iced::Padding::new(0.0).left(position.x as f32).top(position.y as f32));
+
+        stack![background, menu_container].into()
+    }
 }
 
 /// Stateless view that borrows `AppState` to render the block tree.
@@ -626,7 +668,12 @@ impl<'a> TreeView<'a> {
             if let Some(wid) = self.state.editor_buffers.widget_id(block_id) {
                 editor = editor.id(wid.clone());
             }
-            editor.into()
+            mouse_area(editor)
+                .on_right_press(Message::ContextMenu(ContextMenuMessage::Show {
+                    block_id: block_id_for_edit,
+                    position: self.state.ui().cursor_position.unwrap_or(Point::ORIGIN),
+                }))
+                .into()
         };
 
         let row_content = row![]
@@ -1398,6 +1445,14 @@ impl<'a> TreeView<'a> {
         header = header.push(overflow_toggle_btn);
         header.into()
     }
+}
+
+fn context_menu_button<'a>(label: String, action: ContextMenuAction) -> Element<'a, Message> {
+    button(text(label))
+        .padding([4, 8])
+        .style(theme::context_menu_button)
+        .on_press(Message::ContextMenu(ContextMenuMessage::Action(action)))
+        .into()
 }
 
 /// Resolve text-editor key bindings for one block row.

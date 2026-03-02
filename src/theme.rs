@@ -607,3 +607,69 @@ pub fn tooltip(theme: &Theme) -> container::Style {
         ..Default::default()
     }
 }
+
+// ── Context menu styles ───────────────────────────────────────────────
+
+/// Context menu container — elevated surface with subtle border.
+pub fn context_menu(theme: &Theme) -> container::Style {
+    let p = focused_palette(theme);
+    container::Style {
+        background: Some(p.paper.into()),
+        text_color: Some(p.ink),
+        border: border::rounded(4).width(1).color(Color { a: 0.15, ..p.ink }),
+        shadow: iced::Shadow {
+            color: Color { a: 0.2, ..Color::BLACK },
+            offset: iced::Vector { x: 0.0, y: 2.0 },
+            blur_radius: 8.0,
+        },
+        snap: false,
+    }
+}
+
+/// Transparent container — for click-through overlays.
+pub fn transparent(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: None,
+        text_color: None,
+        border: border::rounded(0).width(0),
+        snap: false,
+        ..Default::default()
+    }
+}
+
+// ── Context menu button style ────────────────────────────────────────
+
+/// Context menu button — minimal hover effect.
+pub fn context_menu_button(theme: &Theme, status: button::Status) -> button::Style {
+    let p = focused_palette(theme);
+    match status {
+        | button::Status::Active => button::Style {
+            background: None,
+            text_color: p.ink,
+            border: border::rounded(2).width(0),
+            snap: false,
+            ..Default::default()
+        },
+        | button::Status::Hovered => button::Style {
+            background: Some(Color { a: 0.08, ..p.ink }.into()),
+            text_color: p.ink,
+            border: border::rounded(2).width(0),
+            snap: false,
+            ..Default::default()
+        },
+        | button::Status::Pressed => button::Style {
+            background: Some(Color { a: 0.15, ..p.ink }.into()),
+            text_color: p.ink,
+            border: border::rounded(2).width(0),
+            snap: false,
+            ..Default::default()
+        },
+        | button::Status::Disabled => button::Style {
+            background: None,
+            text_color: p.spine_light,
+            border: border::rounded(2).width(0),
+            snap: false,
+            ..Default::default()
+        },
+    }
+}

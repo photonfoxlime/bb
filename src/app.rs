@@ -13,6 +13,7 @@ mod config;
 mod shortcut;
 mod error;
 // Main Views
+mod context_menu;
 mod document;
 mod settings;
 mod find_panel;
@@ -72,6 +73,28 @@ use std::collections::BTreeSet;
 use std::time::Duration;
 
 pub use config::AppConfig;
+
+/// Context menu actions for text editors.
+#[derive(Debug, Clone)]
+pub enum ContextMenuMessage {
+    /// Show context menu at the given position for the specified block.
+    Show { block_id: BlockId, position: iced::Point },
+    /// Hide the context menu.
+    Hide,
+    /// Execute a context menu action.
+    Action(ContextMenuAction),
+}
+
+/// Actions available in the text editor context menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ContextMenuAction {
+    Undo,
+    Redo,
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+}
 
 /// Default capacity: 64 undo steps.
 const UNDO_CAPACITY: usize = 64;
@@ -157,6 +180,8 @@ pub enum Message {
     DocumentMode(DocumentMode),
     SystemThemeChanged(iced::theme::Mode),
     Navigation(NavigationMessage),
+    ContextMenu(ContextMenuMessage),
+    CursorPosition(iced::Point),
 }
 
 impl AppState {
@@ -190,6 +215,7 @@ impl AppState {
                 instruction_panel::handle(self, target, message)
             }
             | Message::Settings(message) => settings::handle(self, message),
+            | Message::ContextMenu(message) => context_menu::handle(self, message),
             | Message::WindowResized(size) => {
                 self.ui_mut().window_size = size;
                 Task::none()
@@ -237,6 +263,10 @@ impl AppState {
                 }
                 Task::none()
             }
+            | Message::CursorPosition(position) => {
+                self.ui_mut().cursor_position = Some(position);
+                Task::none()
+            }
             | Message::Navigation(message) => navigation::handle(self, message),
         }
     }
@@ -254,10 +284,13 @@ impl AppState {
 
 impl AppState {
     /// Global event subscription: keyboard shortcuts, mouse clicks, escape,
-    /// system theme changes, and window resize events.
+    /// system theme changes, window resize events, and cursor tracking.
     pub fn subscription(_state: &AppState) -> Subscription<Message> {
         Subscription::batch([
             event::listen_with(|event, status, _window| match event {
+                | Event::Mouse(iced::mouse::Event::CursorMoved { position }) => {
+                    Some(Message::CursorPosition(position))
+                }
                 | Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
                     Some(Message::KeyboardModifiersChanged(modifiers))
                 }
@@ -771,6 +804,10 @@ pub struct TransientUiState {
     pub editing_friend_perspective: Option<(BlockId, BlockId)>,
     /// Current text input value for friend perspective inline editing.
     pub editing_friend_perspective_input: Option<String>,
+    /// Context menu state: (block_id, position) when visible.
+    pub context_menu: Option<(BlockId, iced::Point)>,
+    /// Last known cursor position for context menu placement.
+    pub cursor_position: Option<iced::Point>,
 }
 
 /// Snapshot of undoable application state.
