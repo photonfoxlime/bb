@@ -590,7 +590,20 @@ impl<'a> DocumentView<'a> {
             column![menu_items].spacing(theme::CONTEXT_MENU_ITEM_SPACING)
         };
 
-        let menu = container(content).style(theme::context_menu);
+        // Calculate width: either fixed minimum or fit to 5 action buttons
+        let min_width = Length::Fixed(theme::CONTEXT_MENU_WIDTH);
+        let action_row_width = if enabled_actions.len() > 0 {
+            let actions_in_row = enabled_actions.len().min(theme::CONTEXT_MENU_ACTIONS_PER_ROW);
+            // Approximate: each icon button is ~32px + gap
+            Length::Fixed(
+                actions_in_row as f32 * (32.0 + theme::CONTEXT_MENU_ACTION_GAP)
+                    + theme::CONTEXT_MENU_PAD * 2.0,
+            )
+        } else {
+            min_width
+        };
+
+        let menu = container(content).style(theme::context_menu).width(action_row_width);
 
         // Use stack to position menu at cursor location
         // Layer 1: Background with click-to-dismiss
