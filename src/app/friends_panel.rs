@@ -424,7 +424,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                                 FriendPanelMessage::ToggleParentLineageTelescope { target, friend_id },
                             )),
                             text(rust_i18n::t!("doc_friend_telescope_parent").to_string())
-                                .size(12)
+                                .size(theme::SMALL_TEXT_SIZE)
                                 .font(theme::INTER),
                             tooltip::Position::Bottom,
                         )
@@ -446,7 +446,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                                 FriendPanelMessage::ToggleChildrenTelescope { target, friend_id },
                             )),
                             text(rust_i18n::t!("doc_friend_telescope_children").to_string())
-                                .size(12)
+                                .size(theme::SMALL_TEXT_SIZE)
                                 .font(theme::INTER),
                             tooltip::Position::Bottom,
                         )
