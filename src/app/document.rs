@@ -538,27 +538,33 @@ impl<'a> DocumentView<'a> {
         };
         let action_bar = project_for_viewport(build_action_bar_vm(&row_context), viewport_bucket);
 
-        // Action buttons row (icon-only) - both visible and overflow
-        let mut action_buttons = row![].spacing(4);
-        // First add visible actions
+        // Collect all enabled actions (visible + overflow)
+        let mut enabled_actions = Vec::new();
         for descriptor in action_bar.visible_actions() {
             if descriptor.availability == ActionAvailability::Enabled {
                 if let Some(message) = action_to_message(self.state, &block_id, &descriptor) {
-                    let btn: Element<'a, Message> =
-                        IconButton::action(action_icon(descriptor.id)).on_press(message).into();
-                    action_buttons = action_buttons.push(btn);
+                    enabled_actions.push((descriptor.id, message));
                 }
             }
         }
-        // Then add overflow actions (duplicated for context menu convenience)
         for descriptor in &action_bar.overflow {
             if descriptor.availability == ActionAvailability::Enabled {
                 if let Some(message) = action_to_message(self.state, &block_id, descriptor) {
-                    let btn: Element<'a, Message> =
-                        IconButton::action(action_icon(descriptor.id)).on_press(message).into();
-                    action_buttons = action_buttons.push(btn);
+                    enabled_actions.push((descriptor.id, message));
                 }
             }
+        }
+
+        // Group action buttons into rows of 5
+        let mut action_buttons_column = column![].spacing(4);
+        for chunk in enabled_actions.chunks(5) {
+            let mut row_buttons = row![].spacing(4);
+            for (action_id, message) in chunk {
+                let btn: Element<'a, Message> =
+                    IconButton::action(action_icon(*action_id)).on_press(message.clone()).into();
+                row_buttons = row_buttons.push(btn);
+            }
+            action_buttons_column = action_buttons_column.push(row_buttons);
         }
 
         // Context menu action buttons
@@ -577,7 +583,11 @@ impl<'a> DocumentView<'a> {
         .into();
 
         // Combine action buttons and menu items
-        let content = column![action_buttons, rule::horizontal(1), menu_items].spacing(4);
+        let content = if enabled_actions.len() > 0 {
+            column![action_buttons_column, rule::horizontal(1), menu_items].spacing(4)
+        } else {
+            column![menu_items].spacing(4)
+        };
 
         let menu = container(content).style(theme::context_menu).width(Length::Fixed(180.0));
 
