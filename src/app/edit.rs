@@ -1002,4 +1002,38 @@ mod tests {
             state.editor_buffers.get(&root).expect("editor content exists").cursor().position;
         assert_eq!(cursor.column, long_text.chars().count());
     }
+
+    #[test]
+    fn move_cursor_by_word_mixed_han_and_latin() {
+        let (mut state, root) = AppState::test_state();
+        // 你 (0-1) 好 (1-2)   hello(3-8)   世 (9-10) 界 (10-11)   world(12-17)
+        let text = "你好 hello 世界 world";
+        state.store.update_point(&root, text.to_string());
+        state.editor_buffers.set_text(&root, text);
+        if let Some(content) = state.editor_buffers.get_mut(&root) {
+            content.move_to(text_editor::Cursor {
+                position: text_editor::Position { line: 0, column: 0 },
+                selection: None,
+            });
+        }
+
+        // Move right through mixed script
+        let expected = vec![1, 2, 3, 8, 9, 10, 11, 12, 17];
+        for expected_column in expected {
+            let _ = handle(
+                &mut state,
+                EditMessage::MoveCursorByWord {
+                    block_id: root,
+                    direction: WordCursorDirection::Right,
+                },
+            );
+            let cursor =
+                state.editor_buffers.get(&root).expect("editor content exists").cursor().position;
+            assert_eq!(
+                cursor.column, expected_column,
+                "Failed at expected column {}",
+                expected_column
+            );
+        }
+    }
 }
