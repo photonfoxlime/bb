@@ -422,10 +422,10 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         );
 
         let inquiry_content = container(
-            scrollable(text(inquiry_text).font(theme::LXGW_WENKAI).size(14))
+            scrollable(text(inquiry_text).font(theme::LXGW_WENKAI).size(theme::INPUT_TEXT_SIZE))
                 .width(iced::Length::Fill),
         )
-        .padding(Padding::from([6.0, 8.0]))
+        .padding(Padding::from([theme::COMPACT_PAD_V, theme::PANEL_PAD_V]))
         .style(theme::draft_panel)
         .width(iced::Length::Fill);
 
@@ -527,10 +527,12 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             );
 
             let result_content = container(
-                scrollable(text(response_text).font(theme::LXGW_WENKAI).size(14))
-                    .width(iced::Length::Fill),
+                scrollable(
+                    text(response_text).font(theme::LXGW_WENKAI).size(theme::INPUT_TEXT_SIZE),
+                )
+                .width(iced::Length::Fill),
             )
-            .padding(Padding::from([6.0, 8.0]))
+            .padding(Padding::from([theme::COMPACT_PAD_V, theme::PANEL_PAD_V]))
             .style(theme::draft_panel)
             .width(iced::Length::Fill);
 
