@@ -36,6 +36,9 @@ pub struct AppConfig {
     ///
     /// `Cmd/Ctrl+Enter` always inserts a first child independent of this
     /// setting. This preference only affects plain `Enter` on one-line points.
+    ///
+    /// Persisted key uses kebab-case (`first-line-enter-add-child`).
+    /// Snake-case is still accepted as a read alias for backward compatibility.
     #[serde(
         rename = "first-line-enter-add-child",
         alias = "first_line_enter_add_child",

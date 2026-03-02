@@ -161,6 +161,10 @@ impl ThemePreference {
 }
 
 /// Point-editor behavior for plain Enter on one-line points.
+///
+/// This setting does not affect shortcut chords:
+/// - `Cmd/Ctrl+Enter` still inserts an empty first child.
+/// - `Cmd/Ctrl+Shift+Enter` still inserts an empty sibling after the block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FirstLineEnterBehavior {
     /// At line end, plain Enter inserts an empty child at index 0.

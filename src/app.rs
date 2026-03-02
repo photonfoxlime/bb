@@ -1010,6 +1010,17 @@ mod edit {
         Task::none()
     }
 
+    /// Handle one text-editor action for a point block.
+    ///
+    /// Enter behavior contract:
+    /// - Plain `Enter` uses normal editor newline behavior, except when
+    ///   `first-line-enter-add-child` is enabled and the cursor is at the end
+    ///   of the only line (then insert empty first child).
+    /// - `Cmd/Ctrl+Enter` is handled by
+    ///   [`EditMessage::AddEmptyFirstChild`], dispatched from document key
+    ///   binding.
+    /// - `Cmd/Ctrl+Shift+Enter` is dispatched as `ActionId::AddSibling` from
+    ///   document key binding.
     pub fn handle_point_edited(
         state: &mut AppState, block_id: BlockId, action: text_editor::Action,
     ) -> Task<Message> {

@@ -34,6 +34,17 @@
 //! - Inline editing avoids navigating to a separate modal/dialog, keeping context visible.
 //! - Immediate save on blur provides instant feedback without requiring explicit save actions.
 //! - Empty state with placeholder makes the affordance discoverable without cluttering the UI.
+//!
+//! # Editor Shortcut Routing Invariants
+//!
+//! Point-editor Enter chords are owned by this key-binding layer:
+//! - `Cmd/Ctrl+Enter` dispatches a dedicated edit message that inserts an empty
+//!   first child.
+//! - `Cmd/Ctrl+Shift+Enter` dispatches `ActionId::AddSibling`.
+//!
+//! To avoid duplicate mutations, this resolver only dispatches structural
+//! shortcuts when the editor instance is focused. Non-focused editors return the
+//! default binding.
 
 use super::{
     AppState, DocumentMode, EditMessage, ErrorBanner, ErrorMessage, ExpandMessage, FindMessage,
@@ -1181,6 +1192,11 @@ impl<'a> TreeView<'a> {
     }
 }
 
+/// Resolve text-editor key bindings for one block row.
+///
+/// Structural Enter shortcuts are intentionally resolved here (instead of the
+/// global subscription path) so they can target the exact focused block and be
+/// dispatched exactly once.
 fn editor_key_binding(
     block_id: BlockId, key_press: text_editor::KeyPress,
 ) -> Option<text_editor::Binding<Message>> {
