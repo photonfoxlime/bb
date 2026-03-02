@@ -911,6 +911,18 @@ mod tests {
     }
 
     #[test]
+    fn word_navigation_spans_long_latin_line() {
+        let spans = word_token_spans_for_navigation("hello world foo bar baz qux");
+        assert_eq!(spans.len(), 6);
+        assert_eq!((spans[0].start, spans[0].end), (0, 5));
+        assert_eq!((spans[1].start, spans[1].end), (6, 11));
+        assert_eq!((spans[2].start, spans[2].end), (12, 15));
+        assert_eq!((spans[3].start, spans[3].end), (16, 19));
+        assert_eq!((spans[4].start, spans[4].end), (20, 23));
+        assert_eq!((spans[5].start, spans[5].end), (24, 27));
+    }
+
+    #[test]
     fn word_navigation_spans_latin_only_punctuation() {
         let spans = word_token_spans_for_navigation(".,!?");
         assert!(spans.is_empty());

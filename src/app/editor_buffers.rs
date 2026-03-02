@@ -128,13 +128,14 @@ impl EditorBuffers {
     pub(crate) fn word_token_spans_for_line(
         &mut self, block_id: &BlockId, line: &str,
     ) -> Vec<WordTokenSpan> {
-        if !self.word_token_cache.contains_key(*block_id) {
-            self.word_token_cache.insert(*block_id, WordTokenizationCache::default());
-        }
-        self.word_token_cache
-            .get_mut(*block_id)
-            .map(|cache| cache.spans_for_line(line).to_vec())
-            .unwrap_or_default()
+        let cache = match self.word_token_cache.entry(*block_id) {
+            | Some(entry) => entry.or_insert_with(WordTokenizationCache::default),
+            | None => {
+                tracing::warn!(block_id = ?block_id, "word_token_spans_for_line called with invalid block_id");
+                return Vec::new();
+            }
+        };
+        cache.spans_for_line(line).to_vec()
     }
 
     /// Get the `widget::Id` for a block's text editor (for programmatic focus).
