@@ -85,9 +85,10 @@ use crate::{
     theme,
 };
 use iced::{
-    Element, Fill, Length, Padding,
+    Color, Element, Fill, Length, Padding,
     widget::{
-        button, column, container, row, rule, scrollable, space, stack, text, text_editor, tooltip,
+        button, column, container, rich_text, row, rule, scrollable, space, span, stack, text,
+        text_editor, tooltip,
     },
 };
 use lucide_icons::iced as icons;
@@ -923,45 +924,56 @@ impl<'a> TreeView<'a> {
         }
     }
 
+    /// Render an inline diff between old and new text as two `rich_text` lines.
+    ///
+    /// Uses `rich_text` + `span` instead of `row` + `text` so that long text
+    /// wraps naturally within the panel width. Deletions and additions are
+    /// highlighted with colored background spans.
     fn render_diff_content(&self, old_text: &str, new_text: &str) -> Element<'a, Message> {
+        use iced::widget::text::Span as RichSpan;
+
         let changes = word_diff(old_text, new_text);
-        let mut diff_content = column![].spacing(theme::DIFF_LINE_GAP);
+        let pal = theme::palette_for_mode(self.state.is_dark_mode());
 
-        let mut old_line = row![].spacing(0);
-        for change in &changes {
-            match change {
-                | WordChange::Unchanged(s) => {
-                    old_line = old_line.push(text(s.clone()).style(theme::diff_context));
-                }
-                | WordChange::Deleted(s) => {
-                    old_line = old_line.push(
-                        container(text(s.clone()))
-                            .style(theme::diff_deletion)
-                            .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
-                    );
-                }
-                | WordChange::Added(_) => {}
-            }
-        }
-        diff_content = diff_content.push(old_line);
+        let del_bg: Color = Color { a: 0.08, ..pal.danger };
+        let add_bg: Color = Color { a: 0.08, ..pal.success };
+        let ctx_color: Color = pal.ink;
 
-        let mut new_line = row![].spacing(0);
-        for change in &changes {
-            match change {
-                | WordChange::Unchanged(s) => {
-                    new_line = new_line.push(text(s.clone()).style(theme::diff_context));
-                }
-                | WordChange::Deleted(_) => {}
-                | WordChange::Added(s) => {
-                    new_line = new_line.push(
-                        container(text(s.clone()))
-                            .style(theme::diff_addition)
-                            .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
-                    );
-                }
-            }
-        }
-        diff_content = diff_content.push(new_line);
+        // Old line: unchanged + deleted spans (skip added).
+        let old_spans: Vec<RichSpan<'_>> = changes
+            .iter()
+            .filter_map(|change| match change {
+                | WordChange::Unchanged(s) => Some(span(s.clone()).color(ctx_color)),
+                | WordChange::Deleted(s) => Some(
+                    span(s.clone())
+                        .color(ctx_color)
+                        .background(del_bg)
+                        .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
+                ),
+                | WordChange::Added(_) => None,
+            })
+            .collect();
+
+        // New line: unchanged + added spans (skip deleted).
+        let new_spans: Vec<RichSpan<'_>> = changes
+            .iter()
+            .filter_map(|change| match change {
+                | WordChange::Unchanged(s) => Some(span(s.clone()).color(ctx_color)),
+                | WordChange::Added(s) => Some(
+                    span(s.clone())
+                        .color(ctx_color)
+                        .background(add_bg)
+                        .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
+                ),
+                | WordChange::Deleted(_) => None,
+            })
+            .collect();
+
+        let diff_content = column![
+            rich_text(old_spans).width(Length::Fill),
+            rich_text(new_spans).width(Length::Fill),
+        ]
+        .spacing(theme::DIFF_LINE_GAP);
 
         container(diff_content).width(Length::Fill).into()
     }

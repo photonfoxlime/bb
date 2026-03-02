@@ -236,6 +236,61 @@ fn is_number(tok: &str) -> bool {
     tok.chars().all(|c| c.is_ascii_digit())
 }
 
+/// Tokenize text for inline diff comparison.
+///
+/// Uses script-aware splitting so that CJK text is tokenized per-character
+/// (since there are no word-separating spaces) while Latin/ASCII text is
+/// split on whitespace boundaries with whitespace preserved as separate tokens.
+///
+/// This produces fine-grained tokens suitable for `similar::TextDiff` so that
+/// diffs highlight the exact characters that changed, regardless of script.
+pub fn tokenize_for_diff(text: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let runs = split_by_script(text);
+
+    for (script, segment) in runs {
+        match script {
+            | Script::Han => {
+                // Each Han character becomes its own diff token.
+                for ch in segment.chars() {
+                    tokens.push(ch.to_string());
+                }
+            }
+            | Script::Latin => {
+                // Split on whitespace boundaries, preserving whitespace as tokens.
+                tokenize_latin_for_diff(&segment, &mut tokens);
+            }
+            | Script::Other => {
+                // Whitespace and symbols: each character is its own token so
+                // that newlines and spaces diff independently.
+                for ch in segment.chars() {
+                    tokens.push(ch.to_string());
+                }
+            }
+        }
+    }
+
+    tokens
+}
+
+/// Split a Latin/ASCII segment on whitespace boundaries, keeping whitespace
+/// characters as individual tokens.
+fn tokenize_latin_for_diff(seg: &str, out: &mut Vec<String>) {
+    let mut start = 0;
+    for (i, ch) in seg.char_indices() {
+        if ch.is_whitespace() {
+            if start < i {
+                out.push(seg[start..i].to_string());
+            }
+            out.push(seg[i..i + ch.len_utf8()].to_string());
+            start = i + ch.len_utf8();
+        }
+    }
+    if start < seg.len() {
+        out.push(seg[start..].to_string());
+    }
+}
+
 /// Collapse horizontal whitespace and trim while preserving newlines.
 ///
 /// Newlines are retained because they are strong phrase boundaries.
@@ -428,7 +483,8 @@ pub fn extract_search_phrases(input: &str, user_words: &[&str]) -> Vec<String> {
 mod tests {
     use super::{
         Script, WordTokenizationCache, extract_search_phrases, normalize_space, script_of,
-        split_by_script, tokenize_latin, truncate_for_display, word_token_spans_for_navigation,
+        split_by_script, tokenize_for_diff, tokenize_latin, truncate_for_display,
+        word_token_spans_for_navigation,
     };
 
     fn assert_any_contains<'a>(phrases: &'a [String], needle: &str) -> &'a String {
@@ -665,5 +721,37 @@ mod tests {
     #[test]
     fn truncate_for_display_handles_tiny_limits() {
         assert_eq!(truncate_for_display("alphabet", 2), "..");
+    }
+
+    // ── tokenize_for_diff tests ──────────────────────────────────────
+
+    #[test]
+    fn diff_tokenize_latin_splits_on_whitespace() {
+        let tokens = tokenize_for_diff("hello world");
+        assert_eq!(tokens, vec!["hello", " ", "world"]);
+    }
+
+    #[test]
+    fn diff_tokenize_han_splits_per_character() {
+        let tokens = tokenize_for_diff("今天天气");
+        assert_eq!(tokens, vec!["今", "天", "天", "气"]);
+    }
+
+    #[test]
+    fn diff_tokenize_mixed_script() {
+        let tokens = tokenize_for_diff("使用Rust编程");
+        assert_eq!(tokens, vec!["使", "用", "Rust", "编", "程"]);
+    }
+
+    #[test]
+    fn diff_tokenize_preserves_newlines() {
+        let tokens = tokenize_for_diff("hello\nworld");
+        assert_eq!(tokens, vec!["hello", "\n", "world"]);
+    }
+
+    #[test]
+    fn diff_tokenize_empty() {
+        let tokens = tokenize_for_diff("");
+        assert!(tokens.is_empty());
     }
 }

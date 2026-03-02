@@ -86,6 +86,14 @@ pub(crate) fn focused_palette(theme: &Theme) -> &'static Palette {
     }
 }
 
+/// Resolve the palette from a dark-mode flag.
+///
+/// Useful in contexts where the Iced `Theme` reference is not available
+/// (e.g. building `rich_text` `Span`s that require concrete colors).
+pub(crate) fn palette_for_mode(is_dark: bool) -> &'static Palette {
+    if is_dark { &DARK } else { &LIGHT }
+}
+
 // ── Layout tokens ────────────────────────────────────────────────────
 
 /// Outer padding around the document canvas.
@@ -541,32 +549,6 @@ pub fn spine_text(theme: &Theme) -> text::Style {
 pub fn status_text(theme: &Theme) -> text::Style {
     let p = focused_palette(theme);
     text::Style { color: Some(p.accent_muted) }
-}
-
-/// Diff deletion container — red-tinted background for removed words.
-pub fn diff_deletion(theme: &Theme) -> container::Style {
-    let p = focused_palette(theme);
-    container::Style {
-        background: Some(Color { a: 0.08, ..p.danger }.into()),
-        text_color: Some(p.ink),
-        ..Default::default()
-    }
-}
-
-/// Diff addition container — green-tinted background for added words.
-pub fn diff_addition(theme: &Theme) -> container::Style {
-    let p = focused_palette(theme);
-    container::Style {
-        background: Some(Color { a: 0.08, ..p.success }.into()),
-        text_color: Some(p.ink),
-        ..Default::default()
-    }
-}
-
-/// Diff context text — neutral styling for unchanged words.
-pub fn diff_context(theme: &Theme) -> text::Style {
-    let p = focused_palette(theme);
-    text::Style { color: Some(p.ink) }
 }
 
 // ── Rule styles ───────────────────────────────────────────────────────
