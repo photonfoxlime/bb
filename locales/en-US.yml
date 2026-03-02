@@ -138,6 +138,11 @@ settings_enter_behavior_add_child: "Add first child"
 settings_enter_behavior_newline: "Insert newline"
 settings_data_paths: "Data Paths"
 settings_providers: "Providers"
+settings_token_limits: "Token Limits"
+settings_token_reduce: "Reduce"
+settings_token_expand: "Expand"
+settings_token_inquire: "Inquire"
+settings_unlimited: "Unlimited"
 
 # Instruction panel (additional)
 instruction_additional: "Additional instruction: %{instruction}"

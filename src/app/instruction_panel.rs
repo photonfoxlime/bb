@@ -140,9 +140,15 @@ pub fn handle(
             state.persist_with_context("after storing inquiry and consuming instruction draft");
             state.editor_buffers.set_instruction_text("");
             tracing::info!(block_id = ?target_block_id, "instruction inquiry started");
+            let inquire_max_tokens = state.config.token_limits.inquire.as_api_param();
             let client = llm::LlmClient::new(config);
             let request_task = iced::Task::run(
-                client.inquire_stream(context, instruction, LLM_REQUEST_TIMEOUT),
+                client.inquire_stream(
+                    context,
+                    instruction,
+                    LLM_REQUEST_TIMEOUT,
+                    inquire_max_tokens,
+                ),
                 move |event| match event {
                     | llm::InquireStreamEvent::Chunk(chunk) => Message::InstructionPanel(
                         target_block_id,

@@ -113,6 +113,11 @@ settings_enter_behavior_add_child: "先頭の子を追加"
 settings_enter_behavior_newline: "改行を挿入"
 settings_data_paths: "データパス"
 settings_providers: "提供元"
+settings_token_limits: "トークン制限"
+settings_token_reduce: "要約"
+settings_token_expand: "展開"
+settings_token_inquire: "問い合わせ"
+settings_unlimited: "無制限"
 
 # Action bar buttons
 action_expand: "展開"

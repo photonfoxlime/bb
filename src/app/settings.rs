@@ -36,7 +36,7 @@
 //! - [`SettingsMessage`] variants drive all settings interactions through the
 //!   standard Elm-architecture `update` cycle.
 
-use super::config::{self, AppConfig};
+use super::config::{self, AppConfig, MaxTokens};
 use super::{AppState, Message, ViewMode};
 use crate::component::icon_button::IconButton;
 use crate::component::text_button::TextButton;
@@ -44,7 +44,9 @@ use crate::i18n;
 use crate::llm;
 use crate::paths::AppPaths;
 use crate::theme;
-use iced::widget::{column, container, pick_list, row, slider, text, text_input, tooltip};
+use iced::widget::{
+    checkbox, column, container, pick_list, row, slider, text, text_input, tooltip,
+};
 use iced::{Element, Fill, Length, Task};
 use lucide_icons::iced as icons;
 use rust_i18n::t;
@@ -81,6 +83,14 @@ pub struct SettingsState {
     pub selected_is_preset: bool,
     /// Draft app configuration (e.g. locale override).
     pub config: AppConfig,
+    /// Draft text for the reduce token-limit input.
+    ///
+    /// Empty when unlimited; otherwise the stringified positive integer.
+    pub reduce_max_tokens_text: String,
+    /// Draft text for the expand token-limit input.
+    pub expand_max_tokens_text: String,
+    /// Draft text for the inquire token-limit input.
+    pub inquire_max_tokens_text: String,
 }
 
 /// Outcome of the last settings save attempt.
@@ -198,6 +208,20 @@ impl std::fmt::Display for FirstLineEnterBehavior {
     }
 }
 
+/// Identifies one of the three LLM task categories for per-task-kind settings.
+///
+/// Used as a discriminant in [`SettingsMessage`] variants that target a
+/// specific token-limit field.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TaskKind {
+    /// Condensation / summary requests.
+    Reduce,
+    /// Expansion / child-suggestion requests.
+    Expand,
+    /// Free-form instruction / inquiry requests.
+    Inquire,
+}
+
 /// Messages produced by the settings view.
 #[derive(Debug, Clone)]
 pub enum SettingsMessage {
@@ -234,6 +258,17 @@ pub enum SettingsMessage {
     /// The path is computed in [`view`] and sent as an owned string so this
     /// message remains self-contained and does not depend on global path state.
     CopyPath(String),
+    /// Update the max-tokens text input for a specific task kind.
+    ///
+    /// The string is validated on each keystroke; only valid positive integers
+    /// (or empty, treated as the default) are persisted.
+    MaxTokensChanged(TaskKind, String),
+    /// Toggle the "unlimited" checkbox for a specific task kind.
+    ///
+    /// When checked, the token limit is set to [`MaxTokens::UNLIMITED`] (0)
+    /// and the text input is cleared. When unchecked, the default for that
+    /// task kind is restored.
+    ToggleMaxTokensUnlimited(TaskKind, bool),
 }
 
 impl SettingsState {
@@ -256,6 +291,9 @@ impl SettingsState {
             status: None,
             selected_is_preset,
             config: config.clone(),
+            reduce_max_tokens_text: Self::max_tokens_display_text(config.token_limits.reduce),
+            expand_max_tokens_text: Self::max_tokens_display_text(config.token_limits.expand),
+            inquire_max_tokens_text: Self::max_tokens_display_text(config.token_limits.inquire),
         }
     }
 
@@ -269,6 +307,14 @@ impl SettingsState {
         self.selected_is_preset = providers.is_preset(&self.selected_provider);
         self.provider_names = providers.provider_names();
         self.active_provider = providers.active().to_string();
+    }
+
+    /// Format a [`MaxTokens`] value for the text input field.
+    ///
+    /// Returns an empty string for unlimited (the checkbox handles that state),
+    /// otherwise the raw numeric value as a string.
+    fn max_tokens_display_text(mt: MaxTokens) -> String {
+        if mt.is_unlimited() { String::new() } else { mt.raw().to_string() }
     }
 }
 
@@ -496,6 +542,86 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             tracing::info!(path = %path, "copied settings path to clipboard");
             iced::clipboard::write(path)
         }
+        | SettingsMessage::MaxTokensChanged(kind, value) => {
+            // Update the draft text field regardless of validity (so the user
+            // sees what they typed). Only persist when the value is a valid
+            // positive integer.
+            match kind {
+                | TaskKind::Reduce => state.settings.reduce_max_tokens_text = value.clone(),
+                | TaskKind::Expand => state.settings.expand_max_tokens_text = value.clone(),
+                | TaskKind::Inquire => state.settings.inquire_max_tokens_text = value.clone(),
+            }
+            if let Ok(n) = value.parse::<u32>() {
+                if n > 0 {
+                    let mt = MaxTokens::new(n);
+                    match kind {
+                        | TaskKind::Reduce => {
+                            state.config.token_limits.reduce = mt;
+                            state.settings.config.token_limits.reduce = mt;
+                        }
+                        | TaskKind::Expand => {
+                            state.config.token_limits.expand = mt;
+                            state.settings.config.token_limits.expand = mt;
+                        }
+                        | TaskKind::Inquire => {
+                            state.config.token_limits.inquire = mt;
+                            state.settings.config.token_limits.inquire = mt;
+                        }
+                    }
+                    if let Err(err) = config::save(&state.config) {
+                        state.settings.status =
+                            Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                        tracing::error!(%err, ?kind, n, "failed to persist token limit");
+                    } else {
+                        tracing::info!(?kind, n, "token limit changed and persisted");
+                    }
+                }
+            }
+            Task::none()
+        }
+        | SettingsMessage::ToggleMaxTokensUnlimited(kind, unlimited) => {
+            let mt = if unlimited {
+                MaxTokens::UNLIMITED
+            } else {
+                // Restore the default for this task kind.
+                use super::config::TokenLimits;
+                let defaults = TokenLimits::default();
+                match kind {
+                    | TaskKind::Reduce => defaults.reduce,
+                    | TaskKind::Expand => defaults.expand,
+                    | TaskKind::Inquire => defaults.inquire,
+                }
+            };
+            // Update both configs.
+            match kind {
+                | TaskKind::Reduce => {
+                    state.config.token_limits.reduce = mt;
+                    state.settings.config.token_limits.reduce = mt;
+                    state.settings.reduce_max_tokens_text =
+                        SettingsState::max_tokens_display_text(mt);
+                }
+                | TaskKind::Expand => {
+                    state.config.token_limits.expand = mt;
+                    state.settings.config.token_limits.expand = mt;
+                    state.settings.expand_max_tokens_text =
+                        SettingsState::max_tokens_display_text(mt);
+                }
+                | TaskKind::Inquire => {
+                    state.config.token_limits.inquire = mt;
+                    state.settings.config.token_limits.inquire = mt;
+                    state.settings.inquire_max_tokens_text =
+                        SettingsState::max_tokens_display_text(mt);
+                }
+            }
+            if let Err(err) = config::save(&state.config) {
+                state.settings.status =
+                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                tracing::error!(%err, ?kind, unlimited, "failed to persist token limit toggle");
+            } else {
+                tracing::info!(?kind, unlimited, "token limit unlimited toggled and persisted");
+            }
+            Task::none()
+        }
     }
 }
 
@@ -715,6 +841,33 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         column![locale_picker, appearance_mode_control, enter_behavior_control].spacing(10),
     );
 
+    // ── Token Limits section ─────────────────────────────────────────
+    let token_limits_title = t!("settings_token_limits").to_string();
+    let token_limits_section = section(
+        token_limits_title,
+        column![
+            token_limit_row(
+                t!("settings_token_reduce").to_string(),
+                &settings.reduce_max_tokens_text,
+                settings.config.token_limits.reduce.is_unlimited(),
+                TaskKind::Reduce,
+            ),
+            token_limit_row(
+                t!("settings_token_expand").to_string(),
+                &settings.expand_max_tokens_text,
+                settings.config.token_limits.expand.is_unlimited(),
+                TaskKind::Expand,
+            ),
+            token_limit_row(
+                t!("settings_token_inquire").to_string(),
+                &settings.inquire_max_tokens_text,
+                settings.config.token_limits.inquire.is_unlimited(),
+                TaskKind::Inquire,
+            ),
+        ]
+        .spacing(10),
+    );
+
     // ── Data Paths section ───────────────────────────────────────────
     let data_path = AppPaths::data_file().map(|p| p.display().to_string());
     let config_path = AppPaths::llm_config().map(|p| p.display().to_string());
@@ -748,10 +901,16 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 
     // ── Assemble ─────────────────────────────────────────────────────
     let max_width = theme::canvas_max_width(state.ui().window_size.width);
-    let content =
-        column![header, provider_section, config_section, appearance_section, paths_section]
-            .spacing(24)
-            .max_width(max_width);
+    let content = column![
+        header,
+        provider_section,
+        config_section,
+        appearance_section,
+        token_limits_section,
+        paths_section
+    ]
+    .spacing(24)
+    .max_width(max_width);
 
     let padded = container(content).padding(theme::CANVAS_PAD).width(Fill).center_x(Fill);
 
@@ -807,6 +966,46 @@ fn section(
                 .right(theme::PANEL_PAD_H),
         )
         .width(Fill)
+        .into()
+}
+
+/// A row with label + text input + "Unlimited" checkbox for one task kind.
+///
+/// When unlimited is checked the text input is replaced by a disabled
+/// placeholder so the user cannot type conflicting values.
+fn token_limit_row(
+    label: String, value: &str, is_unlimited: bool, kind: TaskKind,
+) -> Element<'static, Message> {
+    let label_text = text(label).size(13).font(theme::INTER).color(theme::LIGHT.accent_muted);
+
+    let input_field: Element<'static, Message> = if is_unlimited {
+        // Show a read-only disabled-looking input when unlimited.
+        text_input("", "")
+            .size(14)
+            .padding(8)
+            .width(Length::Fixed(theme::SETTINGS_TOKEN_INPUT_WIDTH))
+            .into()
+    } else {
+        text_input("", value)
+            .on_input(move |v| Message::Settings(SettingsMessage::MaxTokensChanged(kind, v)))
+            .size(14)
+            .padding(8)
+            .width(Length::Fixed(theme::SETTINGS_TOKEN_INPUT_WIDTH))
+            .into()
+    };
+
+    let unlimited_label = t!("settings_unlimited").to_string();
+    let unlimited_checkbox = checkbox(is_unlimited)
+        .label(unlimited_label)
+        .on_toggle(move |checked| {
+            Message::Settings(SettingsMessage::ToggleMaxTokensUnlimited(kind, checked))
+        })
+        .size(16)
+        .text_size(13);
+
+    row![label_text, input_field, unlimited_checkbox]
+        .spacing(12)
+        .align_y(iced::Alignment::Center)
         .into()
 }
 

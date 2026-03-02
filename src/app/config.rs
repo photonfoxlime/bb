@@ -12,7 +12,91 @@
 
 use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
+use std::fmt;
 use std::{fs, io};
+
+/// Maximum completion tokens for a single LLM request.
+///
+/// Wraps a `u32` where `0` means unlimited (omit `max_completion_tokens` from
+/// the API request) and any positive value caps the response length.
+///
+/// Serialized transparently as a plain integer in TOML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct MaxTokens(u32);
+
+impl MaxTokens {
+    /// Sentinel value: do not send `max_completion_tokens` to the API.
+    pub const UNLIMITED: Self = Self(0);
+
+    /// Create a new token limit from a raw `u32`.
+    ///
+    /// `0` is interpreted as unlimited.
+    pub fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Convert to `Option<u32>` suitable for the API request field.
+    ///
+    /// Returns `None` when unlimited, `Some(n)` otherwise.
+    pub fn as_api_param(self) -> Option<u32> {
+        if self.0 == 0 { None } else { Some(self.0) }
+    }
+
+    /// Whether this limit is unlimited (zero).
+    pub fn is_unlimited(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Raw numeric value (`0` = unlimited).
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+impl fmt::Display for MaxTokens {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Per-task-kind token limits persisted in `app.toml`.
+///
+/// Each field defaults to a sensible value when absent from the file.
+/// A value of `0` means unlimited (the `max_completion_tokens` field is
+/// omitted from the API request).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TokenLimits {
+    /// Max completion tokens for reduce requests.
+    #[serde(default = "default_reduce_tokens")]
+    pub reduce: MaxTokens,
+    /// Max completion tokens for expand requests.
+    #[serde(default = "default_expand_tokens")]
+    pub expand: MaxTokens,
+    /// Max completion tokens for inquire requests.
+    #[serde(default = "default_inquire_tokens")]
+    pub inquire: MaxTokens,
+}
+
+impl Default for TokenLimits {
+    fn default() -> Self {
+        Self {
+            reduce: default_reduce_tokens(),
+            expand: default_expand_tokens(),
+            inquire: default_inquire_tokens(),
+        }
+    }
+}
+
+fn default_reduce_tokens() -> MaxTokens {
+    MaxTokens(400)
+}
+fn default_expand_tokens() -> MaxTokens {
+    MaxTokens(500)
+}
+fn default_inquire_tokens() -> MaxTokens {
+    MaxTokens(700)
+}
 
 /// Persisted app preferences (locale override, optional appearance override,
 /// and point-editor Enter behavior).
@@ -46,6 +130,13 @@ pub struct AppConfig {
         skip_serializing_if = "is_true"
     )]
     pub first_line_enter_add_child: bool,
+    /// Per-task-kind maximum completion token limits.
+    ///
+    /// Persisted under `[token-limits]` in `app.toml`. Each field defaults to
+    /// a sensible value when absent. A value of `0` means unlimited (the
+    /// `max_completion_tokens` field is omitted from the API request).
+    #[serde(rename = "token-limits", default)]
+    pub token_limits: TokenLimits,
 }
 
 impl Default for AppConfig {
@@ -54,6 +145,7 @@ impl Default for AppConfig {
             locale: None,
             dark_mode: None,
             first_line_enter_add_child: default_first_line_enter_add_child(),
+            token_limits: TokenLimits::default(),
         }
     }
 }
@@ -123,16 +215,14 @@ pub enum SaveError {
 
 #[cfg(test)]
 mod tests {
-    use super::AppConfig;
+    use super::{AppConfig, MaxTokens, TokenLimits};
 
     #[test]
     fn resolved_dark_mode_prefers_override() {
-        let config =
-            AppConfig { locale: None, dark_mode: Some(true), first_line_enter_add_child: true };
+        let config = AppConfig { dark_mode: Some(true), ..Default::default() };
         assert!(config.resolved_dark_mode(false));
 
-        let config =
-            AppConfig { locale: None, dark_mode: Some(false), first_line_enter_add_child: true };
+        let config = AppConfig { dark_mode: Some(false), ..Default::default() };
         assert!(!config.resolved_dark_mode(true));
     }
 
@@ -145,11 +235,7 @@ mod tests {
 
     #[test]
     fn toml_omits_dark_mode_when_unset() {
-        let config = AppConfig {
-            locale: Some("en-US".to_string()),
-            dark_mode: None,
-            first_line_enter_add_child: true,
-        };
+        let config = AppConfig { locale: Some("en-US".to_string()), ..Default::default() };
         let toml = toml::to_string(&config).expect("serialize app config");
         assert!(!toml.contains("dark_mode"));
         assert!(!toml.contains("first-line-enter-add-child"));
@@ -158,8 +244,54 @@ mod tests {
 
     #[test]
     fn toml_serializes_first_line_enter_add_child_when_disabled() {
-        let config = AppConfig { locale: None, dark_mode: None, first_line_enter_add_child: false };
+        let config = AppConfig { first_line_enter_add_child: false, ..Default::default() };
         let toml = toml::to_string(&config).expect("serialize app config");
         assert!(toml.contains("first-line-enter-add-child"));
+    }
+
+    #[test]
+    fn max_tokens_unlimited_omits_api_param() {
+        assert_eq!(MaxTokens::UNLIMITED.as_api_param(), None);
+        assert!(MaxTokens::UNLIMITED.is_unlimited());
+    }
+
+    #[test]
+    fn max_tokens_positive_maps_to_some() {
+        let mt = MaxTokens::new(400);
+        assert_eq!(mt.as_api_param(), Some(400));
+        assert!(!mt.is_unlimited());
+        assert_eq!(mt.raw(), 400);
+    }
+
+    #[test]
+    fn token_limits_defaults_are_sensible() {
+        let limits = TokenLimits::default();
+        assert_eq!(limits.reduce.raw(), 400);
+        assert_eq!(limits.expand.raw(), 500);
+        assert_eq!(limits.inquire.raw(), 700);
+    }
+
+    #[test]
+    fn token_limits_round_trips_through_toml() {
+        let limits = TokenLimits {
+            reduce: MaxTokens::new(300),
+            expand: MaxTokens::UNLIMITED,
+            inquire: MaxTokens::new(1000),
+        };
+        let config = AppConfig { token_limits: limits.clone(), ..Default::default() };
+        let toml_str = toml::to_string_pretty(&config).expect("serialize");
+        let parsed: AppConfig = toml::from_str(&toml_str).expect("deserialize");
+        assert_eq!(parsed.token_limits.reduce.raw(), 300);
+        assert_eq!(parsed.token_limits.expand.raw(), 0);
+        assert_eq!(parsed.token_limits.inquire.raw(), 1000);
+    }
+
+    #[test]
+    fn token_limits_missing_from_toml_uses_defaults() {
+        let toml_str = r#"locale = "en-US""#;
+        let config: AppConfig = toml::from_str(toml_str).expect("deserialize");
+        assert_eq!(config.token_limits.reduce.raw(), 400);
+        assert_eq!(config.token_limits.expand.raw(), 500);
+        assert_eq!(config.token_limits.inquire.raw(), 700);
     }
 }

@@ -113,6 +113,11 @@ settings_enter_behavior_add_child: "添加首个子块"
 settings_enter_behavior_newline: "插入换行"
 settings_data_paths: "数据路径"
 settings_providers: "提供方"
+settings_token_limits: "令牌限制"
+settings_token_reduce: "精简"
+settings_token_expand: "展开"
+settings_token_inquire: "询问"
+settings_unlimited: "无限制"
 
 # Action bar buttons
 action_expand: "展开"

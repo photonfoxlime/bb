@@ -34,7 +34,7 @@ pub enum InquireStreamEvent {
 /// ```ignore
 /// let config = LlmConfig::from_raw(base_url, api_key, model)?;
 /// let client = LlmClient::new(config);
-/// let result = client.expand_block(&context, None).await?;
+/// let result = client.expand_block(&context, None, Some(500)).await?;
 /// ```
 pub struct LlmClient {
     config: LlmConfig,
@@ -52,6 +52,9 @@ impl LlmClient {
     /// When existing children are present, the LLM may identify some as
     /// redundant (their content is subsumed by the reduction).
     ///
+    /// `max_tokens` caps the completion length (`None` = unlimited, omits the
+    /// field from the API request).
+    ///
     /// # Requires
     /// - `context` must not be empty (must have a lineage).
     ///
@@ -59,7 +62,7 @@ impl LlmClient {
     /// - Returns `Ok(ReduceResult)` with the condensed text and indices of redundant children.
     /// - If response parsing fails, falls back to plain-text reduction with no redundant children.
     pub async fn reduce_block(
-        &self, context: &BlockContext, instruction: Option<&str>,
+        &self, context: &BlockContext, instruction: Option<&str>, max_tokens: Option<u32>,
     ) -> Result<ReduceResult, LlmError> {
         if context.is_empty() {
             return Err(LlmError::InvalidRequest);
@@ -68,7 +71,6 @@ impl LlmClient {
         let has_children =
             !context.existing_children.is_empty() || !context.friend_blocks.is_empty();
         let prompt = Prompt::reduce_from_context(context, instruction);
-        let max_tokens = if has_children { 400 } else { 200 };
         let content = self.request_completion("reduce", &prompt, 0.2, max_tokens).await?;
 
         if has_children {
@@ -109,6 +111,9 @@ impl LlmClient {
     /// When existing children are present, the prompt instructs the LLM to
     /// avoid suggesting children that overlap with them.
     ///
+    /// `max_tokens` caps the completion length (`None` = unlimited, omits the
+    /// field from the API request).
+    ///
     /// # Requires
     /// - `context` must not be empty (must have a lineage).
     ///
@@ -116,14 +121,14 @@ impl LlmClient {
     /// - Returns `Ok(ExpandResult)` with optional rewrite and child suggestions.
     /// - Returns `Err(LlmError::InvalidExpandResponse)` if the response cannot be parsed.
     pub async fn expand_block(
-        &self, context: &BlockContext, instruction: Option<&str>,
+        &self, context: &BlockContext, instruction: Option<&str>, max_tokens: Option<u32>,
     ) -> Result<ExpandResult, LlmError> {
         if context.is_empty() {
             return Err(LlmError::InvalidRequest);
         }
 
         let prompt = Prompt::expand_from_context(context, instruction);
-        let content = self.request_completion("expand", &prompt, 0.7, 500).await?;
+        let content = self.request_completion("expand", &prompt, 0.7, max_tokens).await?;
         let payload: ExpandResponsePayload =
             serde_json::from_str(&content).map_err(|_| LlmError::InvalidExpandResponse)?;
 
@@ -154,6 +159,9 @@ impl LlmClient {
     /// The instruction is sent as a user message with the block context.
     /// Returns a one-time response that can be applied as a rewrite.
     ///
+    /// `max_tokens` caps the completion length (`None` = unlimited, omits the
+    /// field from the API request).
+    ///
     /// # Requires
     /// - `context` must not be empty (must have a lineage).
     /// - `instruction` must not be empty.
@@ -162,7 +170,7 @@ impl LlmClient {
     /// - Returns `Ok(String)` with a non-empty trimmed LLM response.
     /// - Returns `Err(LlmError::InvalidResponse)` if no usable text is returned.
     pub async fn inquire(
-        &self, context: &BlockContext, instruction: &str,
+        &self, context: &BlockContext, instruction: &str, max_tokens: Option<u32>,
     ) -> Result<String, LlmError> {
         if context.is_empty() {
             return Err(LlmError::InvalidRequest);
@@ -172,7 +180,7 @@ impl LlmClient {
         }
 
         let prompt = Prompt::inquire_from_context(context, instruction);
-        let content = self.request_completion("inquire", &prompt, 0.7, 700).await?;
+        let content = self.request_completion("inquire", &prompt, 0.7, max_tokens).await?;
         let trimmed = content.trim();
         if trimmed.is_empty() {
             return Err(LlmError::InvalidResponse);
@@ -189,6 +197,9 @@ impl LlmClient {
     /// falls back to a one-shot inquiry request and emits that full response as
     /// one [`InquireStreamEvent::Chunk`].
     ///
+    /// `max_tokens` caps the completion length (`None` = unlimited, omits the
+    /// field from the API request).
+    ///
     /// # Requires
     /// - `context` must not be empty (must have a lineage).
     /// - `instruction` must not be empty.
@@ -199,6 +210,7 @@ impl LlmClient {
     /// - Emits [`InquireStreamEvent::Failed`] before `Finished` on failure.
     pub fn inquire_stream(
         self, context: BlockContext, instruction: String, timeout: Duration,
+        max_tokens: Option<u32>,
     ) -> impl Stream<Item = InquireStreamEvent> {
         iced::stream::channel(64, async move |mut output| {
             let request = async {
@@ -208,7 +220,7 @@ impl LlmClient {
 
                 let prompt = Prompt::inquire_from_context(&context, &instruction);
 
-                match self.stream_inquiry_chunks(&prompt, &mut output).await {
+                match self.stream_inquiry_chunks(&prompt, &mut output, max_tokens).await {
                     | Ok(stats) if stats.has_output() => {
                         tracing::info!(
                             chunks = stats.chunk_count,
@@ -221,14 +233,16 @@ impl LlmClient {
                         tracing::warn!(
                             "llm inquire streaming emitted no chunks; retrying with one-shot request"
                         );
-                        self.emit_inquiry_fallback(&context, &instruction, &mut output).await
+                        self.emit_inquiry_fallback(&context, &instruction, &mut output, max_tokens)
+                            .await
                     }
                     | Err(err) if should_fallback_to_non_stream(&err) => {
                         tracing::warn!(
                             error = %err,
                             "llm inquire streaming unsupported; retrying with one-shot request"
                         );
-                        self.emit_inquiry_fallback(&context, &instruction, &mut output).await
+                        self.emit_inquiry_fallback(&context, &instruction, &mut output, max_tokens)
+                            .await
                     }
                     | Err(err) => Err(err),
                 }
@@ -248,10 +262,11 @@ impl LlmClient {
     }
 
     async fn request_completion(
-        &self, purpose: &'static str, prompt: &Prompt, temperature: f32, max_completion_tokens: u32,
+        &self, purpose: &'static str, prompt: &Prompt, temperature: f32,
+        max_completion_tokens: Option<u32>,
     ) -> Result<String, LlmError> {
         let url = self.chat_url();
-        tracing::info!(model = %self.config.model, url = %url, purpose, max_completion_tokens, "llm request");
+        tracing::info!(model = %self.config.model, url = %url, purpose, ?max_completion_tokens, "llm request");
         let (value, body) =
             self.send_completion_request(&url, prompt, temperature, max_completion_tokens).await?;
 
@@ -260,36 +275,42 @@ impl LlmClient {
             return Ok(content);
         }
 
+        // Retry with a higher limit only when the response was truncated and
+        // we have a finite cap that can be raised.
         if response_hit_token_limit(&value) {
-            let retry_max_tokens = (max_completion_tokens.saturating_mul(2)).min(2_000);
-            if retry_max_tokens > max_completion_tokens {
-                tracing::warn!(
-                    purpose,
-                    first_max_completion_tokens = max_completion_tokens,
-                    retry_max_completion_tokens = retry_max_tokens,
-                    "llm response reached token limit with no extractable text; retrying once"
-                );
-                let (retry_value, retry_body) = self
-                    .send_completion_request(&url, prompt, temperature, retry_max_tokens)
-                    .await?;
-                if let Some(content) = extract_completion_content_from_chat_value(&retry_value) {
-                    tracing::info!(
+            if let Some(current) = max_completion_tokens {
+                let retry_max_tokens = (current.saturating_mul(2)).min(2_000);
+                if retry_max_tokens > current {
+                    tracing::warn!(
                         purpose,
-                        chars = content.len(),
-                        max_completion_tokens = retry_max_tokens,
-                        "llm completion response after token-limit retry"
+                        first_max_completion_tokens = current,
+                        retry_max_completion_tokens = retry_max_tokens,
+                        "llm response reached token limit with no extractable text; retrying once"
                     );
-                    return Ok(content);
+                    let (retry_value, retry_body) = self
+                        .send_completion_request(&url, prompt, temperature, Some(retry_max_tokens))
+                        .await?;
+                    if let Some(content) = extract_completion_content_from_chat_value(&retry_value)
+                    {
+                        tracing::info!(
+                            purpose,
+                            chars = content.len(),
+                            max_completion_tokens = retry_max_tokens,
+                            "llm completion response after token-limit retry"
+                        );
+                        return Ok(content);
+                    }
+                    tracing::error!(
+                        purpose,
+                        body_preview = %preview_body(&retry_body),
+                        finish_reason = ?first_choice_finish_reason(&retry_value),
+                        completion_tokens = ?completion_tokens(&retry_value),
+                        "llm retry response still has no extractable text"
+                    );
+                    return Err(LlmError::InvalidResponse);
                 }
-                tracing::error!(
-                    purpose,
-                    body_preview = %preview_body(&retry_body),
-                    finish_reason = ?first_choice_finish_reason(&retry_value),
-                    completion_tokens = ?completion_tokens(&retry_value),
-                    "llm retry response still has no extractable text"
-                );
-                return Err(LlmError::InvalidResponse);
             }
+            // When unlimited (None), there is no higher limit to try.
         }
 
         tracing::error!(
@@ -305,8 +326,9 @@ impl LlmClient {
     async fn emit_inquiry_fallback(
         &self, context: &BlockContext, instruction: &str,
         output: &mut iced::futures::channel::mpsc::Sender<InquireStreamEvent>,
+        max_tokens: Option<u32>,
     ) -> Result<(), LlmError> {
-        let content = self.inquire(context, instruction).await?;
+        let content = self.inquire(context, instruction, max_tokens).await?;
         let _ = output.send(InquireStreamEvent::Chunk(content.clone())).await;
         tracing::info!(chars = content.len(), "llm inquire fallback response");
         Ok(())
@@ -315,10 +337,12 @@ impl LlmClient {
     async fn stream_inquiry_chunks(
         &self, prompt: &Prompt,
         output: &mut iced::futures::channel::mpsc::Sender<InquireStreamEvent>,
+        max_tokens: Option<u32>,
     ) -> Result<StreamStats, LlmError> {
         let url = self.chat_url();
         tracing::info!(model = %self.config.model, url = %url, purpose = "inquire", "llm streaming request");
-        let response = self.send_streaming_completion_request(&url, prompt, 0.7, 700).await?;
+        let response =
+            self.send_streaming_completion_request(&url, prompt, 0.7, max_tokens).await?;
         let mut bytes = response.bytes_stream();
         let mut decoder = SseDataDecoder::new();
         let mut stats = StreamStats::default();
@@ -365,7 +389,7 @@ impl LlmClient {
     }
 
     async fn send_completion_request(
-        &self, url: &str, prompt: &Prompt, temperature: f32, max_completion_tokens: u32,
+        &self, url: &str, prompt: &Prompt, temperature: f32, max_completion_tokens: Option<u32>,
     ) -> Result<(Value, String), LlmError> {
         let request = ChatRequest {
             model: self.config.model.clone(),
@@ -405,7 +429,7 @@ impl LlmClient {
     }
 
     async fn send_streaming_completion_request(
-        &self, url: &str, prompt: &Prompt, temperature: f32, max_completion_tokens: u32,
+        &self, url: &str, prompt: &Prompt, temperature: f32, max_completion_tokens: Option<u32>,
     ) -> Result<reqwest::Response, LlmError> {
         let request = ChatRequest {
             model: self.config.model.clone(),
@@ -447,7 +471,8 @@ struct ChatRequest {
     model: String,
     messages: Vec<Message>,
     temperature: f32,
-    max_completion_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_completion_tokens: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     stream: Option<bool>,
 }

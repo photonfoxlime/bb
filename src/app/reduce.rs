@@ -74,13 +74,18 @@ pub fn handle(state: &mut AppState, message: ReduceMessage) -> Task<Message> {
             // Get instruction draft from store and consume it
             let instruction =
                 state.store.remove_instruction_draft(&block_id).map(|d| d.instruction);
+            let reduce_max_tokens = state.config.token_limits.reduce.as_api_param();
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
                     AppState::resolve_llm_request(
                         tokio::time::timeout(
                             LLM_REQUEST_TIMEOUT,
-                            client.reduce_block(&context, instruction.as_deref()),
+                            client.reduce_block(
+                                &context,
+                                instruction.as_deref(),
+                                reduce_max_tokens,
+                            ),
                         )
                         .await,
                         "reduce request timed out after 30 seconds",

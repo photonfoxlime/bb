@@ -73,13 +73,18 @@ pub fn handle(state: &mut AppState, message: ExpandMessage) -> Task<Message> {
             // Get instruction draft from store and consume it
             let instruction =
                 state.store.remove_instruction_draft(&block_id).map(|d| d.instruction);
+            let expand_max_tokens = state.config.token_limits.expand.as_api_param();
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
                     AppState::resolve_llm_request(
                         tokio::time::timeout(
                             LLM_REQUEST_TIMEOUT,
-                            client.expand_block(&context, instruction.as_deref()),
+                            client.expand_block(
+                                &context,
+                                instruction.as_deref(),
+                                expand_max_tokens,
+                            ),
                         )
                         .await,
                         format!(
