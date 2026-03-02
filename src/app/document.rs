@@ -52,6 +52,13 @@
 //! PickFriend, Multiselect), while Find is an overlay toggle that can coexist
 //! with an underlying document mode. Visual active state prioritizes Find when
 //! the overlay is open.
+//!
+//! # Shortcut Help Banner
+//!
+//! The top-right help button toggles a large bottom-right banner that lists all
+//! currently supported keyboard shortcuts and key-driven editing gestures.
+//! Keeping this cheat-sheet in-document reduces mode-switching cost for users
+//! while preserving discoverability of less obvious chords.
 
 use super::{
     AppState, DocumentMode, EditMessage, ErrorBanner, ErrorMessage, ExpandMessage, FindMessage,
@@ -170,6 +177,17 @@ impl<'a> DocumentView<'a> {
 
         let main_content = container(layout).style(theme::canvas).width(Fill).height(Fill);
 
+        // Shortcut help button – top-right, before settings
+        let show_shortcut_help = state.ui().show_shortcut_help;
+        let help_button = IconButton::mode(
+            icons::icon_circle_question_mark()
+                .size(theme::TOOLBAR_ICON_SIZE)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into(),
+            show_shortcut_help,
+        )
+        .on_press(Message::Overlay(OverlayMessage::ToggleShortcutHelp));
+
         // Settings gear button – top-right corner
         let gear_button = IconButton::action(
             lucide_icons::iced::icon_settings()
@@ -204,7 +222,7 @@ impl<'a> DocumentView<'a> {
         }
 
         let top_right_buttons =
-            row![undo_button, redo_button, gear_button].spacing(theme::ACTION_GAP);
+            row![undo_button, redo_button, help_button, gear_button].spacing(theme::ACTION_GAP);
         let floating_gear = container(
             container(top_right_buttons)
                 .width(Fill)
@@ -214,6 +232,9 @@ impl<'a> DocumentView<'a> {
         )
         .width(Fill)
         .height(Fill);
+
+        // Shortcut help banner – bottom-right corner
+        let shortcut_help_banner_element = self.render_shortcut_help_banner();
 
         // Error banner – bottom-right corner
         let error_banner_element = if let Some(error_banner) = ErrorBanner::from_state(state) {
@@ -249,10 +270,28 @@ impl<'a> DocumentView<'a> {
             None
         };
 
-        let floating_error_banner = if let Some(banner) = error_banner_element {
-            container(container(banner).padding(
-                iced::Padding::new(16.0).right(theme::CANVAS_PAD).bottom(theme::CANVAS_PAD),
-            ))
+        let mut bottom_right_content =
+            column![].spacing(theme::LAYOUT_GAP).align_x(iced::alignment::Horizontal::Right);
+        let mut has_bottom_right_overlay = false;
+
+        if let Some(help_banner) = shortcut_help_banner_element {
+            bottom_right_content = bottom_right_content.push(help_banner);
+            has_bottom_right_overlay = true;
+        }
+        if let Some(error_banner) = error_banner_element {
+            bottom_right_content = bottom_right_content.push(error_banner);
+            has_bottom_right_overlay = true;
+        }
+
+        let floating_bottom_right = if has_bottom_right_overlay {
+            container(
+                container(bottom_right_content)
+                    .width(Fill)
+                    .align_x(iced::alignment::Horizontal::Right)
+                    .padding(
+                        iced::Padding::new(16.0).right(theme::CANVAS_PAD).bottom(theme::CANVAS_PAD),
+                    ),
+            )
             .align_y(iced::alignment::Vertical::Bottom)
             .align_x(iced::alignment::Horizontal::Right)
             .width(Fill)
@@ -277,11 +316,107 @@ impl<'a> DocumentView<'a> {
             toolbar_container,
             find_panel::floating_overlay(state),
             breadcrumbs_container,
-            floating_error_banner
+            floating_bottom_right
         ]
         .width(Fill)
         .height(Fill)
         .into()
+    }
+
+    /// Render the bottom-right keyboard-shortcuts help banner when enabled.
+    fn render_shortcut_help_banner(&self) -> Option<Element<'a, Message>> {
+        if !self.state.ui().show_shortcut_help {
+            return None;
+        }
+
+        let title = row![
+            text(t!("shortcut_help_title").to_string())
+                .size(theme::SHORTCUT_HELP_TITLE_SIZE)
+                .font(theme::INTER),
+            space::horizontal(),
+            button(text(t!("ui_dismiss").to_string()))
+                .on_press(Message::Overlay(OverlayMessage::ToggleShortcutHelp))
+                .padding(theme::BUTTON_PAD)
+        ]
+        .spacing(theme::ACTION_GAP)
+        .align_y(iced::Alignment::Center)
+        .width(Fill);
+
+        let global_section = column![
+            text(t!("shortcut_help_section_global").to_string())
+                .font(theme::INTER)
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_global_find").to_string()).size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_global_find_next").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_global_find_previous").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_global_undo").to_string()).size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_global_redo").to_string()).size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_global_escape").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+        ]
+        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
+
+        let structure_section = column![
+            text(t!("shortcut_help_section_structure").to_string())
+                .font(theme::INTER)
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_structure_expand").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_structure_reduce").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_structure_add_child").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_structure_add_sibling").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_structure_accept_all").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+        ]
+        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
+
+        let movement_section = column![
+            text(t!("shortcut_help_section_movement").to_string())
+                .font(theme::INTER)
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_movement_focus").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_movement_reorder").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_movement_outdent").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_movement_indent").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+        ]
+        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
+
+        let backspace_section = column![
+            text(t!("shortcut_help_section_backspace").to_string())
+                .font(theme::INTER)
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_backspace_enter_multiselect").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_backspace_delete_multiselect").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+        ]
+        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
+
+        let banner = container(
+            column![
+                title,
+                rule::horizontal(1),
+                global_section,
+                structure_section,
+                movement_section,
+                backspace_section,
+            ]
+            .spacing(theme::SHORTCUT_HELP_SECTION_GAP),
+        )
+        .style(theme::shortcut_help_banner)
+        .max_width(theme::SHORTCUT_HELP_MAX_WIDTH)
+        .padding(theme::BANNER_PAD);
+
+        Some(banner.into())
     }
 
     /// Render the breadcrumb navigation bar.

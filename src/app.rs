@@ -720,6 +720,8 @@ pub struct TransientUiState {
     /// This is used to filter command-shortcut key leaks (for example,
     /// suppressing `Cmd/Ctrl+F` text insertion into active editors/inputs).
     pub keyboard_modifiers: keyboard::Modifiers,
+    /// Whether the keyboard-shortcuts help banner is visible.
+    pub show_shortcut_help: bool,
     /// Whether the current theme is dark.
     ///
     /// Initialized from persisted app config when available; otherwise from

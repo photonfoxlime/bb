@@ -19,6 +19,8 @@ pub enum OverlayMessage {
     ToggleOverflow(BlockId),
     /// Toggle the mount header path-operations overflow menu.
     ToggleMountActionsOverflow(BlockId),
+    /// Toggle the bottom-right keyboard shortcut help banner.
+    ToggleShortcutHelp,
 }
 
 /// Process one overlay message and return a follow-up task (if any).
@@ -46,5 +48,27 @@ pub fn handle(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
             }
             Task::none()
         }
+        | OverlayMessage::ToggleShortcutHelp => {
+            state.ui_mut().show_shortcut_help = !state.ui().show_shortcut_help;
+            Task::none()
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn toggle_shortcut_help_flips_banner_visibility() {
+        let (mut state, _) = AppState::test_state();
+
+        assert!(!state.ui().show_shortcut_help);
+
+        let _ = handle(&mut state, OverlayMessage::ToggleShortcutHelp);
+        assert!(state.ui().show_shortcut_help);
+
+        let _ = handle(&mut state, OverlayMessage::ToggleShortcutHelp);
+        assert!(!state.ui().show_shortcut_help);
     }
 }

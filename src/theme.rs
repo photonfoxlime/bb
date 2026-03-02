@@ -167,6 +167,16 @@ pub const PANEL_PAD_H: f32 = 16.0;
 pub const DIFF_HIGHLIGHT_PAD_H: f32 = 2.0;
 /// Padding inside the error banner.
 pub const BANNER_PAD: f32 = 8.0;
+/// Maximum width for the keyboard-shortcuts help banner.
+pub const SHORTCUT_HELP_MAX_WIDTH: f32 = 560.0;
+/// Font size for keyboard-shortcuts help banner title.
+pub const SHORTCUT_HELP_TITLE_SIZE: f32 = 16.0;
+/// Font size for keyboard-shortcuts help banner content rows.
+pub const SHORTCUT_HELP_TEXT_SIZE: f32 = 13.0;
+/// Vertical gap between sections in the keyboard-shortcuts help banner.
+pub const SHORTCUT_HELP_SECTION_GAP: f32 = 8.0;
+/// Vertical gap between shortcut rows inside one section.
+pub const SHORTCUT_HELP_ROW_GAP: f32 = 4.0;
 
 /// Font size for instruction panel button text.
 pub const INSTRUCTION_BUTTON_SIZE: f32 = 13.0;
@@ -457,6 +467,17 @@ pub fn error_banner(theme: &Theme) -> container::Style {
         background: Some(Color { a: 0.15, ..p.danger }.into()),
         border: border::rounded(4).width(1).color(Color { a: 0.5, ..p.danger }),
         text_color: Some(p.danger),
+        ..Default::default()
+    }
+}
+
+/// Keyboard-shortcuts help banner container.
+pub fn shortcut_help_banner(theme: &Theme) -> container::Style {
+    let p = focused_palette(theme);
+    container::Style {
+        background: Some(Color { a: 0.96, ..p.paper }.into()),
+        border: border::rounded(6).width(1).color(Color { a: 0.5, ..p.accent }),
+        text_color: Some(p.ink),
         ..Default::default()
     }
 }
