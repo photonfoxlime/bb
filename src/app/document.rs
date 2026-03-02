@@ -556,9 +556,9 @@ impl<'a> DocumentView<'a> {
         }
 
         // Group action buttons into rows of 5
-        let mut action_buttons_column = column![].spacing(4);
-        for chunk in enabled_actions.chunks(5) {
-            let mut row_buttons = row![].spacing(4);
+        let mut action_buttons_column = column![].spacing(theme::CONTEXT_MENU_ACTION_GAP);
+        for chunk in enabled_actions.chunks(theme::CONTEXT_MENU_ACTIONS_PER_ROW) {
+            let mut row_buttons = row![].spacing(theme::CONTEXT_MENU_ACTION_GAP);
             for (action_id, message) in chunk {
                 let btn: Element<'a, Message> =
                     IconButton::action(action_icon(*action_id)).on_press(message.clone()).into();
@@ -578,18 +578,21 @@ impl<'a> DocumentView<'a> {
             rule::horizontal(1),
             context_menu_button(t!("ctx_select_all").to_string(), ContextMenuAction::SelectAll),
         ]
-        .spacing(2)
-        .padding(4)
+        .spacing(theme::CONTEXT_MENU_ITEM_SPACING)
+        .padding(theme::CONTEXT_MENU_PAD)
         .into();
 
         // Combine action buttons and menu items
         let content = if enabled_actions.len() > 0 {
-            column![action_buttons_column, rule::horizontal(1), menu_items].spacing(4)
+            column![action_buttons_column, rule::horizontal(1), menu_items]
+                .spacing(theme::CONTEXT_MENU_ACTION_GAP)
         } else {
-            column![menu_items].spacing(4)
+            column![menu_items].spacing(theme::CONTEXT_MENU_ITEM_SPACING)
         };
 
-        let menu = container(content).style(theme::context_menu).width(Length::Fixed(180.0));
+        let menu = container(content)
+            .style(theme::context_menu)
+            .width(Length::Fixed(theme::CONTEXT_MENU_WIDTH));
 
         // Use stack to position menu at cursor location
         // Layer 1: Background with click-to-dismiss

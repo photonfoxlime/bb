@@ -288,6 +288,35 @@ pub const VIEWPORT_TOUCH_COMPACT_MAX_WIDTH: f32 = 560.0;
 /// Font size for mount header path labels.
 pub const MOUNT_HEADER_TEXT_SIZE: f32 = 13.0;
 
+// ── Context menu ──────────────────────────────────────────────────────
+
+/// Context menu container width.
+pub const CONTEXT_MENU_WIDTH: f32 = 180.0;
+/// Context menu action buttons per row before wrapping.
+pub const CONTEXT_MENU_ACTIONS_PER_ROW: usize = 5;
+/// Spacing between context menu action buttons.
+pub const CONTEXT_MENU_ACTION_GAP: f32 = 4.0;
+/// Spacing between context menu item rows.
+pub const CONTEXT_MENU_ITEM_SPACING: f32 = 2.0;
+/// Padding inside context menu container.
+pub const CONTEXT_MENU_PAD: f32 = 4.0;
+/// Border radius for context menu container.
+pub const CONTEXT_MENU_BORDER_RADIUS: f32 = 4.0;
+/// Border radius for context menu buttons.
+pub const CONTEXT_MENU_BUTTON_BORDER_RADIUS: f32 = 2.0;
+/// Hover background opacity for context menu buttons.
+pub const CONTEXT_MENU_BUTTON_HOVER_OPACITY: f32 = 0.08;
+/// Pressed background opacity for context menu buttons.
+pub const CONTEXT_MENU_BUTTON_PRESSED_OPACITY: f32 = 0.15;
+/// Context menu shadow blur radius.
+pub const CONTEXT_MENU_SHADOW_BLUR: f32 = 8.0;
+/// Context menu shadow offset Y.
+pub const CONTEXT_MENU_SHADOW_OFFSET_Y: f32 = 2.0;
+/// Context menu shadow opacity.
+pub const CONTEXT_MENU_SHADOW_OPACITY: f32 = 0.2;
+/// Context menu border opacity.
+pub const CONTEXT_MENU_BORDER_OPACITY: f32 = 0.15;
+
 // ── Theme constructor ────────────────────────────────────────────────
 
 impl crate::app::AppState {
@@ -616,11 +645,13 @@ pub fn context_menu(theme: &Theme) -> container::Style {
     container::Style {
         background: Some(p.paper.into()),
         text_color: Some(p.ink),
-        border: border::rounded(4).width(1).color(Color { a: 0.15, ..p.ink }),
+        border: border::rounded(CONTEXT_MENU_BORDER_RADIUS)
+            .width(1)
+            .color(Color { a: CONTEXT_MENU_BORDER_OPACITY, ..p.ink }),
         shadow: iced::Shadow {
-            color: Color { a: 0.2, ..Color::BLACK },
-            offset: iced::Vector { x: 0.0, y: 2.0 },
-            blur_radius: 8.0,
+            color: Color { a: CONTEXT_MENU_SHADOW_OPACITY, ..Color::BLACK },
+            offset: iced::Vector { x: 0.0, y: CONTEXT_MENU_SHADOW_OFFSET_Y },
+            blur_radius: CONTEXT_MENU_SHADOW_BLUR,
         },
         snap: false,
     }
@@ -646,28 +677,28 @@ pub fn context_menu_button(theme: &Theme, status: button::Status) -> button::Sty
         | button::Status::Active => button::Style {
             background: None,
             text_color: p.ink,
-            border: border::rounded(2).width(0),
+            border: border::rounded(CONTEXT_MENU_BUTTON_BORDER_RADIUS).width(0),
             snap: false,
             ..Default::default()
         },
         | button::Status::Hovered => button::Style {
-            background: Some(Color { a: 0.08, ..p.ink }.into()),
+            background: Some(Color { a: CONTEXT_MENU_BUTTON_HOVER_OPACITY, ..p.ink }.into()),
             text_color: p.ink,
-            border: border::rounded(2).width(0),
+            border: border::rounded(CONTEXT_MENU_BUTTON_BORDER_RADIUS).width(0),
             snap: false,
             ..Default::default()
         },
         | button::Status::Pressed => button::Style {
-            background: Some(Color { a: 0.15, ..p.ink }.into()),
+            background: Some(Color { a: CONTEXT_MENU_BUTTON_PRESSED_OPACITY, ..p.ink }.into()),
             text_color: p.ink,
-            border: border::rounded(2).width(0),
+            border: border::rounded(CONTEXT_MENU_BUTTON_BORDER_RADIUS).width(0),
             snap: false,
             ..Default::default()
         },
         | button::Status::Disabled => button::Style {
             background: None,
             text_color: p.spine_light,
-            border: border::rounded(2).width(0),
+            border: border::rounded(CONTEXT_MENU_BUTTON_BORDER_RADIUS).width(0),
             snap: false,
             ..Default::default()
         },
