@@ -50,10 +50,10 @@
 //!
 //! # Mode Bar Semantics
 //!
-//! Mode buttons represent mutually exclusive document modes (Normal,
-//! PickFriend, Multiselect), while Find is an overlay toggle that can coexist
-//! with an underlying document mode. Visual active state prioritizes Find when
-//! the overlay is open.
+//! Mode buttons represent document modes (Normal, PickFriend, Multiselect).
+//! Find is an overlay toggle that can coexist with an underlying document mode.
+//! Mode button active states reflect the underlying document mode independent of
+//! the find overlay, allowing users to switch between modes while find is open.
 //!
 //! # Shortcut Help Banner
 //!
@@ -112,10 +112,10 @@ impl<'a> DocumentView<'a> {
         let mut layout = column![].spacing(theme::LAYOUT_GAP);
 
         // Modebar buttons (normal, find, multiselect) - top-left corner
-        let is_find_mode = state.ui().find_ui.is_open();
-        let is_normal_mode = state.ui().document_mode == DocumentMode::Normal && !is_find_mode;
-        let is_multiselect_mode =
-            state.ui().document_mode == DocumentMode::Multiselect && !is_find_mode;
+        // Document mode buttons reflect the underlying document mode, independent of find overlay
+        let is_normal_mode = state.ui().document_mode == DocumentMode::Normal;
+        let is_find_mode = state.ui().document_mode == DocumentMode::Find;
+        let is_multiselect_mode = state.ui().document_mode == DocumentMode::Multiselect;
 
         let normal_mode_btn = IconButton::mode(
             icons::icon_mouse_pointer_2()
@@ -698,15 +698,15 @@ impl<'a> TreeView<'a> {
             self.state.ui().multiselect_selected_blocks.contains(block_id);
 
         match (self.state.ui().document_mode, self.state.focus().map(|s| s.block_id)) {
-            | (DocumentMode::Normal, Some(focused)) if focused == *block_id => {
+            | (DocumentMode::Normal | DocumentMode::Find, Some(focused)) if focused == *block_id => {
                 // Render the block as the focused block
                 container(block).style(theme::focused_block).into()
             }
-            | (DocumentMode::Normal, _) if is_hovered_friend => {
+            | (DocumentMode::Normal | DocumentMode::Find, _) if is_hovered_friend => {
                 // Highlight block when friend panel hovers over it
                 container(block).style(theme::friend_picker_hover).into()
             }
-            | (DocumentMode::Normal, _) => block.into(),
+            | (DocumentMode::Normal | DocumentMode::Find, _) => block.into(),
             | (DocumentMode::PickFriend, Some(focused)) if focused == *block_id => {
                 // Render the picker block itself as is
                 block.into()

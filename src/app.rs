@@ -643,6 +643,8 @@ pub enum DocumentMode {
     /// Normal block editing mode.
     #[default]
     Normal,
+    /// Find mode.
+    Find,
     /// Picking a friend block to add to the focused block.
     PickFriend,
     /// Selecting one or more blocks for keyboard-driven batch actions.

@@ -28,7 +28,6 @@ const FIND_QUERY_DEBOUNCE_MS: u64 = 300;
 /// When `selected` is `Some(i)`, `i` is always a valid index into `matches`.
 #[derive(Debug, Clone, Default)]
 pub struct FindUiState {
-    open: bool,
     query: String,
     matches: Vec<BlockId>,
     selected: Option<usize>,
@@ -36,11 +35,6 @@ pub struct FindUiState {
 }
 
 impl FindUiState {
-    /// Whether the find overlay is currently visible.
-    pub fn is_open(&self) -> bool {
-        self.open
-    }
-
     /// Current user query text.
     pub fn query(&self) -> &str {
         &self.query
@@ -54,16 +48,6 @@ impl FindUiState {
     /// Current selected match index.
     pub fn selected_index(&self) -> Option<usize> {
         self.selected
-    }
-
-    /// Open the find overlay.
-    pub fn open(&mut self) {
-        self.open = true;
-    }
-
-    /// Close the find overlay.
-    pub fn close(&mut self) {
-        self.open = false;
     }
 
     /// Replace the query text and advance the debounce revision.
@@ -156,27 +140,27 @@ pub enum FindMessage {
 pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
     match message {
         | FindMessage::Toggle => {
-            if state.ui().find_ui.is_open() {
-                state.ui_mut().find_ui.close();
+            if state.ui().document_mode == DocumentMode::Find {
+                state.ui_mut().document_mode = DocumentMode::Normal;
                 Task::none()
             } else {
-                state.ui_mut().find_ui.open();
+                state.ui_mut().document_mode = DocumentMode::Find;
                 refresh_matches(state);
                 focus(find_query_input_id())
             }
         }
         | FindMessage::Open => {
-            state.ui_mut().find_ui.open();
+            state.ui_mut().document_mode = DocumentMode::Find;
             refresh_matches(state);
             focus(find_query_input_id())
         }
         | FindMessage::Close => {
-            state.ui_mut().find_ui.close();
+            state.ui_mut().document_mode = DocumentMode::Normal;
             Task::none()
         }
         | FindMessage::Escape => {
-            if state.ui().find_ui.is_open() {
-                state.ui_mut().find_ui.close();
+            if state.ui().document_mode == DocumentMode::Find {
+                state.ui_mut().document_mode = DocumentMode::Normal;
                 return Task::none();
             }
 
@@ -203,7 +187,7 @@ pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
             // Ignore late text-input events when the panel is already closed.
             // This prevents shortcut-driven close (Cmd/Ctrl+F) from leaking a
             // trailing character into the stored query.
-            if !state.ui().find_ui.is_open() {
+            if state.ui().document_mode != DocumentMode::Find {
                 return Task::none();
             }
             let query_revision = state.ui_mut().find_ui.set_query(query);
@@ -220,7 +204,9 @@ pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
             )
         }
         | FindMessage::DebounceElapsed(revision) => {
-            if !state.ui().find_ui.is_open() || !state.ui().find_ui.is_current_revision(revision) {
+            if state.ui().document_mode != DocumentMode::Find
+                || !state.ui().find_ui.is_current_revision(revision)
+            {
                 return Task::none();
             }
             refresh_matches(state);
@@ -228,21 +214,21 @@ pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
         }
         | FindMessage::JumpSelected => jump_to_selected(state),
         | FindMessage::JumpNext => {
-            if !state.ui().find_ui.is_open() {
+            if state.ui().document_mode != DocumentMode::Find {
                 return Task::none();
             }
             state.ui_mut().find_ui.select_next();
             jump_to_selected(state)
         }
         | FindMessage::JumpPrevious => {
-            if !state.ui().find_ui.is_open() {
+            if state.ui().document_mode != DocumentMode::Find {
                 return Task::none();
             }
             state.ui_mut().find_ui.select_previous();
             jump_to_selected(state)
         }
         | FindMessage::JumpToIndex(index) => {
-            if !state.ui().find_ui.is_open() {
+            if state.ui().document_mode != DocumentMode::Find {
                 return Task::none();
             }
             state.ui_mut().find_ui.select_index(index);
@@ -253,7 +239,7 @@ pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
 
 /// Render the floating find overlay.
 pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
-    if !state.ui().find_ui.is_open() {
+    if state.ui().document_mode != DocumentMode::Find {
         return container(iced::widget::Space::new())
             .width(Length::Fill)
             .height(Length::Fill)
@@ -443,7 +429,7 @@ fn single_inserted_char(previous: &str, next: &str) -> Option<char> {
 }
 
 fn jump_to_selected(state: &mut AppState) -> Task<Message> {
-    if !state.ui().find_ui.is_open() {
+    if state.ui().document_mode != DocumentMode::Find {
         return Task::none();
     }
 
@@ -501,13 +487,13 @@ mod tests {
     #[test]
     fn toggle_opens_and_closes_overlay() {
         let (mut state, _) = test_state();
-        assert!(!state.ui().find_ui.is_open());
+        assert!(state.ui().document_mode != DocumentMode::Find);
 
         let _ = AppState::update(&mut state, Message::Find(FindMessage::Toggle));
-        assert!(state.ui().find_ui.is_open());
+        assert!(state.ui().document_mode == DocumentMode::Find);
 
         let _ = AppState::update(&mut state, Message::Find(FindMessage::Toggle));
-        assert!(!state.ui().find_ui.is_open());
+        assert!(state.ui().document_mode != DocumentMode::Find);
     }
 
     #[test]
