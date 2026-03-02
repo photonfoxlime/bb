@@ -65,7 +65,7 @@ fn move_cursor_by_word(
     state.set_focus(block_id);
     state.editor_buffers.ensure_block(&state.store, &block_id);
 
-    let Some((line_index, current_column, line_text)) =
+    let Some((line_index, current_column_byte, line_text)) =
         state.editor_buffers.get(&block_id).and_then(|content| {
             let cursor = content.cursor().position;
             content
@@ -76,6 +76,20 @@ fn move_cursor_by_word(
         return Task::none();
     };
 
+    // Convert cursor.column from byte offset to char offset.
+    // iced's text_editor uses byte offsets for cursor position,
+    // but our token spans use char offsets.
+    let current_column = line_text[..current_column_byte.min(line_text.len())].chars().count();
+
+    tracing::debug!(
+        block_id = ?block_id,
+        current_column_byte = current_column_byte,
+        current_column_char = current_column,
+        line_byte_len = line_text.len(),
+        line_char_count = line_text.chars().count(),
+        "cursor position from editor"
+    );
+
     let spans = state.editor_buffers.word_token_spans_for_line(&block_id, &line_text);
     let line_char_count = line_text.chars().count();
     tracing::debug!(
@@ -84,7 +98,8 @@ fn move_cursor_by_word(
         line_char_count = line_char_count,
         spans_count = spans.len(),
         spans = ?spans.iter().map(|s| (s.start, s.end)).collect::<Vec<_>>(),
-        current_column = current_column,
+        current_column_char = current_column,
+        current_column_byte = current_column_byte,
         ?direction,
         "word token spans for line"
     );
@@ -101,19 +116,33 @@ fn move_cursor_by_word(
     }
 
     if let Some(content) = state.editor_buffers.get_mut(&block_id) {
+        // Convert char offset back to byte offset for the editor.
+        let next_column_byte =
+            line_text.char_indices().nth(next_column).map(|(i, _)| i).unwrap_or(line_text.len());
+
         content.move_to(text_editor::Cursor {
-            position: text_editor::Position { line: line_index, column: next_column },
+            position: text_editor::Position { line: line_index, column: next_column_byte },
             selection: None,
         });
-    }
 
-    tracing::info!(
-        block_id = ?block_id,
-        from_column = current_column,
-        to_column = next_column,
-        ?direction,
-        "moved cursor by word"
-    );
+        tracing::info!(
+            block_id = ?block_id,
+            from_column_char = current_column,
+            to_column_char = next_column,
+            from_column_byte = current_column_byte,
+            to_column_byte = next_column_byte,
+            ?direction,
+            "moved cursor by word"
+        );
+    } else {
+        tracing::info!(
+            block_id = ?block_id,
+            from_column_char = current_column,
+            to_column_char = next_column,
+            ?direction,
+            "moved cursor by word (content not available)"
+        );
+    }
     Task::none()
 }
 
@@ -687,11 +716,13 @@ mod tests {
     #[test]
     fn move_cursor_by_word_splits_han_characters() {
         let (mut state, root) = AppState::test_state();
-        state.store.update_point(&root, "中文ab".to_string());
-        state.editor_buffers.set_text(&root, "中文ab");
+        state.store.update_point(&root, "中文 ab".to_string());
+        state.editor_buffers.set_text(&root, "中文 ab");
+        // "中" (0-3), "文" (3-6), "a" (6-7), "b" (7-8)
+        // Set cursor at byte 8 (after "b", which is char position 4)
         if let Some(content) = state.editor_buffers.get_mut(&root) {
             content.move_to(text_editor::Cursor {
-                position: text_editor::Position { line: 0, column: 4 },
+                position: text_editor::Position { line: 0, column: 8 },
                 selection: None,
             });
         }
@@ -701,9 +732,11 @@ mod tests {
             EditMessage::MoveCursorByWord { block_id: root, direction: WordCursorDirection::Left },
         );
 
+        // Han characters are tokenized individually, so moving left from char 4 ("b")
+        // goes to char 3 ("a"), which is byte 7.
         let cursor =
             state.editor_buffers.get(&root).expect("editor content exists").cursor().position;
-        assert_eq!(cursor.column, 2);
+        assert_eq!(cursor.column, 7);
     }
 
     #[test]
@@ -1006,10 +1039,13 @@ mod tests {
     #[test]
     fn move_cursor_by_word_mixed_han_and_latin() {
         let (mut state, root) = AppState::test_state();
-        // 你 (0-1) 好 (1-2)   hello(3-8)   世 (9-10) 界 (10-11)   world(12-17)
+        // "你好 hello 世界 world"
+        // Char:  你  好     h     e     l     l     o          世     界          w     o     r     l     d
+        // Byte:  0-3 3-6 6-7 7-8 8-9 9-10 10-11 11-12 12-13 13-16 16-19 19-20 20-21 21-22 22-23 23-24 24-25
         let text = "你好 hello 世界 world";
         state.store.update_point(&root, text.to_string());
         state.editor_buffers.set_text(&root, text);
+        // Start at byte 0 (char 0)
         if let Some(content) = state.editor_buffers.get_mut(&root) {
             content.move_to(text_editor::Cursor {
                 position: text_editor::Position { line: 0, column: 0 },
@@ -1017,9 +1053,11 @@ mod tests {
             });
         }
 
-        // Move right through mixed script
-        let expected = vec![1, 2, 3, 8, 9, 10, 11, 12, 17];
-        for expected_column in expected {
+        // Move right through mixed script - expected BYTE positions
+        // Char positions: 1, 2, 3, 8, 9, 10, 11, 12, 17
+        // Byte positions: 3, 6, 7, 12, 13, 16, 19, 20, 25
+        let expected_bytes = vec![3, 6, 7, 12, 13, 16, 19, 20, 25];
+        for expected_byte in expected_bytes {
             let _ = handle(
                 &mut state,
                 EditMessage::MoveCursorByWord {
@@ -1029,11 +1067,7 @@ mod tests {
             );
             let cursor =
                 state.editor_buffers.get(&root).expect("editor content exists").cursor().position;
-            assert_eq!(
-                cursor.column, expected_column,
-                "Failed at expected column {}",
-                expected_column
-            );
+            assert_eq!(cursor.column, expected_byte, "Failed at expected byte {}", expected_byte);
         }
     }
 }
