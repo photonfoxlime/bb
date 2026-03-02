@@ -538,11 +538,22 @@ impl<'a> DocumentView<'a> {
         };
         let action_bar = project_for_viewport(build_action_bar_vm(&row_context), viewport_bucket);
 
-        // Action buttons row (icon-only)
+        // Action buttons row (icon-only) - both visible and overflow
         let mut action_buttons = row![].spacing(4);
+        // First add visible actions
         for descriptor in action_bar.visible_actions() {
             if descriptor.availability == ActionAvailability::Enabled {
                 if let Some(message) = action_to_message(self.state, &block_id, &descriptor) {
+                    let btn: Element<'a, Message> =
+                        IconButton::action(action_icon(descriptor.id)).on_press(message).into();
+                    action_buttons = action_buttons.push(btn);
+                }
+            }
+        }
+        // Then add overflow actions (duplicated for context menu convenience)
+        for descriptor in &action_bar.overflow {
+            if descriptor.availability == ActionAvailability::Enabled {
+                if let Some(message) = action_to_message(self.state, &block_id, descriptor) {
                     let btn: Element<'a, Message> =
                         IconButton::action(action_icon(descriptor.id)).on_press(message).into();
                     action_buttons = action_buttons.push(btn);
