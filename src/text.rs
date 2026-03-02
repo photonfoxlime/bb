@@ -7,6 +7,7 @@
 use jieba_rs::Jieba;
 use regex::Regex;
 use std::collections::HashSet;
+use std::ops::Range;
 use std::sync::LazyLock;
 
 /// Coarse script bucket used by tokenizer run splitting.
@@ -77,6 +78,133 @@ pub fn tokenize_latin(seg: &str) -> Vec<String> {
     });
 
     TOKEN_OR_BOUNDARY_RE.find_iter(seg).map(|m| m.as_str().to_string()).collect()
+}
+
+/// Token span for cursor-by-word navigation.
+///
+/// Columns are Unicode scalar (char) offsets in one editor line.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WordTokenSpan {
+    /// Inclusive start column (char offset) of a token.
+    pub start: usize,
+    /// Exclusive end column (char offset) of a token.
+    pub end: usize,
+}
+
+impl WordTokenSpan {
+    fn from_range(range: Range<usize>) -> Self {
+        Self { start: range.start, end: range.end }
+    }
+}
+
+/// Cache for line tokenization used by editor word-motion shortcuts.
+///
+/// The cache stores the last tokenized line and invalidates automatically when
+/// the line text changes.
+#[derive(Debug, Clone, Default)]
+pub struct WordTokenizationCache {
+    cached_line: String,
+    cached_spans: Vec<WordTokenSpan>,
+}
+
+impl WordTokenizationCache {
+    /// Return token spans for one line, recomputing only when needed.
+    pub fn spans_for_line(&mut self, line: &str) -> &[WordTokenSpan] {
+        if self.cached_line != line {
+            self.cached_spans = word_token_spans_for_navigation(line);
+            self.cached_line.clear();
+            self.cached_line.push_str(line);
+        }
+        &self.cached_spans
+    }
+}
+
+/// Tokenize a single editor line into word spans for cursor navigation.
+///
+/// Behavior by script run:
+/// - Latin: use [`tokenize_latin`] and keep only lexical tokens.
+/// - Han: each Han character is treated as one navigation token.
+/// - Other: ignored for word stepping.
+pub fn word_token_spans_for_navigation(line: &str) -> Vec<WordTokenSpan> {
+    let mut spans: Vec<WordTokenSpan> = Vec::new();
+    let mut run_script: Option<Script> = None;
+    let mut run_start_byte = 0usize;
+    let mut run_start_char = 0usize;
+    let mut total_chars = 0usize;
+
+    for (byte_idx, ch) in line.char_indices() {
+        let sc = script_of(ch);
+        match run_script {
+            | None => {
+                run_script = Some(sc);
+                run_start_byte = byte_idx;
+                run_start_char = total_chars;
+            }
+            | Some(existing) if existing == sc => {}
+            | Some(existing) => {
+                let run = &line[run_start_byte..byte_idx];
+                extend_word_spans_for_run(&mut spans, existing, run, run_start_char);
+                run_script = Some(sc);
+                run_start_byte = byte_idx;
+                run_start_char = total_chars;
+            }
+        }
+        total_chars += 1;
+    }
+
+    if let Some(script) = run_script {
+        let run = &line[run_start_byte..];
+        extend_word_spans_for_run(&mut spans, script, run, run_start_char);
+    }
+
+    spans
+}
+
+fn extend_word_spans_for_run(
+    spans: &mut Vec<WordTokenSpan>, script: Script, run: &str, base_char: usize,
+) {
+    match script {
+        | Script::Han => {
+            for (offset, _) in run.chars().enumerate() {
+                spans
+                    .push(WordTokenSpan { start: base_char + offset, end: base_char + offset + 1 });
+            }
+        }
+        | Script::Latin => {
+            for range in latin_word_char_ranges(run) {
+                spans.push(WordTokenSpan::from_range(
+                    (base_char + range.start)..(base_char + range.end),
+                ));
+            }
+        }
+        | Script::Other => {}
+    }
+}
+
+fn latin_word_char_ranges(seg: &str) -> Vec<Range<usize>> {
+    let mut ranges = Vec::new();
+    let mut search_start_byte = 0usize;
+    let mut search_start_char = 0usize;
+
+    for token in tokenize_latin(seg) {
+        if !token.chars().any(|ch| ch.is_ascii_alphanumeric()) {
+            continue;
+        }
+
+        let Some(relative_start) = seg[search_start_byte..].find(&token) else {
+            continue;
+        };
+        let token_start_byte = search_start_byte + relative_start;
+        let prefix = &seg[search_start_byte..token_start_byte];
+        let token_start_char = search_start_char + prefix.chars().count();
+        let token_end_char = token_start_char + token.chars().count();
+        ranges.push(token_start_char..token_end_char);
+
+        search_start_byte = token_start_byte + token.len();
+        search_start_char = token_end_char;
+    }
+
+    ranges
 }
 
 /// Tokenize Han segments using Jieba's search mode, which tends to produce
@@ -299,8 +427,8 @@ pub fn extract_search_phrases(input: &str, user_words: &[&str]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::{
-        Script, extract_search_phrases, normalize_space, script_of, split_by_script,
-        tokenize_latin, truncate_for_display,
+        Script, WordTokenizationCache, extract_search_phrases, normalize_space, script_of,
+        split_by_script, tokenize_latin, truncate_for_display, word_token_spans_for_navigation,
     };
 
     fn assert_any_contains<'a>(phrases: &'a [String], needle: &str) -> &'a String {
@@ -470,6 +598,33 @@ mod tests {
     fn tokenize_latin_keeps_connectors_and_boundaries_in_order() {
         let tokens = tokenize_latin("foo-bar,baz/qux");
         assert_eq!(tokens, vec!["foo-bar", ",", "baz/qux"]);
+    }
+
+    #[test]
+    fn word_navigation_spans_follow_latin_tokens() {
+        let spans = word_token_spans_for_navigation("alpha,beta v1.2.3");
+        let got: Vec<(usize, usize)> = spans.iter().map(|span| (span.start, span.end)).collect();
+        assert_eq!(got, vec![(0, 5), (6, 10), (11, 17)]);
+    }
+
+    #[test]
+    fn word_navigation_spans_split_han_by_character() {
+        let spans = word_token_spans_for_navigation("中文ab");
+        let got: Vec<(usize, usize)> = spans.iter().map(|span| (span.start, span.end)).collect();
+        assert_eq!(got, vec![(0, 1), (1, 2), (2, 4)]);
+    }
+
+    #[test]
+    fn word_tokenization_cache_reuses_previous_result_until_line_changes() {
+        let mut cache = WordTokenizationCache::default();
+
+        let first = cache.spans_for_line("alpha,beta").len();
+        let second = cache.spans_for_line("alpha,beta").len();
+        let third = cache.spans_for_line("alpha,beta,gamma").len();
+
+        assert_eq!(first, 2);
+        assert_eq!(second, 2);
+        assert_eq!(third, 3);
     }
 
     #[test]

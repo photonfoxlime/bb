@@ -835,6 +835,14 @@ mod edit {
             block_id: BlockId,
             action: text_editor::Action,
         },
+        /// Move cursor by one token in the current line.
+        ///
+        /// This powers `Cmd/Ctrl+ArrowLeft/ArrowRight` behavior in point
+        /// editors, using cached tokenizer spans for mixed-language text.
+        MoveCursorByWord {
+            block_id: BlockId,
+            direction: WordCursorDirection,
+        },
         /// Insert an empty first child for `block_id`.
         ///
         /// Used by `Cmd/Ctrl+Enter` key binding so shortcut behavior does not
@@ -850,6 +858,9 @@ mod edit {
             | EditMessage::PointEdited { block_id, action } => {
                 handle_point_edited(state, block_id, action)
             }
+            | EditMessage::MoveCursorByWord { block_id, direction } => {
+                move_cursor_by_word(state, block_id, direction)
+            }
             | EditMessage::AddEmptyFirstChild { block_id } => {
                 add_empty_first_child_from_enter(state, block_id)
             }
@@ -863,6 +874,92 @@ mod edit {
     enum VerticalDir {
         Up,
         Down,
+    }
+
+    /// Horizontal cursor movement direction for word-step shortcuts.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum WordCursorDirection {
+        Left,
+        Right,
+    }
+
+    fn move_cursor_by_word(
+        state: &mut AppState, block_id: BlockId, direction: WordCursorDirection,
+    ) -> Task<Message> {
+        if state.ui().document_mode == DocumentMode::PickFriend {
+            return Task::none();
+        }
+
+        state.set_focus(block_id);
+        state.editor_buffers.ensure_block(&state.store, &block_id);
+
+        let Some((line_index, current_column, line_text)) =
+            state.editor_buffers.get(&block_id).and_then(|content| {
+                let cursor = content.cursor().position;
+                content
+                    .line(cursor.line)
+                    .map(|line| (cursor.line, cursor.column, line.text.to_string()))
+            })
+        else {
+            return Task::none();
+        };
+
+        let spans = state.editor_buffers.word_token_spans_for_line(&block_id, &line_text);
+        let line_char_count = line_text.chars().count();
+        let next_column =
+            next_word_cursor_column(current_column, line_char_count, &spans, direction);
+
+        if next_column == current_column {
+            return Task::none();
+        }
+
+        if let Some(content) = state.editor_buffers.get_mut(&block_id) {
+            content.move_to(text_editor::Cursor {
+                position: text_editor::Position { line: line_index, column: next_column },
+                selection: None,
+            });
+        }
+
+        tracing::debug!(
+            block_id = ?block_id,
+            from_column = current_column,
+            to_column = next_column,
+            ?direction,
+            "moved cursor by word"
+        );
+        Task::none()
+    }
+
+    fn next_word_cursor_column(
+        current_column: usize, line_char_count: usize, spans: &[crate::text::WordTokenSpan],
+        direction: WordCursorDirection,
+    ) -> usize {
+        match direction {
+            | WordCursorDirection::Left => {
+                let mut target = 0usize;
+                for span in spans {
+                    if current_column <= span.start {
+                        break;
+                    }
+                    if current_column <= span.end {
+                        return span.start;
+                    }
+                    target = span.start;
+                }
+                target
+            }
+            | WordCursorDirection::Right => {
+                for span in spans {
+                    if current_column < span.start {
+                        return span.start;
+                    }
+                    if current_column < span.end {
+                        return span.end;
+                    }
+                }
+                line_char_count
+            }
+        }
     }
 
     fn is_shortcut_modifier(modifiers: keyboard::Modifiers) -> bool {
@@ -1377,6 +1474,56 @@ mod edit {
             );
 
             assert!(state.llm_requests.is_expanding(root));
+        }
+
+        #[test]
+        fn move_cursor_by_word_uses_latin_token_boundaries() {
+            let (mut state, root) = AppState::test_state();
+            state.store.update_point(&root, "alpha,beta".to_string());
+            state.editor_buffers.set_text(&root, "alpha,beta");
+            if let Some(content) = state.editor_buffers.get_mut(&root) {
+                content.move_to(text_editor::Cursor {
+                    position: text_editor::Position { line: 0, column: 0 },
+                    selection: None,
+                });
+            }
+
+            let _ = handle(
+                &mut state,
+                EditMessage::MoveCursorByWord {
+                    block_id: root,
+                    direction: WordCursorDirection::Right,
+                },
+            );
+
+            let cursor =
+                state.editor_buffers.get(&root).expect("editor content exists").cursor().position;
+            assert_eq!(cursor.column, 5);
+        }
+
+        #[test]
+        fn move_cursor_by_word_splits_han_characters() {
+            let (mut state, root) = AppState::test_state();
+            state.store.update_point(&root, "中文ab".to_string());
+            state.editor_buffers.set_text(&root, "中文ab");
+            if let Some(content) = state.editor_buffers.get_mut(&root) {
+                content.move_to(text_editor::Cursor {
+                    position: text_editor::Position { line: 0, column: 4 },
+                    selection: None,
+                });
+            }
+
+            let _ = handle(
+                &mut state,
+                EditMessage::MoveCursorByWord {
+                    block_id: root,
+                    direction: WordCursorDirection::Left,
+                },
+            );
+
+            let cursor =
+                state.editor_buffers.get(&root).expect("editor content exists").cursor().position;
+            assert_eq!(cursor.column, 2);
         }
 
         #[test]

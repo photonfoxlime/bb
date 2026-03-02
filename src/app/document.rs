@@ -41,6 +41,8 @@
 //! - `Cmd/Ctrl+Enter` dispatches a dedicated edit message that inserts an empty
 //!   first child.
 //! - `Cmd/Ctrl+Shift+Enter` dispatches `ActionId::AddSibling`.
+//! - `Cmd/Ctrl+ArrowLeft/ArrowRight` dispatches cached tokenizer-based
+//!   cursor-by-word movement.
 //!
 //! To avoid duplicate mutations, this resolver only dispatches structural
 //! shortcuts when the editor instance is focused. Non-focused editors return the
@@ -378,6 +380,8 @@ impl<'a> DocumentView<'a> {
         let movement_section = column![
             text(t!("shortcut_help_section_movement").to_string())
                 .font(theme::INTER)
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_movement_word_cursor").to_string())
                 .size(theme::SHORTCUT_HELP_TEXT_SIZE),
             text(t!("shortcut_help_movement_focus").to_string())
                 .size(theme::SHORTCUT_HELP_TEXT_SIZE),
@@ -1401,7 +1405,33 @@ fn editor_key_binding(
         };
     }
 
+    if let Some(direction) = word_cursor_direction_for_key_press(&key_press) {
+        return Some(text_editor::Binding::Custom(Message::Edit(EditMessage::MoveCursorByWord {
+            block_id,
+            direction,
+        })));
+    }
+
     text_editor::Binding::from_key_press(key_press)
+}
+
+fn word_cursor_direction_for_key_press(
+    key_press: &text_editor::KeyPress,
+) -> Option<super::edit::WordCursorDirection> {
+    let modifiers = key_press.modifiers;
+    if !(modifiers.command() || modifiers.control()) || modifiers.alt() || modifiers.shift() {
+        return None;
+    }
+
+    match key_press.key {
+        | iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft) => {
+            Some(super::edit::WordCursorDirection::Left)
+        }
+        | iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => {
+            Some(super::edit::WordCursorDirection::Right)
+        }
+        | _ => None,
+    }
 }
 
 #[cfg(test)]
@@ -1413,6 +1443,20 @@ mod tests {
             key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter),
             modified_key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter),
             physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::Enter),
+            modifiers,
+            text: None,
+            status: text_editor::Status::Focused { is_hovered: false },
+        }
+    }
+
+    fn arrow_key_press(
+        named: iced::keyboard::key::Named, code: iced::keyboard::key::Code,
+        modifiers: iced::keyboard::Modifiers,
+    ) -> text_editor::KeyPress {
+        text_editor::KeyPress {
+            key: iced::keyboard::Key::Named(named),
+            modified_key: iced::keyboard::Key::Named(named),
+            physical_key: iced::keyboard::key::Physical::Code(code),
             modifiers,
             text: None,
             status: text_editor::Status::Focused { is_hovered: false },
@@ -1480,6 +1524,50 @@ mod tests {
         let binding = editor_key_binding(root, key_press);
 
         assert!(binding.is_none());
+    }
+
+    #[test]
+    fn command_left_maps_to_word_left_edit_message() {
+        let (_, root) = AppState::test_state();
+
+        let binding = editor_key_binding(
+            root,
+            arrow_key_press(
+                iced::keyboard::key::Named::ArrowLeft,
+                iced::keyboard::key::Code::ArrowLeft,
+                iced::keyboard::Modifiers::COMMAND,
+            ),
+        );
+
+        assert!(matches!(
+            binding,
+            Some(text_editor::Binding::Custom(Message::Edit(EditMessage::MoveCursorByWord {
+                block_id,
+                direction: super::super::edit::WordCursorDirection::Left,
+            }))) if block_id == root
+        ));
+    }
+
+    #[test]
+    fn ctrl_right_maps_to_word_right_edit_message() {
+        let (_, root) = AppState::test_state();
+
+        let binding = editor_key_binding(
+            root,
+            arrow_key_press(
+                iced::keyboard::key::Named::ArrowRight,
+                iced::keyboard::key::Code::ArrowRight,
+                iced::keyboard::Modifiers::CTRL,
+            ),
+        );
+
+        assert!(matches!(
+            binding,
+            Some(text_editor::Binding::Custom(Message::Edit(EditMessage::MoveCursorByWord {
+                block_id,
+                direction: super::super::edit::WordCursorDirection::Right,
+            }))) if block_id == root
+        ));
     }
 }
 

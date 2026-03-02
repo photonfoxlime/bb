@@ -10,6 +10,7 @@
 //! buffer for the instruction panel in the overlay panel bar.
 
 use crate::store::{BlockId, BlockStore};
+use crate::text::{WordTokenSpan, WordTokenizationCache};
 use iced::widget::{self, text_editor};
 use slotmap::SecondaryMap;
 
@@ -23,6 +24,8 @@ pub(crate) struct EditorBuffers {
     buffers: SecondaryMap<BlockId, text_editor::Content>,
     /// Stable `widget::Id` per block, used for programmatic focus.
     widget_ids: SecondaryMap<BlockId, widget::Id>,
+    /// Per-block cache of line tokenization for word-motion cursor shortcuts.
+    word_token_cache: SecondaryMap<BlockId, WordTokenizationCache>,
     /// Text editor content for the instruction panel draft.
     ///
     /// This buffer is independent from per-block point editors and is consumed
@@ -35,6 +38,7 @@ impl Default for EditorBuffers {
         Self {
             buffers: SecondaryMap::new(),
             widget_ids: SecondaryMap::new(),
+            word_token_cache: SecondaryMap::new(),
             instruction_content: text_editor::Content::new(),
         }
     }
@@ -55,6 +59,7 @@ impl EditorBuffers {
             };
             self.buffers.insert(*id, text_editor::Content::with_text(&point));
             self.widget_ids.insert(*id, widget::Id::unique());
+            self.word_token_cache.insert(*id, WordTokenizationCache::default());
             let children: Vec<BlockId> = block_store.children(id).to_vec();
             self.populate(block_store, &children);
         }
@@ -67,6 +72,7 @@ impl EditorBuffers {
         let point = block_store.point(block_id).unwrap_or_default();
         self.buffers.insert(*block_id, text_editor::Content::with_text(&point));
         self.widget_ids.insert(*block_id, widget::Id::unique());
+        self.word_token_cache.insert(*block_id, WordTokenizationCache::default());
     }
 
     pub(crate) fn get(&self, block_id: &BlockId) -> Option<&text_editor::Content> {
@@ -80,6 +86,7 @@ impl EditorBuffers {
     pub(crate) fn set_text(&mut self, block_id: &BlockId, value: &str) {
         self.buffers.insert(*block_id, text_editor::Content::with_text(value));
         self.widget_ids.insert(*block_id, widget::Id::unique());
+        self.word_token_cache.insert(*block_id, WordTokenizationCache::default());
     }
 
     pub(crate) fn ensure_subtree(&mut self, block_store: &BlockStore, block_id: &BlockId) {
@@ -90,6 +97,7 @@ impl EditorBuffers {
             let point = block_store.point(block_id).unwrap_or_default();
             self.buffers.insert(*block_id, text_editor::Content::with_text(&point));
             self.widget_ids.insert(*block_id, widget::Id::unique());
+            self.word_token_cache.insert(*block_id, WordTokenizationCache::default());
         }
         let children: Vec<BlockId> = block_store.children(block_id).to_vec();
         for child in &children {
@@ -101,7 +109,21 @@ impl EditorBuffers {
         for id in block_ids {
             self.buffers.remove(*id);
             self.widget_ids.remove(*id);
+            self.word_token_cache.remove(*id);
         }
+    }
+
+    /// Return cached word token spans for one line in one block editor.
+    pub(crate) fn word_token_spans_for_line(
+        &mut self, block_id: &BlockId, line: &str,
+    ) -> Vec<WordTokenSpan> {
+        if !self.word_token_cache.contains_key(*block_id) {
+            self.word_token_cache.insert(*block_id, WordTokenizationCache::default());
+        }
+        self.word_token_cache
+            .get_mut(*block_id)
+            .map(|cache| cache.spans_for_line(line).to_vec())
+            .unwrap_or_default()
     }
 
     /// Get the `widget::Id` for a block's text editor (for programmatic focus).
