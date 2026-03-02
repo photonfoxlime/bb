@@ -618,11 +618,6 @@ impl<'a> TreeView<'a> {
             let mut editor = text_editor(editor_content)
                 .placeholder(t!("doc_placeholder_point").to_string())
                 .style(theme::point_editor)
-                .font(theme::DEFAULT_FONT)
-                .size(theme::INPUT_TEXT_SIZE)
-                .line_height(iced::widget::text::LineHeight::Absolute(
-                    (theme::INPUT_TEXT_SIZE * theme::EDITOR_LINE_HEIGHT).into(),
-                ))
                 .on_action(move |action| {
                     Message::Edit(EditMessage::PointEdited { block_id: block_id_for_edit, action })
                 })
@@ -671,10 +666,7 @@ impl<'a> TreeView<'a> {
             row_content.into()
         };
 
-        let mut block = column![].spacing(theme::BLOCK_INNER_GAP);
-        block = block.push(head_row);
-        block = block.push(bar_row);
-        block = block.push(panel_row);
+        let mut block = column![head_row, bar_row, panel_row].spacing(theme::BLOCK_INNER_GAP);
         if action_bar.status_chip.is_some() {
             block = block.push(
                 container(self.render_status_chip(&action_bar))
