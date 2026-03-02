@@ -44,10 +44,11 @@ use crate::i18n;
 use crate::llm;
 use crate::paths::AppPaths;
 use crate::theme;
+use iced::alignment::Horizontal;
 use iced::widget::{
     checkbox, column, container, pick_list, row, slider, text, text_input, tooltip,
 };
-use iced::{Element, Fill, Length, Task};
+use iced::{Alignment, Element, Fill, Length, Task};
 use lucide_icons::iced as icons;
 use rust_i18n::t;
 
@@ -707,9 +708,109 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         provider_management = provider_management.push(delete_btn);
     }
 
+    // ── System Settings section ─────────────────────────────────────
+    let language_label = text(t!("settings_language").to_string()).size(14).font(theme::INTER);
+    let locale_labels: Vec<String> = vec![t!("settings_system_default").to_string()]
+        .into_iter()
+        .chain(i18n::SUPPORTED_LOCALES.iter().map(|s| s.to_string()))
+        .collect();
+    let current_locale_idx = if state.settings.config.locale.is_none() {
+        0
+    } else {
+        i18n::SUPPORTED_LOCALES
+            .iter()
+            .position(|s| Some(s.to_string()) == state.settings.config.locale)
+            .map(|i| i + 1)
+            .unwrap_or(0)
+    };
+    let locale_picker = pick_list(
+        locale_labels.clone(),
+        Some(locale_labels[current_locale_idx].clone()),
+        move |label| {
+            let idx = locale_labels.iter().position(|l| *l == label).unwrap_or(0);
+            let locale = if idx == 0 { None } else { Some(locale_labels[idx].clone()) };
+            Message::Settings(SettingsMessage::SetLocale(locale))
+        },
+    )
+    .text_size(14)
+    .padding(8);
+    let locale_row = row![
+        language_label.align_x(Alignment::from(Horizontal::Left)),
+        container(locale_picker).align_x(Alignment::from(Horizontal::Right))
+    ]
+    .spacing(theme::ROW_GAP)
+    .align_y(iced::Alignment::Center)
+    .width(Fill);
+
+    let theme_preference = ThemePreference::from_dark_mode(state.settings.config.dark_mode);
+    let appearance_mode_label =
+        text(t!("settings_appearance_mode").to_string()).size(14).font(theme::INTER);
+    let appearance_mode_slider = slider(
+        ThemePreference::LIGHT_SLIDER_VALUE..=ThemePreference::DARK_SLIDER_VALUE,
+        theme_preference.slider_value(),
+        |value| {
+            Message::Settings(SettingsMessage::SetThemePreference(
+                ThemePreference::from_slider_value(value),
+            ))
+        },
+    )
+    .width(Length::Fixed(theme::SETTINGS_APPEARANCE_SLIDER_WIDTH))
+    .step(1);
+    let appearance_mode_labels = row![
+        container(text(t!("settings_appearance_light").to_string()).size(12))
+            .width(Fill)
+            .align_x(Alignment::from(Horizontal::Left)),
+        container(text(t!("settings_appearance_system").to_string()).size(12))
+            .width(Fill)
+            .align_x(Alignment::from(Horizontal::Center)),
+        container(text(t!("settings_appearance_dark").to_string()).size(12))
+            .width(Fill)
+            .align_x(Alignment::from(Horizontal::Right)),
+    ]
+    .spacing(theme::ROW_GAP)
+    .width(Length::Fixed(theme::SETTINGS_APPEARANCE_SLIDER_WIDTH));
+    let appearance_mode_control = row![
+        appearance_mode_label.align_x(Alignment::from(Horizontal::Left)),
+        column![appearance_mode_slider, appearance_mode_labels]
+            .align_x(Alignment::from(Horizontal::Right))
+    ]
+    .spacing(theme::ROW_GAP)
+    .align_y(iced::Alignment::Center)
+    .width(Fill);
+
+    let enter_behavior =
+        FirstLineEnterBehavior::from_flag(state.settings.config.first_line_enter_add_child);
+    let enter_behavior_options =
+        vec![FirstLineEnterBehavior::AddChild, FirstLineEnterBehavior::InsertNewline];
+    let enter_behavior_control = row![
+        text(t!("settings_first_line_enter_behavior").to_string())
+            .size(14)
+            .font(theme::INTER)
+            .align_x(Alignment::from(Horizontal::Left)),
+        container(
+            pick_list(enter_behavior_options, Some(enter_behavior), |behavior| {
+                Message::Settings(SettingsMessage::SetFirstLineEnterBehavior(behavior))
+            })
+            .text_size(14)
+            .padding(8)
+        )
+        .align_x(Alignment::from(Horizontal::Right)),
+    ]
+    .spacing(theme::ROW_GAP)
+    .align_y(iced::Alignment::Center)
+    .width(Fill);
+
+    let system_settings_title = t!("settings_system").to_string();
+    let system_settings_section = section(
+        system_settings_title,
+        column![locale_row, appearance_mode_control, enter_behavior_control]
+            .spacing(10)
+            .width(Fill),
+    );
+
+    // ── Providers section ─────────────────────────────────────
     let provider_section = section(t!("settings_providers").to_string(), provider_management);
 
-    // ── Provider config editing section ──────────────────────────────
     let editing_title =
         t!("settings_configuration", name = settings.selected_provider.as_str()).to_string();
 
@@ -762,84 +863,6 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         iced::Padding::new(theme::PANEL_PAD_V).left(theme::PANEL_PAD_H).right(theme::PANEL_PAD_H),
     )
     .width(Fill);
-
-    // ── Appearance section ───────────────────────────────────────────
-    let theme_preference = ThemePreference::from_dark_mode(state.settings.config.dark_mode);
-    let appearance_mode_label =
-        text(t!("settings_appearance_mode").to_string()).size(14).font(theme::INTER);
-    let appearance_mode_slider = slider(
-        ThemePreference::LIGHT_SLIDER_VALUE..=ThemePreference::DARK_SLIDER_VALUE,
-        theme_preference.slider_value(),
-        |value| {
-            Message::Settings(SettingsMessage::SetThemePreference(
-                ThemePreference::from_slider_value(value),
-            ))
-        },
-    )
-    .width(Length::Fixed(theme::SETTINGS_APPEARANCE_SLIDER_WIDTH))
-    .step(1);
-    let appearance_mode_labels = row![
-        container(text(t!("settings_appearance_light").to_string()).size(12))
-            .width(Length::FillPortion(1))
-            .center_x(Fill),
-        container(text(t!("settings_appearance_system").to_string()).size(12))
-            .width(Length::FillPortion(1))
-            .center_x(Fill),
-        container(text(t!("settings_appearance_dark").to_string()).size(12))
-            .width(Length::FillPortion(1))
-            .center_x(Fill),
-    ]
-    .spacing(theme::ROW_GAP)
-    .width(Length::Fixed(theme::SETTINGS_APPEARANCE_SLIDER_WIDTH));
-    let appearance_mode_control =
-        column![appearance_mode_label, appearance_mode_slider, appearance_mode_labels]
-            .spacing(theme::ROW_GAP);
-
-    let enter_behavior =
-        FirstLineEnterBehavior::from_flag(state.settings.config.first_line_enter_add_child);
-    let enter_behavior_options =
-        vec![FirstLineEnterBehavior::AddChild, FirstLineEnterBehavior::InsertNewline];
-    let enter_behavior_control = column![
-        text(t!("settings_first_line_enter_behavior").to_string()).size(14).font(theme::INTER),
-        pick_list(enter_behavior_options, Some(enter_behavior), |behavior| {
-            Message::Settings(SettingsMessage::SetFirstLineEnterBehavior(behavior))
-        })
-        .text_size(14)
-        .padding(8),
-    ]
-    .spacing(theme::ROW_GAP);
-
-    // Locale picker: None = system default, Some("en-US") = override.
-    let locale_labels: Vec<String> = vec![t!("settings_system_default").to_string()]
-        .into_iter()
-        .chain(i18n::SUPPORTED_LOCALES.iter().map(|s| s.to_string()))
-        .collect();
-    let current_locale_idx = if state.settings.config.locale.is_none() {
-        0
-    } else {
-        i18n::SUPPORTED_LOCALES
-            .iter()
-            .position(|s| Some(s.to_string()) == state.settings.config.locale)
-            .map(|i| i + 1)
-            .unwrap_or(0)
-    };
-    let locale_picker = pick_list(
-        locale_labels.clone(),
-        Some(locale_labels[current_locale_idx].clone()),
-        move |label| {
-            let idx = locale_labels.iter().position(|l| *l == label).unwrap_or(0);
-            let locale = if idx == 0 { None } else { Some(locale_labels[idx].clone()) };
-            Message::Settings(SettingsMessage::SetLocale(locale))
-        },
-    )
-    .text_size(14)
-    .padding(8);
-
-    let appearance_title = t!("settings_appearance").to_string();
-    let appearance_section = section(
-        appearance_title,
-        column![locale_picker, appearance_mode_control, enter_behavior_control].spacing(10),
-    );
 
     // ── Token Limits section ─────────────────────────────────────────
     let token_limits_title = t!("settings_token_limits").to_string();
@@ -903,9 +926,9 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let max_width = theme::canvas_max_width(state.ui().window_size.width);
     let content = column![
         header,
+        system_settings_section,
         provider_section,
         config_section,
-        appearance_section,
         token_limits_section,
         paths_section
     ]
