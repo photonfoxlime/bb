@@ -196,6 +196,9 @@ pub const SECTION_TITLE_SIZE: f32 = 16.0;
 pub const LABEL_TEXT_SIZE: f32 = 13.0;
 /// Input and body text size.
 pub const INPUT_TEXT_SIZE: f32 = 14.0;
+/// Line height multiplier for text editors.
+/// Set to 1.5 to accommodate CJK characters and ensure consistent cursor alignment.
+pub const EDITOR_LINE_HEIGHT: f32 = 1.5;
 /// Small text size for metadata and labels.
 pub const SMALL_TEXT_SIZE: f32 = 12.0;
 

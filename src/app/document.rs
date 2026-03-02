@@ -618,6 +618,11 @@ impl<'a> TreeView<'a> {
             let mut editor = text_editor(editor_content)
                 .placeholder(t!("doc_placeholder_point").to_string())
                 .style(theme::point_editor)
+                .font(theme::DEFAULT_FONT)
+                .size(theme::INPUT_TEXT_SIZE)
+                .line_height(iced::widget::text::LineHeight::Absolute(
+                    (theme::INPUT_TEXT_SIZE * theme::EDITOR_LINE_HEIGHT).into(),
+                ))
                 .on_action(move |action| {
                     Message::Edit(EditMessage::PointEdited { block_id: block_id_for_edit, action })
                 })

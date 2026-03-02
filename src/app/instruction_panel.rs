@@ -439,6 +439,11 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 text_editor(instruction_content)
                     .placeholder(t!("instruction_placeholder").to_string())
                     .style(theme::point_editor)
+                    .font(theme::DEFAULT_FONT)
+                    .size(theme::INPUT_TEXT_SIZE)
+                    .line_height(iced::widget::text::LineHeight::Absolute(
+                        (theme::INPUT_TEXT_SIZE * theme::EDITOR_LINE_HEIGHT).into(),
+                    ))
                     .height(theme::INSTRUCTION_EDITOR_HEIGHT)
                     .on_action(move |action| {
                         Message::InstructionPanel(
