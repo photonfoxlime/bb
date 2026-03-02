@@ -564,7 +564,7 @@ impl<'a> DocumentView<'a> {
                     IconButton::action(action_icon(*action_id)).on_press(message.clone()).into();
                 row_buttons = row_buttons.push(btn);
             }
-            action_buttons_column = action_buttons_column.push(row_buttons);
+            action_buttons_column = action_buttons_column.push(row_buttons.width(Fill));
         }
 
         // Context menu action buttons
@@ -590,9 +590,7 @@ impl<'a> DocumentView<'a> {
             column![menu_items].spacing(theme::CONTEXT_MENU_ITEM_SPACING)
         };
 
-        let menu = container(content)
-            .style(theme::context_menu)
-            .width(Length::Fixed(theme::CONTEXT_MENU_WIDTH));
+        let menu = container(content).style(theme::context_menu);
 
         // Use stack to position menu at cursor location
         // Layer 1: Background with click-to-dismiss
