@@ -81,28 +81,8 @@ fn move_cursor_by_word(
     // but our token spans use char offsets.
     let current_column = line_text[..current_column_byte.min(line_text.len())].chars().count();
 
-    tracing::debug!(
-        block_id = ?block_id,
-        current_column_byte = current_column_byte,
-        current_column_char = current_column,
-        line_byte_len = line_text.len(),
-        line_char_count = line_text.chars().count(),
-        "cursor position from editor"
-    );
-
     let spans = state.editor_buffers.word_token_spans_for_line(&block_id, &line_text);
     let line_char_count = line_text.chars().count();
-    tracing::debug!(
-        block_id = ?block_id,
-        line_text = ?line_text,
-        line_char_count = line_char_count,
-        spans_count = spans.len(),
-        spans = ?spans.iter().map(|s| (s.start, s.end)).collect::<Vec<_>>(),
-        current_column_char = current_column,
-        current_column_byte = current_column_byte,
-        ?direction,
-        "word token spans for line"
-    );
     let next_column = next_word_cursor_column(current_column, line_char_count, &spans, direction);
 
     if next_column == current_column {
@@ -124,24 +104,6 @@ fn move_cursor_by_word(
             position: text_editor::Position { line: line_index, column: next_column_byte },
             selection: None,
         });
-
-        tracing::info!(
-            block_id = ?block_id,
-            from_column_char = current_column,
-            to_column_char = next_column,
-            from_column_byte = current_column_byte,
-            to_column_byte = next_column_byte,
-            ?direction,
-            "moved cursor by word"
-        );
-    } else {
-        tracing::info!(
-            block_id = ?block_id,
-            from_column_char = current_column,
-            to_column_char = next_column,
-            ?direction,
-            "moved cursor by word (content not available)"
-        );
     }
     Task::none()
 }
