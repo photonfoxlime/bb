@@ -140,7 +140,7 @@ impl<'a> DocumentView<'a> {
         }));
 
         let multiselect_mode_btn = IconButton::mode(
-            icons::icon_check_check()
+            icons::icon_square_check()
                 .size(theme::TOOLBAR_ICON_SIZE)
                 .line_height(iced::widget::text::LineHeight::Relative(1.0))
                 .into(),
