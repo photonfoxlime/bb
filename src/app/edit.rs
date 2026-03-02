@@ -943,4 +943,47 @@ mod tests {
 
         assert_eq!(state.focus().map(|focus| focus.block_id), Some(sibling));
     }
+
+    #[test]
+    fn move_cursor_by_word_long_latin_line() {
+        let (mut state, root) = AppState::test_state();
+        let long_text = "hello world foo bar baz qux quux corge";
+        state.store.update_point(&root, long_text.to_string());
+        state.editor_buffers.set_text(&root, long_text);
+        if let Some(content) = state.editor_buffers.get_mut(&root) {
+            content.move_to(text_editor::Cursor {
+                position: text_editor::Position { line: 0, column: 0 },
+                selection: None,
+            });
+        }
+
+        // Move right: should visit each word boundary
+        // hello(0-5) world(6-11) foo(12-15) bar(16-19) baz(20-23) qux(24-27) quux(28-32) corge(33-38)
+        let expected_positions = vec![5, 6, 11, 12, 15, 16, 19, 20, 23, 24, 27, 28, 32, 33, 38];
+        for expected_column in expected_positions {
+            let _ = handle(
+                &mut state,
+                EditMessage::MoveCursorByWord {
+                    block_id: root,
+                    direction: WordCursorDirection::Right,
+                },
+            );
+            let cursor =
+                state.editor_buffers.get(&root).expect("editor content exists").cursor().position;
+            assert_eq!(
+                cursor.column, expected_column,
+                "Failed at expected column {}",
+                expected_column
+            );
+        }
+
+        // Should stay at end when already at end
+        let _ = handle(
+            &mut state,
+            EditMessage::MoveCursorByWord { block_id: root, direction: WordCursorDirection::Right },
+        );
+        let cursor =
+            state.editor_buffers.get(&root).expect("editor content exists").cursor().position;
+        assert_eq!(cursor.column, long_text.chars().count());
+    }
 }
