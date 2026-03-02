@@ -1448,10 +1448,20 @@ impl<'a> TreeView<'a> {
 }
 
 fn context_menu_button<'a>(label: String, action: ContextMenuAction) -> Element<'a, Message> {
-    button(text(label))
+    let icon = match action {
+        | ContextMenuAction::Undo => icons::icon_undo(),
+        | ContextMenuAction::Redo => icons::icon_redo(),
+        | ContextMenuAction::Cut => icons::icon_scissors(),
+        | ContextMenuAction::Copy => icons::icon_copy(),
+        | ContextMenuAction::Paste => icons::icon_clipboard_paste(),
+        | ContextMenuAction::SelectAll => icons::icon_list(),
+    };
+
+    button(row![icon.size(14), text(label).width(Fill)].spacing(8).align_y(iced::Alignment::Center))
         .padding([4, 8])
         .style(theme::context_menu_button)
         .on_press(Message::ContextMenu(ContextMenuMessage::Action(action)))
+        .width(Fill)
         .into()
 }
 
