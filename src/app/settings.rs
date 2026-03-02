@@ -649,10 +649,12 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     )
     .on_press(Message::Settings(SettingsMessage::Close));
 
-    let header =
-        row![back_button, text(t!("settings_title").to_string()).size(20).font(theme::INTER),]
-            .spacing(12)
-            .align_y(iced::Alignment::Center);
+    let header = row![
+        back_button,
+        text(t!("settings_title").to_string()).size(theme::PAGE_TITLE_SIZE).font(theme::INTER),
+    ]
+    .spacing(theme::FORM_SECTION_GAP)
+    .align_y(iced::Alignment::Center);
 
     // ── Provider selector section ────────────────────────────────────
     let provider_picker = pick_list(
@@ -660,37 +662,51 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         Some(settings.selected_provider.clone()),
         |name| Message::Settings(SettingsMessage::SelectProvider(name)),
     )
-    .text_size(14)
-    .padding(8);
+    .text_size(theme::INPUT_TEXT_SIZE)
+    .padding(theme::PANEL_PAD_V);
 
     let active_indicator: Element<'_, Message> =
         if settings.selected_provider == settings.active_provider {
-            text(t!("settings_active").to_string()).size(12).color(palette.success).into()
+            text(t!("settings_active").to_string())
+                .size(theme::SMALL_TEXT_SIZE)
+                .color(palette.success)
+                .into()
         } else {
-            TextButton::action(t!("settings_set_active").to_string(), 12.0)
+            TextButton::action(t!("settings_set_active").to_string(), theme::SMALL_TEXT_SIZE)
                 .on_press(Message::Settings(SettingsMessage::SetActiveProvider(
                     settings.selected_provider.clone(),
                 )))
-                .padding(iced::Padding::new(4.0).left(10.0).right(10.0))
+                .padding(
+                    iced::Padding::new(theme::INLINE_GAP)
+                        .left(theme::COMPACT_PAD_H)
+                        .right(theme::COMPACT_PAD_H),
+                )
                 .into()
         };
 
-    let selector_row =
-        row![provider_picker, active_indicator].spacing(12).align_y(iced::Alignment::Center);
+    let selector_row = row![provider_picker, active_indicator]
+        .spacing(theme::FORM_SECTION_GAP)
+        .align_y(iced::Alignment::Center);
 
     let new_provider_placeholder = t!("settings_new_provider_placeholder").to_string();
     let new_provider_input = text_input(&new_provider_placeholder, &settings.new_provider_name)
         .on_input(|v| Message::Settings(SettingsMessage::NewProviderNameChanged(v)))
-        .size(14)
-        .padding(8);
+        .size(theme::INPUT_TEXT_SIZE)
+        .padding(theme::PANEL_PAD_V);
 
-    let add_button = TextButton::action(t!("settings_add").to_string(), 13.0)
+    let add_button = TextButton::action(t!("settings_add").to_string(), theme::LABEL_TEXT_SIZE)
         .on_press(Message::Settings(SettingsMessage::AddProvider))
-        .padding(iced::Padding::new(6.0).left(12.0).right(12.0));
+        .padding(
+            iced::Padding::new(theme::COMPACT_PAD_V)
+                .left(theme::FORM_ROW_GAP)
+                .right(theme::FORM_ROW_GAP),
+        );
 
-    let add_row = row![new_provider_input, add_button].spacing(8).align_y(iced::Alignment::Center);
+    let add_row = row![new_provider_input, add_button]
+        .spacing(theme::PANEL_BUTTON_GAP)
+        .align_y(iced::Alignment::Center);
 
-    let mut provider_management = column![selector_row, add_row].spacing(10);
+    let mut provider_management = column![selector_row, add_row].spacing(theme::FORM_ROW_GAP);
 
     // Only custom providers can be deleted (presets are always available).
     let can_delete =
@@ -698,18 +714,23 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     if can_delete {
         let delete_btn = TextButton::action_with_color(
             t!("settings_delete_provider").to_string(),
-            12.0,
+            theme::SMALL_TEXT_SIZE,
             palette.danger,
         )
         .on_press(Message::Settings(SettingsMessage::DeleteProvider(
             settings.selected_provider.clone(),
         )))
-        .padding(iced::Padding::new(4.0).left(10.0).right(10.0));
+        .padding(
+            iced::Padding::new(theme::INLINE_GAP)
+                .left(theme::COMPACT_PAD_H)
+                .right(theme::COMPACT_PAD_H),
+        );
         provider_management = provider_management.push(delete_btn);
     }
 
     // ── System Settings section ─────────────────────────────────────
-    let language_label = text(t!("settings_language").to_string()).size(14).font(theme::INTER);
+    let language_label =
+        text(t!("settings_language").to_string()).size(theme::INPUT_TEXT_SIZE).font(theme::INTER);
 
     // Build locale labels: System default, then English, 中文，日本語
     let locale_labels: Vec<String> = vec![t!("settings_system_default").to_string()]
@@ -757,8 +778,8 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
             Message::Settings(SettingsMessage::SetLocale(locale))
         },
     )
-    .text_size(14)
-    .padding(8);
+    .text_size(theme::INPUT_TEXT_SIZE)
+    .padding(theme::PANEL_PAD_V);
     let locale_row = row![
         language_label.width(Fill),
         container(locale_picker).align_x(Alignment::from(Horizontal::Right))
@@ -768,8 +789,9 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     .width(Fill);
 
     let theme_preference = ThemePreference::from_dark_mode(state.settings.config.dark_mode);
-    let appearance_mode_label =
-        text(t!("settings_appearance_mode").to_string()).size(14).font(theme::INTER);
+    let appearance_mode_label = text(t!("settings_appearance_mode").to_string())
+        .size(theme::INPUT_TEXT_SIZE)
+        .font(theme::INTER);
     let appearance_mode_slider = slider(
         ThemePreference::LIGHT_SLIDER_VALUE..=ThemePreference::DARK_SLIDER_VALUE,
         theme_preference.slider_value(),
@@ -782,13 +804,13 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     .width(Length::Fixed(theme::SETTINGS_APPEARANCE_SLIDER_WIDTH))
     .step(1);
     let appearance_mode_labels = row![
-        container(text(t!("settings_appearance_light").to_string()).size(12))
+        container(text(t!("settings_appearance_light").to_string()).size(theme::SMALL_TEXT_SIZE))
             .width(Fill)
             .align_x(Alignment::from(Horizontal::Left)),
-        container(text(t!("settings_appearance_system").to_string()).size(12))
+        container(text(t!("settings_appearance_system").to_string()).size(theme::SMALL_TEXT_SIZE))
             .width(Fill)
             .align_x(Alignment::from(Horizontal::Center)),
-        container(text(t!("settings_appearance_dark").to_string()).size(12))
+        container(text(t!("settings_appearance_dark").to_string()).size(theme::SMALL_TEXT_SIZE))
             .width(Fill)
             .align_x(Alignment::from(Horizontal::Right)),
     ]
@@ -810,15 +832,15 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         vec![FirstLineEnterBehavior::AddChild, FirstLineEnterBehavior::InsertNewline];
     let enter_behavior_control = row![
         text(t!("settings_first_line_enter_behavior").to_string())
-            .size(14)
+            .size(theme::INPUT_TEXT_SIZE)
             .font(theme::INTER)
             .width(Fill),
         container(
             pick_list(enter_behavior_options, Some(enter_behavior), |behavior| {
                 Message::Settings(SettingsMessage::SetFirstLineEnterBehavior(behavior))
             })
-            .text_size(14)
-            .padding(8)
+            .text_size(theme::INPUT_TEXT_SIZE)
+            .padding(theme::PANEL_PAD_V)
         )
         .align_x(Alignment::from(Horizontal::Right)),
     ]
@@ -830,7 +852,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let system_settings_section = section(
         system_settings_title,
         column![locale_row, appearance_mode_control, enter_behavior_control]
-            .spacing(10)
+            .spacing(theme::FORM_ROW_GAP)
             .width(Fill),
     );
 
@@ -862,27 +884,35 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         Message::Settings(SettingsMessage::ModelChanged(v))
     });
 
-    let save_button = TextButton::action(t!("settings_save").to_string(), 14.0)
+    let save_button = TextButton::action(t!("settings_save").to_string(), theme::INPUT_TEXT_SIZE)
         .on_press(Message::Settings(SettingsMessage::Save))
-        .padding(iced::Padding::new(6.0).left(16.0).right(16.0));
+        .padding(
+            iced::Padding::new(theme::COMPACT_PAD_V)
+                .left(theme::PANEL_PAD_H)
+                .right(theme::PANEL_PAD_H),
+        );
 
-    let mut save_row = row![save_button].spacing(12).align_y(iced::Alignment::Center);
+    let mut save_row =
+        row![save_button].spacing(theme::FORM_SECTION_GAP).align_y(iced::Alignment::Center);
     if let Some(status) = &settings.status {
         let status_text = match status {
-            | SettingsStatus::Saved => {
-                text(t!("settings_saved").to_string()).size(13).color(palette.success)
+            | SettingsStatus::Saved => text(t!("settings_saved").to_string())
+                .size(theme::LABEL_TEXT_SIZE)
+                .color(palette.success),
+            | SettingsStatus::Error(msg) => {
+                text(msg.as_str()).size(theme::LABEL_TEXT_SIZE).color(palette.danger)
             }
-            | SettingsStatus::Error(msg) => text(msg.as_str()).size(13).color(palette.danger),
         };
         save_row = save_row.push(status_text);
     }
 
     let config_section = container(
         column![
-            text(editing_title).size(16).font(theme::INTER),
-            column![base_url_field, api_key_input, model_input, save_row,].spacing(10),
+            text(editing_title).size(theme::SECTION_TITLE_SIZE).font(theme::INTER),
+            column![base_url_field, api_key_input, model_input, save_row,]
+                .spacing(theme::FORM_ROW_GAP),
         ]
-        .spacing(12),
+        .spacing(theme::FORM_SECTION_GAP),
     )
     .style(theme::draft_panel)
     .padding(
@@ -914,7 +944,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
                 TaskKind::Inquire,
             ),
         ]
-        .spacing(10),
+        .spacing(theme::FORM_ROW_GAP),
     );
 
     // ── Data Paths section ───────────────────────────────────────────
@@ -945,7 +975,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
                 config_path.map(|path| Message::Settings(SettingsMessage::CopyPath(path))),
             ),
         ]
-        .spacing(6),
+        .spacing(theme::BLOCK_GAP),
     );
 
     // ── Assemble ─────────────────────────────────────────────────────
@@ -958,7 +988,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         token_limits_section,
         paths_section
     ]
-    .spacing(24)
+    .spacing(theme::PAGE_SECTION_GAP)
     .max_width(max_width);
 
     let padded = container(content).padding(theme::CANVAS_PAD).width(Fill).center_x(Fill);
@@ -986,20 +1016,29 @@ fn labeled_input(
     label: String, value: &str, placeholder: String, on_input: impl Fn(String) -> Message + 'static,
 ) -> Element<'static, Message> {
     column![
-        text(label).size(13).font(theme::INTER).color(theme::LIGHT.accent_muted),
-        text_input(placeholder.as_str(), value).on_input(on_input).size(14).padding(8),
+        text(label)
+            .size(theme::LABEL_TEXT_SIZE)
+            .font(theme::INTER)
+            .color(theme::LIGHT.accent_muted),
+        text_input(placeholder.as_str(), value)
+            .on_input(on_input)
+            .size(theme::INPUT_TEXT_SIZE)
+            .padding(theme::PANEL_PAD_V),
     ]
-    .spacing(4)
+    .spacing(theme::INLINE_GAP)
     .into()
 }
 
 /// A labeled read-only text display (used for preset base URLs).
 fn labeled_readonly(label: String, value: &str) -> Element<'static, Message> {
     column![
-        text(label).size(13).font(theme::INTER).color(theme::LIGHT.accent_muted),
-        text(value.to_string()).size(14),
+        text(label)
+            .size(theme::LABEL_TEXT_SIZE)
+            .font(theme::INTER)
+            .color(theme::LIGHT.accent_muted),
+        text(value.to_string()).size(theme::INPUT_TEXT_SIZE),
     ]
-    .spacing(4)
+    .spacing(theme::INLINE_GAP)
     .into()
 }
 
@@ -1007,15 +1046,16 @@ fn labeled_readonly(label: String, value: &str) -> Element<'static, Message> {
 fn section(
     title: String, content: impl Into<Element<'static, Message>>,
 ) -> Element<'static, Message> {
-    container(column![text(title).size(16).font(theme::INTER), content.into(),].spacing(12))
-        .style(theme::draft_panel)
-        .padding(
-            iced::Padding::new(theme::PANEL_PAD_V)
-                .left(theme::PANEL_PAD_H)
-                .right(theme::PANEL_PAD_H),
-        )
-        .width(Fill)
-        .into()
+    container(
+        column![text(title).size(theme::SECTION_TITLE_SIZE).font(theme::INTER), content.into(),]
+            .spacing(theme::FORM_SECTION_GAP),
+    )
+    .style(theme::draft_panel)
+    .padding(
+        iced::Padding::new(theme::PANEL_PAD_V).left(theme::PANEL_PAD_H).right(theme::PANEL_PAD_H),
+    )
+    .width(Fill)
+    .into()
 }
 
 /// A row with label + text input + "Unlimited" checkbox for one task kind.
@@ -1025,20 +1065,23 @@ fn section(
 fn token_limit_row(
     label: String, value: &str, is_unlimited: bool, kind: TaskKind,
 ) -> Element<'static, Message> {
-    let label_text = text(label).size(13).font(theme::INTER).color(theme::LIGHT.accent_muted);
+    let label_text = text(label)
+        .size(theme::LABEL_TEXT_SIZE)
+        .font(theme::INTER)
+        .color(theme::LIGHT.accent_muted);
 
     let input_field: Element<'static, Message> = if is_unlimited {
         // Show a read-only disabled-looking input when unlimited.
         text_input("", "")
-            .size(14)
-            .padding(8)
+            .size(theme::INPUT_TEXT_SIZE)
+            .padding(theme::PANEL_PAD_V)
             .width(Length::Fixed(theme::SETTINGS_TOKEN_INPUT_WIDTH))
             .into()
     } else {
         text_input("", value)
             .on_input(move |v| Message::Settings(SettingsMessage::MaxTokensChanged(kind, v)))
-            .size(14)
-            .padding(8)
+            .size(theme::INPUT_TEXT_SIZE)
+            .padding(theme::PANEL_PAD_V)
             .width(Length::Fixed(theme::SETTINGS_TOKEN_INPUT_WIDTH))
             .into()
     };
@@ -1049,14 +1092,16 @@ fn token_limit_row(
         .on_toggle(move |checked| {
             Message::Settings(SettingsMessage::ToggleMaxTokensUnlimited(kind, checked))
         })
-        .size(16)
-        .text_size(13);
+        .size(theme::SECTION_TITLE_SIZE)
+        .text_size(theme::LABEL_TEXT_SIZE);
 
     row![
         label_text.width(Fill),
-        row![input_field, unlimited_checkbox].spacing(12).align_y(iced::Alignment::Center)
+        row![input_field, unlimited_checkbox]
+            .spacing(theme::FORM_SECTION_GAP)
+            .align_y(iced::Alignment::Center)
     ]
-    .spacing(12)
+    .spacing(theme::FORM_SECTION_GAP)
     .align_y(iced::Alignment::Center)
     .width(Fill)
     .into()
@@ -1070,14 +1115,16 @@ fn path_row(
     label: String, path: String, copy_tooltip: String, copy_message: Option<Message>,
 ) -> Element<'static, Message> {
     let label_text = text(label)
-        .size(13)
+        .size(theme::LABEL_TEXT_SIZE)
         .font(theme::INTER)
         .color(theme::LIGHT.accent_muted)
-        .width(Length::Fixed(90.0));
-    let path_text = text(path).size(13).width(Fill);
+        .width(Length::Fixed(theme::PATH_LABEL_WIDTH));
+    let path_text = text(path).size(theme::LABEL_TEXT_SIZE).width(Fill);
 
-    let mut content =
-        row![label_text, path_text].spacing(8).align_y(iced::Alignment::Center).width(Fill);
+    let mut content = row![label_text, path_text]
+        .spacing(theme::PANEL_BUTTON_GAP)
+        .align_y(iced::Alignment::Center)
+        .width(Fill);
 
     if let Some(message) = copy_message {
         let copy_button = IconButton::action(
@@ -1089,7 +1136,7 @@ fn path_row(
         .on_press(message);
         let copy_with_tooltip = tooltip(
             copy_button,
-            text(copy_tooltip).size(12).font(theme::INTER),
+            text(copy_tooltip).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
             tooltip::Position::Bottom,
         )
         .style(theme::tooltip)

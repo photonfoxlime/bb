@@ -188,6 +188,37 @@ pub const SHORTCUT_HELP_SECTION_GAP: f32 = 8.0;
 /// Vertical gap between shortcut rows inside one section.
 pub const SHORTCUT_HELP_ROW_GAP: f32 = 4.0;
 
+/// Page title font size.
+pub const PAGE_TITLE_SIZE: f32 = 20.0;
+/// Section title font size.
+pub const SECTION_TITLE_SIZE: f32 = 16.0;
+/// Label text size for secondary text.
+pub const LABEL_TEXT_SIZE: f32 = 13.0;
+/// Input and body text size.
+pub const INPUT_TEXT_SIZE: f32 = 14.0;
+/// Small text size for metadata and labels.
+pub const SMALL_TEXT_SIZE: f32 = 12.0;
+/// Mount indicator text size.
+pub const MOUNT_INDICATOR_TEXT_SIZE: f32 = 11.0;
+
+/// Vertical gap between major page sections.
+pub const PAGE_SECTION_GAP: f32 = 24.0;
+/// Vertical gap between form rows.
+pub const FORM_ROW_GAP: f32 = 10.0;
+/// Vertical gap between form sections.
+pub const FORM_SECTION_GAP: f32 = 12.0;
+/// Inline element gap.
+pub const INLINE_GAP: f32 = 4.0;
+/// Compact vertical padding.
+pub const COMPACT_PAD_V: f32 = 6.0;
+/// Compact horizontal padding.
+pub const COMPACT_PAD_H: f32 = 10.0;
+/// Wide horizontal padding for buttons.
+pub const BUTTON_PAD_H_WIDE: f32 = 16.0;
+
+/// Fixed width for path labels in settings.
+pub const PATH_LABEL_WIDTH: f32 = 90.0;
+
 /// Font size for instruction panel button text.
 pub const INSTRUCTION_BUTTON_SIZE: f32 = 13.0;
 /// Height for instruction editor in the instruction panel.
