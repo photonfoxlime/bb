@@ -17,7 +17,9 @@ pub mod error;
 pub mod prompt;
 
 pub use client::{InquireStreamEvent, LlmClient};
-pub use config::{CustomProvider, LlmConfig, LlmProviders, PresetConfig, PresetProvider};
+pub use config::{
+    CustomProvider, DEFAULT_PROVIDER, LlmConfig, LlmProviders, PresetConfig, PresetProvider,
+};
 pub use context::{
     BlockContext, ExpandResult, ExpandSuggestion, FriendContext, Lineage, ReduceResult,
 };

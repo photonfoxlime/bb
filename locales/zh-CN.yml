@@ -122,6 +122,11 @@ settings_token_reduce: "精简"
 settings_token_expand: "展开"
 settings_token_inquire: "询问"
 settings_unlimited: "无限制"
+settings_task_reduce: "任务：精简"
+settings_task_expand: "任务：展开"
+settings_task_inquire: "任务：询问"
+settings_task_provider: "提供方"
+settings_task_token_limit: "生成长度"
 
 # Action bar buttons
 action_expand: "展开"

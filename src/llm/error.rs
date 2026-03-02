@@ -34,8 +34,6 @@ pub enum LlmConfigError {
     ConfigFile(ConfigFileError),
     #[error("provider not found: {0}")]
     ProviderNotFound(String),
-    #[error("cannot remove the active provider")]
-    CannotRemoveActive,
     #[error("cannot remove a preset provider")]
     CannotRemovePreset,
     #[error("name collides with a preset provider: {0}")]

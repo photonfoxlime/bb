@@ -6,17 +6,29 @@
 //! All user-facing text must be internationalized via `rust_i18n::t!`. Never
 //! hardcode UI strings; add keys to the locale files instead.
 //!
-//! Stores optional UI locale, appearance preference, and editor-key behavior in
-//! `<config_dir>/app.toml`. Loaded at startup; changes are saved via
-//! [`save`] or [`AppState::save_app_config`](crate::app::AppState::save_app_config).
+//! Stores optional UI locale, appearance preference, editor-key behavior, and
+//! per-task LLM settings in `<config_dir>/app.toml`. Loaded at startup; changes
+//! are saved via [`save`] or
+//! [`AppState::save_app_config`](crate::app::AppState::save_app_config).
+//!
+//! # Per-task LLM settings
+//!
+//! Each LLM task kind (reduce, expand, inquire) independently selects:
+//! - **Provider** — name of a preset or custom provider.
+//! - **Model** — model identifier sent to the API.
+//! - **Token limit** — max completion tokens (0 = unlimited).
+//!
+//! These live in the `[tasks.*]` TOML tables. Providers themselves (URL + API
+//! key) are stored separately in `llm.toml`.
 
+use crate::llm;
 use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::{fs, io};
 
 /// Persisted app preferences (locale override, optional appearance override,
-/// and point-editor Enter behavior).
+/// editor-key behavior, and per-task LLM settings).
 ///
 /// Stored in `<config_dir>/app.toml`; see [`AppPaths::app_config`].
 /// The effective locale is derived via [`crate::i18n::resolved_locale_from_config`].
@@ -47,13 +59,12 @@ pub struct AppConfig {
         skip_serializing_if = "is_true"
     )]
     pub first_line_enter_add_child: bool,
-    /// Per-task-kind maximum completion token limits.
+    /// Per-task-kind LLM settings (provider, model, token limit).
     ///
-    /// Persisted under `[token-limits]` in `app.toml`. Each field defaults to
-    /// a sensible value when absent. A value of `0` means unlimited (the
-    /// `max_completion_tokens` field is omitted from the API request).
-    #[serde(rename = "token-limits", default)]
-    pub token_limits: TokenLimits,
+    /// Persisted under `[tasks]` in `app.toml`. Each task defaults to
+    /// a sensible value when absent.
+    #[serde(default)]
+    pub tasks: TaskSettings,
 }
 
 impl Default for AppConfig {
@@ -62,7 +73,7 @@ impl Default for AppConfig {
             locale: None,
             dark_mode: None,
             first_line_enter_add_child: default_first_line_enter_add_child(),
-            token_limits: TokenLimits::default(),
+            tasks: TaskSettings::default(),
         }
     }
 }
@@ -131,6 +142,10 @@ impl MaxTokens {
     /// Sentinel value: do not send `max_completion_tokens` to the API.
     pub const UNLIMITED: Self = Self(0);
 
+    /// Reasonable non-zero fallback used when the user toggles *off* unlimited
+    /// mode and no prior numeric value exists.
+    pub const FALLBACK_LIMIT: Self = Self(4096);
+
     /// Create a new token limit from a raw `u32`.
     ///
     /// `0` is interpreted as unlimited.
@@ -162,42 +177,95 @@ impl fmt::Display for MaxTokens {
     }
 }
 
-/// Per-task-kind token limits persisted in `app.toml`.
+/// Per-task-kind LLM settings persisted in `app.toml`.
 ///
-/// Each field defaults to a sensible value when absent from the file.
-/// A value of `0` means unlimited (the `max_completion_tokens` field is
-/// omitted from the API request).
+/// Each task independently selects a provider, model, and token limit.
+/// Uses `[tasks.reduce]`, `[tasks.expand]`, `[tasks.inquire]` TOML tables.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TokenLimits {
-    /// Max completion tokens for reduce requests.
-    #[serde(default = "default_reduce_tokens")]
-    pub reduce: MaxTokens,
-    /// Max completion tokens for expand requests.
-    #[serde(default = "default_expand_tokens")]
-    pub expand: MaxTokens,
-    /// Max completion tokens for inquire requests.
-    #[serde(default = "default_inquire_tokens")]
-    pub inquire: MaxTokens,
+pub struct TaskSettings {
+    /// Settings for the reduce task.
+    #[serde(default = "TaskConfig::default_reduce")]
+    pub reduce: TaskConfig,
+    /// Settings for the expand task.
+    #[serde(default = "TaskConfig::default_expand")]
+    pub expand: TaskConfig,
+    /// Settings for the inquire task.
+    #[serde(default = "TaskConfig::default_inquire")]
+    pub inquire: TaskConfig,
 }
 
-impl Default for TokenLimits {
+impl Default for TaskSettings {
     fn default() -> Self {
         Self {
-            reduce: default_reduce_tokens(),
-            expand: default_expand_tokens(),
-            inquire: default_inquire_tokens(),
+            reduce: TaskConfig::default_reduce(),
+            expand: TaskConfig::default_expand(),
+            inquire: TaskConfig::default_inquire(),
         }
     }
 }
 
+/// Configuration for a single LLM task (reduce, expand, or inquire).
+///
+/// Selects which provider to use, which model to request, and the
+/// maximum number of completion tokens.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TaskConfig {
+    /// Name of the provider (preset or custom) to use for this task.
+    #[serde(default = "default_provider_name")]
+    pub provider: String,
+    /// Model identifier sent to the API.
+    #[serde(default = "default_model_name")]
+    pub model: String,
+    /// Max completion tokens. `0` means unlimited (omit from API request).
+    #[serde(rename = "token-limit", default = "default_reduce_tokens")]
+    pub token_limit: MaxTokens,
+}
+
+impl TaskConfig {
+    /// Default config for the reduce task.
+    pub fn default_reduce() -> Self {
+        Self {
+            provider: default_provider_name(),
+            model: default_model_name(),
+            token_limit: default_reduce_tokens(),
+        }
+    }
+
+    /// Default config for the expand task.
+    pub fn default_expand() -> Self {
+        Self {
+            provider: default_provider_name(),
+            model: default_model_name(),
+            token_limit: default_expand_tokens(),
+        }
+    }
+
+    /// Default config for the inquire task.
+    pub fn default_inquire() -> Self {
+        Self {
+            provider: default_provider_name(),
+            model: default_model_name(),
+            token_limit: default_inquire_tokens(),
+        }
+    }
+}
+
+fn default_provider_name() -> String {
+    llm::DEFAULT_PROVIDER.to_string()
+}
+
+fn default_model_name() -> String {
+    llm::PresetProvider::OpenAI.default_model().to_string()
+}
+
 fn default_reduce_tokens() -> MaxTokens {
-    MaxTokens(400)
+    MaxTokens::UNLIMITED
 }
 fn default_expand_tokens() -> MaxTokens {
-    MaxTokens(500)
+    MaxTokens::UNLIMITED
 }
 fn default_inquire_tokens() -> MaxTokens {
-    MaxTokens(700)
+    MaxTokens::UNLIMITED
 }
 
 /// Error when persisting app config.
@@ -215,7 +283,7 @@ pub enum SaveError {
 
 #[cfg(test)]
 mod tests {
-    use super::{AppConfig, MaxTokens, TokenLimits};
+    use super::{AppConfig, MaxTokens, TaskConfig, TaskSettings};
 
     #[test]
     fn resolved_dark_mode_prefers_override() {
@@ -264,34 +332,47 @@ mod tests {
     }
 
     #[test]
-    fn token_limits_defaults_are_sensible() {
-        let limits = TokenLimits::default();
-        assert_eq!(limits.reduce.raw(), 400);
-        assert_eq!(limits.expand.raw(), 500);
-        assert_eq!(limits.inquire.raw(), 700);
+    fn task_settings_defaults_are_sensible() {
+        let tasks = TaskSettings::default();
+        assert!(tasks.reduce.token_limit.is_unlimited());
+        assert!(tasks.expand.token_limit.is_unlimited());
+        assert!(tasks.inquire.token_limit.is_unlimited());
+        assert_eq!(tasks.reduce.provider, "openai");
+        assert_eq!(tasks.reduce.model, "gpt-4o");
     }
 
     #[test]
-    fn token_limits_round_trips_through_toml() {
-        let limits = TokenLimits {
-            reduce: MaxTokens::new(300),
-            expand: MaxTokens::UNLIMITED,
-            inquire: MaxTokens::new(1000),
+    fn task_settings_round_trips_through_toml() {
+        let tasks = TaskSettings {
+            reduce: TaskConfig {
+                provider: "deepseek".to_string(),
+                model: "deepseek-chat".to_string(),
+                token_limit: MaxTokens::new(300),
+            },
+            expand: TaskConfig {
+                provider: "openai".to_string(),
+                model: "gpt-4o".to_string(),
+                token_limit: MaxTokens::UNLIMITED,
+            },
+            inquire: TaskConfig::default_inquire(),
         };
-        let config = AppConfig { token_limits: limits.clone(), ..Default::default() };
+        let config = AppConfig { tasks: tasks.clone(), ..Default::default() };
         let toml_str = toml::to_string_pretty(&config).expect("serialize");
         let parsed: AppConfig = toml::from_str(&toml_str).expect("deserialize");
-        assert_eq!(parsed.token_limits.reduce.raw(), 300);
-        assert_eq!(parsed.token_limits.expand.raw(), 0);
-        assert_eq!(parsed.token_limits.inquire.raw(), 1000);
+        assert_eq!(parsed.tasks.reduce.provider, "deepseek");
+        assert_eq!(parsed.tasks.reduce.model, "deepseek-chat");
+        assert_eq!(parsed.tasks.reduce.token_limit.raw(), 300);
+        assert_eq!(parsed.tasks.expand.token_limit.raw(), 0);
+        assert_eq!(parsed.tasks.inquire.token_limit.raw(), 0);
     }
 
     #[test]
-    fn token_limits_missing_from_toml_uses_defaults() {
+    fn task_settings_missing_from_toml_uses_defaults() {
         let toml_str = r#"locale = "en-US""#;
         let config: AppConfig = toml::from_str(toml_str).expect("deserialize");
-        assert_eq!(config.token_limits.reduce.raw(), 400);
-        assert_eq!(config.token_limits.expand.raw(), 500);
-        assert_eq!(config.token_limits.inquire.raw(), 700);
+        assert!(config.tasks.reduce.token_limit.is_unlimited());
+        assert!(config.tasks.expand.token_limit.is_unlimited());
+        assert!(config.tasks.inquire.token_limit.is_unlimited());
+        assert_eq!(config.tasks.reduce.provider, "openai");
     }
 }

@@ -147,6 +147,11 @@ settings_token_reduce: "Reduce"
 settings_token_expand: "Expand"
 settings_token_inquire: "Inquire"
 settings_unlimited: "Unlimited"
+settings_task_reduce: "Task: Reduce"
+settings_task_expand: "Task: Expand"
+settings_task_inquire: "Task: Inquire"
+settings_task_provider: "Provider"
+settings_task_token_limit: "Token Limit"
 
 # Instruction panel (additional)
 instruction_additional: "Additional instruction: %{instruction}"

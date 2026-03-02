@@ -351,16 +351,18 @@ impl AppState {
                 llm::LlmProviders::default()
             }
         };
+        let config = crate::app::config::load();
         let mut errors = vec![];
-        if let Err(err) = providers.resolve_active() {
-            errors.push(AppError::Configuration(UiError::from_message(err)));
+        // Validate each task's configured provider at startup.
+        for task_cfg in [&config.tasks.reduce, &config.tasks.expand, &config.tasks.inquire] {
+            if let Err(err) = providers.resolve(&task_cfg.provider, &task_cfg.model) {
+                errors.push(AppError::Configuration(UiError::from_message(err)));
+            }
         }
         let (store, persistence_blocked, persistence_errors) =
             Self::startup_store_from_load_result(BlockStore::load());
         errors.extend(persistence_errors);
         let editor_buffers = EditorBuffers::from_store(&store);
-
-        let config = crate::app::config::load();
         let system_is_dark = matches!(dark_light::detect(), Ok(dark_light::Mode::Dark));
         let is_dark = config.resolved_dark_mode(system_is_dark);
         tracing::info!(
@@ -488,7 +490,8 @@ impl AppState {
     }
 
     fn llm_config_for_reduce(&mut self, block_id: BlockId) -> Option<llm::LlmConfig> {
-        match self.providers.resolve_active() {
+        let task = &self.config.tasks.reduce;
+        match self.providers.resolve(&task.provider, &task.model) {
             | Ok(config) => Some(config),
             | Err(err) => {
                 let ui_err = UiError::from_message(err);
@@ -500,7 +503,8 @@ impl AppState {
     }
 
     fn llm_config_for_expand(&mut self, block_id: BlockId) -> Option<llm::LlmConfig> {
-        match self.providers.resolve_active() {
+        let task = &self.config.tasks.expand;
+        match self.providers.resolve(&task.provider, &task.model) {
             | Ok(config) => Some(config),
             | Err(err) => {
                 let ui_err = UiError::from_message(err);
@@ -512,7 +516,8 @@ impl AppState {
     }
 
     fn llm_config_for_inquire(&mut self) -> Option<llm::LlmConfig> {
-        match self.providers.resolve_active() {
+        let task = &self.config.tasks.inquire;
+        match self.providers.resolve(&task.provider, &task.model) {
             | Ok(config) => Some(config),
             | Err(err) => {
                 self.record_error(AppError::Configuration(UiError::from_message(err)));

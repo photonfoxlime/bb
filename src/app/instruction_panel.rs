@@ -140,7 +140,7 @@ pub fn handle(
             state.persist_with_context("after storing inquiry and consuming instruction draft");
             state.editor_buffers.set_instruction_text("");
             tracing::info!(block_id = ?target_block_id, "instruction inquiry started");
-            let inquire_max_tokens = state.config.token_limits.inquire.as_api_param();
+            let inquire_max_tokens = state.config.tasks.inquire.token_limit.as_api_param();
             let client = llm::LlmClient::new(config);
             let request_task = iced::Task::run(
                 client.inquire_stream(
@@ -790,7 +790,7 @@ mod tests {
         state.set_focus(root);
         state.providers.update_preset(
             crate::llm::PresetProvider::OpenAI,
-            crate::llm::PresetConfig { api_key: String::new(), model: "test-model".to_string() },
+            crate::llm::PresetConfig { api_key: String::new() },
         );
         state.editor_buffers.set_instruction_text("ask this");
 

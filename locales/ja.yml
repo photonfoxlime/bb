@@ -122,6 +122,11 @@ settings_token_reduce: "要約"
 settings_token_expand: "展開"
 settings_token_inquire: "問い合わせ"
 settings_unlimited: "無制限"
+settings_task_reduce: "タスク：要約"
+settings_task_expand: "タスク：展開"
+settings_task_inquire: "タスク：問い合わせ"
+settings_task_provider: "提供元"
+settings_task_token_limit: "トークン制限"
 
 # Action bar buttons
 action_expand: "展開"

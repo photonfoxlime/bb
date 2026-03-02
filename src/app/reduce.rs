@@ -74,7 +74,7 @@ pub fn handle(state: &mut AppState, message: ReduceMessage) -> Task<Message> {
             // Get instruction draft from store and consume it
             let instruction =
                 state.store.remove_instruction_draft(&block_id).map(|d| d.instruction);
-            let reduce_max_tokens = state.config.token_limits.reduce.as_api_param();
+            let reduce_max_tokens = state.config.tasks.reduce.token_limit.as_api_param();
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);

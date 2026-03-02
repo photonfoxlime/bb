@@ -1,4 +1,4 @@
-//! Settings view: multi-provider LLM configuration, appearance controls, and data path display.
+//! Settings view: multi-provider LLM configuration, per-task model selection, and system controls.
 //!
 //! Please use or create constants in `theme.rs` for all UI numeric values
 //! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
@@ -7,10 +7,14 @@
 //! hardcode UI strings; add keys to the locale files instead.
 //!
 //! The settings view is an alternative screen accessible from the document view
-//! via a gear icon button. It exposes editable LLM provider configurations with
-//! CRUD support (add, edit, delete, switch active), a persisted three-state
-//! appearance mode slider (light / follow system / dark),
-//! and read-only display of resolved data and config paths.
+//! via a gear icon button. It exposes:
+//!
+//! 1. **Provider management** — add, edit, delete LLM providers. Each provider
+//!    stores only a URL and API key. Preset providers have a fixed URL.
+//! 2. **Per-task LLM settings** — each task kind (reduce, expand, inquire)
+//!    independently selects a provider, model, and token limit.
+//! 3. **System settings** — locale, appearance mode, Enter key behavior.
+//! 4. **Data paths** — read-only display of resolved data/config file paths.
 //!
 //! # Preset vs custom providers
 //!
@@ -18,16 +22,13 @@
 //!
 //! - Preset providers (OpenAI, OpenRouter, etc.) are always present and
 //!   cannot be deleted. Their base URL is fixed; the user only supplies an
-//!   API key and optionally overrides the model. Saving a preset skips
-//!   `from_raw` validation — an empty API key is allowed (the user just
-//!   hasn't configured this preset yet).
-//! - Custom providers are fully user-managed. All fields (name, base URL,
-//!   API key, model) are editable and validated via `from_raw` before save.
-//!   Users can add and delete custom providers.
+//!   API key. Saving a preset skips `from_raw` validation — an empty API key
+//!   is allowed (the user just hasn't configured this preset yet).
+//! - Custom providers are fully user-managed. Name, base URL, and API key
+//!   are editable and validated before save. Users can add and delete them.
 //!
-//! The settings view drafts edits against the currently *selected* provider
-//! (which may differ from the *active* provider). Changes are non-destructive
-//! until the user explicitly saves.
+//! Note: model selection is **not** part of the provider config. Each task
+//! kind picks its own provider + model independently.
 //!
 //! # Architecture
 //!
@@ -36,7 +37,7 @@
 //! - [`SettingsMessage`] variants drive all settings interactions through the
 //!   standard Elm-architecture `update` cycle.
 
-use super::config::{self, AppConfig, MaxTokens};
+use super::config::{self, AppConfig, MaxTokens, TaskConfig};
 use super::{AppState, Message, ViewMode};
 use crate::component::icon_button::IconButton;
 use crate::component::text_button::TextButton;
@@ -56,10 +57,13 @@ use rust_i18n::t;
 ///
 /// Populated from the current [`LlmProviders`] when the settings screen opens,
 /// and written back on explicit save. The `selected_provider` tracks which
-/// provider's fields are being edited; it may differ from `active_provider`.
+/// provider's URL and API key are being edited.
+///
+/// Per-task settings (provider, model, token limit) are managed independently
+/// via `task_drafts` and saved immediately on change.
 #[derive(Debug, Clone)]
 pub struct SettingsState {
-    /// Name of the provider currently being edited in the form.
+    /// Name of the provider currently being edited in the provider config form.
     pub selected_provider: String,
     /// Draft base URL for the selected provider's LLM endpoint.
     ///
@@ -67,12 +71,8 @@ pub struct SettingsState {
     pub base_url: String,
     /// Draft API key for the selected provider.
     pub api_key: String,
-    /// Draft model identifier for the selected provider.
-    pub model: String,
     /// Names of all providers, kept in sync for the picker UI.
     pub provider_names: Vec<String>,
-    /// Name of the provider designated as active for LLM requests.
-    pub active_provider: String,
     /// Draft name for a new custom provider being added.
     pub new_provider_name: String,
     /// Transient status message shown after save attempts.
@@ -82,16 +82,67 @@ pub struct SettingsState {
     /// Drives UI decisions: base URL read-only, delete hidden, save skips
     /// `from_raw` validation.
     pub selected_is_preset: bool,
-    /// Draft app configuration (e.g. locale override).
+    /// Draft app configuration (locale, appearance, enter behavior, tasks).
     pub config: AppConfig,
-    /// Draft text for the reduce token-limit input.
-    ///
-    /// Empty when unlimited; otherwise the stringified positive integer.
-    pub reduce_max_tokens_text: String,
-    /// Draft text for the expand token-limit input.
-    pub expand_max_tokens_text: String,
-    /// Draft text for the inquire token-limit input.
-    pub inquire_max_tokens_text: String,
+    /// Per-task draft form values (provider name, model text, token limit text).
+    pub task_drafts: TaskDrafts,
+}
+
+/// Per-task draft values for the settings UI.
+///
+/// Each task kind has its own draft provider selection, model text input,
+/// and token limit text input, mirroring the persisted [`TaskConfig`].
+#[derive(Debug, Clone)]
+pub struct TaskDrafts {
+    pub reduce: TaskDraft,
+    pub expand: TaskDraft,
+    pub inquire: TaskDraft,
+}
+
+/// Draft values for a single task's settings in the UI.
+#[derive(Debug, Clone)]
+pub struct TaskDraft {
+    /// Name of the selected provider for this task.
+    pub provider: String,
+    /// Draft model identifier text input.
+    pub model: String,
+    /// Draft text for the token-limit input. Empty when unlimited.
+    pub max_tokens_text: String,
+}
+
+impl TaskDraft {
+    /// Create from a persisted [`TaskConfig`].
+    pub fn from_config(config: &TaskConfig) -> Self {
+        Self {
+            provider: config.provider.clone(),
+            model: config.model.clone(),
+            max_tokens_text: if config.token_limit.is_unlimited() {
+                String::new()
+            } else {
+                config.token_limit.raw().to_string()
+            },
+        }
+    }
+}
+
+impl TaskDrafts {
+    /// Create from persisted task settings.
+    pub fn from_config(config: &AppConfig) -> Self {
+        Self {
+            reduce: TaskDraft::from_config(&config.tasks.reduce),
+            expand: TaskDraft::from_config(&config.tasks.expand),
+            inquire: TaskDraft::from_config(&config.tasks.inquire),
+        }
+    }
+
+    /// Get a mutable reference to the draft for a specific task kind.
+    pub fn get_mut(&mut self, kind: &TaskKind) -> &mut TaskDraft {
+        match kind {
+            | TaskKind::Reduce => &mut self.reduce,
+            | TaskKind::Expand => &mut self.expand,
+            | TaskKind::Inquire => &mut self.inquire,
+        }
+    }
 }
 
 /// Outcome of the last settings save attempt.
@@ -232,8 +283,6 @@ pub enum SettingsMessage {
     Close,
     /// Switch the form to edit a different provider's fields.
     SelectProvider(String),
-    /// Designate a provider as the active one for LLM requests.
-    SetActiveProvider(String),
     /// Add a new custom provider with the name from `new_provider_name`.
     AddProvider,
     /// Delete a custom provider by name (presets cannot be deleted).
@@ -244,9 +293,7 @@ pub enum SettingsMessage {
     BaseUrlChanged(String),
     /// Draft API key changed.
     ApiKeyChanged(String),
-    /// Draft model name changed.
-    ModelChanged(String),
-    /// Persist draft values to the TOML config file and reload.
+    /// Persist draft provider values (URL + API key) to the TOML config file.
     Save,
     /// Update appearance mode via the three-state slider.
     SetThemePreference(ThemePreference),
@@ -255,59 +302,51 @@ pub enum SettingsMessage {
     /// Change the locale override.
     SetLocale(Option<String>),
     /// Copy a resolved settings path to the system clipboard.
-    ///
-    /// The path is computed in [`view`] and sent as an owned string so this
-    /// message remains self-contained and does not depend on global path state.
     CopyPath(String),
-    /// Update the max-tokens text input for a specific task kind.
+    /// Change the provider selection for a specific task kind.
     ///
-    /// The string is validated on each keystroke; only valid positive integers
-    /// (or empty, treated as the default) are persisted.
+    /// Immediately persisted to `app.toml`.
+    TaskProviderChanged(TaskKind, String),
+    /// Change the model text for a specific task kind.
+    ///
+    /// Immediately persisted to `app.toml`.
+    TaskModelChanged(TaskKind, String),
+    /// Update the max-tokens text input for a specific task kind.
     MaxTokensChanged(TaskKind, String),
     /// Toggle the "unlimited" checkbox for a specific task kind.
-    ///
-    /// When checked, the token limit is set to [`MaxTokens::UNLIMITED`] (0)
-    /// and the text input is cleared. When unchecked, the default for that
-    /// task kind is restored.
     ToggleMaxTokensUnlimited(TaskKind, bool),
 }
 
 impl SettingsState {
     /// Initialize draft values from the current provider collection and app config.
     ///
-    /// Selects the active provider's fields for initial editing.
+    /// Selects the first provider's fields for initial editing.
     pub fn from_providers(providers: &llm::LlmProviders, config: &AppConfig) -> Self {
-        let active = providers.active().to_string();
-        let selected = active.clone();
-        let (base_url, api_key, model) = providers.raw_fields(&selected).unwrap_or_default();
+        let names = providers.provider_names();
+        let selected = names.first().cloned().unwrap_or_default();
+        let (base_url, api_key) = providers.raw_fields(&selected).unwrap_or_default();
         let selected_is_preset = providers.is_preset(&selected);
         Self {
             selected_provider: selected,
             base_url,
             api_key,
-            model,
-            provider_names: providers.provider_names(),
-            active_provider: active,
+            provider_names: names,
             new_provider_name: String::new(),
             status: None,
             selected_is_preset,
+            task_drafts: TaskDrafts::from_config(config),
             config: config.clone(),
-            reduce_max_tokens_text: Self::max_tokens_display_text(config.token_limits.reduce),
-            expand_max_tokens_text: Self::max_tokens_display_text(config.token_limits.expand),
-            inquire_max_tokens_text: Self::max_tokens_display_text(config.token_limits.inquire),
         }
     }
 
     /// Reload draft fields from the provider collection for the currently selected provider.
     fn load_selected_fields(&mut self, providers: &llm::LlmProviders) {
-        if let Some((base_url, api_key, model)) = providers.raw_fields(&self.selected_provider) {
+        if let Some((base_url, api_key)) = providers.raw_fields(&self.selected_provider) {
             self.base_url = base_url;
             self.api_key = api_key;
-            self.model = model;
         }
         self.selected_is_preset = providers.is_preset(&self.selected_provider);
         self.provider_names = providers.provider_names();
-        self.active_provider = providers.active().to_string();
     }
 
     /// Format a [`MaxTokens`] value for the text input field.
@@ -343,26 +382,6 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             );
             Task::none()
         }
-        | SettingsMessage::SetActiveProvider(name) => {
-            match state.providers.set_active(&name) {
-                | Ok(()) => {
-                    state.settings.active_provider = name.clone();
-                    state.settings.status = None;
-                    if let Err(err) = state.providers.save_to_file() {
-                        state.settings.status =
-                            Some(SettingsStatus::Error(format!("save failed: {err}")));
-                        tracing::error!(%err, "failed to save active provider change");
-                    } else {
-                        tracing::info!(provider = %name, "active provider changed");
-                    }
-                }
-                | Err(err) => {
-                    state.settings.status =
-                        Some(SettingsStatus::Error(format!("invalid provider: {err}")));
-                }
-            }
-            Task::none()
-        }
         | SettingsMessage::AddProvider => {
             let name = state.settings.new_provider_name.trim().to_string();
             if name.is_empty() {
@@ -393,7 +412,8 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             match state.providers.remove_provider(&name) {
                 | Ok(()) => {
                     if state.settings.selected_provider == name {
-                        state.settings.selected_provider = state.providers.active().to_string();
+                        state.settings.selected_provider =
+                            state.providers.provider_names().first().cloned().unwrap_or_default();
                     }
                     state.settings.load_selected_fields(&state.providers);
                     state.settings.status = None;
@@ -425,49 +445,35 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             state.settings.status = None;
             Task::none()
         }
-        | SettingsMessage::ModelChanged(value) => {
-            state.settings.model = value;
-            state.settings.status = None;
-            Task::none()
-        }
         | SettingsMessage::Save => {
             let provider_name = state.settings.selected_provider.clone();
             if state.providers.is_preset(&provider_name) {
-                // Preset: save api_key and model directly, no from_raw validation.
+                // Preset: save api_key directly, no from_raw validation.
                 // The user may save an empty api_key (not yet configured).
                 let preset = llm::PresetProvider::from_name(&provider_name)
                     .expect("is_preset returned true");
-                let config = llm::PresetConfig {
-                    api_key: state.settings.api_key.clone(),
-                    model: state.settings.model.clone(),
-                };
+                let config = llm::PresetConfig { api_key: state.settings.api_key.clone() };
                 state.providers.update_preset(preset, config);
             } else {
-                // Custom: validate all fields before saving.
-                let draft = llm::LlmConfig::from_raw(
-                    state.settings.base_url.clone(),
-                    state.settings.api_key.clone(),
-                    state.settings.model.clone(),
-                );
-                match draft {
-                    | Ok(_config) => {
-                        let custom = llm::CustomProvider {
-                            base_url: state.settings.base_url.clone(),
-                            api_key: state.settings.api_key.clone(),
-                            model: state.settings.model.clone(),
-                        };
-                        if let Err(err) =
-                            state.providers.upsert_custom(provider_name.clone(), custom)
-                        {
-                            state.settings.status = Some(SettingsStatus::Error(format!("{err}")));
-                            return Task::none();
-                        }
-                    }
-                    | Err(err) => {
-                        state.settings.status =
-                            Some(SettingsStatus::Error(format!("invalid config: {err}")));
-                        return Task::none();
-                    }
+                // Custom: validate URL + API key before saving.
+                // We use a dummy model for validation since model lives in per-task config.
+                let custom = llm::CustomProvider {
+                    base_url: state.settings.base_url.clone(),
+                    api_key: state.settings.api_key.clone(),
+                };
+                // Validate base_url is https and api_key is non-empty.
+                if let Err(err) = llm::LlmConfig::from_raw(
+                    custom.base_url.clone(),
+                    custom.api_key.clone(),
+                    "validation-placeholder".to_string(),
+                ) {
+                    state.settings.status =
+                        Some(SettingsStatus::Error(format!("invalid config: {err}")));
+                    return Task::none();
+                }
+                if let Err(err) = state.providers.upsert_custom(provider_name.clone(), custom) {
+                    state.settings.status = Some(SettingsStatus::Error(format!("{err}")));
+                    return Task::none();
                 }
             }
             // Persist to disk.
@@ -543,30 +549,79 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             tracing::info!(path = %path, "copied settings path to clipboard");
             iced::clipboard::write(path)
         }
-        | SettingsMessage::MaxTokensChanged(kind, value) => {
-            // Update the draft text field regardless of validity (so the user
-            // sees what they typed). Only persist when the value is a valid
-            // positive integer.
+        | SettingsMessage::TaskProviderChanged(kind, provider) => {
+            // Update draft and persist immediately.
+            state.settings.task_drafts.get_mut(&kind).provider = provider.clone();
+            let task_cfg = match kind {
+                | TaskKind::Reduce => &mut state.config.tasks.reduce,
+                | TaskKind::Expand => &mut state.config.tasks.expand,
+                | TaskKind::Inquire => &mut state.config.tasks.inquire,
+            };
+            task_cfg.provider = provider.clone();
+            // Mirror in settings config.
             match kind {
-                | TaskKind::Reduce => state.settings.reduce_max_tokens_text = value.clone(),
-                | TaskKind::Expand => state.settings.expand_max_tokens_text = value.clone(),
-                | TaskKind::Inquire => state.settings.inquire_max_tokens_text = value.clone(),
+                | TaskKind::Reduce => {
+                    state.settings.config.tasks.reduce.provider = provider.clone()
+                }
+                | TaskKind::Expand => {
+                    state.settings.config.tasks.expand.provider = provider.clone()
+                }
+                | TaskKind::Inquire => {
+                    state.settings.config.tasks.inquire.provider = provider.clone()
+                }
             }
+            if let Err(err) = config::save(&state.config) {
+                state.settings.status =
+                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                tracing::error!(%err, ?kind, %provider, "failed to persist task provider change");
+            } else {
+                tracing::info!(?kind, %provider, "task provider changed and persisted");
+            }
+            Task::none()
+        }
+        | SettingsMessage::TaskModelChanged(kind, model) => {
+            state.settings.task_drafts.get_mut(&kind).model = model.clone();
+            let task_cfg = match kind {
+                | TaskKind::Reduce => &mut state.config.tasks.reduce,
+                | TaskKind::Expand => &mut state.config.tasks.expand,
+                | TaskKind::Inquire => &mut state.config.tasks.inquire,
+            };
+            task_cfg.model = model.clone();
+            match kind {
+                | TaskKind::Reduce => state.settings.config.tasks.reduce.model = model.clone(),
+                | TaskKind::Expand => state.settings.config.tasks.expand.model = model.clone(),
+                | TaskKind::Inquire => state.settings.config.tasks.inquire.model = model.clone(),
+            }
+            if let Err(err) = config::save(&state.config) {
+                state.settings.status =
+                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                tracing::error!(%err, ?kind, %model, "failed to persist task model change");
+            } else {
+                tracing::info!(?kind, %model, "task model changed and persisted");
+            }
+            Task::none()
+        }
+        | SettingsMessage::MaxTokensChanged(kind, value) => {
+            // Update the draft text field regardless of validity.
+            state.settings.task_drafts.get_mut(&kind).max_tokens_text = value.clone();
             if let Ok(n) = value.parse::<u32>() {
                 if n > 0 {
                     let mt = MaxTokens::new(n);
+                    let task_cfg = match kind {
+                        | TaskKind::Reduce => &mut state.config.tasks.reduce,
+                        | TaskKind::Expand => &mut state.config.tasks.expand,
+                        | TaskKind::Inquire => &mut state.config.tasks.inquire,
+                    };
+                    task_cfg.token_limit = mt;
                     match kind {
                         | TaskKind::Reduce => {
-                            state.config.token_limits.reduce = mt;
-                            state.settings.config.token_limits.reduce = mt;
+                            state.settings.config.tasks.reduce.token_limit = mt;
                         }
                         | TaskKind::Expand => {
-                            state.config.token_limits.expand = mt;
-                            state.settings.config.token_limits.expand = mt;
+                            state.settings.config.tasks.expand.token_limit = mt;
                         }
                         | TaskKind::Inquire => {
-                            state.config.token_limits.inquire = mt;
-                            state.settings.config.token_limits.inquire = mt;
+                            state.settings.config.tasks.inquire.token_limit = mt;
                         }
                     }
                     if let Err(err) = config::save(&state.config) {
@@ -584,36 +639,30 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             let mt = if unlimited {
                 MaxTokens::UNLIMITED
             } else {
-                // Restore the default for this task kind.
-                use super::config::TokenLimits;
-                let defaults = TokenLimits::default();
-                match kind {
-                    | TaskKind::Reduce => defaults.reduce,
-                    | TaskKind::Expand => defaults.expand,
-                    | TaskKind::Inquire => defaults.inquire,
-                }
+                // Switch to a sensible non-zero cap so the checkbox
+                // visually unchecks and the user can adjust from there.
+                MaxTokens::FALLBACK_LIMIT
             };
             // Update both configs.
+            let task_cfg = match kind {
+                | TaskKind::Reduce => &mut state.config.tasks.reduce,
+                | TaskKind::Expand => &mut state.config.tasks.expand,
+                | TaskKind::Inquire => &mut state.config.tasks.inquire,
+            };
+            task_cfg.token_limit = mt;
             match kind {
                 | TaskKind::Reduce => {
-                    state.config.token_limits.reduce = mt;
-                    state.settings.config.token_limits.reduce = mt;
-                    state.settings.reduce_max_tokens_text =
-                        SettingsState::max_tokens_display_text(mt);
+                    state.settings.config.tasks.reduce.token_limit = mt;
                 }
                 | TaskKind::Expand => {
-                    state.config.token_limits.expand = mt;
-                    state.settings.config.token_limits.expand = mt;
-                    state.settings.expand_max_tokens_text =
-                        SettingsState::max_tokens_display_text(mt);
+                    state.settings.config.tasks.expand.token_limit = mt;
                 }
                 | TaskKind::Inquire => {
-                    state.config.token_limits.inquire = mt;
-                    state.settings.config.token_limits.inquire = mt;
-                    state.settings.inquire_max_tokens_text =
-                        SettingsState::max_tokens_display_text(mt);
+                    state.settings.config.tasks.inquire.token_limit = mt;
                 }
             }
+            state.settings.task_drafts.get_mut(&kind).max_tokens_text =
+                SettingsState::max_tokens_display_text(mt);
             if let Err(err) = config::save(&state.config) {
                 state.settings.status =
                     Some(SettingsStatus::Error(format!("failed to save config: {err}")));
@@ -665,29 +714,6 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     .text_size(theme::INPUT_TEXT_SIZE)
     .padding(theme::PANEL_PAD_V);
 
-    let active_indicator: Element<'_, Message> =
-        if settings.selected_provider == settings.active_provider {
-            text(t!("settings_active").to_string())
-                .size(theme::SMALL_TEXT_SIZE)
-                .color(palette.success)
-                .into()
-        } else {
-            TextButton::action(t!("settings_set_active").to_string(), theme::SMALL_TEXT_SIZE)
-                .on_press(Message::Settings(SettingsMessage::SetActiveProvider(
-                    settings.selected_provider.clone(),
-                )))
-                .padding(
-                    iced::Padding::new(theme::INLINE_GAP)
-                        .left(theme::COMPACT_PAD_H)
-                        .right(theme::COMPACT_PAD_H),
-                )
-                .into()
-        };
-
-    let selector_row = row![provider_picker, active_indicator]
-        .spacing(theme::FORM_SECTION_GAP)
-        .align_y(iced::Alignment::Center);
-
     let new_provider_placeholder = t!("settings_new_provider_placeholder").to_string();
     let new_provider_input = text_input(&new_provider_placeholder, &settings.new_provider_name)
         .on_input(|v| Message::Settings(SettingsMessage::NewProviderNameChanged(v)))
@@ -706,12 +732,10 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         .spacing(theme::PANEL_BUTTON_GAP)
         .align_y(iced::Alignment::Center);
 
-    let mut provider_management = column![selector_row, add_row].spacing(theme::FORM_ROW_GAP);
+    let mut provider_management = column![provider_picker, add_row].spacing(theme::FORM_ROW_GAP);
 
     // Only custom providers can be deleted (presets are always available).
-    let can_delete =
-        !settings.selected_is_preset && settings.selected_provider != settings.active_provider;
-    if can_delete {
+    if !settings.selected_is_preset {
         let delete_btn = TextButton::action_with_color(
             t!("settings_delete_provider").to_string(),
             theme::SMALL_TEXT_SIZE,
@@ -868,8 +892,6 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let base_url_placeholder = t!("settings_base_url_placeholder").to_string();
     let api_key_label = t!("settings_api_key").to_string();
     let api_key_placeholder = t!("settings_api_key_placeholder").to_string();
-    let model_label = t!("settings_model").to_string();
-    let model_placeholder = t!("settings_model_placeholder").to_string();
     let base_url_field: Element<'_, Message> = if settings.selected_is_preset {
         labeled_readonly(base_url_label, &settings.base_url)
     } else {
@@ -879,9 +901,6 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     };
     let api_key_input = labeled_input(api_key_label, &settings.api_key, api_key_placeholder, |v| {
         Message::Settings(SettingsMessage::ApiKeyChanged(v))
-    });
-    let model_input = labeled_input(model_label, &settings.model, model_placeholder, |v| {
-        Message::Settings(SettingsMessage::ModelChanged(v))
     });
 
     let save_button = TextButton::action(t!("settings_save").to_string(), theme::INPUT_TEXT_SIZE)
@@ -909,8 +928,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let config_section = container(
         column![
             text(editing_title).size(theme::SECTION_TITLE_SIZE).font(theme::INTER),
-            column![base_url_field, api_key_input, model_input, save_row,]
-                .spacing(theme::FORM_ROW_GAP),
+            column![base_url_field, api_key_input, save_row,].spacing(theme::FORM_ROW_GAP),
         ]
         .spacing(theme::FORM_SECTION_GAP),
     )
@@ -920,31 +938,24 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     )
     .width(Fill);
 
-    // ── Token Limits section ─────────────────────────────────────────
-    let token_limits_title = t!("settings_token_limits").to_string();
-    let token_limits_section = section(
-        token_limits_title,
-        column![
-            token_limit_row(
-                t!("settings_token_reduce").to_string(),
-                &settings.reduce_max_tokens_text,
-                settings.config.token_limits.reduce.is_unlimited(),
-                TaskKind::Reduce,
-            ),
-            token_limit_row(
-                t!("settings_token_expand").to_string(),
-                &settings.expand_max_tokens_text,
-                settings.config.token_limits.expand.is_unlimited(),
-                TaskKind::Expand,
-            ),
-            token_limit_row(
-                t!("settings_token_inquire").to_string(),
-                &settings.inquire_max_tokens_text,
-                settings.config.token_limits.inquire.is_unlimited(),
-                TaskKind::Inquire,
-            ),
-        ]
-        .spacing(theme::FORM_ROW_GAP),
+    // ── Per-task LLM settings ────────────────────────────────────────
+    let task_section_reduce = task_settings_section(
+        t!("settings_task_reduce").to_string(),
+        TaskKind::Reduce,
+        &settings.task_drafts.reduce,
+        &settings.provider_names,
+    );
+    let task_section_expand = task_settings_section(
+        t!("settings_task_expand").to_string(),
+        TaskKind::Expand,
+        &settings.task_drafts.expand,
+        &settings.provider_names,
+    );
+    let task_section_inquire = task_settings_section(
+        t!("settings_task_inquire").to_string(),
+        TaskKind::Inquire,
+        &settings.task_drafts.inquire,
+        &settings.provider_names,
     );
 
     // ── Data Paths section ───────────────────────────────────────────
@@ -985,7 +996,9 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         system_settings_section,
         provider_section,
         config_section,
-        token_limits_section,
+        task_section_reduce,
+        task_section_expand,
+        task_section_inquire,
         paths_section
     ]
     .spacing(theme::PAGE_SECTION_GAP)
@@ -1058,27 +1071,67 @@ fn section(
     .into()
 }
 
-/// A row with label + text input + "Unlimited" checkbox for one task kind.
+/// A complete per-task configuration section: provider picker, model input, and token limit.
 ///
-/// When unlimited is checked the text input is replaced by a disabled
-/// placeholder so the user cannot type conflicting values.
-fn token_limit_row(
-    label: String, value: &str, is_unlimited: bool, kind: TaskKind,
+/// Each section lets the user independently select a provider, model,
+/// and token limit for one task kind (reduce, expand, inquire).
+fn task_settings_section(
+    title: String, kind: TaskKind, draft: &TaskDraft, provider_names: &[String],
 ) -> Element<'static, Message> {
-    let label_text = text(label)
-        .size(theme::LABEL_TEXT_SIZE)
-        .font(theme::INTER)
-        .color(theme::LIGHT.accent_muted);
+    let provider_label = t!("settings_task_provider").to_string();
+    let model_label = t!("settings_model").to_string();
+    let model_placeholder = t!("settings_model_placeholder").to_string();
+    let token_label = t!("settings_task_token_limit").to_string();
 
+    // Provider picker for this task.
+    let provider_picker =
+        pick_list(provider_names.to_vec(), Some(draft.provider.clone()), move |name| {
+            Message::Settings(SettingsMessage::TaskProviderChanged(kind, name))
+        })
+        .text_size(theme::INPUT_TEXT_SIZE)
+        .padding(theme::PANEL_PAD_V);
+
+    let provider_row = row![
+        text(provider_label)
+            .size(theme::LABEL_TEXT_SIZE)
+            .font(theme::INTER)
+            .color(theme::LIGHT.accent_muted)
+            .width(Fill),
+        provider_picker.width(Length::FillPortion(3))
+    ]
+    .spacing(theme::FORM_SECTION_GAP)
+    .align_y(iced::Alignment::Center)
+    .width(Fill);
+
+    // Model text input for this task.
+    let model_input = text_input(&model_placeholder, &draft.model)
+        .on_input(move |v| Message::Settings(SettingsMessage::TaskModelChanged(kind, v)))
+        .size(theme::INPUT_TEXT_SIZE)
+        .padding(theme::PANEL_PAD_V);
+
+    let model_row = row![
+        text(model_label)
+            .size(theme::LABEL_TEXT_SIZE)
+            .font(theme::INTER)
+            .color(theme::LIGHT.accent_muted)
+            .width(Fill),
+        model_input.width(Length::FillPortion(3))
+    ]
+    .spacing(theme::FORM_SECTION_GAP)
+    .align_y(iced::Alignment::Center)
+    .width(Fill);
+
+    // Token limit input + unlimited checkbox.
+    let is_unlimited = draft.max_tokens_text.is_empty()
+        || draft.max_tokens_text.parse::<u32>().ok().is_some_and(|n| n == 0);
     let input_field: Element<'static, Message> = if is_unlimited {
-        // Show a read-only disabled-looking input when unlimited.
         text_input("", "")
             .size(theme::INPUT_TEXT_SIZE)
             .padding(theme::PANEL_PAD_V)
             .width(Length::Fixed(theme::SETTINGS_TOKEN_INPUT_WIDTH))
             .into()
     } else {
-        text_input("", value)
+        text_input("", &draft.max_tokens_text)
             .on_input(move |v| Message::Settings(SettingsMessage::MaxTokensChanged(kind, v)))
             .size(theme::INPUT_TEXT_SIZE)
             .padding(theme::PANEL_PAD_V)
@@ -1095,16 +1148,21 @@ fn token_limit_row(
         .size(theme::SECTION_TITLE_SIZE)
         .text_size(theme::LABEL_TEXT_SIZE);
 
-    row![
-        label_text.width(Fill),
+    let token_row = row![
+        text(token_label)
+            .size(theme::LABEL_TEXT_SIZE)
+            .font(theme::INTER)
+            .color(theme::LIGHT.accent_muted)
+            .width(Fill),
         row![input_field, unlimited_checkbox]
             .spacing(theme::FORM_SECTION_GAP)
             .align_y(iced::Alignment::Center)
     ]
     .spacing(theme::FORM_SECTION_GAP)
     .align_y(iced::Alignment::Center)
-    .width(Fill)
-    .into()
+    .width(Fill);
+
+    section(title, column![provider_row, model_row, token_row].spacing(theme::FORM_ROW_GAP))
 }
 
 /// A read-only key-value row for path display.

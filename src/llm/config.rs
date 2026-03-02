@@ -7,28 +7,28 @@
 //!
 //! - Preset providers ([`PresetProvider`]) are well-known OpenAI-compatible
 //!   services whose base URLs are fixed at compile time. Users only supply an
-//!   API key (and optionally override the default model).
+//!   API key.
 //! - Custom providers ([`CustomProvider`]) are fully user-defined with
-//!   editable name, base URL, API key, and model.
+//!   editable name, base URL, and API key.
 //!
-//! [`LlmProviders`] stores both sets and selects one as `active`. The on-disk
-//! format is a single TOML file at [`crate::paths::AppPaths::llm_config()`]:
+//! Note: model selection is **not** part of the provider config. Each LLM task
+//! (reduce, expand, inquire) independently selects its own provider + model via
+//! [`crate::app::config::TaskSettings`].
+//!
+//! [`LlmProviders`] stores both sets. The on-disk format is a single TOML file
+//! at [`crate::paths::AppPaths::llm_config()`]:
 //!
 //! ```toml
-//! active = "openai"
-//!
 //! [presets.openai]
 //! api_key = "sk-..."
-//! model   = "gpt-4o"
 //!
 //! [custom.my-local]
 //! base_url = "https://my-proxy.example.com/v1"
 //! api_key  = "sk-..."
-//! model    = "llama-3"
 //! ```
 //!
 //! Environment variables (`LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL`)
-//! override fields on the **active** provider during [`LlmProviders::resolve_active`].
+//! override fields during [`LlmProviders::resolve`].
 
 use super::error::{ConfigFileError, InvalidConfigReason, LlmConfigError};
 use crate::paths::AppPaths;
@@ -115,8 +115,8 @@ const ALL_PRESETS: &[PresetProvider] = &[
     PresetProvider::Groq,
 ];
 
-/// Default active provider name (must match a [`PresetProvider`] variant).
-const DEFAULT_ACTIVE_PROVIDER: &str = "openai";
+/// Default provider name used for per-task config defaults.
+pub const DEFAULT_PROVIDER: &str = "openai";
 
 impl PresetProvider {
     /// Compile-time base URL for this provider's chat completions endpoint.
@@ -167,51 +167,49 @@ impl fmt::Display for PresetProvider {
 /// User configuration for a preset provider.
 ///
 /// The base URL is fixed by the [`PresetProvider`] variant; only the API key
-/// and model override are stored. An empty `api_key` means the user has not
-/// configured this preset yet (validation happens at [`LlmProviders::resolve_active`]).
+/// is stored. An empty `api_key` means the user has not configured this
+/// preset yet (validation happens at [`LlmProviders::resolve`]).
+///
+/// Note: model selection lives in per-task [`crate::app::config::TaskConfig`],
+/// not here. Legacy `model` fields in TOML are silently ignored on load.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PresetConfig {
     /// API key for authentication. May be empty if not yet configured.
     #[serde(default)]
     pub api_key: String,
-    /// Model override. If empty, [`PresetProvider::default_model`] is used.
-    #[serde(default)]
-    pub model: String,
 }
 
 /// Fully user-defined LLM provider with all fields editable.
+///
+/// Note: model selection lives in per-task [`crate::app::config::TaskConfig`],
+/// not here. Legacy `model` fields in TOML are silently ignored on load.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomProvider {
     /// OpenAI-compatible chat completions endpoint URL.
     pub base_url: String,
     /// API key for authentication.
     pub api_key: String,
-    /// Model identifier.
-    pub model: String,
 }
 
 impl Default for CustomProvider {
     fn default() -> Self {
-        Self {
-            base_url: "https://api.example.com/v1".to_string(),
-            api_key: String::new(),
-            model: String::new(),
-        }
+        Self { base_url: "https://api.example.com/v1".to_string(), api_key: String::new() }
     }
 }
 
-/// Named collection of preset and custom LLM providers with one active selection.
+/// Named collection of preset and custom LLM providers.
 ///
 /// Invariants:
 /// - Every [`PresetProvider`] variant has an entry in `presets`.
-/// - `active` always refers to either a preset name or a key in `custom`.
 ///
-/// The TOML representation uses `active = "name"` plus `[presets.<name>]`
-/// and `[custom.<name>]` tables.
+/// Note: there is no global "active" provider. Each LLM task (reduce, expand,
+/// inquire) independently selects a provider + model via
+/// [`crate::app::config::TaskConfig`]. Legacy `active` fields in TOML are
+/// silently ignored on load.
+///
+/// The TOML representation uses `[presets.<name>]` and `[custom.<name>]` tables.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmProviders {
-    /// Name of the currently active provider (preset or custom).
-    active: String,
     /// Preset provider configurations keyed by [`PresetProvider`] variant.
     presets: BTreeMap<PresetProvider, PresetConfig>,
     /// User-defined provider configurations keyed by display name.
@@ -222,7 +220,7 @@ pub struct LlmProviders {
 impl Default for LlmProviders {
     fn default() -> Self {
         let presets = ALL_PRESETS.iter().map(|&p| (p, PresetConfig::default())).collect();
-        Self { active: DEFAULT_ACTIVE_PROVIDER.to_string(), presets, custom: BTreeMap::new() }
+        Self { presets, custom: BTreeMap::new() }
     }
 }
 
@@ -231,26 +229,21 @@ impl LlmProviders {
     /// if no file exists.
     ///
     /// Environment variable overrides are applied lazily during
-    /// [`resolve_active`](Self::resolve_active), not at load time.
+    /// [`resolve`](Self::resolve), not at load time.
     pub fn load() -> Result<Self, LlmConfigError> {
         Self::from_file()
     }
 
-    /// Name of the currently active provider.
-    pub fn active(&self) -> &str {
-        &self.active
-    }
-
-    /// Resolve the active provider into a validated [`LlmConfig`].
+    /// Resolve a provider by name and model into a validated [`LlmConfig`].
     ///
     /// Applies `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` env var overrides
     /// on top of the stored fields before validation.
-    pub fn resolve_active(&self) -> Result<LlmConfig, LlmConfigError> {
-        let (mut base_url, mut api_key, mut model) =
-            self.raw_fields(&self.active).unwrap_or_else(|| {
-                // Active name doesn't match anything; use empty defaults.
-                (String::new(), String::new(), String::new())
-            });
+    pub fn resolve(&self, provider_name: &str, model: &str) -> Result<LlmConfig, LlmConfigError> {
+        let (mut base_url, mut api_key) = self.raw_fields(provider_name).unwrap_or_else(|| {
+            // Provider name doesn't match anything; use empty defaults.
+            (String::new(), String::new())
+        });
+        let mut model = model.to_string();
 
         // Apply env-var overrides.
         fn env_non_empty(var: &str) -> Option<String> {
@@ -276,21 +269,15 @@ impl LlmProviders {
         names
     }
 
-    /// Raw `(base_url, api_key, model)` tuple for a provider by name.
+    /// Raw `(base_url, api_key)` tuple for a provider by name.
     ///
-    /// For presets the base URL comes from [`PresetProvider::base_url`]
-    /// and the model falls back to [`PresetProvider::default_model`] when empty.
-    pub fn raw_fields(&self, name: &str) -> Option<(String, String, String)> {
+    /// For presets the base URL comes from [`PresetProvider::base_url`].
+    pub fn raw_fields(&self, name: &str) -> Option<(String, String)> {
         if let Some(preset) = PresetProvider::from_name(name) {
             let config = self.presets.get(&preset).cloned().unwrap_or_default();
-            let model = if config.model.is_empty() {
-                preset.default_model().to_string()
-            } else {
-                config.model
-            };
-            return Some((preset.base_url().to_string(), config.api_key, model));
+            return Some((preset.base_url().to_string(), config.api_key));
         }
-        self.custom.get(name).map(|c| (c.base_url.clone(), c.api_key.clone(), c.model.clone()))
+        self.custom.get(name).map(|c| (c.base_url.clone(), c.api_key.clone()))
     }
 
     /// Whether a provider with the given name exists (preset or custom).
@@ -301,15 +288,6 @@ impl LlmProviders {
     /// Whether the given provider name refers to a preset.
     pub fn is_preset(&self, name: &str) -> bool {
         PresetProvider::from_name(name).is_some()
-    }
-
-    /// Set the active provider, returning an error if the name does not exist.
-    pub fn set_active(&mut self, name: &str) -> Result<(), LlmConfigError> {
-        if !self.provider_exists(name) {
-            return Err(LlmConfigError::ProviderNotFound(name.to_string()));
-        }
-        self.active = name.to_string();
-        Ok(())
     }
 
     /// Update the stored configuration for a preset provider.
@@ -332,14 +310,10 @@ impl LlmProviders {
 
     /// Remove a provider by name.
     ///
-    /// Preset providers cannot be removed. The currently active provider
-    /// cannot be removed (switch active first).
+    /// Preset providers cannot be removed.
     pub fn remove_provider(&mut self, name: &str) -> Result<(), LlmConfigError> {
         if PresetProvider::from_name(name).is_some() {
             return Err(LlmConfigError::CannotRemovePreset);
-        }
-        if self.active == name {
-            return Err(LlmConfigError::CannotRemoveActive);
         }
         if self.custom.remove(name).is_none() {
             return Err(LlmConfigError::ProviderNotFound(name.to_string()));
@@ -405,13 +379,13 @@ impl LlmProviders {
 impl LlmProviders {
     /// Create a provider set with a single valid preset config for testing.
     ///
-    /// The active provider (openai) has a valid API key and model so that
-    /// `resolve_active()` succeeds.
+    /// The openai preset has a valid API key so that
+    /// `resolve("openai", "test-model")` succeeds.
     pub fn test_valid() -> Self {
         let mut providers = Self::default();
         providers.update_preset(
             PresetProvider::OpenAI,
-            PresetConfig { api_key: "test-key".to_string(), model: "test-model".to_string() },
+            PresetConfig { api_key: "test-key".to_string() },
         );
         providers
     }
