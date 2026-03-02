@@ -521,6 +521,17 @@ impl AppState {
 }
 
 impl AppState {
+    /// Whether a shortcut should be handled by the global key subscription.
+    ///
+    /// Design decision: Enter-based structural shortcuts (`Cmd/Ctrl+Enter` and
+    /// `Cmd/Ctrl+Shift+Enter`) are handled in editor key binding so they are
+    /// dispatched exactly once with the focused block id from that editor.
+    /// The global subscription intentionally ignores these actions to avoid
+    /// duplicate block creation from overlapping global/editor key paths.
+    fn allow_global_action_shortcut(action_id: ActionId) -> bool {
+        !matches!(action_id, ActionId::AddChild | ActionId::AddSibling)
+    }
+
     /// Global event subscription: keyboard shortcuts, mouse clicks, escape,
     /// system theme changes, and window resize events.
     pub fn subscription(_state: &AppState) -> Subscription<Message> {
@@ -561,7 +572,8 @@ impl AppState {
                         }
                     }
 
-                    let action_shortcut = action_bar::shortcut_to_action(key, modifiers);
+                    let action_shortcut = action_bar::shortcut_to_action(key, modifiers)
+                        .filter(|action_id| AppState::allow_global_action_shortcut(*action_id));
 
                     if status == event::Status::Captured {
                         // Text editors can capture command+punctuation while still emitting
@@ -2021,6 +2033,13 @@ mod tests {
         state.persist_with_context("test-only persistence noop");
 
         assert!(state.errors.is_empty());
+    }
+
+    #[test]
+    fn global_shortcut_filter_ignores_enter_structural_actions() {
+        assert!(!AppState::allow_global_action_shortcut(ActionId::AddChild));
+        assert!(!AppState::allow_global_action_shortcut(ActionId::AddSibling));
+        assert!(AppState::allow_global_action_shortcut(ActionId::Expand));
     }
 
     #[test]

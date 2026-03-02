@@ -1184,23 +1184,122 @@ impl<'a> TreeView<'a> {
 fn editor_key_binding(
     block_id: BlockId, key_press: text_editor::KeyPress,
 ) -> Option<text_editor::Binding<Message>> {
-    if let Some(action_id) = shortcut_to_action(key_press.key.clone(), key_press.modifiers) {
-        // Design decision: map `Cmd/Ctrl+Enter` to a dedicated edit message so
-        // add-child shortcut behavior does not rely on asynchronous keyboard
-        // modifier subscription ordering.
-        if action_id == ActionId::AddChild {
-            return Some(text_editor::Binding::Custom(Message::Edit(
-                EditMessage::AddEmptyFirstChild { block_id },
-            )));
-        }
+    // Only the focused editor should resolve structural shortcuts.
+    // Other editor instances must ignore the key press so one chord yields one
+    // mutation for the active block.
+    if !matches!(key_press.status, text_editor::Status::Focused { .. }) {
+        return text_editor::Binding::from_key_press(key_press);
+    }
 
-        return Some(text_editor::Binding::Custom(Message::Shortcut(ShortcutMessage::ForBlock {
-            block_id,
-            action_id,
-        })));
+    if let Some(action_id) = shortcut_to_action(key_press.key.clone(), key_press.modifiers) {
+        // Design decision:
+        // - `Cmd/Ctrl+Enter` uses a dedicated edit message so add-child behavior
+        //   does not depend on asynchronous modifier-state updates.
+        // - `Cmd/Ctrl+Shift+Enter` stays on shortcut dispatch so sibling
+        //   insertion uses the same action semantics as the action bar.
+        // - Shortcut dispatch is restricted to the focused editor above so a
+        //   single keypress cannot fan out to every visible editor widget.
+        return match action_id {
+            | ActionId::AddChild => {
+                Some(text_editor::Binding::Custom(Message::Edit(EditMessage::AddEmptyFirstChild {
+                    block_id,
+                })))
+            }
+            | ActionId::AddSibling => {
+                Some(text_editor::Binding::Custom(Message::Shortcut(ShortcutMessage::ForBlock {
+                    block_id,
+                    action_id,
+                })))
+            }
+            | _ => {
+                Some(text_editor::Binding::Custom(Message::Shortcut(ShortcutMessage::ForBlock {
+                    block_id,
+                    action_id,
+                })))
+            }
+        };
     }
 
     text_editor::Binding::from_key_press(key_press)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn enter_key_press(modifiers: iced::keyboard::Modifiers) -> text_editor::KeyPress {
+        text_editor::KeyPress {
+            key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter),
+            modified_key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter),
+            physical_key: iced::keyboard::key::Physical::Code(iced::keyboard::key::Code::Enter),
+            modifiers,
+            text: None,
+            status: text_editor::Status::Focused { is_hovered: false },
+        }
+    }
+
+    #[test]
+    fn command_enter_maps_to_add_empty_first_child_edit_message() {
+        let (_, root) = AppState::test_state();
+
+        let binding = editor_key_binding(root, enter_key_press(iced::keyboard::Modifiers::COMMAND));
+
+        assert!(matches!(
+            binding,
+            Some(text_editor::Binding::Custom(Message::Edit(
+                EditMessage::AddEmptyFirstChild { block_id }
+            ))) if block_id == root
+        ));
+    }
+
+    #[test]
+    fn command_shift_enter_maps_to_add_sibling_shortcut() {
+        let (_, root) = AppState::test_state();
+
+        let binding = editor_key_binding(
+            root,
+            enter_key_press(iced::keyboard::Modifiers::COMMAND | iced::keyboard::Modifiers::SHIFT),
+        );
+
+        assert!(matches!(
+            binding,
+            Some(text_editor::Binding::Custom(Message::Shortcut(ShortcutMessage::ForBlock {
+                block_id,
+                action_id: ActionId::AddSibling,
+            }))) if block_id == root
+        ));
+    }
+
+    #[test]
+    fn ctrl_shift_enter_maps_to_add_sibling_shortcut() {
+        let (_, root) = AppState::test_state();
+
+        let binding = editor_key_binding(
+            root,
+            enter_key_press(iced::keyboard::Modifiers::CTRL | iced::keyboard::Modifiers::SHIFT),
+        );
+
+        assert!(matches!(
+            binding,
+            Some(text_editor::Binding::Custom(Message::Shortcut(ShortcutMessage::ForBlock {
+                block_id,
+                action_id: ActionId::AddSibling,
+            }))) if block_id == root
+        ));
+    }
+
+    #[test]
+    fn command_shift_enter_ignores_non_focused_editor() {
+        let (_, root) = AppState::test_state();
+
+        let mut key_press =
+            enter_key_press(iced::keyboard::Modifiers::COMMAND | iced::keyboard::Modifiers::SHIFT);
+        key_press.status = text_editor::Status::Active;
+
+        let binding = editor_key_binding(root, key_press);
+
+        assert!(binding.is_none());
+    }
 }
 
 fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
