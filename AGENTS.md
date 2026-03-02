@@ -3,6 +3,7 @@
 Above all: consolidate key understandings and new findings as inline Rust documentation
 (`//!` module docs and `///` item docs) close to the relevant code.
 Inline Rust documentation is the canonical documentation source for this repository.
+Write `/// Note: ` to explain why unusual design choices / compromises are made.
 
 ## Documentation and Language
 
