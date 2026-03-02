@@ -16,6 +16,7 @@ jobs:
   aur:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
+
     container:
       image: archlinux:latest
 
@@ -29,8 +30,7 @@ jobs:
           set -euo pipefail
           pacman -Sy --noconfirm archlinux-keyring ca-certificates
           pacman -Syu --noconfirm
-          pacman -S --noconfirm --needed \
-            base-devel git openssh jq github-cli
+          pacman -S --noconfirm --needed base-devel git openssh jq github-cli
 
       - name: Determine release tag for this workflow_run
         env:
@@ -39,7 +39,6 @@ jobs:
           SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-
           TAG="$(gh api "repos/${REPO}/releases?per_page=50" --jq \
             "[.[] | select(.target_commitish == \"${SHA}\")][0].tag_name")"
 
@@ -60,55 +59,47 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist
-
-          gh release download "${TAG}" \
-            --repo "${REPO}" \
-            --pattern "${LINUX_ASSET}" \
-            --dir dist
-
+          gh release download "${TAG}" --repo "${REPO}" --pattern "${LINUX_ASSET}" --dir dist
           test -f "dist/${LINUX_ASSET}"
 
           SHA256="$(sha256sum "dist/${LINUX_ASSET}" | awk '{print $1}')"
           echo "SHA256=${SHA256}" >> "$GITHUB_ENV"
 
-          echo "PKGVER=${PKGVER}"
-          echo "SHA256=${SHA256}"
-
-      - name: Prepare SSH for AUR push
+      - name: Prepare SSH for AUR push (no indentation pitfalls)
         run: |
           set -euo pipefail
 
-          echo "HOME=$HOME"
-          id || true
+          SSH_DIR="$HOME/.ssh"
+          KEY="$SSH_DIR/id_ed25519"
+          KNOWN="$SSH_DIR/known_hosts"
+          CFG="$SSH_DIR/config"
 
-          mkdir -p "$HOME/.ssh"
-          chmod 700 "$HOME/.ssh"
+          mkdir -p "$SSH_DIR"
+          chmod 700 "$SSH_DIR"
 
-          # Write key
-          printf '%s\n' "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > "$HOME/.ssh/id_ed25519"
-          chmod 600 "$HOME/.ssh/id_ed25519"
+          printf '%s\n' "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > "$KEY"
+          chmod 600 "$KEY"
 
-          # Write known_hosts (force correct location)
-          ssh-keyscan -t rsa,ecdsa,ed25519 -H aur.archlinux.org > "$HOME/.ssh/known_hosts"
-          chmod 644 "$HOME/.ssh/known_hosts"
+          ssh-keyscan -t rsa,ecdsa,ed25519 -H aur.archlinux.org > "$KNOWN"
+          chmod 644 "$KNOWN"
 
-          # Force ssh to use this key + known_hosts for AUR
-          cat > "$HOME/.ssh/config" <<'EOF'
-          Host aur.archlinux.org
-            User aur
-            HostName aur.archlinux.org
-            IdentityFile ~/.ssh/id_ed25519
-            IdentitiesOnly yes
-            StrictHostKeyChecking yes
-            UserKnownHostsFile ~/.ssh/known_hosts
-          EOF
-          chmod 600 "$HOME/.ssh/config"
+          # Write config with absolute paths (no ~ expansion issues)
+          cat > "$CFG" <<'EOF'
+Host aur.archlinux.org
+  HostName aur.archlinux.org
+  User aur
+  IdentityFile __KEY__
+  IdentitiesOnly yes
+  StrictHostKeyChecking yes
+  UserKnownHostsFile __KNOWN__
+EOF
 
-          # Sanity check: show we have the host key entry
-          ssh-keygen -F aur.archlinux.org || (echo "known_hosts missing entry!" && exit 1)
+          # Substitute placeholders safely
+          sed -i "s|__KEY__|$KEY|g" "$CFG"
+          sed -i "s|__KNOWN__|$KNOWN|g" "$CFG"
+          chmod 600 "$CFG"
 
-          # Optional: test handshake (won't open a shell; AUR typically disconnects, that's OK)
-          ssh -o BatchMode=yes -T aur@aur.archlinux.org || true
+          ssh-keygen -F aur.archlinux.org -f "$KNOWN" >/dev/null
 
       - name: Clone AUR repo
         env:
@@ -117,11 +108,10 @@ jobs:
           set -euo pipefail
           git clone "ssh://aur@aur.archlinux.org/${AUR_PKG}.git" aur
 
-      - name: Update PKGBUILD + regenerate .SRCINFO
+      - name: Update PKGBUILD + regenerate .SRCINFO (makepkg)
         working-directory: aur
         run: |
           set -euo pipefail
-
           sed -i -E \
             -e "s/^pkgver=.*/pkgver=${PKGVER}/" \
             -e "s/^pkgrel=.*/pkgrel=1/" \
@@ -130,21 +120,18 @@ jobs:
 
           makepkg --printsrcinfo > .SRCINFO
 
-          # Sanity check: .SRCINFO source should contain v${PKGVER} and the correct asset
           grep -q "source = https://github.com/.*/releases/download/v${PKGVER}/${LINUX_ASSET}" .SRCINFO
-
-          git status --porcelain
-          git diff -- PKGBUILD .SRCINFO || true
 
       - name: Commit and push to AUR
         working-directory: aur
+        env:
+          GIT_SSH_COMMAND: ssh -F "$HOME/.ssh/config"
         run: |
           set -euo pipefail
           git config user.name "github-actions"
           git config user.email "github-actions@users.noreply.github.com"
 
           git add PKGBUILD .SRCINFO
-
           if git diff --cached --quiet; then
             echo "No changes to commit."
             exit 0
