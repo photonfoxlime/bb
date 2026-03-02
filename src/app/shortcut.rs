@@ -379,10 +379,7 @@ fn run_shortcut_for_block(
         is_reducing: state.llm_requests.is_reducing(block_id),
         is_mounted: state.store.mount_table().entry(block_id).is_some(),
         has_children: !state.store.children(&block_id).is_empty(),
-        is_unexpanded_mount: state
-            .store
-            .node(&block_id)
-            .is_some_and(|n| n.mount_path().is_some()),
+        is_unexpanded_mount: state.store.node(&block_id).is_some_and(|n| n.mount_path().is_some()),
     };
     let vm = project_for_viewport(build_action_bar_vm(&row_context), ViewportBucket::Wide);
 
@@ -445,10 +442,7 @@ mod tests {
             &keyboard::Key::Named(keyboard::key::Named::ArrowRight),
             modifiers,
         );
-        assert!(matches!(
-            down,
-            Some(ShortcutMessage::Movement(MovementShortcut::MoveSiblingNext))
-        ));
+        assert!(matches!(down, Some(ShortcutMessage::Movement(MovementShortcut::MoveSiblingNext))));
         assert!(matches!(
             right,
             Some(ShortcutMessage::Movement(MovementShortcut::MoveToPreviousSiblingFirstChild))
@@ -464,10 +458,8 @@ mod tests {
             .expect("append sibling succeeds");
         state.set_focus(root);
 
-        let _ = handle(
-            &mut state,
-            ShortcutMessage::Movement(MovementShortcut::FocusSiblingPrevious),
-        );
+        let _ =
+            handle(&mut state, ShortcutMessage::Movement(MovementShortcut::FocusSiblingPrevious));
 
         assert_eq!(state.focus().map(|focus| focus.block_id), Some(sibling));
     }
@@ -481,10 +473,8 @@ mod tests {
             .expect("append sibling succeeds");
         state.set_focus(root);
 
-        let _ = handle(
-            &mut state,
-            ShortcutMessage::Movement(MovementShortcut::MoveSiblingPrevious),
-        );
+        let _ =
+            handle(&mut state, ShortcutMessage::Movement(MovementShortcut::MoveSiblingPrevious));
 
         assert_eq!(state.store.roots(), &[sibling, root]);
         assert_eq!(state.focus().map(|focus| focus.block_id), Some(root));
@@ -493,14 +483,11 @@ mod tests {
     #[test]
     fn move_after_parent_outdents_block() {
         let (mut state, root) = AppState::test_state();
-        let child = state
-            .store
-            .append_child(&root, "child".to_string())
-            .expect("append child succeeds");
+        let child =
+            state.store.append_child(&root, "child".to_string()).expect("append child succeeds");
         state.set_focus(child);
 
-        let _ =
-            handle(&mut state, ShortcutMessage::Movement(MovementShortcut::MoveAfterParent));
+        let _ = handle(&mut state, ShortcutMessage::Movement(MovementShortcut::MoveAfterParent));
 
         assert_eq!(state.store.parent(&child), None);
         assert_eq!(state.store.roots(), &[root, child]);
@@ -539,15 +526,12 @@ mod tests {
     #[test]
     fn focus_first_child_unfolds_current_block() {
         let (mut state, root) = AppState::test_state();
-        let child = state
-            .store
-            .append_child(&root, "child".to_string())
-            .expect("append child succeeds");
+        let child =
+            state.store.append_child(&root, "child".to_string()).expect("append child succeeds");
         state.store.toggle_collapsed(&root);
         state.set_focus(root);
 
-        let _ =
-            handle(&mut state, ShortcutMessage::Movement(MovementShortcut::FocusFirstChild));
+        let _ = handle(&mut state, ShortcutMessage::Movement(MovementShortcut::FocusFirstChild));
 
         assert!(!state.store.is_collapsed(&root));
         assert_eq!(state.focus().map(|focus| focus.block_id), Some(child));

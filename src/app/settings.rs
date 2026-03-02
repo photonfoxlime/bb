@@ -710,25 +710,50 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 
     // ── System Settings section ─────────────────────────────────────
     let language_label = text(t!("settings_language").to_string()).size(14).font(theme::INTER);
+
+    // Build locale labels: System default, then English, 中文，日本語
     let locale_labels: Vec<String> = vec![t!("settings_system_default").to_string()]
         .into_iter()
-        .chain(i18n::SUPPORTED_LOCALES.iter().map(|s| s.to_string()))
+        .chain([
+            t!("settings_locale_en_us").to_string(),
+            t!("settings_locale_zh_cn").to_string(),
+            t!("settings_locale_ja").to_string(),
+        ])
         .collect();
-    let current_locale_idx = if state.settings.config.locale.is_none() {
-        0
-    } else {
-        i18n::SUPPORTED_LOCALES
-            .iter()
-            .position(|s| Some(s.to_string()) == state.settings.config.locale)
-            .map(|i| i + 1)
-            .unwrap_or(0)
+
+    // Map locale codes to their index in the labels list
+    let locale_code_to_idx = |locale: &str| -> Option<usize> {
+        match locale {
+            | "en-US" => Some(1),
+            | "zh-CN" => Some(2),
+            | "ja" => Some(3),
+            | _ => None,
+        }
     };
+
+    let current_locale_idx =
+        state.settings.config.locale.as_ref().and_then(|loc| locale_code_to_idx(loc)).unwrap_or(0);
+
+    // Map from label back to locale code for saving
+    let label_to_locale = |label: &str| -> Option<String> {
+        if label == t!("settings_system_default").to_string() {
+            None
+        } else if label == t!("settings_locale_en_us").to_string() {
+            Some("en-US".to_string())
+        } else if label == t!("settings_locale_zh_cn").to_string() {
+            Some("zh-CN".to_string())
+        } else if label == t!("settings_locale_ja").to_string() {
+            Some("ja".to_string())
+        } else {
+            None
+        }
+    };
+
     let locale_picker = pick_list(
         locale_labels.clone(),
         Some(locale_labels[current_locale_idx].clone()),
         move |label| {
-            let idx = locale_labels.iter().position(|l| *l == label).unwrap_or(0);
-            let locale = if idx == 0 { None } else { Some(locale_labels[idx].clone()) };
+            let locale = label_to_locale(&label);
             Message::Settings(SettingsMessage::SetLocale(locale))
         },
     )

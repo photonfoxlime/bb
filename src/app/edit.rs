@@ -78,8 +78,7 @@ fn move_cursor_by_word(
 
     let spans = state.editor_buffers.word_token_spans_for_line(&block_id, &line_text);
     let line_char_count = line_text.chars().count();
-    let next_column =
-        next_word_cursor_column(current_column, line_char_count, &spans, direction);
+    let next_column = next_word_cursor_column(current_column, line_char_count, &spans, direction);
 
     if next_column == current_column {
         return Task::none();
@@ -319,9 +318,7 @@ fn add_empty_first_child_from_enter(state: &mut AppState, block_id: BlockId) -> 
     Task::none()
 }
 
-fn is_plain_backspace_action(
-    action: &text_editor::Action, modifiers: keyboard::Modifiers,
-) -> bool {
+fn is_plain_backspace_action(action: &text_editor::Action, modifiers: keyboard::Modifiers) -> bool {
     if modifiers.shift() || modifiers.alt() || modifiers.command() || modifiers.control() {
         return false;
     }
@@ -662,10 +659,7 @@ mod tests {
 
         let _ = handle(
             &mut state,
-            EditMessage::MoveCursorByWord {
-                block_id: root,
-                direction: WordCursorDirection::Right,
-            },
+            EditMessage::MoveCursorByWord { block_id: root, direction: WordCursorDirection::Right },
         );
 
         let cursor =
@@ -687,10 +681,7 @@ mod tests {
 
         let _ = handle(
             &mut state,
-            EditMessage::MoveCursorByWord {
-                block_id: root,
-                direction: WordCursorDirection::Left,
-            },
+            EditMessage::MoveCursorByWord { block_id: root, direction: WordCursorDirection::Left },
         );
 
         let cursor =
@@ -702,10 +693,8 @@ mod tests {
     fn enter_at_end_of_only_line_inserts_empty_first_child_when_enabled() {
         let (mut state, root) = AppState::test_state();
         state.store.update_point(&root, "hello".to_string());
-        let existing = state
-            .store
-            .append_child(&root, "existing".to_string())
-            .expect("append child succeeds");
+        let existing =
+            state.store.append_child(&root, "existing".to_string()).expect("append child succeeds");
         state.editor_buffers.set_text(&root, "hello");
         if let Some(content) = state.editor_buffers.get_mut(&root) {
             content.move_to(text_editor::Cursor {
@@ -828,10 +817,8 @@ mod tests {
         let (mut state, root) = AppState::test_state();
         state.config.first_line_enter_add_child = false;
         state.store.update_point(&root, "abcdef".to_string());
-        let existing = state
-            .store
-            .append_child(&root, "existing".to_string())
-            .expect("append child succeeds");
+        let existing =
+            state.store.append_child(&root, "existing".to_string()).expect("append child succeeds");
         state.editor_buffers.set_text(&root, "abcdef");
         if let Some(content) = state.editor_buffers.get_mut(&root) {
             content.move_to(text_editor::Cursor {
