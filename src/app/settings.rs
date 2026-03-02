@@ -735,7 +735,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     .text_size(14)
     .padding(8);
     let locale_row = row![
-        language_label.align_x(Alignment::from(Horizontal::Left)),
+        language_label.width(Fill),
         container(locale_picker).align_x(Alignment::from(Horizontal::Right))
     ]
     .spacing(theme::ROW_GAP)
@@ -770,8 +770,9 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     .spacing(theme::ROW_GAP)
     .width(Length::Fixed(theme::SETTINGS_APPEARANCE_SLIDER_WIDTH));
     let appearance_mode_control = row![
-        appearance_mode_label.align_x(Alignment::from(Horizontal::Left)),
+        appearance_mode_label.width(Fill),
         column![appearance_mode_slider, appearance_mode_labels]
+            .width(Fill)
             .align_x(Alignment::from(Horizontal::Right))
     ]
     .spacing(theme::ROW_GAP)
@@ -786,7 +787,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         text(t!("settings_first_line_enter_behavior").to_string())
             .size(14)
             .font(theme::INTER)
-            .align_x(Alignment::from(Horizontal::Left)),
+            .width(Fill),
         container(
             pick_list(enter_behavior_options, Some(enter_behavior), |behavior| {
                 Message::Settings(SettingsMessage::SetFirstLineEnterBehavior(behavior))
