@@ -182,6 +182,7 @@ pub enum Message {
     Navigation(NavigationMessage),
     ContextMenu(ContextMenuMessage),
     CursorPosition(iced::Point),
+    EscapePressed,
 }
 
 impl AppState {
@@ -216,6 +217,15 @@ impl AppState {
             }
             | Message::Settings(message) => settings::handle(self, message),
             | Message::ContextMenu(message) => context_menu::handle(self, message),
+            | Message::EscapePressed => {
+                // Highest priority: close context menu if open
+                if self.ui().context_menu.is_some() {
+                    self.ui_mut().context_menu = None;
+                    Task::none()
+                } else {
+                    find_panel::handle(self, FindMessage::Escape)
+                }
+            }
             | Message::WindowResized(size) => {
                 self.ui_mut().window_size = size;
                 Task::none()
@@ -297,7 +307,7 @@ impl AppState {
                 | Event::Keyboard(keyboard::Event::KeyPressed {
                     key: keyboard::Key::Named(keyboard::key::Named::Escape),
                     ..
-                }) => Some(Message::Find(FindMessage::Escape)),
+                }) => Some(Message::EscapePressed),
                 | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                     if let Some(shortcut) = shortcut::movement_shortcut_from_key(&key, modifiers) {
                         return Some(Message::Shortcut(shortcut));
