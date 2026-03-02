@@ -15,89 +15,6 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::{fs, io};
 
-/// Maximum completion tokens for a single LLM request.
-///
-/// Wraps a `u32` where `0` means unlimited (omit `max_completion_tokens` from
-/// the API request) and any positive value caps the response length.
-///
-/// Serialized transparently as a plain integer in TOML.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(transparent)]
-pub struct MaxTokens(u32);
-
-impl MaxTokens {
-    /// Sentinel value: do not send `max_completion_tokens` to the API.
-    pub const UNLIMITED: Self = Self(0);
-
-    /// Create a new token limit from a raw `u32`.
-    ///
-    /// `0` is interpreted as unlimited.
-    pub fn new(value: u32) -> Self {
-        Self(value)
-    }
-
-    /// Convert to `Option<u32>` suitable for the API request field.
-    ///
-    /// Returns `None` when unlimited, `Some(n)` otherwise.
-    pub fn as_api_param(self) -> Option<u32> {
-        if self.0 == 0 { None } else { Some(self.0) }
-    }
-
-    /// Whether this limit is unlimited (zero).
-    pub fn is_unlimited(self) -> bool {
-        self.0 == 0
-    }
-
-    /// Raw numeric value (`0` = unlimited).
-    pub fn raw(self) -> u32 {
-        self.0
-    }
-}
-
-impl fmt::Display for MaxTokens {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)
-    }
-}
-
-/// Per-task-kind token limits persisted in `app.toml`.
-///
-/// Each field defaults to a sensible value when absent from the file.
-/// A value of `0` means unlimited (the `max_completion_tokens` field is
-/// omitted from the API request).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct TokenLimits {
-    /// Max completion tokens for reduce requests.
-    #[serde(default = "default_reduce_tokens")]
-    pub reduce: MaxTokens,
-    /// Max completion tokens for expand requests.
-    #[serde(default = "default_expand_tokens")]
-    pub expand: MaxTokens,
-    /// Max completion tokens for inquire requests.
-    #[serde(default = "default_inquire_tokens")]
-    pub inquire: MaxTokens,
-}
-
-impl Default for TokenLimits {
-    fn default() -> Self {
-        Self {
-            reduce: default_reduce_tokens(),
-            expand: default_expand_tokens(),
-            inquire: default_inquire_tokens(),
-        }
-    }
-}
-
-fn default_reduce_tokens() -> MaxTokens {
-    MaxTokens(400)
-}
-fn default_expand_tokens() -> MaxTokens {
-    MaxTokens(500)
-}
-fn default_inquire_tokens() -> MaxTokens {
-    MaxTokens(700)
-}
-
 /// Persisted app preferences (locale override, optional appearance override,
 /// and point-editor Enter behavior).
 ///
@@ -198,6 +115,89 @@ pub fn save(config: &AppConfig) -> Result<(), SaveError> {
     let body = toml::to_string_pretty(config).map_err(SaveError::Serialize)?;
     fs::write(&path, body).map_err(SaveError::Write)?;
     Ok(())
+}
+
+/// Maximum completion tokens for a single LLM request.
+///
+/// Wraps a `u32` where `0` means unlimited (omit `max_completion_tokens` from
+/// the API request) and any positive value caps the response length.
+///
+/// Serialized transparently as a plain integer in TOML.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct MaxTokens(u32);
+
+impl MaxTokens {
+    /// Sentinel value: do not send `max_completion_tokens` to the API.
+    pub const UNLIMITED: Self = Self(0);
+
+    /// Create a new token limit from a raw `u32`.
+    ///
+    /// `0` is interpreted as unlimited.
+    pub fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Convert to `Option<u32>` suitable for the API request field.
+    ///
+    /// Returns `None` when unlimited, `Some(n)` otherwise.
+    pub fn as_api_param(self) -> Option<u32> {
+        if self.0 == 0 { None } else { Some(self.0) }
+    }
+
+    /// Whether this limit is unlimited (zero).
+    pub fn is_unlimited(self) -> bool {
+        self.0 == 0
+    }
+
+    /// Raw numeric value (`0` = unlimited).
+    pub fn raw(self) -> u32 {
+        self.0
+    }
+}
+
+impl fmt::Display for MaxTokens {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// Per-task-kind token limits persisted in `app.toml`.
+///
+/// Each field defaults to a sensible value when absent from the file.
+/// A value of `0` means unlimited (the `max_completion_tokens` field is
+/// omitted from the API request).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TokenLimits {
+    /// Max completion tokens for reduce requests.
+    #[serde(default = "default_reduce_tokens")]
+    pub reduce: MaxTokens,
+    /// Max completion tokens for expand requests.
+    #[serde(default = "default_expand_tokens")]
+    pub expand: MaxTokens,
+    /// Max completion tokens for inquire requests.
+    #[serde(default = "default_inquire_tokens")]
+    pub inquire: MaxTokens,
+}
+
+impl Default for TokenLimits {
+    fn default() -> Self {
+        Self {
+            reduce: default_reduce_tokens(),
+            expand: default_expand_tokens(),
+            inquire: default_inquire_tokens(),
+        }
+    }
+}
+
+fn default_reduce_tokens() -> MaxTokens {
+    MaxTokens(400)
+}
+fn default_expand_tokens() -> MaxTokens {
+    MaxTokens(500)
+}
+fn default_inquire_tokens() -> MaxTokens {
+    MaxTokens(700)
 }
 
 /// Error when persisting app config.

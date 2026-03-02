@@ -128,6 +128,204 @@ pub struct AppState {
     navigation: NavigationStack,
 }
 
+/// Elm-architecture messages driving all state transitions.
+#[derive(Debug, Clone)]
+pub enum Message {
+    UndoRedo(UndoRedoMessage),
+    Edit(EditMessage),
+    Shortcut(ShortcutMessage),
+    Error(ErrorMessage),
+    Reduce(ReduceMessage),
+    Expand(ExpandMessage),
+    Structure(StructureMessage),
+    Find(FindMessage),
+    Overlay(OverlayMessage),
+    MountFile(MountFileMessage),
+    FriendPanel(FriendPanelMessage),
+    InstructionPanel(BlockId, InstructionPanelMessage),
+    Settings(SettingsMessage),
+    WindowResized(WindowSize),
+    KeyboardModifiersChanged(keyboard::Modifiers),
+    DocumentMode(DocumentMode),
+    SystemThemeChanged(iced::theme::Mode),
+    Navigation(NavigationMessage),
+}
+
+impl AppState {
+    /// Process one message and return a follow-up task (if any).
+    pub fn update(&mut self, message: Message) -> Task<Message> {
+        let keep_inline_confirmation =
+            matches!(&message, Message::MountFile(MountFileMessage::InlineMountAll(_)));
+        if !keep_inline_confirmation {
+            self.ui_mut().pending_inline_mount_confirmation = None;
+        }
+
+        let keep_mount_action_overflow =
+            matches!(&message, Message::Overlay(OverlayMessage::ToggleMountActionsOverflow(_)));
+        if !keep_mount_action_overflow {
+            self.ui_mut().mount_action_overflow_block = None;
+        }
+
+        match message {
+            | Message::UndoRedo(message) => undo_redo::handle(self, message),
+            | Message::Shortcut(message) => shortcut::handle(self, message),
+            | Message::Error(message) => error::handle(self, message),
+            | Message::Edit(message) => edit::handle(self, message),
+            | Message::Reduce(message) => reduce::handle(self, message),
+            | Message::Expand(message) => expand::handle(self, message),
+            | Message::Find(message) => find_panel::handle(self, message),
+            | Message::Overlay(message) => overlay::handle(self, message),
+            | Message::FriendPanel(message) => friends_panel::handle(self, message),
+            | Message::Structure(message) => structure::handle(self, message),
+            | Message::MountFile(message) => mount_file::handle(self, message),
+            | Message::InstructionPanel(target, message) => {
+                instruction_panel::handle(self, target, message)
+            }
+            | Message::Settings(message) => settings::handle(self, message),
+            | Message::WindowResized(size) => {
+                self.ui_mut().window_size = size;
+                Task::none()
+            }
+            | Message::KeyboardModifiersChanged(modifiers) => {
+                self.ui_mut().keyboard_modifiers = modifiers;
+                Task::none()
+            }
+            | Message::DocumentMode(mode) => {
+                // Clear friend hover state when changing document modes
+                self.ui_mut().hovered_friend_block = None;
+
+                match mode {
+                    | DocumentMode::Multiselect => {
+                        let selected = self
+                            .focus()
+                            .map(|focus| focus.block_id)
+                            .filter(|block_id| self.store.node(block_id).is_some());
+
+                        self.ui_mut().document_mode = DocumentMode::Multiselect;
+                        self.ui_mut().multiselect_selected_blocks.clear();
+                        if let Some(block_id) = selected {
+                            self.ui_mut().multiselect_selected_blocks.insert(block_id);
+                        }
+                    }
+                    | _ => {
+                        self.ui_mut().document_mode = mode;
+                        self.ui_mut().multiselect_selected_blocks.clear();
+                    }
+                }
+                Task::none()
+            }
+            | Message::SystemThemeChanged(mode) => {
+                if self.config.dark_mode.is_some() {
+                    tracing::debug!(
+                        config_dark_mode = ?self.config.dark_mode,
+                        "ignored system theme change due to persisted override"
+                    );
+                    return Task::none();
+                }
+                let dark = matches!(mode, iced::theme::Mode::Dark);
+                if self.ui().is_dark != dark {
+                    tracing::info!(is_dark = dark, "system theme changed");
+                    self.ui_mut().is_dark = dark;
+                }
+                Task::none()
+            }
+            | Message::Navigation(message) => navigation::handle(self, message),
+        }
+    }
+}
+
+impl AppState {
+    pub fn view(&self) -> Element<'_, Message> {
+        i18n::set_app_locale(&self.effective_locale());
+        match self.ui().active_view {
+            | ViewMode::Document => document::DocumentView::new(self).view(),
+            | ViewMode::Settings => settings::view(self),
+        }
+    }
+}
+
+impl AppState {
+    /// Global event subscription: keyboard shortcuts, mouse clicks, escape,
+    /// system theme changes, and window resize events.
+    pub fn subscription(_state: &AppState) -> Subscription<Message> {
+        Subscription::batch([
+            event::listen_with(|event, status, _window| match event {
+                | Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
+                    Some(Message::KeyboardModifiersChanged(modifiers))
+                }
+                | Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(keyboard::key::Named::Escape),
+                    ..
+                }) => Some(Message::Find(FindMessage::Escape)),
+                | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
+                    if let Some(shortcut) = shortcut::movement_shortcut_from_key(&key, modifiers) {
+                        return Some(Message::Shortcut(shortcut));
+                    }
+
+                    if modifiers.command() {
+                        match &key {
+                            | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("f") => {
+                                return Some(Message::Find(FindMessage::Toggle));
+                            }
+                            | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("g") => {
+                                return if modifiers.shift() {
+                                    Some(Message::Find(FindMessage::JumpPrevious))
+                                } else {
+                                    Some(Message::Find(FindMessage::JumpNext))
+                                };
+                            }
+                            | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
+                                return if modifiers.shift() {
+                                    Some(Message::UndoRedo(UndoRedoMessage::Redo))
+                                } else {
+                                    Some(Message::UndoRedo(UndoRedoMessage::Undo))
+                                };
+                            }
+                            | _ => {}
+                        }
+                    }
+
+                    let action_shortcut = action_bar::shortcut_to_action(key, modifiers)
+                        .filter(|action_id| AppState::allow_global_action_shortcut(*action_id));
+
+                    if status == event::Status::Captured {
+                        // Text editors can capture command+punctuation while still emitting
+                        // insert actions. Keep expand/reduce available through the global
+                        // subscription path so `Cmd/Ctrl+.` and `Cmd/Ctrl+,` remain reliable.
+                        return action_shortcut
+                            .filter(|action_id| {
+                                matches!(action_id, ActionId::Expand | ActionId::Reduce)
+                            })
+                            .map(ShortcutMessage::Trigger)
+                            .map(Message::Shortcut);
+                    }
+
+                    action_shortcut.map(ShortcutMessage::Trigger).map(Message::Shortcut)
+                }
+                | Event::Window(window::Event::Resized(size)) => {
+                    Some(Message::WindowResized(WindowSize {
+                        width: size.width as f32,
+                        height: size.height as f32,
+                    }))
+                }
+                | _ => None,
+            }),
+            system::theme_changes().map(Message::SystemThemeChanged),
+        ])
+    }
+
+    /// Whether a shortcut should be handled by the global key subscription.
+    ///
+    /// Design decision: Enter-based structural shortcuts (`Cmd/Ctrl+Enter` and
+    /// `Cmd/Ctrl+Shift+Enter`) are handled in editor key binding so they are
+    /// dispatched exactly once with the focused block id from that editor.
+    /// The global subscription intentionally ignores these actions to avoid
+    /// duplicate block creation from overlapping global/editor key paths.
+    fn allow_global_action_shortcut(action_id: ActionId) -> bool {
+        !matches!(action_id, ActionId::AddChild | ActionId::AddSibling)
+    }
+}
+
 impl AppState {
     /// Load startup state.
     ///
@@ -428,204 +626,6 @@ impl AppState {
     fn is_stale_response(&self, block_id: &BlockId, request_signature: RequestSignature) -> bool {
         self.block_context_signature(block_id)
             .is_none_or(|current_signature| current_signature != request_signature)
-    }
-}
-
-/// Elm-architecture messages driving all state transitions.
-#[derive(Debug, Clone)]
-pub enum Message {
-    UndoRedo(UndoRedoMessage),
-    Edit(EditMessage),
-    Shortcut(ShortcutMessage),
-    Error(ErrorMessage),
-    Reduce(ReduceMessage),
-    Expand(ExpandMessage),
-    Structure(StructureMessage),
-    Find(FindMessage),
-    Overlay(OverlayMessage),
-    MountFile(MountFileMessage),
-    FriendPanel(FriendPanelMessage),
-    InstructionPanel(BlockId, InstructionPanelMessage),
-    Settings(SettingsMessage),
-    WindowResized(WindowSize),
-    KeyboardModifiersChanged(keyboard::Modifiers),
-    DocumentMode(DocumentMode),
-    SystemThemeChanged(iced::theme::Mode),
-    Navigation(NavigationMessage),
-}
-
-impl AppState {
-    /// Process one message and return a follow-up task (if any).
-    pub fn update(&mut self, message: Message) -> Task<Message> {
-        let keep_inline_confirmation =
-            matches!(&message, Message::MountFile(MountFileMessage::InlineMountAll(_)));
-        if !keep_inline_confirmation {
-            self.ui_mut().pending_inline_mount_confirmation = None;
-        }
-
-        let keep_mount_action_overflow =
-            matches!(&message, Message::Overlay(OverlayMessage::ToggleMountActionsOverflow(_)));
-        if !keep_mount_action_overflow {
-            self.ui_mut().mount_action_overflow_block = None;
-        }
-
-        match message {
-            | Message::UndoRedo(message) => undo_redo::handle(self, message),
-            | Message::Shortcut(message) => shortcut::handle(self, message),
-            | Message::Error(message) => error::handle(self, message),
-            | Message::Edit(message) => edit::handle(self, message),
-            | Message::Reduce(message) => reduce::handle(self, message),
-            | Message::Expand(message) => expand::handle(self, message),
-            | Message::Find(message) => find_panel::handle(self, message),
-            | Message::Overlay(message) => overlay::handle(self, message),
-            | Message::FriendPanel(message) => friends_panel::handle(self, message),
-            | Message::Structure(message) => structure::handle(self, message),
-            | Message::MountFile(message) => mount_file::handle(self, message),
-            | Message::InstructionPanel(target, message) => {
-                instruction_panel::handle(self, target, message)
-            }
-            | Message::Settings(message) => settings::handle(self, message),
-            | Message::WindowResized(size) => {
-                self.ui_mut().window_size = size;
-                Task::none()
-            }
-            | Message::KeyboardModifiersChanged(modifiers) => {
-                self.ui_mut().keyboard_modifiers = modifiers;
-                Task::none()
-            }
-            | Message::DocumentMode(mode) => {
-                // Clear friend hover state when changing document modes
-                self.ui_mut().hovered_friend_block = None;
-
-                match mode {
-                    | DocumentMode::Multiselect => {
-                        let selected = self
-                            .focus()
-                            .map(|focus| focus.block_id)
-                            .filter(|block_id| self.store.node(block_id).is_some());
-
-                        self.ui_mut().document_mode = DocumentMode::Multiselect;
-                        self.ui_mut().multiselect_selected_blocks.clear();
-                        if let Some(block_id) = selected {
-                            self.ui_mut().multiselect_selected_blocks.insert(block_id);
-                        }
-                    }
-                    | _ => {
-                        self.ui_mut().document_mode = mode;
-                        self.ui_mut().multiselect_selected_blocks.clear();
-                    }
-                }
-                Task::none()
-            }
-            | Message::SystemThemeChanged(mode) => {
-                if self.config.dark_mode.is_some() {
-                    tracing::debug!(
-                        config_dark_mode = ?self.config.dark_mode,
-                        "ignored system theme change due to persisted override"
-                    );
-                    return Task::none();
-                }
-                let dark = matches!(mode, iced::theme::Mode::Dark);
-                if self.ui().is_dark != dark {
-                    tracing::info!(is_dark = dark, "system theme changed");
-                    self.ui_mut().is_dark = dark;
-                }
-                Task::none()
-            }
-            | Message::Navigation(message) => navigation::handle(self, message),
-        }
-    }
-}
-
-impl AppState {
-    pub fn view(&self) -> Element<'_, Message> {
-        i18n::set_app_locale(&self.effective_locale());
-        match self.ui().active_view {
-            | ViewMode::Document => document::DocumentView::new(self).view(),
-            | ViewMode::Settings => settings::view(self),
-        }
-    }
-}
-
-impl AppState {
-    /// Whether a shortcut should be handled by the global key subscription.
-    ///
-    /// Design decision: Enter-based structural shortcuts (`Cmd/Ctrl+Enter` and
-    /// `Cmd/Ctrl+Shift+Enter`) are handled in editor key binding so they are
-    /// dispatched exactly once with the focused block id from that editor.
-    /// The global subscription intentionally ignores these actions to avoid
-    /// duplicate block creation from overlapping global/editor key paths.
-    fn allow_global_action_shortcut(action_id: ActionId) -> bool {
-        !matches!(action_id, ActionId::AddChild | ActionId::AddSibling)
-    }
-
-    /// Global event subscription: keyboard shortcuts, mouse clicks, escape,
-    /// system theme changes, and window resize events.
-    pub fn subscription(_state: &AppState) -> Subscription<Message> {
-        Subscription::batch([
-            event::listen_with(|event, status, _window| match event {
-                | Event::Keyboard(keyboard::Event::ModifiersChanged(modifiers)) => {
-                    Some(Message::KeyboardModifiersChanged(modifiers))
-                }
-                | Event::Keyboard(keyboard::Event::KeyPressed {
-                    key: keyboard::Key::Named(keyboard::key::Named::Escape),
-                    ..
-                }) => Some(Message::Find(FindMessage::Escape)),
-                | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-                    if let Some(shortcut) = shortcut::movement_shortcut_from_key(&key, modifiers) {
-                        return Some(Message::Shortcut(shortcut));
-                    }
-
-                    if modifiers.command() {
-                        match &key {
-                            | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("f") => {
-                                return Some(Message::Find(FindMessage::Toggle));
-                            }
-                            | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("g") => {
-                                return if modifiers.shift() {
-                                    Some(Message::Find(FindMessage::JumpPrevious))
-                                } else {
-                                    Some(Message::Find(FindMessage::JumpNext))
-                                };
-                            }
-                            | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
-                                return if modifiers.shift() {
-                                    Some(Message::UndoRedo(UndoRedoMessage::Redo))
-                                } else {
-                                    Some(Message::UndoRedo(UndoRedoMessage::Undo))
-                                };
-                            }
-                            | _ => {}
-                        }
-                    }
-
-                    let action_shortcut = action_bar::shortcut_to_action(key, modifiers)
-                        .filter(|action_id| AppState::allow_global_action_shortcut(*action_id));
-
-                    if status == event::Status::Captured {
-                        // Text editors can capture command+punctuation while still emitting
-                        // insert actions. Keep expand/reduce available through the global
-                        // subscription path so `Cmd/Ctrl+.` and `Cmd/Ctrl+,` remain reliable.
-                        return action_shortcut
-                            .filter(|action_id| {
-                                matches!(action_id, ActionId::Expand | ActionId::Reduce)
-                            })
-                            .map(ShortcutMessage::Trigger)
-                            .map(Message::Shortcut);
-                    }
-
-                    action_shortcut.map(ShortcutMessage::Trigger).map(Message::Shortcut)
-                }
-                | Event::Window(window::Event::Resized(size)) => {
-                    Some(Message::WindowResized(WindowSize {
-                        width: size.width as f32,
-                        height: size.height as f32,
-                    }))
-                }
-                | _ => None,
-            }),
-            system::theme_changes().map(Message::SystemThemeChanged),
-        ])
     }
 }
 
