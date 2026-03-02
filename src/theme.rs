@@ -123,7 +123,7 @@ pub fn canvas_max_width(window_width: f32) -> f32 {
 /// Vertical gap between error banner and content.
 pub const LAYOUT_GAP: f32 = 12.0;
 /// Vertical gap between sibling blocks.
-pub const BLOCK_GAP: f32 = 10.0;
+pub const BLOCK_GAP: f32 = 6.0;
 /// Vertical gap between elements inside a single block (row, status, panels, children).
 pub const BLOCK_INNER_GAP: f32 = 4.0;
 /// Vertical gap between mount header and the block row.
