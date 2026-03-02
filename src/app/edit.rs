@@ -78,9 +78,25 @@ fn move_cursor_by_word(
 
     let spans = state.editor_buffers.word_token_spans_for_line(&block_id, &line_text);
     let line_char_count = line_text.chars().count();
+    tracing::debug!(
+        block_id = ?block_id,
+        line_text = ?line_text,
+        line_char_count = line_char_count,
+        spans_count = spans.len(),
+        spans = ?spans.iter().map(|s| (s.start, s.end)).collect::<Vec<_>>(),
+        current_column = current_column,
+        ?direction,
+        "word token spans for line"
+    );
     let next_column = next_word_cursor_column(current_column, line_char_count, &spans, direction);
 
     if next_column == current_column {
+        tracing::debug!(
+            block_id = ?block_id,
+            current_column = current_column,
+            ?direction,
+            "no word boundary to move to"
+        );
         return Task::none();
     }
 
@@ -91,7 +107,7 @@ fn move_cursor_by_word(
         });
     }
 
-    tracing::debug!(
+    tracing::info!(
         block_id = ?block_id,
         from_column = current_column,
         to_column = next_column,
