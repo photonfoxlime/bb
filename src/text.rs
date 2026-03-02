@@ -754,4 +754,276 @@ mod tests {
         let tokens = tokenize_for_diff("");
         assert!(tokens.is_empty());
     }
+
+    // ── script_of edge cases ──────────────────────────────────────
+
+    #[test]
+    fn script_of_emoji_is_other() {
+        assert_eq!(script_of('😀'), Script::Other);
+        assert_eq!(script_of('🎉'), Script::Other);
+        assert_eq!(script_of('👍'), Script::Other);
+    }
+
+    #[test]
+    fn script_of_common_cjk_characters() {
+        assert_eq!(script_of('你'), Script::Han);
+        assert_eq!(script_of('好'), Script::Han);
+        assert_eq!(script_of('世'), Script::Han);
+        assert_eq!(script_of('界'), Script::Han);
+    }
+
+    #[test]
+    fn script_of_ascii_punctuation_is_latin() {
+        assert_eq!(script_of('.'), Script::Latin);
+        assert_eq!(script_of('-'), Script::Latin);
+        assert_eq!(script_of('_'), Script::Latin);
+        assert_eq!(script_of('/'), Script::Latin);
+        assert_eq!(script_of('+'), Script::Latin);
+    }
+
+    #[test]
+    fn script_of_whitespace_variants() {
+        assert_eq!(script_of(' '), Script::Other);
+        assert_eq!(script_of('\t'), Script::Other);
+        assert_eq!(script_of('\n'), Script::Other);
+    }
+
+    #[test]
+    fn script_of_fullwidth_punctuation_is_other() {
+        assert_eq!(script_of('！'), Script::Other);
+        assert_eq!(script_of('？'), Script::Other);
+        assert_eq!(script_of('，'), Script::Other);
+    }
+
+    // ── split_by_script edge cases ──────────────────────────────────────
+
+    #[test]
+    fn split_by_script_empty_string() {
+        let runs = split_by_script("");
+        assert!(runs.is_empty());
+    }
+
+    #[test]
+    fn split_by_script_single_script_runs() {
+        let runs = split_by_script("hello");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].0, Script::Latin);
+
+        let runs = split_by_script("你好");
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].0, Script::Han);
+    }
+
+    #[test]
+    fn split_by_script_alternating_scripts() {
+        let runs = split_by_script("a 你 b 好");
+        assert_eq!(runs.len(), 7);
+        assert_eq!(runs[0], (Script::Latin, "a".to_string()));
+        assert_eq!(runs[1], (Script::Other, " ".to_string()));
+        assert_eq!(runs[2], (Script::Han, "你".to_string()));
+        assert_eq!(runs[3], (Script::Other, " ".to_string()));
+        assert_eq!(runs[4], (Script::Latin, "b".to_string()));
+        assert_eq!(runs[5], (Script::Other, " ".to_string()));
+        assert_eq!(runs[6], (Script::Han, "好".to_string()));
+    }
+
+    #[test]
+    fn split_by_script_with_emoji() {
+        let runs = split_by_script("hi😀world");
+        assert_eq!(runs.len(), 3);
+        assert_eq!(runs[0], (Script::Latin, "hi".to_string()));
+        assert_eq!(runs[1], (Script::Other, "😀".to_string()));
+        assert_eq!(runs[2], (Script::Latin, "world".to_string()));
+    }
+
+    // ── tokenize_latin edge cases ──────────────────────────────────────
+
+    #[test]
+    fn tokenize_latin_empty_string() {
+        let tokens = tokenize_latin("");
+        assert!(tokens.is_empty());
+    }
+
+    #[test]
+    fn tokenize_latin_only_punctuation() {
+        let tokens = tokenize_latin("，。！？");
+        assert_eq!(tokens, vec!["，", "。", "！", "？"]);
+    }
+
+    #[test]
+    fn tokenize_latin_version_numbers() {
+        let tokens = tokenize_latin("v1.2.3");
+        assert_eq!(tokens, vec!["v1.2.3"]);
+    }
+
+    #[test]
+    fn tokenize_latin_file_paths() {
+        let tokens = tokenize_latin("src/text.rs");
+        assert_eq!(tokens, vec!["src/text.rs"]);
+    }
+
+    #[test]
+    fn tokenize_latin_with_multiple_connectors() {
+        let tokens = tokenize_latin("foo-bar_baz.qux");
+        assert_eq!(tokens, vec!["foo-bar_baz.qux"]);
+    }
+
+    #[test]
+    fn tokenize_latin_mixed_alphanumeric() {
+        let tokens = tokenize_latin("rtx4090 x86_64 arm64");
+        assert_eq!(tokens, vec!["rtx4090", "x86_64", "arm64"]);
+    }
+
+    // ── word_token_spans_for_navigation edge cases ──────────────────────────────────────
+
+    #[test]
+    fn word_navigation_spans_empty_string() {
+        let spans = word_token_spans_for_navigation("");
+        assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn word_navigation_spans_single_latin_word() {
+        let spans = word_token_spans_for_navigation("hello");
+        assert_eq!(spans.len(), 1);
+        assert_eq!((spans[0].start, spans[0].end), (0, 5));
+    }
+
+    #[test]
+    fn word_navigation_spans_single_han_character() {
+        let spans = word_token_spans_for_navigation("你");
+        assert_eq!(spans.len(), 1);
+        assert_eq!((spans[0].start, spans[0].end), (0, 1));
+    }
+
+    #[test]
+    fn word_navigation_spans_only_whitespace() {
+        let spans = word_token_spans_for_navigation("   ");
+        assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn word_navigation_spans_latin_with_punctuation() {
+        let spans = word_token_spans_for_navigation("foo,bar.baz");
+        assert_eq!(spans.len(), 2);
+        assert_eq!((spans[0].start, spans[0].end), (0, 3));
+        assert_eq!((spans[1].start, spans[1].end), (4, 11));
+    }
+
+    #[test]
+    fn word_navigation_spans_latin_only_punctuation() {
+        let spans = word_token_spans_for_navigation(".,!?");
+        assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn word_navigation_spans_mixed_han_latin_alternating() {
+        let spans = word_token_spans_for_navigation("a 你 b 好");
+        assert_eq!(spans.len(), 4);
+        assert_eq!((spans[0].start, spans[0].end), (0, 1));
+        assert_eq!((spans[1].start, spans[1].end), (2, 3));
+        assert_eq!((spans[2].start, spans[2].end), (4, 5));
+        assert_eq!((spans[3].start, spans[3].end), (6, 7));
+    }
+
+    #[test]
+    fn word_navigation_spans_cursor_at_line_start() {
+        let spans = word_token_spans_for_navigation("alpha,beta");
+        let got: Vec<(usize, usize)> = spans.iter().map(|s| (s.start, s.end)).collect();
+        assert_eq!(got, vec![(0, 5), (6, 10)]);
+    }
+
+    #[test]
+    fn word_navigation_spans_cursor_at_line_end() {
+        let spans = word_token_spans_for_navigation("alpha,beta");
+        let got: Vec<(usize, usize)> = spans.iter().map(|s| (s.start, s.end)).collect();
+        assert_eq!(got, vec![(0, 5), (6, 10)]);
+    }
+
+    // ── WordTokenizationCache edge cases ──────────────────────────────────────
+
+    #[test]
+    fn word_tokenization_cache_empty_line() {
+        let mut cache = WordTokenizationCache::default();
+        let spans = cache.spans_for_line("");
+        assert!(spans.is_empty());
+    }
+
+    #[test]
+    fn word_tokenization_cache_same_line_reuses_spans() {
+        let mut cache = WordTokenizationCache::default();
+        let _ = cache.spans_for_line("hello,world");
+        let first_ptr = cache.spans_for_line("hello,world").as_ptr();
+        let second_ptr = cache.spans_for_line("hello,world").as_ptr();
+        assert_eq!(first_ptr, second_ptr);
+    }
+
+    #[test]
+    fn word_tokenization_cache_different_line_invalidates() {
+        let mut cache = WordTokenizationCache::default();
+        let _ = cache.spans_for_line("alpha");
+        let spans = cache.spans_for_line("beta");
+        assert_eq!(spans.len(), 1);
+        assert_eq!((spans[0].start, spans[0].end), (0, 4));
+    }
+
+    #[test]
+    fn word_tokenization_cache_whitespace_only_changes() {
+        let mut cache = WordTokenizationCache::default();
+        let first = cache.spans_for_line("hello world").len();
+        let second = cache.spans_for_line("hello brave new world").len();
+        assert_ne!(first, second);
+        assert_eq!(first, 2);
+        assert_eq!(second, 4);
+    }
+
+    // ── tokenize_for_diff edge cases ──────────────────────────────────────
+
+    #[test]
+    fn diff_tokenize_single_character() {
+        let tokens = tokenize_for_diff("a");
+        assert_eq!(tokens, vec!["a"]);
+    }
+
+    #[test]
+    fn diff_tokenize_single_han_character() {
+        let tokens = tokenize_for_diff("你");
+        assert_eq!(tokens, vec!["你"]);
+    }
+
+    #[test]
+    fn diff_tokenize_whitespace_only() {
+        let tokens = tokenize_for_diff("   ");
+        assert_eq!(tokens, vec![" ", " ", " "]);
+    }
+
+    #[test]
+    fn diff_tokenize_leading_trailing_whitespace() {
+        let tokens = tokenize_for_diff("  hello  ");
+        assert_eq!(tokens, vec![" ", " ", "hello", " ", " "]);
+    }
+
+    #[test]
+    fn diff_tokenize_multiple_newlines() {
+        let tokens = tokenize_for_diff("a\n\n\nb");
+        assert_eq!(tokens, vec!["a", "\n", "\n", "\n", "b"]);
+    }
+
+    #[test]
+    fn diff_tokenize_crlf() {
+        let tokens = tokenize_for_diff("a\r\nb");
+        assert_eq!(tokens, vec!["a", "\r", "\n", "b"]);
+    }
+
+    #[test]
+    fn diff_tokenize_mixed_with_emoji() {
+        let tokens = tokenize_for_diff("hi😀世界");
+        assert_eq!(tokens, vec!["hi", "😀", "世", "界"]);
+    }
+
+    #[test]
+    fn diff_tokenize_tab_characters() {
+        let tokens = tokenize_for_diff("hello\tworld");
+        assert_eq!(tokens, vec!["hello", "\t", "world"]);
+    }
 }
