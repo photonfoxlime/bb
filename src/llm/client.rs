@@ -1,11 +1,14 @@
 //! LLM HTTP client and request/response types.
-//! The client speaks the OpenAI-compatible chat completions API.
+//!
+//! Supports two wire formats via [`ApiStyle`]:
+//! - **OpenAI** chat completions API (`/chat/completions`)
+//! - **Anthropic** Messages API (`/messages`)
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::time::Duration;
 
-use crate::llm::config::LlmConfig;
+use crate::llm::config::{ApiStyle, LlmConfig};
 use crate::llm::context::{BlockContext, ExpandResult, ExpandSuggestion, ReduceResult};
 use crate::llm::error::{ApiError, LlmError};
 use crate::llm::prompt::Prompt;
@@ -24,18 +27,14 @@ pub enum InquireStreamEvent {
     Finished,
 }
 
-/// HTTP client for the OpenAI-compatible chat completions endpoint.
+/// HTTP client for LLM endpoints.
+///
+/// Dispatches to OpenAI or Anthropic wire formats based on [`ApiStyle`]
+/// stored in the [`LlmConfig`].
 ///
 /// # Invariants
 /// - The client is stateless aside from the config.
 /// - Safe to construct per-request or share across requests.
-///
-/// # Example
-/// ```ignore
-/// let config = LlmConfig::from_raw(base_url, api_key, model)?;
-/// let client = LlmClient::new(config);
-/// let result = client.expand_block(&context, None, Some(500)).await?;
-/// ```
 pub struct LlmClient {
     config: LlmConfig,
     http: reqwest::Client,
@@ -265,7 +264,7 @@ impl LlmClient {
         &self, purpose: &'static str, prompt: &Prompt, temperature: f32,
         max_completion_tokens: Option<u32>,
     ) -> Result<String, LlmError> {
-        let url = self.chat_url();
+        let url = self.endpoint_url();
         tracing::info!(model = %self.config.model, url = %url, purpose, ?max_completion_tokens, "llm request");
         let (value, body) =
             self.send_completion_request(&url, prompt, temperature, max_completion_tokens).await?;
@@ -339,7 +338,7 @@ impl LlmClient {
         output: &mut iced::futures::channel::mpsc::Sender<InquireStreamEvent>,
         max_tokens: Option<u32>,
     ) -> Result<StreamStats, LlmError> {
-        let url = self.chat_url();
+        let url = self.endpoint_url();
         tracing::info!(model = %self.config.model, url = %url, purpose = "inquire", "llm streaming request");
         let response =
             self.send_streaming_completion_request(&url, prompt, 0.7, max_tokens).await?;
@@ -391,24 +390,43 @@ impl LlmClient {
     async fn send_completion_request(
         &self, url: &str, prompt: &Prompt, temperature: f32, max_completion_tokens: Option<u32>,
     ) -> Result<(Value, String), LlmError> {
-        let request = ChatRequest {
-            model: self.config.model.clone(),
-            messages: vec![
-                Message { role: Role::System, content: prompt.system.clone() },
-                Message { role: Role::User, content: prompt.user.clone() },
-            ],
-            temperature,
-            max_completion_tokens,
-            stream: None,
+        let response = match self.config.api_style {
+            | ApiStyle::OpenAi => {
+                let request = OpenAiChatRequest {
+                    model: self.config.model.clone(),
+                    messages: vec![
+                        OpenAiMessage { role: OpenAiRole::System, content: prompt.system.clone() },
+                        OpenAiMessage { role: OpenAiRole::User, content: prompt.user.clone() },
+                    ],
+                    temperature,
+                    max_completion_tokens,
+                    stream: None,
+                };
+                self.http.post(url).bearer_auth(&self.config.api_key).json(&request).send().await?
+            }
+            | ApiStyle::Anthropic => {
+                let request = AnthropicMessagesRequest {
+                    model: self.config.model.clone(),
+                    system: prompt.system.clone(),
+                    messages: vec![AnthropicMessage {
+                        role: AnthropicRole::User,
+                        content: prompt.user.clone(),
+                    }],
+                    max_tokens: max_completion_tokens.unwrap_or(4096),
+                    temperature: Some(temperature),
+                    stream: None,
+                };
+                self.http
+                    .post(url)
+                    .header("x-api-key", &self.config.api_key)
+                    .header("anthropic-version", ANTHROPIC_API_VERSION)
+                    .header("content-type", "application/json")
+                    .json(&request)
+                    .send()
+                    .await?
+            }
         };
 
-        let response = self
-            .http
-            .post(url)
-            .bearer_auth(self.config.api_key.clone())
-            .json(&request)
-            .send()
-            .await?;
         let status = response.status();
         let body = response.text().await?;
         if !status.is_success() {
@@ -431,24 +449,43 @@ impl LlmClient {
     async fn send_streaming_completion_request(
         &self, url: &str, prompt: &Prompt, temperature: f32, max_completion_tokens: Option<u32>,
     ) -> Result<reqwest::Response, LlmError> {
-        let request = ChatRequest {
-            model: self.config.model.clone(),
-            messages: vec![
-                Message { role: Role::System, content: prompt.system.clone() },
-                Message { role: Role::User, content: prompt.user.clone() },
-            ],
-            temperature,
-            max_completion_tokens,
-            stream: Some(true),
+        let response = match self.config.api_style {
+            | ApiStyle::OpenAi => {
+                let request = OpenAiChatRequest {
+                    model: self.config.model.clone(),
+                    messages: vec![
+                        OpenAiMessage { role: OpenAiRole::System, content: prompt.system.clone() },
+                        OpenAiMessage { role: OpenAiRole::User, content: prompt.user.clone() },
+                    ],
+                    temperature,
+                    max_completion_tokens,
+                    stream: Some(true),
+                };
+                self.http.post(url).bearer_auth(&self.config.api_key).json(&request).send().await?
+            }
+            | ApiStyle::Anthropic => {
+                let request = AnthropicMessagesRequest {
+                    model: self.config.model.clone(),
+                    system: prompt.system.clone(),
+                    messages: vec![AnthropicMessage {
+                        role: AnthropicRole::User,
+                        content: prompt.user.clone(),
+                    }],
+                    max_tokens: max_completion_tokens.unwrap_or(4096),
+                    temperature: Some(temperature),
+                    stream: Some(true),
+                };
+                self.http
+                    .post(url)
+                    .header("x-api-key", &self.config.api_key)
+                    .header("anthropic-version", ANTHROPIC_API_VERSION)
+                    .header("content-type", "application/json")
+                    .json(&request)
+                    .send()
+                    .await?
+            }
         };
 
-        let response = self
-            .http
-            .post(url)
-            .bearer_auth(self.config.api_key.clone())
-            .json(&request)
-            .send()
-            .await?;
         let status = response.status();
         if !status.is_success() {
             let body = response.text().await.unwrap_or_default();
@@ -457,19 +494,31 @@ impl LlmClient {
         Ok(response)
     }
 
-    fn chat_url(&self) -> String {
-        format!("{}/chat/completions", self.config.base_url.trim_end_matches('/'))
+    /// Endpoint URL for the configured API style.
+    fn endpoint_url(&self) -> String {
+        let base = self.config.base_url.trim_end_matches('/');
+        match self.config.api_style {
+            | ApiStyle::OpenAi => format!("{base}/chat/completions"),
+            | ApiStyle::Anthropic => format!("{base}/messages"),
+        }
     }
 }
 
 // ============================================================================
-// Request types
+// Anthropic constants
+// ============================================================================
+
+/// Anthropic API version header value.
+const ANTHROPIC_API_VERSION: &str = "2023-06-01";
+
+// ============================================================================
+// OpenAI request types
 // ============================================================================
 
 #[derive(Serialize)]
-struct ChatRequest {
+struct OpenAiChatRequest {
     model: String,
-    messages: Vec<Message>,
+    messages: Vec<OpenAiMessage>,
     temperature: f32,
     #[serde(skip_serializing_if = "Option::is_none")]
     max_completion_tokens: Option<u32>,
@@ -478,20 +527,56 @@ struct ChatRequest {
 }
 
 #[derive(Serialize)]
-struct Message {
-    role: Role,
+struct OpenAiMessage {
+    role: OpenAiRole,
     content: String,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "lowercase")]
-enum Role {
+enum OpenAiRole {
     System,
     User,
 }
 
 // ============================================================================
-// Response types
+// Anthropic request types
+// ============================================================================
+
+/// Request body for the Anthropic Messages API.
+///
+/// Note: unlike OpenAI, the system prompt is a top-level field rather than
+/// a message with `role: "system"`.
+#[derive(Serialize)]
+struct AnthropicMessagesRequest {
+    model: String,
+    /// Top-level system prompt (not a message).
+    system: String,
+    messages: Vec<AnthropicMessage>,
+    /// Required by Anthropic; no "unlimited" option.
+    max_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+}
+
+#[derive(Serialize)]
+struct AnthropicMessage {
+    role: AnthropicRole,
+    content: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "lowercase")]
+enum AnthropicRole {
+    User,
+    #[allow(dead_code)]
+    Assistant,
+}
+
+// ============================================================================
+// Response types (OpenAI)
 // ============================================================================
 
 #[derive(Deserialize)]
@@ -524,6 +609,35 @@ enum ResponseContent {
 struct ResponseContentPart {
     #[serde(default)]
     text: Option<String>,
+}
+
+// ============================================================================
+// Response types (Anthropic)
+// ============================================================================
+
+/// Anthropic Messages API response.
+///
+/// The response contains a list of content blocks. We extract text from
+/// all `text` type blocks and join them.
+#[derive(Deserialize)]
+struct AnthropicResponse {
+    content: Vec<AnthropicContentBlock>,
+    /// Present in non-streaming responses. Used by [`response_hit_token_limit`]
+    /// via the raw `Value` path rather than through this typed struct.
+    #[serde(default)]
+    #[allow(dead_code)]
+    stop_reason: Option<String>,
+}
+
+/// One content block in an Anthropic response.
+#[derive(Deserialize)]
+#[serde(tag = "type")]
+enum AnthropicContentBlock {
+    #[serde(rename = "text")]
+    Text { text: String },
+    /// Catch-all for unknown block types (tool_use, etc.).
+    #[serde(other)]
+    Other,
 }
 
 #[derive(Deserialize)]
@@ -641,6 +755,7 @@ fn parse_stream_event_payload(payload: &str) -> Result<ParsedStreamEvent, LlmErr
     if data.is_empty() {
         return Ok(ParsedStreamEvent::Ignore);
     }
+    // OpenAI termination sentinel.
     if data == "[DONE]" {
         return Ok(ParsedStreamEvent::Done);
     }
@@ -650,6 +765,11 @@ fn parse_stream_event_payload(payload: &str) -> Result<ParsedStreamEvent, LlmErr
         LlmError::InvalidResponse
     })?;
 
+    // Anthropic termination: { "type": "message_stop" }
+    if value.get("type").and_then(Value::as_str) == Some("message_stop") {
+        return Ok(ParsedStreamEvent::Done);
+    }
+
     if let Some(delta) = extract_stream_delta_from_value(&value) {
         return Ok(ParsedStreamEvent::Delta(delta));
     }
@@ -658,14 +778,15 @@ fn parse_stream_event_payload(payload: &str) -> Result<ParsedStreamEvent, LlmErr
 }
 
 fn extract_stream_delta_from_value(value: &Value) -> Option<String> {
-    extract_chat_stream_delta(value).or_else(|| extract_response_api_stream_delta(value)).or_else(
-        || {
+    extract_chat_stream_delta(value)
+        .or_else(|| extract_response_api_stream_delta(value))
+        .or_else(|| extract_anthropic_stream_delta(value))
+        .or_else(|| {
             value
                 .get("delta")
                 .and_then(extract_stream_content_value)
                 .or_else(|| value.get("content").and_then(extract_stream_content_value))
-        },
-    )
+        })
 }
 
 fn extract_chat_stream_delta(value: &Value) -> Option<String> {
@@ -782,6 +903,7 @@ fn extract_completion_content_from_chat_value(value: &Value) -> Option<String> {
     serde_json::from_value::<ChatResponse>(value.clone())
         .ok()
         .and_then(extract_completion_content)
+        .or_else(|| extract_anthropic_content_from_value(value))
         .or_else(|| extract_completion_content_from_value(value))
 }
 
@@ -803,7 +925,15 @@ fn completion_tokens(value: &Value) -> Option<u64> {
 }
 
 fn response_hit_token_limit(value: &Value) -> bool {
-    first_choice_finish_reason(value) == Some("length")
+    // OpenAI: finish_reason == "length"
+    if first_choice_finish_reason(value) == Some("length") {
+        return true;
+    }
+    // Anthropic: stop_reason == "max_tokens"
+    if value.get("stop_reason").and_then(Value::as_str) == Some("max_tokens") {
+        return true;
+    }
+    false
 }
 
 fn extract_chat_choices_content(value: &Value) -> Option<String> {
@@ -871,6 +1001,62 @@ fn extract_text_from_part(part: &Value) -> Option<String> {
                     .map(ToString::to_string)
                     .and_then(trim_non_empty)
             }),
+        | _ => None,
+    }
+}
+
+// ============================================================================
+// Anthropic response extraction
+// ============================================================================
+
+/// Extract text content from an Anthropic Messages API response.
+///
+/// Anthropic returns `{ content: [{ type: "text", text: "..." }, ...] }`.
+/// We try structured deserialization first, then fall back to Value-based extraction.
+fn extract_anthropic_content_from_value(value: &Value) -> Option<String> {
+    // Try structured deserialization.
+    if let Ok(response) = serde_json::from_value::<AnthropicResponse>(value.clone()) {
+        let text: String = response
+            .content
+            .into_iter()
+            .filter_map(|block| match block {
+                | AnthropicContentBlock::Text { text } => {
+                    let trimmed = text.trim().to_string();
+                    (!trimmed.is_empty()).then_some(trimmed)
+                }
+                | AnthropicContentBlock::Other => None,
+            })
+            .collect::<Vec<_>>()
+            .join("\n");
+        return trim_non_empty(text);
+    }
+
+    // Fallback: Anthropic-like shape via Value traversal.
+    let content = value.get("content").and_then(Value::as_array)?;
+    let text: String = content
+        .iter()
+        .filter(|block| block.get("type").and_then(Value::as_str) == Some("text"))
+        .filter_map(|block| block.get("text").and_then(Value::as_str))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    trim_non_empty(text)
+}
+
+/// Extract Anthropic streaming delta from an SSE event payload.
+///
+/// Anthropic streaming events use `event: content_block_delta` with
+/// `{ type: "content_block_delta", delta: { type: "text_delta", text: "..." } }`.
+fn extract_anthropic_stream_delta(value: &Value) -> Option<String> {
+    let event_type = value.get("type").and_then(Value::as_str)?;
+    match event_type {
+        | "content_block_delta" => value
+            .get("delta")
+            .and_then(|d| d.get("text"))
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+            .map(ToString::to_string),
         | _ => None,
     }
 }

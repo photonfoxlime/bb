@@ -71,6 +71,11 @@ pub struct SettingsState {
     pub base_url: String,
     /// Draft API key for the selected provider.
     pub api_key: String,
+    /// Draft API style for the selected provider.
+    ///
+    /// Read-only for preset providers (derived from the variant).
+    /// Editable for custom providers via a pick list.
+    pub api_style: llm::ApiStyle,
     /// Names of all providers, kept in sync for the picker UI.
     pub provider_names: Vec<String>,
     /// Draft name for a new custom provider being added.
@@ -293,7 +298,9 @@ pub enum SettingsMessage {
     BaseUrlChanged(String),
     /// Draft API key changed.
     ApiKeyChanged(String),
-    /// Persist draft provider values (URL + API key) to the TOML config file.
+    /// Draft API style changed (only effective for custom providers).
+    ApiStyleChanged(llm::ApiStyle),
+    /// Persist draft provider values (URL + API key + API style) to the TOML config file.
     Save,
     /// Update appearance mode via the three-state slider.
     SetThemePreference(ThemePreference),
@@ -324,12 +331,13 @@ impl SettingsState {
     pub fn from_providers(providers: &llm::LlmProviders, config: &AppConfig) -> Self {
         let names = providers.provider_names();
         let selected = names.first().cloned().unwrap_or_default();
-        let (base_url, api_key) = providers.raw_fields(&selected).unwrap_or_default();
+        let (base_url, api_key, api_style) = providers.raw_fields(&selected).unwrap_or_default();
         let selected_is_preset = providers.is_preset(&selected);
         Self {
             selected_provider: selected,
             base_url,
             api_key,
+            api_style,
             provider_names: names,
             new_provider_name: String::new(),
             status: None,
@@ -341,9 +349,11 @@ impl SettingsState {
 
     /// Reload draft fields from the provider collection for the currently selected provider.
     fn load_selected_fields(&mut self, providers: &llm::LlmProviders) {
-        if let Some((base_url, api_key)) = providers.raw_fields(&self.selected_provider) {
+        if let Some((base_url, api_key, api_style)) = providers.raw_fields(&self.selected_provider)
+        {
             self.base_url = base_url;
             self.api_key = api_key;
+            self.api_style = api_style;
         }
         self.selected_is_preset = providers.is_preset(&self.selected_provider);
         self.provider_names = providers.provider_names();
@@ -445,6 +455,11 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             state.settings.status = None;
             Task::none()
         }
+        | SettingsMessage::ApiStyleChanged(style) => {
+            state.settings.api_style = style;
+            state.settings.status = None;
+            Task::none()
+        }
         | SettingsMessage::Save => {
             let provider_name = state.settings.selected_provider.clone();
             if state.providers.is_preset(&provider_name) {
@@ -460,12 +475,14 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                 let custom = llm::CustomProvider {
                     base_url: state.settings.base_url.clone(),
                     api_key: state.settings.api_key.clone(),
+                    api_style: state.settings.api_style,
                 };
                 // Validate base_url is https and api_key is non-empty.
                 if let Err(err) = llm::LlmConfig::from_raw(
                     custom.base_url.clone(),
                     custom.api_key.clone(),
                     "validation-placeholder".to_string(),
+                    custom.api_style,
                 ) {
                     state.settings.status =
                         Some(SettingsStatus::Error(format!("invalid config: {err}")));
@@ -899,6 +916,37 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
             Message::Settings(SettingsMessage::BaseUrlChanged(v))
         })
     };
+
+    // API style: read-only for presets, editable pick list for custom providers.
+    let api_style_label = t!("settings_api_style").to_string();
+    let api_style_field: Element<'_, Message> = if settings.selected_is_preset {
+        labeled_readonly(api_style_label, settings.api_style.label())
+    } else {
+        let current_style = settings.api_style;
+        let api_style_options: Vec<String> =
+            llm::ApiStyle::ALL.iter().map(|s| s.label().to_string()).collect();
+        let api_style_picker =
+            pick_list(api_style_options, Some(current_style.label().to_string()), |label| {
+                let style = llm::ApiStyle::ALL
+                    .iter()
+                    .find(|s| s.label() == label)
+                    .copied()
+                    .unwrap_or_default();
+                Message::Settings(SettingsMessage::ApiStyleChanged(style))
+            })
+            .text_size(theme::INPUT_TEXT_SIZE)
+            .padding(theme::PANEL_PAD_V);
+        column![
+            text(api_style_label)
+                .size(theme::LABEL_TEXT_SIZE)
+                .font(theme::INTER)
+                .color(theme::LIGHT.accent_muted),
+            api_style_picker,
+        ]
+        .spacing(theme::INLINE_GAP)
+        .into()
+    };
+
     let api_key_input = labeled_input(api_key_label, &settings.api_key, api_key_placeholder, |v| {
         Message::Settings(SettingsMessage::ApiKeyChanged(v))
     });
@@ -928,7 +976,8 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let config_section = container(
         column![
             text(editing_title).size(theme::SECTION_TITLE_SIZE).font(theme::INTER),
-            column![base_url_field, api_key_input, save_row,].spacing(theme::FORM_ROW_GAP),
+            column![base_url_field, api_style_field, api_key_input, save_row,]
+                .spacing(theme::FORM_ROW_GAP),
         ]
         .spacing(theme::FORM_SECTION_GAP),
     )

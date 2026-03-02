@@ -1,15 +1,17 @@
 //! LLM configuration: providers, presets, and validated config.
-//! The providers speak the OpenAI-compatible chat completions API.
 //!
 //! # Provider model
 //!
 //! Providers come in two flavours:
 //!
-//! - Preset providers ([`PresetProvider`]) are well-known OpenAI-compatible
-//!   services whose base URLs are fixed at compile time. Users only supply an
-//!   API key.
+//! - Preset providers ([`PresetProvider`]) are well-known LLM services whose
+//!   base URLs are fixed at compile time. Users only supply an API key.
 //! - Custom providers ([`CustomProvider`]) are fully user-defined with
-//!   editable name, base URL, and API key.
+//!   editable name, base URL, API key, and API style.
+//!
+//! Each provider has an [`ApiStyle`] that determines the wire format:
+//! - [`ApiStyle::OpenAi`] for the OpenAI-compatible chat completions API.
+//! - [`ApiStyle::Anthropic`] for the Anthropic Messages API.
 //!
 //! Note: model selection is **not** part of the provider config. Each LLM task
 //! (reduce, expand, inquire) independently selects its own provider + model via
@@ -35,6 +37,44 @@ use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
 use std::{collections::BTreeMap, env, fmt, fs, io, path::PathBuf};
 
+/// Wire format used to communicate with an LLM endpoint.
+///
+/// Determines how requests are serialized, how authentication headers are set,
+/// and how responses (including streaming SSE) are parsed.
+///
+/// Defaults to [`ApiStyle::OpenAi`] so that existing configs without this
+/// field deserialize without breaking (`#[serde(default)]`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ApiStyle {
+    /// OpenAI-compatible chat completions API (`/chat/completions`).
+    /// Uses `Authorization: Bearer <key>` for auth.
+    #[default]
+    OpenAi,
+    /// Anthropic Messages API (`/messages`).
+    /// Uses `x-api-key` header and `anthropic-version` header for auth.
+    Anthropic,
+}
+
+impl ApiStyle {
+    /// All available API styles in display order.
+    pub const ALL: &[ApiStyle] = &[ApiStyle::OpenAi, ApiStyle::Anthropic];
+
+    /// Human-readable label for UI display.
+    pub fn label(self) -> &'static str {
+        match self {
+            | Self::OpenAi => "OpenAI",
+            | Self::Anthropic => "Anthropic",
+        }
+    }
+}
+
+impl fmt::Display for ApiStyle {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.label())
+    }
+}
+
 /// Validated LLM endpoint configuration.
 ///
 /// Invariants (enforced by [`LlmConfig::from_raw`]):
@@ -45,6 +85,10 @@ pub struct LlmConfig {
     pub(crate) base_url: String,
     pub(crate) api_key: String,
     pub(crate) model: String,
+    /// Wire format for this endpoint. Determines request serialization,
+    /// auth headers, and response parsing.
+    #[serde(default)]
+    pub(crate) api_style: ApiStyle,
 }
 
 impl Default for LlmConfig {
@@ -53,6 +97,7 @@ impl Default for LlmConfig {
             base_url: "https://api.example.com/v1".to_string(),
             api_key: String::new(),
             model: String::new(),
+            api_style: ApiStyle::default(),
         }
     }
 }
@@ -62,7 +107,7 @@ impl LlmConfig {
     ///
     /// Trims whitespace from all fields and enforces invariants.
     pub fn from_raw(
-        base_url: String, api_key: String, model: String,
+        base_url: String, api_key: String, model: String, api_style: ApiStyle,
     ) -> Result<Self, LlmConfigError> {
         let base_url = base_url.trim().to_string();
         let api_key = api_key.trim().to_string();
@@ -78,7 +123,7 @@ impl LlmConfig {
             return Err(LlmConfigError::InvalidConfig(InvalidConfigReason::ModelEmpty));
         }
 
-        Ok(Self { base_url, api_key, model })
+        Ok(Self { base_url, api_key, model, api_style })
     }
 
     fn config_path() -> Option<PathBuf> {
@@ -86,11 +131,11 @@ impl LlmConfig {
     }
 }
 
-/// Known OpenAI-compatible LLM service with a fixed API endpoint.
+/// Known LLM service with a fixed API endpoint.
 ///
-/// Each variant carries its base URL and a suggested default model.
-/// The `serde` representation is a lowercase string so that TOML keys
-/// like `[presets.openai]` deserialise naturally.
+/// Each variant carries its base URL, a suggested default model, and
+/// its [`ApiStyle`]. The `serde` representation is a lowercase string so
+/// that TOML keys like `[presets.openai]` deserialise naturally.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum PresetProvider {
@@ -104,6 +149,8 @@ pub enum PresetProvider {
     Gemini,
     /// <https://api.groq.com/openai/v1>
     Groq,
+    /// <https://api.anthropic.com/v1>
+    Anthropic,
 }
 
 /// All preset provider variants in display order.
@@ -113,13 +160,14 @@ const ALL_PRESETS: &[PresetProvider] = &[
     PresetProvider::DeepSeek,
     PresetProvider::Gemini,
     PresetProvider::Groq,
+    PresetProvider::Anthropic,
 ];
 
 /// Default provider name used for per-task config defaults.
 pub const DEFAULT_PROVIDER: &str = "openai";
 
 impl PresetProvider {
-    /// Compile-time base URL for this provider's chat completions endpoint.
+    /// Compile-time base URL for this provider's API endpoint.
     pub fn base_url(self) -> &'static str {
         match self {
             | Self::OpenAI => "https://api.openai.com/v1",
@@ -127,6 +175,7 @@ impl PresetProvider {
             | Self::DeepSeek => "https://api.deepseek.com",
             | Self::Gemini => "https://generativelanguage.googleapis.com/v1beta/openai",
             | Self::Groq => "https://api.groq.com/openai/v1",
+            | Self::Anthropic => "https://api.anthropic.com/v1",
         }
     }
 
@@ -137,6 +186,7 @@ impl PresetProvider {
             | Self::OpenAI => "gpt-4o",
             | Self::DeepSeek => "deepseek-chat",
             | Self::Gemini => "gemini-2.0-flash",
+            | Self::Anthropic => "claude-sonnet-4-20250514",
             | Self::OpenRouter | Self::Groq => "",
         }
     }
@@ -149,6 +199,17 @@ impl PresetProvider {
             | Self::DeepSeek => "deepseek",
             | Self::Gemini => "gemini",
             | Self::Groq => "groq",
+            | Self::Anthropic => "anthropic",
+        }
+    }
+
+    /// Wire format used by this preset provider.
+    pub fn api_style(self) -> ApiStyle {
+        match self {
+            | Self::Anthropic => ApiStyle::Anthropic,
+            | Self::OpenAI | Self::OpenRouter | Self::DeepSeek | Self::Gemini | Self::Groq => {
+                ApiStyle::OpenAi
+            }
         }
     }
 
@@ -185,15 +246,23 @@ pub struct PresetConfig {
 /// not here. Legacy `model` fields in TOML are silently ignored on load.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CustomProvider {
-    /// OpenAI-compatible chat completions endpoint URL.
+    /// API endpoint URL.
     pub base_url: String,
     /// API key for authentication.
     pub api_key: String,
+    /// Wire format for this endpoint. Defaults to [`ApiStyle::OpenAi`] when
+    /// absent in existing TOML files (backward compatible).
+    #[serde(default)]
+    pub api_style: ApiStyle,
 }
 
 impl Default for CustomProvider {
     fn default() -> Self {
-        Self { base_url: "https://api.example.com/v1".to_string(), api_key: String::new() }
+        Self {
+            base_url: "https://api.example.com/v1".to_string(),
+            api_key: String::new(),
+            api_style: ApiStyle::default(),
+        }
     }
 }
 
@@ -239,10 +308,11 @@ impl LlmProviders {
     /// Applies `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_MODEL` env var overrides
     /// on top of the stored fields before validation.
     pub fn resolve(&self, provider_name: &str, model: &str) -> Result<LlmConfig, LlmConfigError> {
-        let (mut base_url, mut api_key) = self.raw_fields(provider_name).unwrap_or_else(|| {
-            // Provider name doesn't match anything; use empty defaults.
-            (String::new(), String::new())
-        });
+        let (mut base_url, mut api_key, api_style) =
+            self.raw_fields(provider_name).unwrap_or_else(|| {
+                // Provider name doesn't match anything; use empty defaults.
+                (String::new(), String::new(), ApiStyle::default())
+            });
         let mut model = model.to_string();
 
         // Apply env-var overrides.
@@ -259,7 +329,7 @@ impl LlmProviders {
             model = m;
         }
 
-        LlmConfig::from_raw(base_url, api_key, model)
+        LlmConfig::from_raw(base_url, api_key, model, api_style)
     }
 
     /// Ordered list of all provider names (presets first, then custom).
@@ -269,15 +339,15 @@ impl LlmProviders {
         names
     }
 
-    /// Raw `(base_url, api_key)` tuple for a provider by name.
+    /// Raw `(base_url, api_key, api_style)` tuple for a provider by name.
     ///
-    /// For presets the base URL comes from [`PresetProvider::base_url`].
-    pub fn raw_fields(&self, name: &str) -> Option<(String, String)> {
+    /// For presets the base URL and API style come from [`PresetProvider`].
+    pub fn raw_fields(&self, name: &str) -> Option<(String, String, ApiStyle)> {
         if let Some(preset) = PresetProvider::from_name(name) {
             let config = self.presets.get(&preset).cloned().unwrap_or_default();
-            return Some((preset.base_url().to_string(), config.api_key));
+            return Some((preset.base_url().to_string(), config.api_key, preset.api_style()));
         }
-        self.custom.get(name).map(|c| (c.base_url.clone(), c.api_key.clone()))
+        self.custom.get(name).map(|c| (c.base_url.clone(), c.api_key.clone(), c.api_style))
     }
 
     /// Whether a provider with the given name exists (preset or custom).

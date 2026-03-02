@@ -3,12 +3,12 @@
 //! # Module overview
 //!
 //! - [`config`] - Configuration types for LLM providers and endpoint settings.
-//!   Key types: [`LlmConfig`], [`LlmProviders`], [`PresetProvider`], [`CustomProvider`].
+//!   Key types: [`LlmConfig`], [`LlmProviders`], [`PresetProvider`], [`CustomProvider`], [`ApiStyle`].
 //! - [`error`] - Error types for LLM runtime failures.
 //! - [`context`] - Domain types representing block context sent to the LLM.
 //!   Key types: [`BlockContext`], [`Lineage`], [`FriendContext`], [`ExpandResult`], [`ReduceResult`].
 //! - [`prompt`] - Prompt construction from block context.
-//! - [`client`] - HTTP client for OpenAI-compatible endpoints.
+//! - [`client`] - HTTP client for OpenAI-compatible and Anthropic endpoints.
 
 pub mod client;
 pub mod config;
@@ -18,7 +18,8 @@ pub mod prompt;
 
 pub use client::{InquireStreamEvent, LlmClient};
 pub use config::{
-    CustomProvider, DEFAULT_PROVIDER, LlmConfig, LlmProviders, PresetConfig, PresetProvider,
+    ApiStyle, CustomProvider, DEFAULT_PROVIDER, LlmConfig, LlmProviders, PresetConfig,
+    PresetProvider,
 };
 pub use context::{
     BlockContext, ExpandResult, ExpandSuggestion, FriendContext, Lineage, ReduceResult,
