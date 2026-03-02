@@ -556,7 +556,12 @@ impl<'a> DocumentView<'a> {
         }
 
         // Group action buttons into rows of 5
-        let mut action_buttons_column = column![].spacing(theme::CONTEXT_MENU_ACTION_GAP);
+        let mut action_buttons_column = column![].spacing(theme::CONTEXT_MENU_ACTION_GAP).padding(
+            Padding::ZERO
+                .top(theme::CONTEXT_MENU_PAD)
+                .left(theme::CONTEXT_MENU_PAD)
+                .right(theme::CONTEXT_MENU_PAD),
+        );
         for chunk in enabled_actions.chunks(theme::CONTEXT_MENU_ACTIONS_PER_ROW) {
             let mut row_buttons = row![].spacing(theme::CONTEXT_MENU_ACTION_GAP);
             for (action_id, message) in chunk {
@@ -585,12 +590,15 @@ impl<'a> DocumentView<'a> {
         // Combine action buttons and menu items
         let content = if enabled_actions.len() > 0 {
             column![action_buttons_column, rule::horizontal(1), menu_items]
-                .spacing(theme::CONTEXT_MENU_ACTION_GAP)
+                .spacing(theme::CONTEXT_MENU_ITEM_SPACING)
         } else {
             column![menu_items].spacing(theme::CONTEXT_MENU_ITEM_SPACING)
         };
 
-        let menu = container(content).style(theme::context_menu).width(Length::Shrink);
+        // Width should fit content but have reasonable bounds
+        let menu = container(content)
+            .style(theme::context_menu)
+            .width(Length::Fixed(theme::CONTEXT_MENU_WIDTH));
 
         // Use stack to position menu at cursor location
         // Layer 1: Background with click-to-dismiss
