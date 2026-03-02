@@ -417,6 +417,10 @@ pub fn project_for_viewport(mut vm: ActionBarVm, bucket: ViewportBucket) -> Acti
 ///
 /// The resolver also accepts `control()` as a compatibility fallback for event
 /// paths that surface Command through the control bit.
+///
+/// Design decision: destructive archive is intentionally excluded from keyboard
+/// shortcuts. `Cmd/Ctrl+Backspace` is left to editor-native deletion semantics
+/// to avoid accidental structural mutation.
 pub fn shortcut_to_action(key: Key, modifiers: Modifiers) -> Option<ActionId> {
     // `text_editor` key events may report the Command key via `control()` on
     // some platforms/input backends. Accept either modifier flag so keyboard
@@ -439,7 +443,6 @@ pub fn shortcut_to_action(key: Key, modifiers: Modifiers) -> Option<ActionId> {
         | Key::Character(value) if value == "." => Some(ActionId::Expand),
         | Key::Character(value) if value == "," => Some(ActionId::Reduce),
         | Key::Named(Named::Enter) => Some(ActionId::AddChild),
-        | Key::Named(Named::Backspace) => Some(ActionId::ArchiveBlock),
         | _ => None,
     }
 }
@@ -756,11 +759,19 @@ mod tests {
     }
 
     #[test]
-    fn shortcut_command_backspace_archives() {
+    fn shortcut_command_backspace_is_unbound() {
         let key = Key::Named(Named::Backspace);
         let modifiers = Modifiers::COMMAND;
         let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, Some(ActionId::ArchiveBlock));
+        assert_eq!(action, None);
+    }
+
+    #[test]
+    fn shortcut_ctrl_backspace_is_unbound() {
+        let key = Key::Named(Named::Backspace);
+        let modifiers = Modifiers::CTRL;
+        let action = shortcut_to_action(key, modifiers);
+        assert_eq!(action, None);
     }
 
     #[test]
