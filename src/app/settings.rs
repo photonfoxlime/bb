@@ -1027,10 +1027,14 @@ fn token_limit_row(
         .size(16)
         .text_size(13);
 
-    row![label_text, input_field, unlimited_checkbox]
-        .spacing(12)
-        .align_y(iced::Alignment::Center)
-        .into()
+    row![
+        label_text.width(Fill),
+        row![input_field, unlimited_checkbox].spacing(12).align_y(iced::Alignment::Center)
+    ]
+    .spacing(12)
+    .align_y(iced::Alignment::Center)
+    .width(Fill)
+    .into()
 }
 
 /// A read-only key-value row for path display.
