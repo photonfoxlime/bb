@@ -198,8 +198,6 @@ pub const LABEL_TEXT_SIZE: f32 = 13.0;
 pub const INPUT_TEXT_SIZE: f32 = 14.0;
 /// Small text size for metadata and labels.
 pub const SMALL_TEXT_SIZE: f32 = 12.0;
-/// Mount indicator text size.
-pub const MOUNT_INDICATOR_TEXT_SIZE: f32 = 11.0;
 
 /// Vertical gap between major page sections.
 pub const PAGE_SECTION_GAP: f32 = 24.0;
@@ -213,8 +211,6 @@ pub const INLINE_GAP: f32 = 4.0;
 pub const COMPACT_PAD_V: f32 = 6.0;
 /// Compact horizontal padding.
 pub const COMPACT_PAD_H: f32 = 10.0;
-/// Wide horizontal padding for buttons.
-pub const BUTTON_PAD_H_WIDE: f32 = 16.0;
 
 /// Fixed width for path labels in settings.
 pub const PATH_LABEL_WIDTH: f32 = 90.0;
