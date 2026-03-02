@@ -45,6 +45,13 @@
 //! To avoid duplicate mutations, this resolver only dispatches structural
 //! shortcuts when the editor instance is focused. Non-focused editors return the
 //! default binding.
+//!
+//! # Mode Bar Semantics
+//!
+//! Mode buttons represent mutually exclusive document modes (Normal,
+//! PickFriend, Multiselect), while Find is an overlay toggle that can coexist
+//! with an underlying document mode. Visual active state prioritizes Find when
+//! the overlay is open.
 
 use super::{
     AppState, DocumentMode, EditMessage, ErrorBanner, ErrorMessage, ExpandMessage, FindMessage,
@@ -94,9 +101,11 @@ impl<'a> DocumentView<'a> {
         // Floating overlay
         let mut layout = column![].spacing(theme::LAYOUT_GAP);
 
-        // Modebar buttons (normal, find) - top-left corner
+        // Modebar buttons (normal, find, multiselect) - top-left corner
         let is_find_mode = state.ui().find_ui.is_open();
         let is_normal_mode = state.ui().document_mode == DocumentMode::Normal && !is_find_mode;
+        let is_multiselect_mode =
+            state.ui().document_mode == DocumentMode::Multiselect && !is_find_mode;
 
         let normal_mode_btn = IconButton::mode(
             icons::icon_mouse_pointer_2()
@@ -120,7 +129,21 @@ impl<'a> DocumentView<'a> {
             FindMessage::Open
         }));
 
-        let toolbar = row![normal_mode_btn, find_mode_btn].spacing(theme::ACTION_GAP);
+        let multiselect_mode_btn = IconButton::mode(
+            icons::icon_check_check()
+                .size(theme::TOOLBAR_ICON_SIZE)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into(),
+            is_multiselect_mode,
+        )
+        .on_press(Message::DocumentMode(if is_multiselect_mode {
+            DocumentMode::Normal
+        } else {
+            DocumentMode::Multiselect
+        }));
+
+        let toolbar =
+            row![normal_mode_btn, find_mode_btn, multiselect_mode_btn].spacing(theme::ACTION_GAP);
 
         let toolbar_container = container(
             container(toolbar)
@@ -523,6 +546,9 @@ impl<'a> TreeView<'a> {
             }
         }
 
+        let is_multiselect_selected =
+            self.state.ui().multiselect_selected_blocks.contains(block_id);
+
         match (self.state.ui().document_mode, self.state.focus().map(|s| s.block_id)) {
             | (DocumentMode::Normal, Some(focused)) if focused == *block_id => {
                 // Render the block as the focused block
@@ -548,6 +574,10 @@ impl<'a> TreeView<'a> {
                     .style(theme::action_button)
                     .into()
             }
+            | (DocumentMode::Multiselect, _) if is_multiselect_selected => {
+                container(block).style(theme::focused_block).into()
+            }
+            | (DocumentMode::Multiselect, _) => block.into(),
             | (_, None) => block.into(),
         }
     }

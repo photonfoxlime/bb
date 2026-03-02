@@ -60,6 +60,7 @@ use iced::{
     widget::{self, text_editor},
     window,
 };
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 pub use config::AppConfig;
@@ -347,11 +348,19 @@ impl AppState {
         } else {
             self.ui_mut().focus = Some(FocusState { block_id, overflow_open: false });
         }
+
+        if self.ui().document_mode == DocumentMode::Multiselect {
+            self.ui_mut().multiselect_selected_blocks.clear();
+            self.ui_mut().multiselect_selected_blocks.insert(block_id);
+        }
     }
 
     /// Clear the focus.
     fn clear_focus(&mut self) {
         self.ui_mut().focus = None;
+        if self.ui().document_mode == DocumentMode::Multiselect {
+            self.ui_mut().multiselect_selected_blocks.clear();
+        }
     }
 
     /// Set the overflow menu open/closed for the focused block.
@@ -487,7 +496,25 @@ impl AppState {
             | Message::DocumentMode(mode) => {
                 // Clear friend hover state when changing document modes
                 self.ui_mut().hovered_friend_block = None;
-                self.ui_mut().document_mode = mode;
+
+                match mode {
+                    | DocumentMode::Multiselect => {
+                        let selected = self
+                            .focus()
+                            .map(|focus| focus.block_id)
+                            .filter(|block_id| self.store.node(block_id).is_some());
+
+                        self.ui_mut().document_mode = DocumentMode::Multiselect;
+                        self.ui_mut().multiselect_selected_blocks.clear();
+                        if let Some(block_id) = selected {
+                            self.ui_mut().multiselect_selected_blocks.insert(block_id);
+                        }
+                    }
+                    | _ => {
+                        self.ui_mut().document_mode = mode;
+                        self.ui_mut().multiselect_selected_blocks.clear();
+                    }
+                }
                 Task::none()
             }
             | Message::SystemThemeChanged(mode) => {
@@ -610,6 +637,12 @@ pub enum DocumentMode {
     Normal,
     /// Picking a friend block to add to the focused block.
     PickFriend,
+    /// Selecting one or more blocks for keyboard-driven batch actions.
+    ///
+    /// Current scope only supports backspace-triggered block deletion. The mode
+    /// exists as a dedicated state so future multi-select interactions can be
+    /// added without overloading `Normal` behavior.
+    Multiselect,
 }
 
 /// Which top-level screen is active.
@@ -671,8 +704,13 @@ pub struct TransientUiState {
     pub find_ui: FindUiState,
     /// UI focus state: keyboard focus + overflow menu state.
     pub focus: Option<FocusState>,
-    /// Current document interaction mode (normal vs picking a friend).
+    /// Current document interaction mode (normal, pick-friend, multiselect).
     pub document_mode: DocumentMode,
+    /// Block ids currently selected in multiselect mode.
+    ///
+    /// This set is only interpreted while `document_mode == Multiselect`.
+    /// Outside multiselect mode it is cleared eagerly.
+    pub multiselect_selected_blocks: BTreeSet<BlockId>,
     /// Which top-level screen is currently shown.
     pub active_view: ViewMode,
     /// Current window dimensions for responsive layout.
@@ -1010,6 +1048,143 @@ mod edit {
         Task::none()
     }
 
+    fn is_plain_backspace_action(
+        action: &text_editor::Action, modifiers: keyboard::Modifiers,
+    ) -> bool {
+        if modifiers.shift() || modifiers.alt() || modifiers.command() || modifiers.control() {
+            return false;
+        }
+
+        matches!(action, text_editor::Action::Edit(text_editor::Edit::Backspace))
+    }
+
+    fn should_enter_multiselect_on_backspace(
+        state: &AppState, block_id: BlockId, action: &text_editor::Action,
+    ) -> bool {
+        if state.ui().document_mode != DocumentMode::Normal {
+            return false;
+        }
+
+        if !is_plain_backspace_action(action, state.ui().keyboard_modifiers) {
+            return false;
+        }
+
+        let text = state
+            .editor_buffers
+            .get(&block_id)
+            .map(text_editor::Content::text)
+            .or_else(|| state.store.point(&block_id))
+            .unwrap_or_default();
+
+        text.is_empty()
+    }
+
+    fn previous_visible_in_current_navigation_view(
+        state: &AppState, block_id: BlockId,
+    ) -> Option<BlockId> {
+        let mut current = Some(block_id);
+
+        while let Some(cursor) = current {
+            let previous = state.store.prev_visible_in_dfs(&cursor)?;
+            if state.navigation.is_in_current_view(&state.store, &previous) {
+                return Some(previous);
+            }
+            current = Some(previous);
+        }
+
+        None
+    }
+
+    fn selected_blocks_without_selected_ancestors(
+        state: &AppState, selected: &BTreeSet<BlockId>,
+    ) -> Vec<BlockId> {
+        selected
+            .iter()
+            .copied()
+            .filter(|block_id| state.store.node(block_id).is_some())
+            .filter(|block_id| {
+                let mut parent = state.store.parent(block_id);
+                while let Some(parent_id) = parent {
+                    if selected.contains(&parent_id) {
+                        return false;
+                    }
+                    parent = state.store.parent(&parent_id);
+                }
+                true
+            })
+            .collect()
+    }
+
+    /// Delete multiselect targets when Backspace is pressed in multiselect mode.
+    ///
+    /// Design decision:
+    /// - The selection is normalized to top-most blocks (selected descendants of
+    ///   already-selected ancestors are ignored) so each subtree is deleted once.
+    /// - For single-block delete, focus moves to the previous visible block in
+    ///   the current navigation view, matching the keyboard traversal direction.
+    /// - The app exits multiselect mode after deletion completes.
+    fn delete_multiselect_selection_on_backspace(
+        state: &mut AppState, block_id: BlockId,
+    ) -> Task<Message> {
+        let mut selected = state.ui().multiselect_selected_blocks.clone();
+        if selected.is_empty() {
+            selected.insert(block_id);
+        }
+
+        let selected_roots = selected_blocks_without_selected_ancestors(state, &selected);
+        if selected_roots.is_empty() {
+            tracing::error!("multiselect delete requested without valid selection");
+            return Task::none();
+        }
+
+        let focus_after_delete = if selected_roots.len() == 1 {
+            previous_visible_in_current_navigation_view(state, selected_roots[0])
+        } else {
+            None
+        };
+
+        state.snapshot_for_undo();
+
+        let mut removed_ids = Vec::new();
+        for selected_id in selected_roots {
+            if let Some(removed) = state.store.remove_block_subtree(&selected_id) {
+                for id in &removed {
+                    state.llm_requests.remove_block(*id);
+                }
+                removed_ids.extend(removed);
+            }
+        }
+
+        if removed_ids.is_empty() {
+            tracing::error!("multiselect delete removed no blocks");
+            return Task::none();
+        }
+
+        state.editor_buffers.remove_blocks(&removed_ids);
+        for root_id in state.store.roots() {
+            state.editor_buffers.ensure_block(&state.store, root_id);
+        }
+        state.persist_with_context("after deleting multiselect selection");
+        tracing::info!(removed = removed_ids.len(), "deleted multiselect selection");
+
+        state.ui_mut().document_mode = DocumentMode::Normal;
+        state.ui_mut().multiselect_selected_blocks.clear();
+        state.edit_session = None;
+
+        if let Some(next_focus) = focus_after_delete
+            && state.store.node(&next_focus).is_some()
+        {
+            state.set_focus(next_focus);
+            if let Some(widget_id) = state.editor_buffers.widget_id(&next_focus) {
+                return widget::operation::focus(widget_id.clone());
+            }
+            return Task::none();
+        }
+
+        state.clear_focus();
+        Task::none()
+    }
+
     /// Handle one text-editor action for a point block.
     ///
     /// Enter behavior contract:
@@ -1021,6 +1196,10 @@ mod edit {
     ///   binding.
     /// - `Cmd/Ctrl+Shift+Enter` is dispatched as `ActionId::AddSibling` from
     ///   document key binding.
+    /// - Plain `Backspace` on an empty point enters multiselect mode and selects
+    ///   the focused block.
+    /// - Plain `Backspace` in multiselect mode deletes current selection and
+    ///   returns to normal mode.
     pub fn handle_point_edited(
         state: &mut AppState, block_id: BlockId, action: text_editor::Action,
     ) -> Task<Message> {
@@ -1057,6 +1236,19 @@ mod edit {
             // path. Ignore editor cursor-motion actions here to avoid handling
             // the same key chord twice.
             tracing::debug!("ignored alt-movement editor action leak");
+            return Task::none();
+        }
+
+        if state.ui().document_mode == DocumentMode::Multiselect
+            && is_plain_backspace_action(&action, state.ui().keyboard_modifiers)
+        {
+            return delete_multiselect_selection_on_backspace(state, block_id);
+        }
+
+        if should_enter_multiselect_on_backspace(state, block_id, &action) {
+            state.ui_mut().document_mode = DocumentMode::Multiselect;
+            state.set_focus(block_id);
+            tracing::info!(block_id = ?block_id, "entered multiselect mode from empty backspace");
             return Task::none();
         }
 
@@ -1352,6 +1544,76 @@ mod edit {
             assert_eq!(state.store.point(&root).as_deref(), Some(""));
             assert_eq!(state.store.point(&child).as_deref(), Some(""));
             assert_eq!(state.focus().map(|focus| focus.block_id), Some(child));
+        }
+
+        #[test]
+        fn empty_backspace_enters_multiselect_and_selects_block() {
+            let (mut state, root) = AppState::test_state();
+            state.store.update_point(&root, String::new());
+            state.editor_buffers.set_text(&root, "");
+
+            let _ = handle_point_edited(
+                &mut state,
+                root,
+                text_editor::Action::Edit(text_editor::Edit::Backspace),
+            );
+
+            assert_eq!(state.ui().document_mode, DocumentMode::Multiselect);
+            assert!(state.ui().multiselect_selected_blocks.contains(&root));
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(root));
+        }
+
+        #[test]
+        fn multiselect_backspace_single_delete_focuses_previous_visible_block() {
+            let (mut state, root) = AppState::test_state();
+            state.store.update_point(&root, "first".to_string());
+            let sibling = state
+                .store
+                .append_sibling(&root, "second".to_string())
+                .expect("append sibling succeeds");
+            state.editor_buffers.ensure_subtree(&state.store, &root);
+
+            state.ui_mut().document_mode = DocumentMode::Multiselect;
+            state.set_focus(sibling);
+
+            let _ = handle_point_edited(
+                &mut state,
+                sibling,
+                text_editor::Action::Edit(text_editor::Edit::Backspace),
+            );
+
+            assert!(state.store.node(&sibling).is_none());
+            assert_eq!(state.focus().map(|focus| focus.block_id), Some(root));
+            assert_eq!(state.ui().document_mode, DocumentMode::Normal);
+            assert!(state.ui().multiselect_selected_blocks.is_empty());
+        }
+
+        #[test]
+        fn multiselect_backspace_deletes_all_selected_blocks() {
+            let (mut state, root) = AppState::test_state();
+            let sibling = state
+                .store
+                .append_sibling(&root, "second".to_string())
+                .expect("append sibling succeeds");
+            state.editor_buffers.ensure_subtree(&state.store, &root);
+
+            state.ui_mut().document_mode = DocumentMode::Multiselect;
+            state.ui_mut().multiselect_selected_blocks.insert(root);
+            state.ui_mut().multiselect_selected_blocks.insert(sibling);
+            state.set_focus(sibling);
+            state.ui_mut().multiselect_selected_blocks.insert(root);
+
+            let _ = handle_point_edited(
+                &mut state,
+                sibling,
+                text_editor::Action::Edit(text_editor::Edit::Backspace),
+            );
+
+            assert!(state.store.node(&root).is_none());
+            assert!(state.store.node(&sibling).is_none());
+            assert_eq!(state.ui().document_mode, DocumentMode::Normal);
+            assert!(state.focus().is_none());
+            assert!(state.ui().multiselect_selected_blocks.is_empty());
         }
 
         #[test]
