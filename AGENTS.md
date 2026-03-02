@@ -79,6 +79,10 @@ Use or create constants in `theme.rs` for all UI numeric values
 All user-facing text must be internationalized via `rust_i18n::t!`.
 Never hardcode UI strings; add keys to the locale files instead.
 
+When adding, removing, or changing keyboard shortcuts, update the in-app
+shortcut guide in `src/app/document.rs` (shortcut help banner) and keep all
+locale entries in sync (`locales/en-US.yml`, `locales/ja.yml`, `locales/zh-CN.yml`).
+
 ## Version Control
 
 This project uses jujutsu, which is compatible to git. Use mcp for jujutsu to operate.
