@@ -501,10 +501,56 @@ impl<'a> DocumentView<'a> {
 
     /// Render the context menu overlay when visible.
     fn render_context_menu(&self) -> Element<'a, Message> {
-        let Some((_block_id, position)) = self.state.ui().context_menu else {
+        let Some((block_id, position)) = self.state.ui().context_menu else {
             return container(iced::widget::Space::new()).width(Fill).height(Fill).into();
         };
 
+        // Build action bar for this block
+        let point_text = self.state.store.point(&block_id).unwrap_or_default().to_string();
+        let expansion_draft = self.state.store.expansion_draft(&block_id);
+        let reduction_draft = self.state.store.reduction_draft(&block_id);
+        let node = self.state.store.node(&block_id);
+        let row_context = RowContext {
+            block_id,
+            point_text,
+            has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
+            draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0)
+                + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
+            has_expand_error: self.state.llm_requests.has_expand_error(block_id),
+            has_reduce_error: self.state.llm_requests.has_reduce_error(block_id),
+            is_expanding: self.state.llm_requests.is_expanding(block_id),
+            is_reducing: self.state.llm_requests.is_reducing(block_id),
+            is_mounted: self.state.store.mount_table().entry(block_id).is_some(),
+            is_unexpanded_mount: node.is_some_and(|n| n.mount_path().is_some()),
+            has_children: !self.state.store.children(&block_id).is_empty(),
+        };
+        let viewport_bucket = {
+            let width = self.state.ui().window_size.width;
+            if width <= theme::VIEWPORT_TOUCH_COMPACT_MAX_WIDTH {
+                ViewportBucket::TouchCompact
+            } else if width <= theme::VIEWPORT_COMPACT_MAX_WIDTH {
+                ViewportBucket::Compact
+            } else if width <= theme::VIEWPORT_MEDIUM_MAX_WIDTH {
+                ViewportBucket::Medium
+            } else {
+                ViewportBucket::Wide
+            }
+        };
+        let action_bar = project_for_viewport(build_action_bar_vm(&row_context), viewport_bucket);
+
+        // Action buttons row (icon-only)
+        let mut action_buttons = row![].spacing(4);
+        for descriptor in action_bar.visible_actions() {
+            if descriptor.availability == ActionAvailability::Enabled {
+                if let Some(message) = action_to_message(self.state, &block_id, &descriptor) {
+                    let btn: Element<'a, Message> =
+                        IconButton::action(action_icon(descriptor.id)).on_press(message).into();
+                    action_buttons = action_buttons.push(btn);
+                }
+            }
+        }
+
+        // Context menu action buttons
         let menu_items: Element<'a, Message> = column![
             context_menu_button(t!("ctx_undo").to_string(), ContextMenuAction::Undo),
             context_menu_button(t!("ctx_redo").to_string(), ContextMenuAction::Redo),
@@ -519,6 +565,11 @@ impl<'a> DocumentView<'a> {
         .padding(4)
         .into();
 
+        // Combine action buttons and menu items
+        let content = column![action_buttons, rule::horizontal(1), menu_items].spacing(4);
+
+        let menu = container(content).style(theme::context_menu).width(Length::Fixed(180.0));
+
         // Use stack to position menu at cursor location
         // Layer 1: Background with click-to-dismiss
         let background: Element<'a, Message> = mouse_area(
@@ -531,7 +582,6 @@ impl<'a> DocumentView<'a> {
         .into();
 
         // Layer 2: Menu positioned at cursor
-        let menu = container(menu_items).style(theme::context_menu).width(Length::Fixed(180.0));
         let menu_container = container(menu)
             .align_x(iced::alignment::Horizontal::Left)
             .align_y(iced::alignment::Vertical::Top)
