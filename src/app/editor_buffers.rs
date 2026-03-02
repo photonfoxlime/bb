@@ -89,6 +89,17 @@ impl EditorBuffers {
         self.word_token_cache.insert(*block_id, WordTokenizationCache::default());
     }
 
+    /// Invalidate the word token cache for a block after its content changed.
+    ///
+    /// This forces re-tokenization on the next `word_token_spans_for_line` call.
+    /// Call this after `text_editor::Content::perform` to keep the cache in sync
+    /// with the editor buffer.
+    pub(crate) fn invalidate_token_cache(&mut self, block_id: &BlockId) {
+        if let Some(cache) = self.word_token_cache.get_mut(*block_id) {
+            *cache = WordTokenizationCache::default();
+        }
+    }
+
     pub(crate) fn ensure_subtree(&mut self, block_store: &BlockStore, block_id: &BlockId) {
         if block_store.point(block_id).is_none() {
             return;

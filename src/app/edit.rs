@@ -562,6 +562,7 @@ pub fn handle_point_edited(
             tracing::debug!(block_id = ?block_id, chars = next_text.len(), "point edited");
             state.store.update_point(&block_id, next_text);
             state.persist_with_context("after edit");
+            state.editor_buffers.invalidate_token_cache(&block_id);
         }
     }
 
