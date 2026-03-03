@@ -44,7 +44,7 @@ pub enum LlmConfigError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 pub enum InvalidConfigReason {
-    #[error("LLM_BASE_URL must start with https://")]
+    #[error("LLM_BASE_URL must start with https:// or http://localhost or http://127.0.0.1")]
     BaseUrlNotHttps,
     #[error("LLM_API_KEY is empty")]
     ApiKeyEmpty,

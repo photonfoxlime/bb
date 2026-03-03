@@ -94,7 +94,7 @@ pub enum TaskKind {
 /// Validated LLM endpoint configuration.
 ///
 /// Invariants (enforced by [`LlmConfig::from_raw`]):
-/// - `base_url` starts with `https://`
+/// - `base_url` starts with `https://` or `http://localhost` or `http://127.0.0.1`
 /// - `api_key` and `model` are non-empty after trimming
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LlmConfig {
@@ -129,7 +129,10 @@ impl LlmConfig {
         let api_key = api_key.trim().to_string();
         let model = model.trim().to_string();
 
-        if !base_url.starts_with("https://") {
+        let base_url_valid = base_url.starts_with("https://")
+            || base_url.starts_with("http://localhost")
+            || base_url.starts_with("http://127.0.0.1");
+        if !base_url_valid {
             return Err(LlmConfigError::InvalidConfig(InvalidConfigReason::BaseUrlNotHttps));
         }
         if api_key.is_empty() {
@@ -171,6 +174,8 @@ pub enum PresetProvider {
     Kimi,
     /// <https://api.minimax.io/v1> — OpenAI-compatible endpoint
     Minimax,
+    /// <http://localhost:11434/v1> — local models via Ollama (OpenAI-compatible)
+    Ollama,
 }
 
 /// All preset provider variants in display order.
@@ -183,6 +188,7 @@ const ALL_PRESETS: &[PresetProvider] = &[
     PresetProvider::Anthropic,
     PresetProvider::Kimi,
     PresetProvider::Minimax,
+    PresetProvider::Ollama,
 ];
 
 /// Default provider name used for per-task config defaults.
@@ -200,6 +206,7 @@ impl PresetProvider {
             | Self::Anthropic => "https://api.anthropic.com/v1",
             | Self::Kimi => "https://api.moonshot.ai/v1",
             | Self::Minimax => "https://api.minimax.io/v1",
+            | Self::Ollama => "http://localhost:11434/v1",
         }
     }
 
@@ -213,6 +220,7 @@ impl PresetProvider {
             | Self::Anthropic => "claude-sonnet-4-6",
             | Self::Kimi => "kimi-k2.5",
             | Self::Minimax => "MiniMax-M2.5",
+            | Self::Ollama => "llama3.2",
             | Self::OpenRouter | Self::Groq => "",
         }
     }
@@ -228,6 +236,7 @@ impl PresetProvider {
             | Self::Anthropic => "anthropic",
             | Self::Kimi => "kimi",
             | Self::Minimax => "minimax",
+            | Self::Ollama => "ollama",
         }
     }
 
@@ -241,7 +250,8 @@ impl PresetProvider {
             | Self::Gemini
             | Self::Groq
             | Self::Kimi
-            | Self::Minimax => ApiStyle::OpenAi,
+            | Self::Minimax
+            | Self::Ollama => ApiStyle::OpenAi,
         }
     }
 
@@ -361,6 +371,13 @@ impl LlmProviders {
             model = m;
         }
 
+        // Ollama ignores auth; use placeholder when empty so validation passes.
+        let api_key = if provider_name == "ollama" && api_key.is_empty() {
+            "ollama".to_string()
+        } else {
+            api_key
+        };
+
         LlmConfig::from_raw(base_url, api_key, model, api_style)
     }
 
@@ -478,17 +495,30 @@ impl LlmProviders {
 }
 
 #[cfg(test)]
-impl LlmProviders {
-    /// Create a provider set with a single valid preset config for testing.
-    ///
-    /// The openai preset has a valid API key so that
-    /// `resolve("openai", "test-model")` succeeds.
-    pub fn test_valid() -> Self {
-        let mut providers = Self::default();
-        providers.update_preset(
-            PresetProvider::OpenAI,
-            PresetConfig { api_key: "test-key".to_string() },
-        );
-        providers
+mod tests {
+    use super::*;
+
+    impl LlmProviders {
+        /// Create a provider set with a single valid preset config for testing.
+        ///
+        /// The openai preset has a valid API key so that
+        /// `resolve("openai", "test-model")` succeeds.
+        pub fn test_valid() -> Self {
+            let mut providers = Self::default();
+            providers.update_preset(
+                PresetProvider::OpenAI,
+                PresetConfig { api_key: "test-key".to_string() },
+            );
+            providers
+        }
+    }
+
+    #[test]
+    fn ollama_resolves_with_empty_api_key() {
+        let providers = LlmProviders::default();
+        let config = providers.resolve("ollama", "llama3.2").expect("ollama should resolve");
+        assert_eq!(config.base_url, "http://localhost:11434/v1");
+        assert_eq!(config.model, "llama3.2");
+        assert!(!config.api_key.is_empty());
     }
 }
