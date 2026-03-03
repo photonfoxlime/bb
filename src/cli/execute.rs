@@ -1495,7 +1495,7 @@ impl BlockCommands {
                             let context = store.block_context_for_id(&block_id);
                             let lineage: Vec<String> =
                                 context.lineage.points().map(String::from).collect();
-                            let children = context.existing_children;
+                            let children = context.existing_children.clone().into_points();
                             let friends = context.friend_blocks.len();
                             (store, CliResult::Context { lineage, children, friends })
                         }
@@ -1513,7 +1513,7 @@ impl BlockCommands {
                                 outputs.push(BatchOutput::Context {
                                     input,
                                     lineage: context.lineage.points().map(String::from).collect(),
-                                    children: context.existing_children,
+                                    children: context.existing_children.clone().into_points(),
                                     friends: context.friend_blocks.len(),
                                 });
                             }

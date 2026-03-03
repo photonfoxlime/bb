@@ -392,7 +392,7 @@ fn lineage_root_to_deep_child() {
     let (mut store, _, child_a, _) = simple_store();
     let grandchild = store.append_child(&child_a, "gc".to_string()).unwrap();
     let lineage = store.lineage_points_for_id(&grandchild);
-    let expected = llm::Lineage::from_points(vec![
+    let expected = llm::LineageContext::from_points(vec![
         "root".to_string(),
         "child_a".to_string(),
         "gc".to_string(),
@@ -404,7 +404,7 @@ fn lineage_root_to_deep_child() {
 fn lineage_for_root_is_single_element() {
     let (store, root, _, _) = simple_store();
     let lineage = store.lineage_points_for_id(&root);
-    let expected = llm::Lineage::from_points(vec!["root".to_string()]);
+    let expected = llm::LineageContext::from_points(vec!["root".to_string()]);
     assert_eq!(lineage, expected);
 }
 
@@ -413,7 +413,7 @@ fn lineage_for_unknown_is_empty() {
     let (store, _, _, _) = simple_store();
     let unknown = BlockId::default();
     let lineage = store.lineage_points_for_id(&unknown);
-    let expected = llm::Lineage::from_points(vec![]);
+    let expected = llm::LineageContext::from_points(vec![]);
     assert_eq!(lineage, expected);
 }
 

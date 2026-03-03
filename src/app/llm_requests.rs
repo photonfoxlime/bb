@@ -280,7 +280,7 @@ pub struct RequestSignature {
 
 impl RequestSignature {
     #[cfg(test)]
-    pub fn from_lineage(lineage: &llm::Lineage) -> Option<Self> {
+    pub fn from_lineage(lineage: &llm::LineageContext) -> Option<Self> {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         let mut item_count = 0usize;
         for point in lineage.points() {
@@ -305,7 +305,7 @@ impl RequestSignature {
             Self::text_signature(point).hash(&mut hasher);
             item_count += 1;
         }
-        for child_point in context.existing_children() {
+        for child_point in context.existing_children().point_strs() {
             Self::text_signature(child_point).hash(&mut hasher);
             item_count += 1;
         }
@@ -354,21 +354,21 @@ mod tests {
 
     #[test]
     fn request_signature_from_empty_lineage_is_none() {
-        let lineage = llm::Lineage::from_points(vec![]);
+        let lineage = llm::LineageContext::from_points(vec![]);
         assert!(RequestSignature::from_lineage(&lineage).is_none());
     }
 
     #[test]
     fn request_signature_changes_when_lineage_changes() {
-        let first = llm::Lineage::from_points(vec!["root".to_string(), "child".to_string()]);
+        let first = llm::LineageContext::from_points(vec!["root".to_string(), "child".to_string()]);
         let second =
-            llm::Lineage::from_points(vec!["root changed".to_string(), "child".to_string()]);
+            llm::LineageContext::from_points(vec!["root changed".to_string(), "child".to_string()]);
         assert_ne!(RequestSignature::from_lineage(&first), RequestSignature::from_lineage(&second));
     }
 
     #[test]
     fn request_signature_from_block_context_changes_when_children_change() {
-        let lineage = llm::Lineage::from_points(vec!["root".to_string()]);
+        let lineage = llm::LineageContext::from_points(vec!["root".to_string()]);
         let ctx1 = llm::BlockContext::new(lineage.clone(), vec!["child_a".to_string()], vec![]);
         let ctx2 = llm::BlockContext::new(lineage.clone(), vec!["child_b".to_string()], vec![]);
         assert_ne!(
@@ -379,7 +379,7 @@ mod tests {
 
     #[test]
     fn request_signature_from_block_context_matches_lineage_when_no_children() {
-        let lineage = llm::Lineage::from_points(vec!["root".to_string(), "child".to_string()]);
+        let lineage = llm::LineageContext::from_points(vec!["root".to_string(), "child".to_string()]);
         let ctx = llm::BlockContext::new(lineage.clone(), vec![], vec![]);
         assert_eq!(
             RequestSignature::from_lineage(&lineage),
@@ -389,7 +389,7 @@ mod tests {
 
     #[test]
     fn request_signature_from_block_context_changes_when_friend_blocks_change() {
-        let lineage = llm::Lineage::from_points(vec!["root".to_string()]);
+        let lineage = llm::LineageContext::from_points(vec!["root".to_string()]);
         let ctx1 = llm::BlockContext::new(
             lineage.clone(),
             vec![],
@@ -422,7 +422,7 @@ mod tests {
 
     #[test]
     fn request_signature_from_block_context_changes_when_friend_perspective_changes() {
-        let lineage = llm::Lineage::from_points(vec!["root".to_string()]);
+        let lineage = llm::LineageContext::from_points(vec!["root".to_string()]);
         let ctx1 = llm::BlockContext::new(
             lineage.clone(),
             vec![],

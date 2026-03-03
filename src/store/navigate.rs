@@ -66,14 +66,14 @@ impl BlockStore {
     ///
     /// # Ensures
     /// - Returns a `Lineage` containing all ancestor point texts from root to target.
-    pub fn lineage_points_for_id(&self, target: &BlockId) -> llm::Lineage {
+    pub fn lineage_points_for_id(&self, target: &BlockId) -> llm::LineageContext {
         for root in &self.roots {
             let mut collected = Vec::new();
             if self.collect_lineage_points(root, target, &mut collected) {
-                return llm::Lineage::from_points(collected);
+                return llm::LineageContext::from_points(collected);
             }
         }
-        llm::Lineage::from_points(vec![])
+        llm::LineageContext::from_points(vec![])
     }
 
     /// Build a [`llm::BlockContext`] for the given block from all visible context.

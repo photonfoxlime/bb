@@ -6,7 +6,6 @@
 //!   Key types: [`LlmConfig`], [`LlmProviders`], [`PresetProvider`], [`CustomProvider`], [`ApiStyle`].
 //! - [`error`] - Error types for LLM runtime failures.
 //! - [`context`] - Domain types and formatting for block context sent to the LLM.
-//!   Key types: [`BlockContext`], [`Lineage`], [`FriendContext`], [`ExpandResult`], [`ReduceResult`], [`ContextFormatter`].
 //! - [`prompt`] - Prompt construction from block context.
 //! - [`client`] - HTTP client for OpenAI-compatible and Anthropic endpoints.
 
@@ -22,5 +21,6 @@ pub use config::{
     PresetProvider,
 };
 pub use context::{
-    BlockContext, ExpandResult, ExpandSuggestion, FriendContext, Lineage, ReduceResult,
+    BlockContext, ChildContext, ChildrenContext, ExpandResult, ExpandSuggestion, FriendContext,
+    LineageContext, ReduceResult,
 };
