@@ -42,13 +42,12 @@ use self::{
         ActionAvailability, ActionId, RowContext, ViewportBucket, action_to_message_by_id,
         build_action_bar_vm, project_for_viewport,
     },
+    atomize::AtomizeMessage,
     edit::EditMessage,
     editor_buffers::EditorBuffers,
     error::{AppError, ErrorMessage, UiError},
     error_banner::ErrorBanner,
     expand::ExpandMessage,
-    reduce::ReduceMessage,
-    atomize::AtomizeMessage,
     find_panel::{FindMessage, FindUiState},
     friends_panel::FriendPanelMessage,
     instruction_panel::InstructionPanelMessage,
@@ -56,6 +55,7 @@ use self::{
     mount_file::MountFileMessage,
     navigation::{NavigationMessage, NavigationStack},
     overlay::OverlayMessage,
+    reduce::ReduceMessage,
     settings::{SettingsMessage, SettingsState},
     shortcut::ShortcutMessage,
     structure::StructureMessage,
@@ -96,6 +96,10 @@ pub enum ContextMenuAction {
     Copy,
     Paste,
     SelectAll,
+    /// Convert a text point to a link (href = current text, kind inferred).
+    ConvertToLink,
+    /// Convert a link point back to plain text (display text becomes content).
+    ConvertToText,
 }
 
 /// Default capacity: 64 undo steps.

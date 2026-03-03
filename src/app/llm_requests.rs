@@ -450,7 +450,8 @@ mod tests {
 
     #[test]
     fn request_signature_from_block_context_matches_lineage_when_no_children() {
-        let lineage = llm::LineageContext::from_points(vec!["root".to_string(), "child".to_string()]);
+        let lineage =
+            llm::LineageContext::from_points(vec!["root".to_string(), "child".to_string()]);
         let ctx = llm::BlockContext::new(lineage.clone(), vec![], vec![]);
         assert_eq!(
             RequestSignature::from_lineage(&lineage),

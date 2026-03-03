@@ -40,7 +40,6 @@
 use super::config::{self, AppConfig, MaxTokens, TaskConfig};
 use super::{AppState, Message, ViewMode};
 use crate::component::icon_button::IconButton;
-use std::collections::BTreeSet;
 use crate::component::text_button::TextButton;
 use crate::i18n;
 use crate::llm::{self, TaskKind};
@@ -53,6 +52,7 @@ use iced::widget::{
 use iced::{Alignment, Element, Fill, Length, Task};
 use lucide_icons::iced as icons;
 use rust_i18n::t;
+use std::collections::BTreeSet;
 
 /// Draft form values for the settings screen.
 ///
@@ -1246,12 +1246,8 @@ fn section(
 /// Each section lets the user independently select a provider, model,
 /// and token limit for one [`TaskKind`].
 fn task_settings_section(
-    title: String,
-    kind: TaskKind,
-    draft: &TaskDraft,
-    provider_names: &[String],
-    system_hint_expanded: bool,
-    user_hint_expanded: bool,
+    title: String, kind: TaskKind, draft: &TaskDraft, provider_names: &[String],
+    system_hint_expanded: bool, user_hint_expanded: bool,
 ) -> Element<'static, Message> {
     let provider_label = t!("settings_task_provider").to_string();
     let model_label = t!("settings_model").to_string();
@@ -1346,12 +1342,10 @@ fn task_settings_section(
         .padding(theme::PANEL_PAD_V);
 
     let system_default_hint = llm::default_system_prompt_hint(kind);
-    let system_hint_toggle = foldable_hint_row(
-        "Default",
-        &system_default_hint,
-        system_hint_expanded,
-        move || Message::Settings(SettingsMessage::ToggleSystemPromptHintExpanded(kind)),
-    );
+    let system_hint_toggle =
+        foldable_hint_row("Default", &system_default_hint, system_hint_expanded, move || {
+            Message::Settings(SettingsMessage::ToggleSystemPromptHintExpanded(kind))
+        });
     let system_prompt_row = column![
         text(system_prompt_label)
             .size(theme::LABEL_TEXT_SIZE)
@@ -1370,12 +1364,10 @@ fn task_settings_section(
         .padding(theme::PANEL_PAD_V);
 
     let user_default_hint = llm::default_user_prompt_hint(kind);
-    let user_hint_toggle = foldable_hint_row(
-        "Default",
-        user_default_hint,
-        user_hint_expanded,
-        move || Message::Settings(SettingsMessage::ToggleUserPromptHintExpanded(kind)),
-    );
+    let user_hint_toggle =
+        foldable_hint_row("Default", user_default_hint, user_hint_expanded, move || {
+            Message::Settings(SettingsMessage::ToggleUserPromptHintExpanded(kind))
+        });
     let user_prompt_row = column![
         text(user_prompt_label)
             .size(theme::LABEL_TEXT_SIZE)
@@ -1395,10 +1387,7 @@ fn task_settings_section(
 
 /// A foldable row: clickable label with chevron, optional content when expanded.
 fn foldable_hint_row<F>(
-    label: &'static str,
-    content: &str,
-    expanded: bool,
-    on_toggle: F,
+    label: &'static str, content: &str, expanded: bool, on_toggle: F,
 ) -> Element<'static, Message>
 where
     F: Fn() -> Message + 'static,
@@ -1418,9 +1407,8 @@ where
         .size(theme::LABEL_TEXT_SIZE)
         .font(theme::INTER)
         .color(theme::LIGHT.accent_muted);
-    let header = row![chevron, label_text]
-    .spacing(theme::INLINE_GAP)
-    .align_y(iced::Alignment::Center);
+    let header =
+        row![chevron, label_text].spacing(theme::INLINE_GAP).align_y(iced::Alignment::Center);
     let clickable = button(header).style(theme::action_button).on_press(on_toggle());
     let content_text = text(content.to_string())
         .size(theme::SMALL_TEXT_SIZE)

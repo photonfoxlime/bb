@@ -11,11 +11,14 @@
 //! owning VM types and builder/projection functions below.
 
 use super::{
-    AtomizeMessage, AppState, ExpandMessage, Message, MountFileMessage, ReduceMessage,
+    AppState, AtomizeMessage, ExpandMessage, Message, MountFileMessage, ReduceMessage,
     StructureMessage,
 };
 use crate::{store::BlockId, theme};
-use iced::{keyboard::{Key, Modifiers, key::Named}, Element};
+use iced::{
+    Element,
+    keyboard::{Key, Modifiers, key::Named},
+};
 use lucide_icons::iced as icons;
 
 /// Identifier for a user-visible action in the action bar.
@@ -286,10 +289,10 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
 
     let add_child_availability =
         if matches!(row_state, RowUiState::BusyExpand | RowUiState::BusyAtomize) {
-        ActionAvailability::DisabledBusy
-    } else {
-        ActionAvailability::Enabled
-    };
+            ActionAvailability::DisabledBusy
+        } else {
+            ActionAvailability::Enabled
+        };
 
     vm.primary.push(ActionDescriptor::new(
         ActionId::Expand,

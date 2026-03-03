@@ -63,13 +63,13 @@
 //! while preserving discoverability of less obvious chords.
 
 use super::{
-    AppState, ContextMenuAction, ContextMenuMessage, DocumentMode, EditMessage, ErrorBanner,
-    AtomizeMessage, ErrorMessage, ExpandMessage, FindMessage, Message, MountFileMessage,
+    AppState, AtomizeMessage, ContextMenuAction, ContextMenuMessage, DocumentMode, EditMessage,
+    ErrorBanner, ErrorMessage, ExpandMessage, FindMessage, Message, MountFileMessage,
     NavigationMessage, OverlayMessage, ReduceMessage, ShortcutMessage, StructureMessage,
     UndoRedoMessage,
     action_bar::{
         ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
-        ViewportBucket, action_icon, action_i18n_key, action_to_message, build_action_bar_vm,
+        ViewportBucket, action_i18n_key, action_icon, action_to_message, build_action_bar_vm,
         project_for_viewport, shortcut_to_action, status_error_i18n_key,
     },
     diff::{WordChange, word_diff},
@@ -81,8 +81,10 @@ use super::{
 use crate::{
     component::icon_button::IconButton,
     component::text_button::TextButton,
-    store::{AtomizationDraftRecord, BlockId, BlockPanelBarState, ExpansionDraftRecord,
-            ReductionDraftRecord},
+    store::{
+        AtomizationDraftRecord, BlockId, BlockPanelBarState, ExpansionDraftRecord, LinkKind,
+        PointContent, ReductionDraftRecord,
+    },
     text::truncate_for_display,
     theme,
 };
@@ -583,6 +585,18 @@ impl<'a> DocumentView<'a> {
         }
 
         // Context menu action buttons
+        let is_link = self.state.store.point_content(&block_id).map_or(false, |pc| pc.is_link());
+        let toggle_item: Element<'a, Message> = if is_link {
+            context_menu_button(
+                t!("ctx_convert_to_text").to_string(),
+                ContextMenuAction::ConvertToText,
+            )
+        } else {
+            context_menu_button(
+                t!("ctx_convert_to_link").to_string(),
+                ContextMenuAction::ConvertToLink,
+            )
+        };
         let menu_items: Element<'a, Message> = column![
             context_menu_button(t!("ctx_undo").to_string(), ContextMenuAction::Undo),
             context_menu_button(t!("ctx_redo").to_string(), ContextMenuAction::Redo),
@@ -592,6 +606,8 @@ impl<'a> DocumentView<'a> {
             context_menu_button(t!("ctx_paste").to_string(), ContextMenuAction::Paste),
             rule::horizontal(1),
             context_menu_button(t!("ctx_select_all").to_string(), ContextMenuAction::SelectAll),
+            rule::horizontal(1),
+            toggle_item,
         ]
         .spacing(theme::CONTEXT_MENU_ITEM_SPACING)
         .padding(theme::CONTEXT_MENU_PAD)
@@ -746,6 +762,30 @@ impl<'a> TreeView<'a> {
             // In friend picker mode, render as plain text so the button wrapper can capture clicks
             let point_text = self.state.store.point(block_id).unwrap_or_default();
             container(text(point_text)).width(Fill).height(Length::Shrink).into()
+        } else if let Some(PointContent::Link(link)) = self.state.store.point_content(block_id) {
+            // Link point: render as a clickable chip instead of a text editor.
+            let kind_icon: Element<'a, Message> = match link.kind {
+                | LinkKind::Image => icons::icon_image().size(theme::LINK_CHIP_ICON_SIZE).into(),
+                | LinkKind::Markdown => {
+                    icons::icon_file_text().size(theme::LINK_CHIP_ICON_SIZE).into()
+                }
+                | LinkKind::Path => icons::icon_link().size(theme::LINK_CHIP_ICON_SIZE).into(),
+            };
+            let label_text = link.display_text().to_owned();
+            let chip = button(
+                row![kind_icon, text(label_text).size(theme::LINK_CHIP_TEXT_SIZE)]
+                    .spacing(theme::LINK_CHIP_ICON_GAP)
+                    .align_y(iced::Alignment::Center),
+            )
+            .style(theme::link_chip_button)
+            .padding(theme::LINK_CHIP_PAD);
+
+            mouse_area(chip)
+                .on_right_press(Message::ContextMenu(ContextMenuMessage::Show {
+                    block_id: block_id_for_edit,
+                    position: self.state.ui().cursor_position.unwrap_or(Point::ORIGIN),
+                }))
+                .into()
         } else {
             let mut editor = text_editor(editor_content)
                 .placeholder(t!("doc_placeholder_point").to_string())
@@ -894,11 +934,14 @@ impl<'a> TreeView<'a> {
                                     ))),
                             )
                             .push(
-                                TextButton::destructive(t!("doc_dismiss_rewrite").to_string(), 13.0)
-                                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                    .on_press(Message::Atomize(AtomizeMessage::RejectRewrite(
-                                        *block_id,
-                                    ))),
+                                TextButton::destructive(
+                                    t!("doc_dismiss_rewrite").to_string(),
+                                    13.0,
+                                )
+                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                                .on_press(Message::Atomize(
+                                    AtomizeMessage::RejectRewrite(*block_id),
+                                )),
                             ),
                     ),
             );
@@ -908,10 +951,7 @@ impl<'a> TreeView<'a> {
             panel = panel.push(
                 row![]
                     .spacing(theme::PANEL_BUTTON_GAP)
-                    .push(
-                        container(text(t!("doc_atomize_points").to_string()))
-                            .width(Length::Fill),
-                    )
+                    .push(container(text(t!("doc_atomize_points").to_string())).width(Length::Fill))
                     .push(
                         TextButton::action(t!("doc_accept_all").to_string(), 13.0)
                             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
@@ -1649,6 +1689,8 @@ fn context_menu_button<'a>(label: String, action: ContextMenuAction) -> Element<
         | ContextMenuAction::Copy => icons::icon_copy(),
         | ContextMenuAction::Paste => icons::icon_clipboard_paste(),
         | ContextMenuAction::SelectAll => icons::icon_list(),
+        | ContextMenuAction::ConvertToLink => icons::icon_link(),
+        | ContextMenuAction::ConvertToText => icons::icon_type(),
     };
 
     button(row![icon.size(14), text(label).width(Fill)].spacing(8).align_y(iced::Alignment::Center))

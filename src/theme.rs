@@ -317,6 +317,21 @@ pub const CONTEXT_MENU_SHADOW_OPACITY: f32 = 0.2;
 /// Context menu border opacity.
 pub const CONTEXT_MENU_BORDER_OPACITY: f32 = 0.15;
 
+// ── Link chip ──────────────────────────────────────────────────────
+
+/// Icon size inside the link chip.
+pub const LINK_CHIP_ICON_SIZE: f32 = 14.0;
+/// Text size inside the link chip.
+pub const LINK_CHIP_TEXT_SIZE: f32 = 13.0;
+/// Gap between icon and text in the link chip.
+pub const LINK_CHIP_ICON_GAP: f32 = 6.0;
+/// Inner padding of the link chip button.
+pub const LINK_CHIP_PAD: f32 = 4.0;
+/// Border radius for the link chip button.
+pub const LINK_CHIP_BORDER_RADIUS: f32 = 4.0;
+/// Background opacity for the link chip in its default state.
+pub const LINK_CHIP_BG_OPACITY: f32 = 0.06;
+
 // ── Theme constructor ────────────────────────────────────────────────
 
 impl crate::app::AppState {
@@ -702,5 +717,23 @@ pub fn context_menu_button(theme: &Theme, status: button::Status) -> button::Sty
             snap: false,
             ..Default::default()
         },
+    }
+}
+
+/// Button style for the link chip in block point rendering.
+pub fn link_chip_button(theme: &Theme, status: button::Status) -> button::Style {
+    let p = focused_palette(theme);
+    let bg_alpha = match status {
+        | button::Status::Active => LINK_CHIP_BG_OPACITY,
+        | button::Status::Hovered => LINK_CHIP_BG_OPACITY * 2.0,
+        | button::Status::Pressed => LINK_CHIP_BG_OPACITY * 3.0,
+        | button::Status::Disabled => LINK_CHIP_BG_OPACITY * 0.5,
+    };
+    button::Style {
+        background: Some(Color { a: bg_alpha, ..p.accent }.into()),
+        text_color: p.accent,
+        border: border::rounded(LINK_CHIP_BORDER_RADIUS).width(0),
+        snap: false,
+        ..Default::default()
     }
 }

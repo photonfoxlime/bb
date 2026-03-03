@@ -101,11 +101,7 @@ pub fn handle(state: &mut AppState, message: AtomizeMessage) -> Task<Message> {
                     )
                 },
                 move |result| {
-                    Message::Atomize(AtomizeMessage::Done {
-                        block_id,
-                        request_signature,
-                        result,
-                    })
+                    Message::Atomize(AtomizeMessage::Done { block_id, request_signature, result })
                 },
             );
             let (request_task, handle) = Task::abortable(request_task);
@@ -183,16 +179,13 @@ pub fn handle(state: &mut AppState, message: AtomizeMessage) -> Task<Message> {
         }
         | AtomizeMessage::AcceptChild { block_id, child_index } => {
             state.mutate_with_undo_and_persist("after atomize accept child", |state| {
-                let point_opt = state
-                    .store
-                    .atomization_draft_mut(&block_id)
-                    .and_then(|draft| {
-                        if child_index < draft.points.len() {
-                            Some(draft.points.remove(child_index))
-                        } else {
-                            None
-                        }
-                    });
+                let point_opt = state.store.atomization_draft_mut(&block_id).and_then(|draft| {
+                    if child_index < draft.points.len() {
+                        Some(draft.points.remove(child_index))
+                    } else {
+                        None
+                    }
+                });
                 if let Some(point) = point_opt {
                     if let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
                         state.editor_buffers.set_text(&child_id, &point);
