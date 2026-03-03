@@ -11,8 +11,8 @@
 //!
 //! 1. **Provider management** — add, edit, delete LLM providers. Each provider
 //!    stores only a URL and API key. Preset providers have a fixed URL.
-//! 2. **Per-task LLM settings** — each task kind (reduce, expand, inquire)
-//!    independently selects a provider, model, and token limit.
+//! 2. **Per-task LLM settings** — each [`TaskKind`] selects provider, model,
+//!    and prompts independently.
 //! 3. **System settings** — locale, appearance mode, Enter key behavior.
 //! 4. **Data paths** — read-only display of resolved data/config file paths.
 //!
@@ -43,7 +43,7 @@ use crate::component::icon_button::IconButton;
 use std::collections::BTreeSet;
 use crate::component::text_button::TextButton;
 use crate::i18n;
-use crate::llm;
+use crate::llm::{self, TaskKind};
 use crate::paths::AppPaths;
 use crate::theme;
 use iced::alignment::Horizontal;
@@ -100,7 +100,7 @@ pub struct SettingsState {
 
 /// Per-task draft values for the settings UI.
 ///
-/// Each task kind has its own draft provider selection, model text input,
+/// Each [`TaskKind`] has its own draft provider selection, model text input,
 /// and token limit text input, mirroring the persisted [`TaskConfig`].
 #[derive(Debug, Clone)]
 pub struct TaskDrafts {
@@ -151,7 +151,7 @@ impl TaskDrafts {
         }
     }
 
-    /// Get a mutable reference to the draft for a specific task kind.
+    /// Get a mutable reference to the draft for a specific [`TaskKind`].
     pub fn get_mut(&mut self, kind: &TaskKind) -> &mut TaskDraft {
         match kind {
             | TaskKind::Reduce => &mut self.reduce,
@@ -276,20 +276,6 @@ impl std::fmt::Display for FirstLineEnterBehavior {
     }
 }
 
-/// Identifies one of the three LLM task categories for per-task-kind settings.
-///
-/// Used as a discriminant in [`SettingsMessage`] variants that target a
-/// specific token-limit field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum TaskKind {
-    /// Condensation / summary requests.
-    Reduce,
-    /// Expansion / child-suggestion requests.
-    Expand,
-    /// Free-form instruction / inquiry requests.
-    Inquire,
-}
-
 /// Messages produced by the settings view.
 #[derive(Debug, Clone)]
 pub enum SettingsMessage {
@@ -321,21 +307,21 @@ pub enum SettingsMessage {
     SetLocale(Option<String>),
     /// Copy a resolved settings path to the system clipboard.
     CopyPath(String),
-    /// Change the provider selection for a specific task kind.
+    /// Change the provider selection for a specific [`TaskKind`].
     ///
     /// Immediately persisted to `app.toml`.
     TaskProviderChanged(TaskKind, String),
-    /// Change the model text for a specific task kind.
+    /// Change the model text for a specific [`TaskKind`].
     ///
     /// Immediately persisted to `app.toml`.
     TaskModelChanged(TaskKind, String),
-    /// Update the max-tokens text input for a specific task kind.
+    /// Update the max-tokens text input for a specific [`TaskKind`].
     MaxTokensChanged(TaskKind, String),
-    /// Toggle the "unlimited" checkbox for a specific task kind.
+    /// Toggle the "unlimited" checkbox for a specific [`TaskKind`].
     ToggleMaxTokensUnlimited(TaskKind, bool),
-    /// Change the custom system prompt for a specific task kind.
+    /// Change the custom system prompt for a specific [`TaskKind`].
     TaskSystemPromptChanged(TaskKind, String),
-    /// Change the custom user prompt for a specific task kind.
+    /// Change the custom user prompt for a specific [`TaskKind`].
     TaskUserPromptChanged(TaskKind, String),
     /// Toggle expansion of the system-prompt default hint for a task.
     ToggleSystemPromptHintExpanded(TaskKind),
@@ -1224,7 +1210,7 @@ fn section(
 /// A complete per-task configuration section: provider picker, model input, and token limit.
 ///
 /// Each section lets the user independently select a provider, model,
-/// and token limit for one task kind (reduce, expand, inquire).
+/// and token limit for one [`TaskKind`].
 fn task_settings_section(
     title: String,
     kind: TaskKind,
@@ -1325,12 +1311,7 @@ fn task_settings_section(
         .size(theme::INPUT_TEXT_SIZE)
         .padding(theme::PANEL_PAD_V);
 
-    let task_hint = match kind {
-        TaskKind::Reduce => llm::TaskKindHint::Reduce,
-        TaskKind::Expand => llm::TaskKindHint::Expand,
-        TaskKind::Inquire => llm::TaskKindHint::Inquire,
-    };
-    let system_default_hint = llm::default_system_prompt_hint(task_hint);
+    let system_default_hint = llm::default_system_prompt_hint(kind);
     let system_hint_toggle = foldable_hint_row(
         "Default",
         &system_default_hint,
@@ -1354,7 +1335,7 @@ fn task_settings_section(
         .size(theme::INPUT_TEXT_SIZE)
         .padding(theme::PANEL_PAD_V);
 
-    let user_default_hint = llm::default_user_prompt_hint(task_hint);
+    let user_default_hint = llm::default_user_prompt_hint(kind);
     let user_hint_toggle = foldable_hint_row(
         "Default",
         user_default_hint,

@@ -75,6 +75,20 @@ impl fmt::Display for ApiStyle {
     }
 }
 
+/// Identifies one of the three LLM task categories.
+///
+/// Used for per-task settings (provider, model, prompts), prompt construction,
+/// and UI discriminants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum TaskKind {
+    /// Condensation / summary requests.
+    Reduce,
+    /// Expansion / child-suggestion requests.
+    Expand,
+    /// Free-form instruction / inquiry requests.
+    Inquire,
+}
+
 /// Validated LLM endpoint configuration.
 ///
 /// Invariants (enforced by [`LlmConfig::from_raw`]):

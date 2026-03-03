@@ -13,7 +13,7 @@
 //!
 //! # Per-task LLM settings
 //!
-//! Each LLM task kind (reduce, expand, inquire) independently selects:
+//! Each LLM [`TaskKind`](crate::llm::TaskKind) independently selects:
 //! - **Provider** — name of a preset or custom provider.
 //! - **Model** — model identifier sent to the API.
 //! - **Token limit** — max completion tokens (0 = unlimited).
@@ -177,10 +177,12 @@ impl fmt::Display for MaxTokens {
     }
 }
 
-/// Per-task-kind LLM settings persisted in `app.toml`.
+/// Per-[`TaskKind`] LLM settings persisted in `app.toml`.
 ///
 /// Each task independently selects a provider, model, and token limit.
 /// Uses `[tasks.reduce]`, `[tasks.expand]`, `[tasks.inquire]` TOML tables.
+///
+/// [`TaskKind`]: crate::llm::TaskKind
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskSettings {
     /// Settings for the reduce task.
@@ -204,10 +206,12 @@ impl Default for TaskSettings {
     }
 }
 
-/// Configuration for a single LLM task (reduce, expand, or inquire).
+/// Configuration for a single LLM [`TaskKind`].
 ///
 /// Selects which provider to use, which model to request, the
 /// maximum number of completion tokens, and optional custom prompts.
+///
+/// [`TaskKind`]: crate::llm::TaskKind
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskConfig {
     /// Name of the provider (preset or custom) to use for this task.

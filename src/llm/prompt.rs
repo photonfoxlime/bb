@@ -4,9 +4,10 @@
 //! lineage (Parent/Target), existing children, and friend blocks. Custom
 //! prompts support partial override; the full context block is always appended.
 //!
-//! Construction is unified via [`PromptTask`]; task-specific defaults apply
+//! Construction is unified via [`TaskKind`]; task-specific defaults apply
 //! per variant.
 
+use crate::llm::config::TaskKind;
 use crate::llm::context::BlockContext;
 use crate::llm::context::{ContextFormatter, ContextPresence};
 #[cfg(test)]
@@ -18,50 +19,25 @@ pub struct Prompt {
     pub(crate) user: String,
 }
 
-/// LLM task kind; each variant supplies its own default prompt templates.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PromptTask {
-    Reduce,
-    Expand,
-    Inquire,
-}
-
-/// Task kind for fetching default prompt hints (e.g. in the settings UI).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TaskKindHint {
-    Reduce,
-    Expand,
-    Inquire,
-}
-
 /// Default system prompt for the given task, with simplest context (no children, no friends).
 /// Used as a foldable hint in the settings UI.
-pub fn default_system_prompt_hint(task: TaskKindHint) -> String {
+pub fn default_system_prompt_hint(task: TaskKind) -> String {
     let presence = ContextPresence { has_children: false, has_friends: false };
-    let pt = match task {
-        TaskKindHint::Reduce => PromptTask::Reduce,
-        TaskKindHint::Expand => PromptTask::Expand,
-        TaskKindHint::Inquire => PromptTask::Inquire,
-    };
-    pt.default_system(presence)
+    task.default_system(presence)
 }
 
 /// Default user prompt intro for the given task.
-pub fn default_user_prompt_hint(task: TaskKindHint) -> &'static str {
-    match task {
-        TaskKindHint::Reduce => PromptTask::Reduce.default_user_intro(),
-        TaskKindHint::Expand => PromptTask::Expand.default_user_intro(),
-        TaskKindHint::Inquire => PromptTask::Inquire.default_user_intro(),
-    }
+pub fn default_user_prompt_hint(task: TaskKind) -> &'static str {
+    task.default_user_intro()
 }
 
-/// Per-task prompt configuration: task kind plus its optional custom prompts.
+/// Per-task prompt configuration: [`TaskKind`] plus its optional custom prompts.
 ///
-/// Each task (reduce, expand, inquire) has its own `system_prompt` and
-/// `user_prompt` in config; this struct bundles them for prompt construction.
+/// Each task has its own `system_prompt` and `user_prompt` in config;
+/// this struct bundles them for prompt construction.
 #[derive(Clone, Debug)]
 pub struct TaskPromptConfig {
-    pub task: PromptTask,
+    pub task: TaskKind,
     pub custom_system_prompt: Option<String>,
     pub custom_user_prompt: Option<String>,
 }
@@ -74,7 +50,7 @@ impl TaskPromptConfig {
     /// Config for reduce task with its custom prompts.
     pub fn reduce(system_prompt: &str, user_prompt: &str) -> Self {
         Self {
-            task: PromptTask::Reduce,
+            task: TaskKind::Reduce,
             custom_system_prompt: Self::optional(system_prompt),
             custom_user_prompt: Self::optional(user_prompt),
         }
@@ -83,7 +59,7 @@ impl TaskPromptConfig {
     /// Config for expand task with its custom prompts.
     pub fn expand(system_prompt: &str, user_prompt: &str) -> Self {
         Self {
-            task: PromptTask::Expand,
+            task: TaskKind::Expand,
             custom_system_prompt: Self::optional(system_prompt),
             custom_user_prompt: Self::optional(user_prompt),
         }
@@ -92,14 +68,14 @@ impl TaskPromptConfig {
     /// Config for inquire task with its custom prompts.
     pub fn inquire(system_prompt: &str, user_prompt: &str) -> Self {
         Self {
-            task: PromptTask::Inquire,
+            task: TaskKind::Inquire,
             custom_system_prompt: Self::optional(system_prompt),
             custom_user_prompt: Self::optional(user_prompt),
         }
     }
 }
 
-impl PromptTask {
+impl TaskKind {
     fn context_qualifier(presence: ContextPresence) -> &'static str {
         match (presence.has_children, presence.has_friends) {
             | (true, _) => ", existing children, and optional friend blocks as context",
@@ -120,7 +96,7 @@ impl PromptTask {
         }
     }
 
-    fn default_system(self, presence: ContextPresence) -> String {
+    pub(crate) fn default_system(self, presence: ContextPresence) -> String {
         match self {
             Self::Reduce => {
                 let context_qualifier = Self::context_qualifier(presence);
@@ -160,7 +136,7 @@ impl PromptTask {
         }
     }
 
-    fn default_user_intro(self) -> &'static str {
+    pub(crate) fn default_user_intro(self) -> &'static str {
         match self {
             | Self::Reduce => "Reduce the target point with context:",
             | Self::Expand => "Expand the target point with context:",
@@ -185,10 +161,10 @@ impl Prompt {
         let custom_system = config.custom_system_prompt.as_deref();
         let custom_user = config.custom_user_prompt.as_deref();
 
-        let user = if let Some(custom) = custom_user {
+            let user = if let Some(custom) = custom_user {
             let context_block = fmt.format_context_block();
             match task {
-                | PromptTask::Inquire => {
+                | TaskKind::Inquire => {
                     let instruction = instruction.expect("inquire requires instruction");
                     format!("{custom}\n\n{context_block}\n\nInstruction: {instruction}")
                 }
@@ -196,7 +172,7 @@ impl Prompt {
             }
         } else {
             match task {
-                | PromptTask::Inquire => {
+                | TaskKind::Inquire => {
                     let instruction = instruction.expect("inquire requires instruction");
                     format!(
                         "{}\n\nInstruction: {instruction}\n\nProvide a response that addresses the instruction.",
@@ -211,7 +187,7 @@ impl Prompt {
         let system =
             custom_system.map(String::from).unwrap_or_else(|| task.default_system(presence));
         let system = match task {
-            | PromptTask::Inquire => system,
+            | TaskKind::Inquire => system,
             | _ => format!("{instruction_prefix}{system}"),
         };
 

@@ -18,9 +18,9 @@ pub mod prompt;
 pub use client::{InquireStreamEvent, LlmClient};
 pub use config::{
     ApiStyle, CustomProvider, DEFAULT_PROVIDER, LlmConfig, LlmProviders, PresetConfig,
-    PresetProvider,
+    PresetProvider, TaskKind,
 };
-pub use prompt::{default_system_prompt_hint, default_user_prompt_hint, TaskKindHint, TaskPromptConfig};
+pub use prompt::{default_system_prompt_hint, default_user_prompt_hint, TaskPromptConfig};
 pub use context::{
     BlockContext, ChildrenContext, ContextFormatter, ExpandResult, ExpandSuggestion, FriendContext,
     LineageContext, ReduceResult,
