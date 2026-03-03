@@ -11,7 +11,7 @@ pub enum DraftCommands {
     /// Expansion drafts store LLM-generated rewrite suggestions and proposed
     /// children. Used by the expand operation to present suggestions to the user.
     /// Provide `--rewrite` and/or one or more `--children` values.
-    /// Example: `blooming-blockery block draft expand 1v1 --rewrite "Refined version" --children "Proposed child 1" "Proposed child 2"`.
+    /// Example: `bb block draft expand 1v1 --rewrite "Refined version" --children "Proposed child 1" "Proposed child 2"`.
     Expand(ExpandDraftCommand),
 
     /// Set or update a reduction draft.
@@ -20,34 +20,34 @@ pub enum DraftCommands {
     /// with references to children whose info is now captured in the reduction.
     /// Use `--reduction` for the condensed text and optionally add
     /// `--redundant-children` IDs.
-    /// Example: `blooming-blockery block draft reduce 1v1 --reduction "All the things"`.
+    /// Example: `bb block draft reduce 1v1 --reduction "All the things"`.
     Reduce(ReduceDraftCommand),
 
     /// Set or update an instruction draft.
     ///
     /// Instruction drafts store user-authored LLM instructions for a block.
     /// These persist across sessions and are included in LLM context.
-    /// Example: `blooming-blockery block draft instruction 1v1 --text "Make this more concise"`.
+    /// Example: `bb block draft instruction 1v1 --text "Make this more concise"`.
     Instruction(InstructionDraftCommand),
 
     /// Set or update an inquiry draft.
     ///
     /// Inquiry drafts store the most recent LLM response to an "ask about this"
     /// query. The user can then apply or dismiss the response.
-    /// Example: `blooming-blockery block draft inquiry 1v1 --response "The key insight is..."`.
+    /// Example: `bb block draft inquiry 1v1 --response "The key insight is..."`.
     Inquiry(InquiryDraftCommand),
 
     /// List all drafts for a block.
     ///
     /// Shows expansion, reduction, instruction, and inquiry drafts if present.
-    /// Example: `blooming-blockery block draft list 1v1 --output json`.
+    /// Example: `bb block draft list 1v1 --output json`.
     List(ListDraftCommand),
 
     /// Clear drafts for a block.
     ///
     /// Use specific flags to clear selected draft kinds, or rely on `--all`
     /// (the default) to clear everything.
-    /// Example: `blooming-blockery block draft clear 1v1 --expand`.
+    /// Example: `bb block draft clear 1v1 --expand`.
     Clear(ClearDraftCommand),
 }
 

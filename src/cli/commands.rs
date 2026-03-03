@@ -5,7 +5,7 @@
 //!
 //! # Architecture
 //!
-//! The CLI (`bb`) is organized into a hierarchical command structure:
+//! Basic Block (`bb`) is organized into a hierarchical command structure:
 //!
 //! ```text
 //! BbCli
@@ -66,14 +66,18 @@ pub use super::point::EditPointCommand;
 pub use super::query::{FindCommand, RootCommand, ShowCommand};
 pub use super::tree::TreeCommands;
 
-/// CLI for the `bb` binary (CLI-only, no GUI).
+/// Basic Block: CLI for block store manipulation.
 ///
-/// Subcommand is required; use `blooming-blockery` for the graphical interface.
+/// Subcommand is required. Use `blooming-blockery` for Blooming Blockery (GUI).
 #[derive(Debug, Parser)]
-#[command(name = "bb", about, long_about)]
-pub struct BbCli {
+#[command(
+    name = "bb",
+    about = "Basic Block",
+    long_about = "Basic Block: CLI for block store manipulation. Use `blooming-blockery` for Blooming Blockery (GUI)."
+)]
+pub struct Cli {
     #[command(subcommand)]
-    pub command: BbCommands,
+    pub command: Commands,
 
     /// Path to the block store file.
     #[arg(long, global = true, value_name = "PATH")]
@@ -86,9 +90,9 @@ pub struct BbCli {
     pub output: OutputFormat,
 }
 
-/// Commands available in the `bb` CLI binary (no GUI variant).
+/// Commands available in Basic Block (no GUI variant).
 #[derive(Debug, Parser)]
-pub enum BbCommands {
+pub enum Commands {
     GenerateCompletion {
         #[arg(value_name = "SHELL")]
         shell: clap_complete::Shell,

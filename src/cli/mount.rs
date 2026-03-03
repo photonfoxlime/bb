@@ -11,7 +11,7 @@ pub enum MountCommands {
     /// Converts a leaf block into a mount point referencing an external file.
     /// The block must have no children.
     /// Fails if the block is missing or already has children.
-    /// Example: `blooming-blockery block mount set 1v1 /notes/notes.md --format markdown`.
+    /// Example: `bb block mount set 1v1 /notes/notes.md --format markdown`.
     Set(SetMountCommand),
 
     /// Expand a mount point.
@@ -20,14 +20,14 @@ pub enum MountCommands {
     /// replaces the mount node with inline children.
     /// Returns the root IDs of the loaded subtree.
     /// Fails if the block is missing, is not a mount, or the file cannot be read.
-    /// Example: `blooming-blockery block mount expand 1v1`.
+    /// Example: `bb block mount expand 1v1`.
     Expand(ExpandMountCommand),
 
     /// Collapse an expanded mount.
     ///
     /// Removes the loaded blocks, restores the mount node with its original path.
     /// Fails if the block is missing or is not an expanded mount.
-    /// Example: `blooming-blockery block mount collapse 1v1`.
+    /// Example: `bb block mount collapse 1v1`.
     Collapse(CollapseMountCommand),
 
     /// Move a mount file and update mount metadata.
@@ -35,21 +35,21 @@ pub enum MountCommands {
     /// Works for both expanded and unexpanded mounts. Expanded mounts write
     /// current mounted content to the new path, while unexpanded mounts move
     /// the existing backing file.
-    /// Example: `blooming-blockery block mount move 1v1 /data/moved.md`.
+    /// Example: `bb block mount move 1v1 /data/moved.md`.
     Move(MoveMountCommand),
 
     /// Inline a single mount into the current store.
     ///
     /// If the mount is not expanded yet, this expands it first and then removes
     /// runtime mount tracking while keeping the loaded children as normal blocks.
-    /// Example: `blooming-blockery block mount inline 1v1`.
+    /// Example: `bb block mount inline 1v1`.
     Inline(InlineMountCommand),
 
     /// Inline all mounts recursively under a mount point.
     ///
     /// Traverses the subtree and inlines every reachable mount.
     /// Returns the number of inlined mount points.
-    /// Example: `blooming-blockery block mount inline-recursive 1v1`.
+    /// Example: `bb block mount inline-recursive 1v1`.
     InlineRecursive(InlineRecursiveMountCommand),
 
     /// Extract a subtree to an external file.
@@ -58,18 +58,18 @@ pub enum MountCommands {
     /// the block with a mount node pointing to that file.
     /// Fails if the block is missing, has no children, or the output file cannot
     /// be written.
-    /// Example: `blooming-blockery block mount extract 1v1 --output notes.md --format markdown`.
+    /// Example: `bb block mount extract 1v1 --output notes.md --format markdown`.
     Extract(ExtractMountCommand),
 
     /// Show mount information for a block.
-    /// Example: `blooming-blockery block mount info 1v1`.
+    /// Example: `bb block mount info 1v1`.
     Info(InfoMountCommand),
 
     /// Save all expanded mounts back to their source files.
     ///
     /// This writes each expanded mount subtree to its tracked file path and
     /// format. Useful after editing mounted content through CLI commands.
-    /// Example: `blooming-blockery block mount save`.
+    /// Example: `bb block mount save`.
     Save(SaveMountsCommand),
 }
 

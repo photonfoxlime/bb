@@ -26,14 +26,14 @@ pub struct FindCommand {
     /// Matching uses `BlockStore::find_block_point` with case-insensitive
     /// substring matching and mixed-language phrase-token matching.
     /// Empty query matches all blocks in deterministic DFS order.
-    /// Example: `blooming-blockery block find "TODO"`.
+    /// Example: `bb block find "TODO"`.
     #[arg(value_name = "QUERY")]
     pub query: String,
 
     /// Maximum number of results to return.
     ///
     /// Defaults to 100.
-    /// Example: `blooming-blockery block find "design" --limit 5`.
+    /// Example: `bb block find "design" --limit 5`.
     #[arg(long, short, value_name = "N", default_value = "100")]
     pub limit: usize,
 }

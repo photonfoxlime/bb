@@ -1,6 +1,6 @@
-//! CLI binary `bb` for block store manipulation.
+//! Basic Block: CLI binary `bb` for block store manipulation.
 //!
-//! For the graphical interface, use the `blooming-blockery` binary.
+//! For Blooming Blockery (GUI), use the `blooming-blockery` binary.
 
 use blooming_blockery::BloomingBlockery;
 

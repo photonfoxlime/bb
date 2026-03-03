@@ -1,7 +1,7 @@
 //! Shared application directory paths.
 //!
 //! Uses the `directories` crate to resolve platform-appropriate data and config
-//! directories for the `bb` application.
+//! directories for Basic Block and Blooming Blockery.
 
 use std::{path::PathBuf, sync::LazyLock};
 

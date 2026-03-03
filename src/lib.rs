@@ -14,7 +14,7 @@ mod undo;
 
 use self::{
     app::AppState,
-    cli::{BbCli, BbCommands, CliResult, print_result},
+    cli::{Cli, Commands, CliResult, print_result},
     paths::AppPaths,
     store::BlockStore,
 };
@@ -24,22 +24,22 @@ use std::path::PathBuf;
 pub struct BloomingBlockery;
 
 impl BloomingBlockery {
-    /// Runs the CLI-only entry point (used by the `bb` binary).
+    /// Runs the Basic Block CLI entry point (used by the `bb` binary).
     pub fn run_cli(binary_name: &str) -> anyhow::Result<()> {
         #[cfg(feature = "log")]
         Self::init_tracing()?;
 
-        let cli = BbCli::parse();
+        let cli = Cli::parse();
         match cli.command {
-            BbCommands::GenerateCompletion { shell } => {
+            Commands::GenerateCompletion { shell } => {
                 clap_complete::generate(
                     shell,
-                    &mut BbCli::command(),
+                    &mut Cli::command(),
                     binary_name,
                     &mut std::io::stdout(),
                 );
             }
-            BbCommands::Block(block_commands) => {
+            Commands::Block(block_commands) => {
                 let store_path = cli
                     .store
                     .clone()
@@ -65,7 +65,7 @@ impl BloomingBlockery {
         Ok(())
     }
 
-    /// Runs the GUI entry point (used by the `blooming-blockery` binary).
+    /// Runs the Blooming Blockery GUI entry point (used by the `blooming-blockery` binary).
     pub fn run_gui() -> anyhow::Result<()> {
         #[cfg(feature = "log")]
         Self::init_tracing()?;

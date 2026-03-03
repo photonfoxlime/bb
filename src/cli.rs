@@ -46,7 +46,7 @@ pub mod query;
 pub mod results;
 pub mod tree;
 
-pub use commands::{BbCli, BbCommands, BlockCommands};
+pub use commands::{Cli, Commands, BlockCommands};
 pub use output::print_result;
 pub use results::CliResult;
 

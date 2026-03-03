@@ -9,15 +9,15 @@ pub enum PanelCommands {
     /// Set the block panel state for a block.
     ///
     /// Persists which panel (Friends or Instruction) is open for a block.
-    /// Example: `blooming-blockery block panel set 1v1 friends`.
+    /// Example: `bb block panel set 1v1 friends`.
     Set(SetPanelCommand),
 
     /// Get the block panel state for a block.
-    /// Example: `blooming-blockery block panel get 1v1`.
+    /// Example: `bb block panel get 1v1`.
     Get(GetPanelCommand),
 
     /// Clear the block panel state.
-    /// Example: `blooming-blockery block panel clear 1v1`.
+    /// Example: `bb block panel clear 1v1`.
     Clear(ClearPanelCommand),
 }
 

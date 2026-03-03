@@ -4,9 +4,10 @@ version = "0.0.10"
 edition = "2024"
 repository = "https://github.com/photonfoxlime/bb"
 homepage = "https://github.com/photonfoxlime/bb"
-license = "MIT"
+license = "Apache-2.0"
 authors = ["LitiaEeloo <litiaeeloo@gmail.com>"]
 description = "A structured document editor for designers and developers."
+default-run = "blooming-blockery"
 
 [package.metadata.wix]
 upgrade-guid = "94C63B44-F187-4646-978A-26AF57C4D6C9"

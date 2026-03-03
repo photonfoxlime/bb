@@ -1,11 +1,11 @@
 ---
 name: blooming-blockery-cli
-description: Documents the bb CLI contract and teaches context-first tree authoring for design specifications and documentation.
+description: Documents the Basic Block (bb) CLI contract and teaches context-first tree authoring for design specifications and documentation.
 ---
 
 # blooming-blockery-cli
 
-Use this skill when operating the `bb` CLI and when shaping
+Use this skill when operating Basic Block (`bb`) and when shaping
 content into tree structure for better LLM context quality.
 
 Primary goal: treat Blooming Blockery as a tree-structure based design
@@ -33,7 +33,7 @@ possible.
 
 ## When to use
 
-- The user asks how to use `bb` from terminal scripts.
+- The user asks how to use Basic Block (`bb`) from terminal scripts.
 - The user needs to restructure mixed or overloaded notes into a cleaner tree.
 - The user needs LLM-ready context around a specific block.
 - The user hits CLI parsing errors with block IDs, mount formats, or panel states.
@@ -88,7 +88,7 @@ the core tree semantics.
 
 ## CLI Invocation Convention
 
-The CLI binary is `bb`; the GUI binary is `blooming-blockery`. All examples
+Basic Block is the CLI (`bb`); Blooming Blockery is the GUI (`blooming-blockery`). All examples
 below use the full form:
 
 ```bash
@@ -376,6 +376,6 @@ When helping users author specs/docs, prefer these decisions:
      (`existing/dir` or a path without extension), and each target will use
      `<BLOCK_ID>.<ext>` under that directory.
 5. Panel states are `friends` or `instruction`
-6. The GUI is `blooming-blockery`; `bb` requires a subcommand
+6. Blooming Blockery is the GUI (`blooming-blockery`); Basic Block (`bb`) requires a subcommand
 7. If users report low-quality LLM responses, first fix tree placement and
    friend/telescope scope before rewriting prompts
