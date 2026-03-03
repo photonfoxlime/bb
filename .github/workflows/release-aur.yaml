@@ -121,7 +121,7 @@ jobs:
           sed -i -E "s|^source=\(.*\)|source=(\"${URL}\")|" PKGBUILD
           sed -i -E "s/^sha256sums=\(.*/sha256sums=('${SHA}')/" PKGBUILD
 
-      - name: Regenerate .SRCINFO (Arch container)
+      - name: Regenerate .SRCINFO (Arch container, non-root)
         uses: addnab/docker-run-action@v3
         with:
           image: archlinux:latest
@@ -129,9 +129,14 @@ jobs:
             -v ${{ github.workspace }}/aur:/pkg
           run: |
             set -euo pipefail
-            pacman -Sy --noconfirm --needed base-devel
-            cd /pkg
-            makepkg --printsrcinfo > .SRCINFO
+            pacman -Sy --noconfirm --needed base-devel git
+
+            # Create a non-root user for makepkg
+            useradd -m builder
+            chown -R builder:builder /pkg
+
+            # Run makepkg as non-root
+            su - builder -c 'cd /pkg && makepkg --printsrcinfo > .SRCINFO'
 
       - name: Commit & push to AUR (PKGBUILD + .SRCINFO)
         shell: bash

@@ -1,8 +1,9 @@
 name: Winget Update
 
 on:
-  release:
-    types: [published]
+  workflow_run:
+    workflows: ["Release"] # must match your cargo-dist workflow name exactly
+    types: [completed]
 
 permissions:
   contents: read
