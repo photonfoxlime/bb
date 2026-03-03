@@ -121,14 +121,14 @@ impl TaskKind {
                 };
                 let friends_explanation = self.friends_explanation(presence);
                 format!(
-                    "You reduce a bullet point using its ancestors{context_qualifier}. Return strict JSON only: {json_schema}. The reduction must be a single concise sentence{reduction_qualifier}.{children_explanation}{friends_explanation} No markdown, no extra keys."
+                    "You reduce a bullet point using its ancestors{context_qualifier}. Return strict JSON only: {json_schema}. The reduction must be a single concise sentence{reduction_qualifier}.{children_explanation}{friends_explanation} Match the language of the context and any user instructions. No markdown, no extra keys."
                 )
             }
             Self::Atomize => {
                 let context_qualifier = Self::context_qualifier(presence);
                 let friends_explanation = self.friends_explanation(presence);
                 format!(
-                    "You atomize one target bullet point using its ancestors{context_qualifier}. Break the text into a list of distinct information points without dropping details. Return strict JSON only: {{\"rewrite\": string|null, \"points\": string[]}}. rewrite: optional concise restatement of the original suitable as the parent heading (one sentence); omit if the original needs no change. points: the decomposed facts/ideas, each a single self-contained item. Preserve all semantic content; do not summarize or condense.{friends_explanation} No markdown, no extra keys."
+                    "You atomize one target bullet point using its ancestors{context_qualifier}. Break the text into a list of distinct information points without dropping details. Return strict JSON only: {{\"rewrite\": string|null, \"points\": string[]}}. rewrite: optional concise restatement of the original suitable as the parent heading (one sentence); omit if the original needs no change. points: the decomposed facts/ideas, each a single self-contained item. Preserve all semantic content; do not summarize or condense.{friends_explanation} Match the language of the context and any user instructions. No markdown, no extra keys."
                 )
             }
             Self::Expand => {
@@ -145,10 +145,13 @@ impl TaskKind {
                 };
                 let friends_explanation = self.friends_explanation(presence);
                 format!(
-                    "You expand one target bullet point using its ancestors{context_qualifier}. Return strict JSON only with this shape: {{\"rewrite\": string|null, \"children\": string[]}}. Keep rewrite to one concise sentence.{children_qualifier} Children must be mutually non-overlapping, each focused on a distinct subtopic, and should not restate the rewrite{children_constraint}.{friends_explanation} No markdown, no extra keys."
+                    "You expand one target bullet point using its ancestors{context_qualifier}. Return strict JSON only with this shape: {{\"rewrite\": string|null, \"children\": string[]}}. Keep rewrite to one concise sentence.{children_qualifier} Children must be mutually non-overlapping, each focused on a distinct subtopic, and should not restate the rewrite{children_constraint}.{friends_explanation} Match the language of the context and any user instructions. No markdown, no extra keys."
                 )
             }
-            Self::Inquire => "You are a helpful writing assistant. Respond to the user's instruction based on the provided context.".to_string(),
+            Self::Inquire => {
+                "You are a helpful writing assistant. Respond to the user's instruction based on the provided context. Match the language of the context and the user's instruction."
+                    .to_string()
+            }
         }
     }
 
