@@ -2,14 +2,14 @@ name: Release to AUR
 
 on:
   workflow_run:
-    workflows: ["Release"]
+    workflows: ["Release"] # must match your cargo-dist workflow name exactly
     types: [completed]
 
 permissions:
   contents: read
 
 concurrency:
-  group: aur-${{ github.repository }}
+  group: aur-release
   cancel-in-progress: false
 
 jobs:
@@ -17,125 +17,134 @@ jobs:
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
 
-    container:
-      image: archlinux:latest
-
     env:
-      AUR_PKG: blooming-blockery-bin
-      LINUX_ASSET: blooming-blockery-x86_64-unknown-linux-gnu.tar.xz
+      REPO: photonfoxlime/bb
+      AUR_PKGNAME: blooming-blockery-bin
+      ASSET_NAME: blooming-blockery-x86_64-unknown-linux-gnu.tar.xz
 
     steps:
-      - name: Install deps (Arch)
+      - name: Checkout source repo (at the exact workflow_run commit)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REPO }}
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Determine tag that points to this commit
+        id: tag
+        shell: bash
         run: |
           set -euo pipefail
-          pacman -Sy --noconfirm archlinux-keyring ca-certificates
-          pacman -Syu --noconfirm
-          pacman -S --noconfirm --needed base-devel git openssh jq github-cli
+          git fetch --tags --force
 
-      - name: Determine release tag for this workflow_run
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.event.workflow_run.head_sha }}
-        run: |
-          set -euo pipefail
-          TAG="$(gh api "repos/${REPO}/releases?per_page=50" --jq \
-            "[.[] | select(.target_commitish == \"${SHA}\")][0].tag_name")"
-
-          if [ "${TAG}" = "null" ] || [ -z "${TAG}" ]; then
-            echo "No release found with target_commitish == ${SHA}"
-            gh api "repos/${REPO}/releases?per_page=10" --jq '.[] | {tag_name, target_commitish, published_at}'
+          # Prefer an annotated/regular tag that points exactly at this commit.
+          TAG="$(git tag --points-at HEAD | head -n 1 || true)"
+          if [[ -z "${TAG}" ]]; then
+            echo "No git tag points at HEAD (${GITHUB_SHA})."
+            echo "Make sure cargo-dist creates a tag (e.g. vX.Y.Z) on the commit it builds."
             exit 1
           fi
 
-          echo "TAG=${TAG}" >> "$GITHUB_ENV"
-          echo "PKGVER=${TAG#v}" >> "$GITHUB_ENV"
-          echo "Detected release tag: ${TAG}"
+          # Expect tags like v0.0.5; strip leading v for pkgver
+          PKGVER="${TAG#v}"
 
-      - name: Download Linux asset + compute SHA256
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "pkgver=${PKGVER}" >> "$GITHUB_OUTPUT"
+
+      - name: Download release asset and compute sha256
+        id: sha
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          TAG="${{ steps.tag.outputs.tag }}"
+          PKGVER="${{ steps.tag.outputs.pkgver }}"
+          ASSET="${ASSET_NAME}"
+
+          URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
+          echo "Downloading: $URL"
+
+          curl -fL --retry 5 --retry-delay 2 -o "$ASSET" "$URL"
+          SHA="$(sha256sum "$ASSET" | awk '{print $1}')"
+
+          echo "url=${URL}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "pkgver=${PKGVER}" >> "$GITHUB_OUTPUT"
+
+      - name: Setup SSH for AUR
+        shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
+          AUR_SSH_PRIVATE_KEY: ${{ secrets.AUR_SSH_PRIVATE_KEY }}
         run: |
           set -euo pipefail
-          mkdir -p dist
-          gh release download "${TAG}" --repo "${REPO}" --pattern "${LINUX_ASSET}" --dir dist
-          test -f "dist/${LINUX_ASSET}"
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
 
-          SHA256="$(sha256sum "dist/${LINUX_ASSET}" | awk '{print $1}')"
-          echo "SHA256=${SHA256}" >> "$GITHUB_ENV"
+          printf '%s\n' "$AUR_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
 
-      - name: Prepare SSH for AUR push (no indentation pitfalls)
-        run: |
-          set -euo pipefail
+          ssh-keyscan -t rsa,ecdsa,ed25519 -H aur.archlinux.org >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
 
-          SSH_DIR="$HOME/.ssh"
-          KEY="$SSH_DIR/id_ed25519"
-          KNOWN="$SSH_DIR/known_hosts"
-          CFG="$SSH_DIR/config"
-
-          mkdir -p "$SSH_DIR"
-          chmod 700 "$SSH_DIR"
-
-          printf '%s\n' "${{ secrets.AUR_SSH_PRIVATE_KEY }}" > "$KEY"
-          chmod 600 "$KEY"
-
-          ssh-keyscan -t rsa,ecdsa,ed25519 -H aur.archlinux.org > "$KNOWN"
-          chmod 644 "$KNOWN"
-
-          # Write config with absolute paths (no ~ expansion issues)
-          cat > "$CFG" <<'EOF'
-Host aur.archlinux.org
-  HostName aur.archlinux.org
-  User aur
-  IdentityFile __KEY__
-  IdentitiesOnly yes
-  StrictHostKeyChecking yes
-  UserKnownHostsFile __KNOWN__
-EOF
-
-          # Substitute placeholders safely
-          sed -i "s|__KEY__|$KEY|g" "$CFG"
-          sed -i "s|__KNOWN__|$KNOWN|g" "$CFG"
-          chmod 600 "$CFG"
-
-          ssh-keygen -F aur.archlinux.org -f "$KNOWN" >/dev/null
+          cat > ~/.ssh/config <<'EOF'
+          Host aur.archlinux.org
+            User aur
+            HostName aur.archlinux.org
+            IdentityFile ~/.ssh/id_ed25519
+            IdentitiesOnly yes
+            StrictHostKeyChecking yes
+            UserKnownHostsFile ~/.ssh/known_hosts
+          EOF
+          chmod 600 ~/.ssh/config
 
       - name: Clone AUR repo
+        shell: bash
+        run: |
+          set -euo pipefail
+          PKG="${{ secrets.AUR_PKGNAME || env.AUR_PKGNAME }}"
+          git clone "ssh://aur@aur.archlinux.org/${PKG}.git" aur
+
+      - name: Update PKGBUILD (pkgver, pkgrel, source, sha256sums)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          PKGVER="${{ steps.sha.outputs.pkgver }}"
+          URL="${{ steps.sha.outputs.url }}"
+          SHA="${{ steps.sha.outputs.sha256 }}"
+
+          cd aur
+          test -f PKGBUILD
+
+          # Update pkgver + reset pkgrel=1
+          sed -i -E "s/^pkgver=.*/pkgver=${PKGVER}/" PKGBUILD
+          sed -i -E "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
+
+          # Update the source URL line (single-source PKGBUILD)
+          sed -i -E "s|^source=\(.*\)|source=(\"${URL}\")|" PKGBUILD
+
+          # Update sha256sums (single entry)
+          sed -i -E "s/^sha256sums=\(.*/sha256sums=('${SHA}')/" PKGBUILD
+
+          echo "---- Updated PKGBUILD ----"
+          sed -n '1,120p' PKGBUILD
+
+      - name: Commit & push to AUR
+        shell: bash
         env:
-          GIT_SSH_COMMAND: ssh -F "$HOME/.ssh/config"
+          GIT_AUTHOR_NAME: photonfoxlime-bot
+          GIT_AUTHOR_EMAIL: ${{ secrets.AUR_EMAIL }}
+          GIT_COMMITTER_NAME: photonfoxlime-bot
+          GIT_COMMITTER_EMAIL: ${{ secrets.AUR_EMAIL }}
         run: |
           set -euo pipefail
-          git clone "ssh://aur@aur.archlinux.org/${AUR_PKG}.git" aur
+          cd aur
 
-      - name: Update PKGBUILD + regenerate .SRCINFO (makepkg)
-        working-directory: aur
-        run: |
-          set -euo pipefail
-          sed -i -E \
-            -e "s/^pkgver=.*/pkgver=${PKGVER}/" \
-            -e "s/^pkgrel=.*/pkgrel=1/" \
-            -e "s/^sha256sums=.*/sha256sums=('${SHA256}')/" \
-            PKGBUILD
-
-          makepkg --printsrcinfo > .SRCINFO
-
-          grep -q "source = https://github.com/.*/releases/download/v${PKGVER}/${LINUX_ASSET}" .SRCINFO
-
-      - name: Commit and push to AUR
-        working-directory: aur
-        env:
-          GIT_SSH_COMMAND: ssh -F "$HOME/.ssh/config"
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions"
-          git config user.email "github-actions@users.noreply.github.com"
-
-          git add PKGBUILD .SRCINFO
-          if git diff --cached --quiet; then
-            echo "No changes to commit."
+          if git diff --quiet; then
+            echo "No changes to push."
             exit 0
           fi
 
-          git commit -m "Update to ${PKGVER}"
+          git add PKGBUILD
+          git commit -m "Update to ${{ steps.tag.outputs.tag }}"
           git push
