@@ -116,20 +116,24 @@ jobs:
           cd aur
           test -f PKGBUILD
 
-          # Update pkgver + reset pkgrel=1
           sed -i -E "s/^pkgver=.*/pkgver=${PKGVER}/" PKGBUILD
           sed -i -E "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
-
-          # Update the source URL line (single-source PKGBUILD)
           sed -i -E "s|^source=\(.*\)|source=(\"${URL}\")|" PKGBUILD
-
-          # Update sha256sums (single entry)
           sed -i -E "s/^sha256sums=\(.*/sha256sums=('${SHA}')/" PKGBUILD
 
-          echo "---- Updated PKGBUILD ----"
-          sed -n '1,120p' PKGBUILD
+      - name: Regenerate .SRCINFO (Arch container)
+        uses: addnab/docker-run-action@v3
+        with:
+          image: archlinux:latest
+          options: >-
+            -v ${{ github.workspace }}/aur:/pkg
+          run: |
+            set -euo pipefail
+            pacman -Sy --noconfirm --needed base-devel
+            cd /pkg
+            makepkg --printsrcinfo > .SRCINFO
 
-      - name: Commit & push to AUR
+      - name: Commit & push to AUR (PKGBUILD + .SRCINFO)
         shell: bash
         env:
           GIT_AUTHOR_NAME: photonfoxlime-bot
@@ -145,6 +149,6 @@ jobs:
             exit 0
           fi
 
-          git add PKGBUILD
+          git add PKGBUILD .SRCINFO
           git commit -m "Update to ${{ steps.tag.outputs.tag }}"
           git push
