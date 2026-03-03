@@ -32,10 +32,12 @@ pub fn handle_block_clicked(state: &mut AppState, block_id: BlockId) {
     }
 
     if modifiers.shift() {
-        let anchor = state
+        let anchor = state.ui().multiselect_anchor.or(state
             .ui()
-            .multiselect_anchor
-            .or(state.ui().multiselect_selected_blocks.iter().next().copied());
+            .multiselect_selected_blocks
+            .iter()
+            .next()
+            .copied());
 
         if let Some(from) = anchor {
             let range = visible_blocks_between(state, from, block_id);
@@ -62,8 +64,7 @@ pub fn handle_block_clicked(state: &mut AppState, block_id: BlockId) {
 /// the current navigation view.
 fn visible_blocks_between(state: &AppState, from: BlockId, to: BlockId) -> Vec<BlockId> {
     if from == to {
-        if state.store.is_visible(&from)
-            && state.navigation.is_in_current_view(&state.store, &from)
+        if state.store.is_visible(&from) && state.navigation.is_in_current_view(&state.store, &from)
         {
             return vec![from];
         }

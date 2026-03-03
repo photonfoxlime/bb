@@ -1264,22 +1264,19 @@ fn task_kind_icon(kind: TaskKind) -> Element<'static, Message> {
 fn task_section(
     kind: TaskKind, title: String, content: impl Into<Element<'static, Message>>,
 ) -> Element<'static, Message> {
-    let title_row = row![
-        text(title).size(theme::SECTION_TITLE_SIZE).font(theme::INTER),
-        task_kind_icon(kind),
-    ]
-    .spacing(theme::TITLE_ICON_GAP)
-    .align_y(iced::Alignment::Center);
-    container(
-        column![title_row, content.into(),]
-            .spacing(theme::FORM_SECTION_GAP),
-    )
-    .style(theme::draft_panel)
-    .padding(
-        iced::Padding::new(theme::PANEL_PAD_V).left(theme::PANEL_PAD_H).right(theme::PANEL_PAD_H),
-    )
-    .width(Fill)
-    .into()
+    let title_row =
+        row![text(title).size(theme::SECTION_TITLE_SIZE).font(theme::INTER), task_kind_icon(kind),]
+            .spacing(theme::TITLE_ICON_GAP)
+            .align_y(iced::Alignment::Center);
+    container(column![title_row, content.into(),].spacing(theme::FORM_SECTION_GAP))
+        .style(theme::draft_panel)
+        .padding(
+            iced::Padding::new(theme::PANEL_PAD_V)
+                .left(theme::PANEL_PAD_H)
+                .right(theme::PANEL_PAD_H),
+        )
+        .width(Fill)
+        .into()
 }
 
 /// A complete per-task configuration section: provider picker, model input, and token limit.

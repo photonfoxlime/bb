@@ -189,7 +189,7 @@ impl<'a> DocumentView<'a> {
                         .size(theme::SMALL_TEXT_SIZE)
                         .style(theme::status_text),
                 )
-                .padding( Padding::new(theme::CHIP_PAD_V).horizontal(theme::CHIP_PAD_H))
+                .padding(Padding::new(theme::CHIP_PAD_V).horizontal(theme::CHIP_PAD_H))
                 .into()
             } else {
                 Element::from(iced::widget::Space::new())
@@ -1036,13 +1036,11 @@ impl<'a> TreeView<'a> {
                     .style(theme::action_button)
                     .into()
             }
-            | (DocumentMode::Multiselect, _) => {
-                button(container(block))
-                    .on_press(Message::MultiselectBlockClicked(*block_id))
-                    .padding(0)
-                    .style(theme::action_button)
-                    .into()
-            }
+            | (DocumentMode::Multiselect, _) => button(container(block))
+                .on_press(Message::MultiselectBlockClicked(*block_id))
+                .padding(0)
+                .style(theme::action_button)
+                .into(),
             | (_, None) => block.into(),
         }
     }
