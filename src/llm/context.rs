@@ -490,11 +490,7 @@ pub struct ContextFormatterBuilder {
 
 impl ContextFormatterBuilder {
     fn new(lineage: LineageContext) -> Self {
-        Self {
-            lineage,
-            children: ChildrenContext::default(),
-            friends: Vec::new(),
-        }
+        Self { lineage, children: ChildrenContext::default(), friends: Vec::new() }
     }
 
     /// Add existing children (child contexts).

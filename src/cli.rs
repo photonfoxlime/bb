@@ -16,16 +16,16 @@
 //!
 //! ```bash
 //! # Add a child block
-//! block tree add-child 0x1a2b3c "New idea"
+//! bb tree add-child 0x1a2b3c "New idea"
 //!
 //! # Move a block after another
-//! block tree move 0xsource 0xtarget --after
+//! bb tree move 0xsource 0xtarget --after
 //!
 //! # Set expansion draft
-//! block draft expand 0xblock --rewrite "Refined text" --children "Child 1" "Child 2"
+//! bb draft expand 0xblock --rewrite "Refined text" --children "Child 1" "Child 2"
 //!
 //! # Mount a file
-//! block mount set 0xblock /path/to/file.md --format markdown
+//! bb mount set 0xblock /path/to/file.md --format markdown
 //! ```
 
 use crate::store::{BlockPanelBarState, MountFormat as StoreMountFormat};
@@ -46,7 +46,7 @@ pub mod query;
 pub mod results;
 pub mod tree;
 
-pub use commands::{Cli, Commands, BlockCommands};
+pub use commands::{Cli, Commands};
 pub use output::print_result;
 pub use results::CliResult;
 

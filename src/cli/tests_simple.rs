@@ -2,13 +2,13 @@
 //!
 //! These tests verify the complete CLI command execution flow:
 //! - Command parsing and validation
-//! - Store operations through `BlockCommands::execute()`
+//! - Store operations through `Commands::execute()`
 //! - Output formatting through `print_result()`
 //!
 //! Tests use the in-memory store to avoid modifying the real block store.
 
 use crate::cli::{
-    BlockCommands, BlockId, MountFormatCli, OutputFormat,
+    BlockId, Commands, MountFormatCli, OutputFormat,
     commands::RootCommand,
     draft::{
         ClearDraftCommand, DraftCommands, ExpandDraftCommand, InquiryDraftCommand,
@@ -51,7 +51,7 @@ fn format_block_id(id: crate::store::BlockId) -> String {
 #[test]
 fn roots_command() {
     let store = create_test_store();
-    let cmd = BlockCommands::Roots(RootCommand {});
+    let cmd = Commands::Roots(RootCommand {});
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Roots(ids) if ids.len() == 1));
 }
@@ -60,7 +60,7 @@ fn roots_command() {
 fn show_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
-    let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId(format_block_id(root_id)) });
+    let cmd = Commands::Show(ShowCommand { block_id: BlockId(format_block_id(root_id)) });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Show(show)
         if show.id == format_block_id(root_id) && show.text.contains("Tree of Thoughts") && show.children.len() == 2));
@@ -69,7 +69,7 @@ fn show_command() {
 #[test]
 fn show_unknown_block() {
     let store = create_test_store();
-    let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId("0v0".to_string()) });
+    let cmd = Commands::Show(ShowCommand { block_id: BlockId("0v0".to_string()) });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Error(msg) if msg.contains("Unknown block ID")));
 }
@@ -77,7 +77,7 @@ fn show_unknown_block() {
 #[test]
 fn find_command() {
     let store = create_test_store();
-    let cmd = BlockCommands::Find(FindCommand { query: "child".to_string(), limit: 10 });
+    let cmd = Commands::Find(FindCommand { query: "child".to_string(), limit: 10 });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Find(matches) if matches.len() >= 2));
 }
@@ -86,7 +86,7 @@ fn find_command() {
 fn point_edit_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
-    let cmd = BlockCommands::Point(EditPointCommand {
+    let cmd = Commands::Point(EditPointCommand {
         block_id: BlockId(format_block_id(root_id)),
         text: "Updated text".to_string(),
         link: false,
@@ -99,7 +99,7 @@ fn point_edit_command() {
 #[test]
 fn point_edit_unknown_block() {
     let store = create_test_store();
-    let cmd = BlockCommands::Point(EditPointCommand {
+    let cmd = Commands::Point(EditPointCommand {
         block_id: BlockId("0v0".to_string()),
         text: "Should not work".to_string(),
         link: false,
@@ -112,7 +112,7 @@ fn point_edit_unknown_block() {
 fn add_child_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
-    let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+    let cmd = Commands::Tree(TreeCommands::AddChild(AddChildCommand {
         parent_id: BlockId(format_block_id(root_id)),
         text: "new child".to_string(),
     }));
@@ -127,7 +127,7 @@ fn add_sibling_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
-    let cmd = BlockCommands::Tree(TreeCommands::AddSibling(AddSiblingCommand {
+    let cmd = Commands::Tree(TreeCommands::AddSibling(AddSiblingCommand {
         block_id: BlockId(format_block_id(child_id)),
         text: "sibling".to_string(),
     }));
@@ -142,7 +142,7 @@ fn wrap_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
-    let cmd = BlockCommands::Tree(TreeCommands::Wrap(WrapCommand {
+    let cmd = Commands::Tree(TreeCommands::Wrap(WrapCommand {
         block_id: BlockId(format_block_id(child_id)),
         text: "wrapper".to_string(),
     }));
@@ -156,7 +156,7 @@ fn duplicate_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
-    let cmd = BlockCommands::Tree(TreeCommands::Duplicate(DuplicateCommand {
+    let cmd = Commands::Tree(TreeCommands::Duplicate(DuplicateCommand {
         block_id: BlockId(format_block_id(child_id)),
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -170,7 +170,7 @@ fn delete_command() {
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
     let initial_count = store.children(&root_id).len();
-    let cmd = BlockCommands::Tree(TreeCommands::Delete(DeleteCommand {
+    let cmd = Commands::Tree(TreeCommands::Delete(DeleteCommand {
         block_id: BlockId(format_block_id(child_id)),
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -185,7 +185,7 @@ fn move_command_after() {
     let children = store.children(&root_id);
     let child1 = children[0];
     let child2 = children[1];
-    let cmd = BlockCommands::Tree(TreeCommands::Move(MoveCommand {
+    let cmd = Commands::Tree(TreeCommands::Move(MoveCommand {
         source_id: BlockId(format_block_id(child1)),
         target_id: BlockId(format_block_id(child2)),
         before: false,
@@ -200,7 +200,7 @@ fn move_command_after() {
 fn nav_next_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
-    let cmd = BlockCommands::Nav(NavCommands::Next(NextCommand {
+    let cmd = Commands::Nav(NavCommands::Next(NextCommand {
         block_id: BlockId(format_block_id(root_id)),
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -213,7 +213,7 @@ fn nav_prev_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
-    let cmd = BlockCommands::Nav(NavCommands::Prev(PrevCommand {
+    let cmd = Commands::Nav(NavCommands::Prev(PrevCommand {
         block_id: BlockId(format_block_id(child_id)),
     }));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -225,7 +225,7 @@ fn nav_lineage_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
-    let cmd = BlockCommands::Nav(NavCommands::Lineage(LineageCommand {
+    let cmd = Commands::Nav(NavCommands::Lineage(LineageCommand {
         block_id: BlockId(format_block_id(child_id)),
     }));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -238,7 +238,7 @@ fn nav_find_next_wraps_by_default() {
     let root_id = store.roots()[0];
     let child2 = store.children(&root_id)[1];
 
-    let cmd = BlockCommands::Nav(NavCommands::FindNext(FindNextCommand {
+    let cmd = Commands::Nav(NavCommands::FindNext(FindNextCommand {
         block_id: BlockId(format_block_id(child2)),
         query: "child".to_string(),
         no_wrap: false,
@@ -255,7 +255,7 @@ fn nav_find_prev_no_wrap_returns_none_without_earlier_match() {
     let root_id = store.roots()[0];
     let child1 = store.children(&root_id)[0];
 
-    let cmd = BlockCommands::Nav(NavCommands::FindPrev(FindPrevCommand {
+    let cmd = Commands::Nav(NavCommands::FindPrev(FindPrevCommand {
         block_id: BlockId(format_block_id(child1)),
         query: "child".to_string(),
         no_wrap: true,
@@ -269,7 +269,7 @@ fn nav_find_prev_no_wrap_returns_none_without_earlier_match() {
 fn draft_expand_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
-    let cmd = BlockCommands::Draft(DraftCommands::Expand(ExpandDraftCommand {
+    let cmd = Commands::Draft(DraftCommands::Expand(ExpandDraftCommand {
         block_id: BlockId(format_block_id(root_id)),
         rewrite: Some("rewritten".to_string()),
         children: vec!["child a".to_string(), "child b".to_string()],
@@ -283,7 +283,7 @@ fn draft_reduce_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
-    let cmd = BlockCommands::Draft(DraftCommands::Reduce(ReduceDraftCommand {
+    let cmd = Commands::Draft(DraftCommands::Reduce(ReduceDraftCommand {
         block_id: BlockId(format_block_id(root_id)),
         reduction: "summary".to_string(),
         redundant_children: vec![BlockId(format_block_id(child_id))],
@@ -296,7 +296,7 @@ fn draft_reduce_command() {
 fn draft_instruction_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
-    let cmd = BlockCommands::Draft(DraftCommands::Instruction(InstructionDraftCommand {
+    let cmd = Commands::Draft(DraftCommands::Instruction(InstructionDraftCommand {
         block_id: BlockId(format_block_id(root_id)),
         text: "test instruction".to_string(),
     }));
@@ -308,7 +308,7 @@ fn draft_instruction_command() {
 fn draft_inquiry_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
-    let cmd = BlockCommands::Draft(DraftCommands::Inquiry(InquiryDraftCommand {
+    let cmd = Commands::Draft(DraftCommands::Inquiry(InquiryDraftCommand {
         block_id: BlockId(format_block_id(root_id)),
         response: "test response".to_string(),
     }));
@@ -324,7 +324,7 @@ fn draft_list_command() {
         root_id,
         crate::store::ExpansionDraftRecord { rewrite: Some("test".to_string()), children: vec![] },
     );
-    let cmd = BlockCommands::Draft(DraftCommands::List(ListDraftCommand {
+    let cmd = Commands::Draft(DraftCommands::List(ListDraftCommand {
         block_id: BlockId(format_block_id(root_id)),
     }));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -339,7 +339,7 @@ fn draft_clear_command() {
         root_id,
         crate::store::ExpansionDraftRecord { rewrite: None, children: vec![] },
     );
-    let cmd = BlockCommands::Draft(DraftCommands::Clear(ClearDraftCommand {
+    let cmd = Commands::Draft(DraftCommands::Clear(ClearDraftCommand {
         block_id: BlockId(format_block_id(root_id)),
         all: true,
         expand: false,
@@ -356,7 +356,7 @@ fn fold_toggle_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let initial = store.is_collapsed(&root_id);
-    let cmd = BlockCommands::Fold(FoldCommands::Toggle(ToggleFoldCommand {
+    let cmd = Commands::Fold(FoldCommands::Toggle(ToggleFoldCommand {
         block_id: BlockId(format_block_id(root_id)),
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -369,7 +369,7 @@ fn fold_toggle_command() {
 fn fold_status_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
-    let cmd = BlockCommands::Fold(FoldCommands::Status(StatusFoldCommand {
+    let cmd = Commands::Fold(FoldCommands::Status(StatusFoldCommand {
         block_id: BlockId(format_block_id(root_id)),
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -402,7 +402,7 @@ fn output_success() {
 #[test]
 fn find_with_limit() {
     let store = create_test_store();
-    let cmd = BlockCommands::Find(FindCommand { query: "".to_string(), limit: 1 });
+    let cmd = Commands::Find(FindCommand { query: "".to_string(), limit: 1 });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Find(matches) if matches.len() == 1));
 }
@@ -411,7 +411,7 @@ fn find_with_limit() {
 fn move_with_unknown_source() {
     let store = create_test_store();
     let root_id = store.roots()[0];
-    let cmd = BlockCommands::Tree(TreeCommands::Move(MoveCommand {
+    let cmd = Commands::Tree(TreeCommands::Move(MoveCommand {
         source_id: BlockId("0v0".to_string()),
         target_id: BlockId(format_block_id(root_id)),
         before: false,
@@ -434,7 +434,7 @@ fn mount_move_command_moves_backing_file() {
     let store = BlockStore::default();
     let root_id = store.roots()[0];
 
-    let cmd = BlockCommands::Mount(MountCommands::Set(SetMountCommand {
+    let cmd = Commands::Mount(MountCommands::Set(SetMountCommand {
         block_id: BlockId(format_block_id(root_id)),
         path: source_path.clone(),
         format: MountFormatCli(MountFormat::Json),
@@ -442,7 +442,7 @@ fn mount_move_command_moves_backing_file() {
     let (store, result) = cmd.execute(store, tmp.path());
     assert!(matches!(result, CliResult::Success));
 
-    let cmd = BlockCommands::Mount(MountCommands::Move(MoveMountCommand {
+    let cmd = Commands::Mount(MountCommands::Move(MoveMountCommand {
         block_id: BlockId(format_block_id(root_id)),
         path: moved_path.clone(),
     }));
@@ -462,7 +462,7 @@ fn mount_inline_recursive_reports_inlined_count() {
     let store = BlockStore::default();
     let root_id = store.roots()[0];
 
-    let cmd = BlockCommands::Mount(MountCommands::Set(SetMountCommand {
+    let cmd = Commands::Mount(MountCommands::Set(SetMountCommand {
         block_id: BlockId(format_block_id(root_id)),
         path: mount_path,
         format: MountFormatCli(MountFormat::Json),
@@ -470,13 +470,13 @@ fn mount_inline_recursive_reports_inlined_count() {
     let (store, result) = cmd.execute(store, tmp.path());
     assert!(matches!(result, CliResult::Success));
 
-    let cmd = BlockCommands::Mount(MountCommands::Expand(ExpandMountCommand {
+    let cmd = Commands::Mount(MountCommands::Expand(ExpandMountCommand {
         block_id: BlockId(format_block_id(root_id)),
     }));
     let (store, result) = cmd.execute(store, tmp.path());
     assert!(matches!(result, CliResult::Success));
 
-    let cmd = BlockCommands::Mount(MountCommands::InlineRecursive(InlineRecursiveMountCommand {
+    let cmd = Commands::Mount(MountCommands::InlineRecursive(InlineRecursiveMountCommand {
         block_id: BlockId(format_block_id(root_id)),
     }));
     let (_store, result) = cmd.execute(store, tmp.path());
@@ -493,7 +493,7 @@ fn mount_save_command_persists_expanded_mount_content() {
     let store = BlockStore::default();
     let root_id = store.roots()[0];
 
-    let cmd = BlockCommands::Mount(MountCommands::Set(SetMountCommand {
+    let cmd = Commands::Mount(MountCommands::Set(SetMountCommand {
         block_id: BlockId(format_block_id(root_id)),
         path: mount_path.clone(),
         format: MountFormatCli(MountFormat::Json),
@@ -501,7 +501,7 @@ fn mount_save_command_persists_expanded_mount_content() {
     let (store, result) = cmd.execute(store, tmp.path());
     assert!(matches!(result, CliResult::Success));
 
-    let cmd = BlockCommands::Mount(MountCommands::Expand(ExpandMountCommand {
+    let cmd = Commands::Mount(MountCommands::Expand(ExpandMountCommand {
         block_id: BlockId(format_block_id(root_id)),
     }));
     let (mut store, result) = cmd.execute(store, tmp.path());
@@ -510,7 +510,7 @@ fn mount_save_command_persists_expanded_mount_content() {
     let mounted_root = store.children(&root_id)[0];
     store.update_point(&mounted_root, "updated from cli".to_string());
 
-    let cmd = BlockCommands::Mount(MountCommands::Save(SaveMountsCommand {}));
+    let cmd = Commands::Mount(MountCommands::Save(SaveMountsCommand {}));
     let (_store, result) = cmd.execute(store, tmp.path());
     assert!(matches!(result, CliResult::Success));
 
@@ -527,7 +527,7 @@ fn mount_extract_respects_format_override() {
     let root_id = store.roots()[0];
     store.append_child(&root_id, "child".to_string()).unwrap();
 
-    let cmd = BlockCommands::Mount(MountCommands::Extract(ExtractMountCommand {
+    let cmd = Commands::Mount(MountCommands::Extract(ExtractMountCommand {
         block_id: BlockId(format_block_id(root_id)),
         output: output_path,
         format: Some(MountFormatCli(MountFormat::Markdown)),
@@ -547,7 +547,7 @@ fn batch_point_continues_and_reports_errors() {
     let root_id = store.roots()[0];
     let batch = format!("{},0v0", format_block_id(root_id));
 
-    let cmd = BlockCommands::Point(EditPointCommand {
+    let cmd = Commands::Point(EditPointCommand {
         block_id: BlockId(batch),
         text: "batched update".to_string(),
         link: false,
@@ -571,7 +571,7 @@ fn batch_add_child_continues_and_reports_errors() {
     let root_id = store.roots()[0];
     let batch = format!("{},0v0", format_block_id(root_id));
 
-    let cmd = BlockCommands::Tree(TreeCommands::AddChild(AddChildCommand {
+    let cmd = Commands::Tree(TreeCommands::AddChild(AddChildCommand {
         parent_id: BlockId(batch),
         text: "child via batch".to_string(),
     }));
@@ -594,7 +594,7 @@ fn batch_show_continues_and_reports_errors() {
     let root_id = store.roots()[0];
     let batch = format!("{},0v0", format_block_id(root_id));
 
-    let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId(batch) });
+    let cmd = Commands::Show(ShowCommand { block_id: BlockId(batch) });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
 
     match result {
@@ -616,7 +616,7 @@ fn batch_tree_move_continues_and_reports_errors() {
     let child2 = store.children(&root_id)[1];
     let sources = format!("{},0v0", format_block_id(child1));
 
-    let cmd = BlockCommands::Tree(TreeCommands::Move(MoveCommand {
+    let cmd = Commands::Tree(TreeCommands::Move(MoveCommand {
         source_id: BlockId(sources),
         target_id: BlockId(format_block_id(child2)),
         before: false,
@@ -644,7 +644,7 @@ fn batch_friend_add_remove_continues_and_reports_errors() {
     let friend = store.children(&root_id)[1];
 
     let targets = format!("{},0v0", format_block_id(target));
-    let cmd = BlockCommands::Friend(FriendCommands::Add(AddFriendCommand {
+    let cmd = Commands::Friend(FriendCommands::Add(AddFriendCommand {
         target_id: BlockId(targets.clone()),
         friend_id: BlockId(format_block_id(friend)),
         perspective: None,
@@ -661,13 +661,13 @@ fn batch_friend_add_remove_continues_and_reports_errors() {
         | _ => panic!("expected batch report"),
     }
 
-    let cmd = BlockCommands::Friend(FriendCommands::List(ListFriendCommand {
+    let cmd = Commands::Friend(FriendCommands::List(ListFriendCommand {
         target_id: BlockId(format_block_id(target)),
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::FriendList(friends) if friends.len() == 1));
 
-    let cmd = BlockCommands::Friend(FriendCommands::Remove(RemoveFriendCommand {
+    let cmd = Commands::Friend(FriendCommands::Remove(RemoveFriendCommand {
         target_id: BlockId(targets),
         friend_id: BlockId(format_block_id(friend)),
     }));
@@ -681,7 +681,7 @@ fn batch_friend_add_remove_continues_and_reports_errors() {
         | _ => panic!("expected batch report"),
     }
 
-    let cmd = BlockCommands::Friend(FriendCommands::List(ListFriendCommand {
+    let cmd = Commands::Friend(FriendCommands::List(ListFriendCommand {
         target_id: BlockId(format_block_id(target)),
     }));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
@@ -695,7 +695,7 @@ fn batch_tree_move_pair_mismatch_reports_error() {
     let child1 = store.children(&root_id)[0];
     let child2 = store.children(&root_id)[1];
 
-    let cmd = BlockCommands::Tree(TreeCommands::Move(MoveCommand {
+    let cmd = Commands::Tree(TreeCommands::Move(MoveCommand {
         source_id: BlockId(format!("{},{}", format_block_id(child1), format_block_id(child2))),
         target_id: BlockId("1v1,2v1,3v1".to_string()),
         before: false,
@@ -718,7 +718,7 @@ fn batch_mount_set_uses_directory_target_paths() {
     let grandchild1 = store.children(&child1)[0];
     let ids = format!("{},{}", format_block_id(child2), format_block_id(grandchild1));
 
-    let cmd = BlockCommands::Mount(MountCommands::Set(SetMountCommand {
+    let cmd = Commands::Mount(MountCommands::Set(SetMountCommand {
         block_id: BlockId(ids),
         path: mount_dir,
         format: MountFormatCli(MountFormat::Json),
@@ -753,7 +753,7 @@ fn batch_mount_extract_writes_each_target_file() {
     store.append_child(&a, "a-1".to_string()).unwrap();
     store.append_child(&b, "b-1".to_string()).unwrap();
 
-    let cmd = BlockCommands::Mount(MountCommands::Extract(ExtractMountCommand {
+    let cmd = Commands::Mount(MountCommands::Extract(ExtractMountCommand {
         block_id: BlockId(format!("{},{}", format_block_id(a), format_block_id(b))),
         output: out_dir.clone(),
         format: Some(MountFormatCli(MountFormat::Json)),
@@ -791,7 +791,7 @@ fn batch_mount_move_uses_directory_target_paths() {
     std::fs::write(&second_src, serde_json::to_string_pretty(&BlockStore::default()).unwrap())
         .unwrap();
 
-    let cmd = BlockCommands::Mount(MountCommands::Set(SetMountCommand {
+    let cmd = Commands::Mount(MountCommands::Set(SetMountCommand {
         block_id: BlockId(format_block_id(first)),
         path: first_src.clone(),
         format: MountFormatCli(MountFormat::Json),
@@ -799,7 +799,7 @@ fn batch_mount_move_uses_directory_target_paths() {
     let (store, result) = cmd.execute(store, tmp.path());
     assert!(matches!(result, CliResult::Success));
 
-    let cmd = BlockCommands::Mount(MountCommands::Set(SetMountCommand {
+    let cmd = Commands::Mount(MountCommands::Set(SetMountCommand {
         block_id: BlockId(format_block_id(second)),
         path: second_src.clone(),
         format: MountFormatCli(MountFormat::Json),
@@ -808,7 +808,7 @@ fn batch_mount_move_uses_directory_target_paths() {
     assert!(matches!(result, CliResult::Success));
 
     let ids = format!("{},{}", format_block_id(first), format_block_id(second));
-    let cmd = BlockCommands::Mount(MountCommands::Move(MoveMountCommand {
+    let cmd = Commands::Mount(MountCommands::Move(MoveMountCommand {
         block_id: BlockId(ids),
         path: dst_dir.clone(),
     }));

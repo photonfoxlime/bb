@@ -20,8 +20,8 @@ pub use config::{
     ApiStyle, CustomProvider, DEFAULT_PROVIDER, LlmConfig, LlmProviders, PresetConfig,
     PresetProvider, TaskKind,
 };
-pub use prompt::{default_system_prompt_hint, default_user_prompt_hint, TaskPromptConfig};
 pub use context::{
     AtomizeResult, BlockContext, ChildrenContext, ContextFormatter, ExpandResult, ExpandSuggestion,
     FriendContext, LineageContext, ReduceResult,
 };
+pub use prompt::{TaskPromptConfig, default_system_prompt_hint, default_user_prompt_hint};

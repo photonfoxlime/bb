@@ -19,7 +19,7 @@
 //!
 //! ```text
 //! lib.rs::main()
-//!     └─> block_commands.execute() -> (BlockStore, CliResult)
+//!     └─> cmd.execute() -> (BlockStore, CliResult)
 //!         └─> print_result(&CliResult, OutputFormat)
 //!             ├─> Json: serde_json::json!() with structured objects
 //!             └─> Table: println!() with formatted text
@@ -43,11 +43,7 @@ use crate::llm::{BlockContext, ContextFormatter, LineageContext};
 use crate::store;
 
 fn indent_lines(s: impl AsRef<str>) -> String {
-    s.as_ref()
-        .lines()
-        .map(|line| format!("  {}", line))
-        .collect::<Vec<_>>()
-        .join("\n")
+    s.as_ref().lines().map(|line| format!("  {}", line)).collect::<Vec<_>>().join("\n")
 }
 
 /// Print a `CliResult` to stdout in the specified format.

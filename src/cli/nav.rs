@@ -11,7 +11,7 @@ pub enum NavCommands {
     /// Traverses depth-first, descending into uncollapsed blocks and skipping
     /// collapsed subtrees.
     /// Returns `null` when there is no next visible block.
-    /// Example: `bb block nav next 1v1`.
+    /// Example: `bb nav next 1v1`.
     Next(NextCommand),
 
     /// Get the previous visible block in DFS order.
@@ -19,25 +19,25 @@ pub enum NavCommands {
     /// Traverses backward, descending into deepest visible descendants of
     /// previous siblings.
     /// Returns `null` when there is no previous visible block.
-    /// Example: `bb block nav prev 2v1`.
+    /// Example: `bb nav prev 2v1`.
     Prev(PrevCommand),
 
     /// Get the lineage (ancestor chain) for a block.
     ///
     /// Returns all ancestor block texts from root to the target (exclusive of
     /// target's own text).
-    /// Example: `bb block nav lineage 1v1`.
+    /// Example: `bb nav lineage 1v1`.
     Lineage(LineageCommand),
 
     /// Jump to the next query match in DFS order.
     ///
     /// This is cursor-based navigation for search workflows. It evaluates the
-    /// query with the same mixed-language matcher as `block find`, then returns
+    /// query with the same mixed-language matcher as `bb find`, then returns
     /// the nearest match strictly after `block_id` in DFS order.
     ///
     /// By default, this wraps to the first match when no later match exists.
     /// Use `--no-wrap` to return `null` instead.
-    /// Example: `bb block nav find-next 1v1 "design" --no-wrap`.
+    /// Example: `bb nav find-next 1v1 "design" --no-wrap`.
     FindNext(FindNextCommand),
 
     /// Jump to the previous query match in DFS order.
@@ -45,7 +45,7 @@ pub enum NavCommands {
     /// Returns the nearest match strictly before `block_id` in DFS order.
     /// By default, this wraps to the last match when no earlier match exists.
     /// Use `--no-wrap` to return `null` instead.
-    /// Example: `bb block nav find-prev 2v1 "design" --no-wrap`.
+    /// Example: `bb nav find-prev 2v1 "design" --no-wrap`.
     FindPrev(FindPrevCommand),
 }
 

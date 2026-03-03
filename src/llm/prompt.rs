@@ -181,7 +181,7 @@ impl Prompt {
         let custom_system = config.custom_system_prompt.as_deref();
         let custom_user = config.custom_user_prompt.as_deref();
 
-            let user = if let Some(custom) = custom_user {
+        let user = if let Some(custom) = custom_user {
             let context_block = fmt.format_context_block();
             match task {
                 | TaskKind::Inquire => {

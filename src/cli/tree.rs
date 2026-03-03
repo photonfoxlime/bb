@@ -12,7 +12,7 @@ pub enum TreeCommands {
     /// as the last child of the specified parent.
     /// Returns the new block ID.
     /// Fails if the parent is missing or is a mount node.
-    /// Example: `bb block tree add-child 1v1 "My new idea"`.
+    /// Example: `bb tree add-child 1v1 "My new idea"`.
     AddChild(AddChildCommand),
 
     /// Add a sibling block after a given block.
@@ -21,7 +21,7 @@ pub enum TreeCommands {
     /// after the target block in its parent's child list (or in roots).
     /// Returns the new sibling block ID.
     /// Fails if `block_id` is not found.
-    /// Example: `bb block tree add-sibling 1v1 "Next sibling"`.
+    /// Example: `bb tree add-sibling 1v1 "Next sibling"`.
     AddSibling(AddSiblingCommand),
 
     /// Wrap a block with a new parent.
@@ -30,7 +30,7 @@ pub enum TreeCommands {
     /// making the target the first child of the new parent.
     /// Returns the new parent block ID.
     /// Fails if `block_id` is not found.
-    /// Example: `bb block tree wrap 1v1 "New parent section"`.
+    /// Example: `bb tree wrap 1v1 "New parent section"`.
     Wrap(WrapCommand),
 
     /// Duplicate a subtree.
@@ -39,7 +39,7 @@ pub enum TreeCommands {
     /// copy immediately after the original.
     /// Returns the root ID of the cloned subtree.
     /// Fails if `block_id` is not found.
-    /// Example: `bb block tree duplicate 1v1`.
+    /// Example: `bb tree duplicate 1v1`.
     Duplicate(DuplicateCommand),
 
     /// Delete a subtree.
@@ -50,7 +50,7 @@ pub enum TreeCommands {
     /// If the deletion empties the root list, a single empty root is created.
     /// Returns all removed block IDs.
     /// Fails if `block_id` is not found.
-    /// Example: `bb block tree delete 1v1`.
+    /// Example: `bb tree delete 1v1`.
     Delete(DeleteCommand),
 
     /// Move a block relative to a target.
@@ -59,7 +59,7 @@ pub enum TreeCommands {
     /// The source block (and its subtree) retains its internal structure.
     /// Source and target must be different blocks, and source must not be an
     /// ancestor of target. `--under` requires a non-mount target.
-    /// Example: `bb block tree move 1v1 2v1 --after`.
+    /// Example: `bb tree move 1v1 2v1 --after`.
     Move(MoveCommand),
 }
 

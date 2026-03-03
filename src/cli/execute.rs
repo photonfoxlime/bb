@@ -1,7 +1,7 @@
-//! BlockCommands execution implementation.
+//! Commands execution implementation.
 //!
 //! This module implements the execution logic for all CLI commands defined
-//! in the `BlockCommands` enum. It serves as the bridge between parsed CLI
+//! in the `Commands` enum. It serves as the bridge between parsed CLI
 //! arguments and the underlying `BlockStore` operations.
 //!
 //! # Architecture
@@ -41,53 +41,56 @@ use super::results::{
     ReductionDraftInfo, ShowResult,
 };
 use super::{
-    BlockCommands, draft::DraftCommands, fold::FoldCommands, friend::FriendCommands,
+    commands::Commands, draft::DraftCommands, fold::FoldCommands, friend::FriendCommands,
     mount::MountCommands, nav::NavCommands, panel::PanelCommands, query::RootCommand,
     tree::TreeCommands,
 };
 use crate::store as store_module;
 use crate::store::{BlockStore, Direction};
 
-impl BlockCommands {
-    // Execute a block command with the given store.
+impl Commands {
+    /// Execute a block command with the given store.
     ///
-    // This is the main entry point for CLI command execution. It pattern matches
-    // on the command variant, performs necessary validation, calls the appropriate
-    // `BlockStore` method, and returns both the (possibly modified) store and
-    // a result for output formatting.
+    /// This is the main entry point for CLI command execution. It pattern matches
+    /// on the command variant, performs necessary validation, calls the appropriate
+    /// `BlockStore` method, and returns both the (possibly modified) store and
+    /// a result for output formatting.
     ///
-    // # Arguments
+    /// # Arguments
     ///
-    // - `self`: The command to execute (consumed)
-    // - `store`: The block store to operate on (passed by value for ownership transfer)
-    // - `base_dir`: Base directory for resolving relative mount paths
+    /// - `self`: The command to execute (consumed)
+    /// - `store`: The block store to operate on (passed by value for ownership transfer)
+    /// - `base_dir`: Base directory for resolving relative mount paths
     ///
-    // # Returns
+    /// # Returns
     ///
-    // A tuple of `(BlockStore, CliResult)`:
-    // - The store is always returned (modified or unchanged) for potential saving
-    // - The `CliResult` indicates success, failure, or query results
+    /// A tuple of `(BlockStore, CliResult)`:
+    /// - The store is always returned (modified or unchanged) for potential saving
+    /// - The `CliResult` indicates success, failure, or query results
     ///
-    // # Design Notes
+    /// # Design Notes
     ///
-    // - Block ID resolution is case-insensitive for format
-    // - All operations validate block existence before proceeding
-    // - Mount operations use `base_dir` to resolve relative paths
+    /// - Block ID resolution is case-insensitive for format
+    /// - All operations validate block existence before proceeding
+    /// - Mount operations use `base_dir` to resolve relative paths
     pub fn execute(
         self, mut store: BlockStore, base_dir: &std::path::Path,
     ) -> (BlockStore, CliResult) {
         match self {
+            | Commands::GenerateCompletion { .. } => {
+                unreachable!("GenerateCompletion is handled before execute")
+            }
             // ========================================================================
             // Query Commands
             // ========================================================================
             // Read-only operations that inspect the store without modification.
             // List all root block IDs.
-            | BlockCommands::Roots(RootCommand {}) => {
+            | Commands::Roots(RootCommand {}) => {
                 let roots: Vec<String> = store.roots().iter().map(|id| format!("{}", id)).collect();
                 (store, CliResult::Roots(roots))
             }
             // Show details of a specific block.
-            | BlockCommands::Show(cmd) => {
+            | Commands::Show(cmd) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -125,7 +128,7 @@ impl BlockCommands {
                 }
             }
             // Search blocks by text content using store-level query matching.
-            | BlockCommands::Find(cmd) => {
+            | Commands::Find(cmd) => {
                 let matches: Vec<Match> = store
                     .find_block_point(&cmd.query)
                     .into_iter()
@@ -138,7 +141,7 @@ impl BlockCommands {
                 (store, CliResult::Find(matches))
             }
             // Edit the text content of a block.
-            | BlockCommands::Point(cmd) => {
+            | Commands::Point(cmd) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -177,7 +180,7 @@ impl BlockCommands {
             // ========================================================================
             // Structural editing operations for modifying the block hierarchy.
             // Add a child block to a parent.
-            | BlockCommands::Tree(TreeCommands::AddChild(cmd)) => {
+            | Commands::Tree(TreeCommands::AddChild(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.parent_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -230,7 +233,7 @@ impl BlockCommands {
                 }
             }
             // Add a sibling block after the target.
-            | BlockCommands::Tree(TreeCommands::AddSibling(cmd)) => {
+            | Commands::Tree(TreeCommands::AddSibling(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -277,7 +280,7 @@ impl BlockCommands {
                 }
             }
             // Wrap a block in a new parent.
-            | BlockCommands::Tree(TreeCommands::Wrap(cmd)) => {
+            | Commands::Tree(TreeCommands::Wrap(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -317,7 +320,7 @@ impl BlockCommands {
                 }
             }
             // Duplicate a block and its entire subtree.
-            | BlockCommands::Tree(TreeCommands::Duplicate(cmd)) => {
+            | Commands::Tree(TreeCommands::Duplicate(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -362,7 +365,7 @@ impl BlockCommands {
                 }
             }
             // Delete a block and its entire subtree.
-            | BlockCommands::Tree(TreeCommands::Delete(cmd)) => {
+            | Commands::Tree(TreeCommands::Delete(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -407,7 +410,7 @@ impl BlockCommands {
                 }
             }
             // Move a block relative to a target.
-            | BlockCommands::Tree(TreeCommands::Move(cmd)) => {
+            | Commands::Tree(TreeCommands::Move(cmd)) => {
                 let pairs = match Self::expand_cli_pairs(&cmd.source_id, &cmd.target_id) {
                     | Ok(pairs) => pairs,
                     | Err(msg) => return (store, CliResult::Error(msg)),
@@ -469,7 +472,7 @@ impl BlockCommands {
             // ========================================================================
             // DFS-based navigation helpers for traversing the block tree.
             // Get the next visible block in DFS order.
-            | BlockCommands::Nav(NavCommands::Next(cmd)) => {
+            | Commands::Nav(NavCommands::Next(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -501,7 +504,7 @@ impl BlockCommands {
                 }
             }
             // Get the previous visible block in DFS order.
-            | BlockCommands::Nav(NavCommands::Prev(cmd)) => {
+            | Commands::Nav(NavCommands::Prev(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -533,7 +536,7 @@ impl BlockCommands {
                 }
             }
             // Get the lineage (ancestor chain) of a block.
-            | BlockCommands::Nav(NavCommands::Lineage(cmd)) => {
+            | Commands::Nav(NavCommands::Lineage(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -565,7 +568,7 @@ impl BlockCommands {
                 }
             }
             // Jump to the next query match in DFS order.
-            | BlockCommands::Nav(NavCommands::FindNext(cmd)) => {
+            | Commands::Nav(NavCommands::FindNext(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
                     | None => (store, CliResult::Error("Unknown block ID".to_string())),
@@ -582,7 +585,7 @@ impl BlockCommands {
                 }
             }
             // Jump to the previous query match in DFS order.
-            | BlockCommands::Nav(NavCommands::FindPrev(cmd)) => {
+            | Commands::Nav(NavCommands::FindPrev(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
                     | None => (store, CliResult::Error("Unknown block ID".to_string())),
@@ -603,7 +606,7 @@ impl BlockCommands {
             // ========================================================================
             // LLM interaction drafts for managing AI-assisted editing.
             // Create an expansion draft for block refinement.
-            | BlockCommands::Draft(DraftCommands::Expand(cmd)) => {
+            | Commands::Draft(DraftCommands::Expand(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
                     | None => (store, CliResult::Error("Unknown block ID".to_string())),
@@ -618,7 +621,7 @@ impl BlockCommands {
                 }
             }
             // Create a reduction draft for summarization.
-            | BlockCommands::Draft(DraftCommands::Reduce(cmd)) => {
+            | Commands::Draft(DraftCommands::Reduce(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
                     | None => (store, CliResult::Error("Unknown block ID".to_string())),
@@ -638,7 +641,7 @@ impl BlockCommands {
                 }
             }
             // Set an instruction draft for LLM guidance.
-            | BlockCommands::Draft(DraftCommands::Instruction(cmd)) => {
+            | Commands::Draft(DraftCommands::Instruction(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -674,7 +677,7 @@ impl BlockCommands {
                 }
             }
             // Set an inquiry draft (LLM response).
-            | BlockCommands::Draft(DraftCommands::Inquiry(cmd)) => {
+            | Commands::Draft(DraftCommands::Inquiry(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -706,7 +709,7 @@ impl BlockCommands {
                 }
             }
             // List all drafts for a block.
-            | BlockCommands::Draft(DraftCommands::List(cmd)) => {
+            | Commands::Draft(DraftCommands::List(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -782,7 +785,7 @@ impl BlockCommands {
                 }
             }
             // Clear drafts from a block.
-            | BlockCommands::Draft(DraftCommands::Clear(cmd)) => {
+            | Commands::Draft(DraftCommands::Clear(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -840,7 +843,7 @@ impl BlockCommands {
             // ========================================================================
             // Visibility state management for collapsing/expanding blocks.
             // Toggle collapsed state of a block.
-            | BlockCommands::Fold(FoldCommands::Toggle(cmd)) => {
+            | Commands::Fold(FoldCommands::Toggle(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -872,7 +875,7 @@ impl BlockCommands {
                 }
             }
             // Get collapsed state of a block.
-            | BlockCommands::Fold(FoldCommands::Status(cmd)) => {
+            | Commands::Fold(FoldCommands::Status(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -908,7 +911,7 @@ impl BlockCommands {
             // ========================================================================
             // Cross-reference link management between blocks.
             // Add a friend (cross-reference) link.
-            | BlockCommands::Friend(FriendCommands::Add(cmd)) => {
+            | Commands::Friend(FriendCommands::Add(cmd)) => {
                 let pairs = match Self::expand_cli_pairs(&cmd.target_id, &cmd.friend_id) {
                     | Ok(pairs) => pairs,
                     | Err(msg) => return (store, CliResult::Error(msg)),
@@ -961,7 +964,7 @@ impl BlockCommands {
                 }
             }
             // Remove a friend (cross-reference) link.
-            | BlockCommands::Friend(FriendCommands::Remove(cmd)) => {
+            | Commands::Friend(FriendCommands::Remove(cmd)) => {
                 let pairs = match Self::expand_cli_pairs(&cmd.target_id, &cmd.friend_id) {
                     | Ok(pairs) => pairs,
                     | Err(msg) => return (store, CliResult::Error(msg)),
@@ -1004,7 +1007,7 @@ impl BlockCommands {
                 }
             }
             // List all friends (cross-references) of a block.
-            | BlockCommands::Friend(FriendCommands::List(cmd)) => {
+            | Commands::Friend(FriendCommands::List(cmd)) => {
                 let target = Self::resolve_block_id(&store, &cmd.target_id);
                 match target {
                     | None => (store, CliResult::Error("Unknown block ID".to_string())),
@@ -1028,7 +1031,7 @@ impl BlockCommands {
             // ========================================================================
             // External file integration for importing/exporting block trees.
             // Set mount path and format for a block.
-            | BlockCommands::Mount(MountCommands::Set(cmd)) => {
+            | Commands::Mount(MountCommands::Set(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 let format: store_module::MountFormat = cmd.format.into();
                 if targets.len() == 1 {
@@ -1086,7 +1089,7 @@ impl BlockCommands {
                 }
             }
             // Expand a mount by loading external file contents.
-            | BlockCommands::Mount(MountCommands::Expand(cmd)) => {
+            | Commands::Mount(MountCommands::Expand(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -1121,7 +1124,7 @@ impl BlockCommands {
                 }
             }
             // Collapse a mount, removing loaded children.
-            | BlockCommands::Mount(MountCommands::Collapse(cmd)) => {
+            | Commands::Mount(MountCommands::Collapse(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -1163,7 +1166,7 @@ impl BlockCommands {
                 }
             }
             // Move a mount file and update mount metadata.
-            | BlockCommands::Mount(MountCommands::Move(cmd)) => {
+            | Commands::Mount(MountCommands::Move(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -1219,7 +1222,7 @@ impl BlockCommands {
                 }
             }
             // Inline one mount into the current store.
-            | BlockCommands::Mount(MountCommands::Inline(cmd)) => {
+            | Commands::Mount(MountCommands::Inline(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -1254,7 +1257,7 @@ impl BlockCommands {
                 }
             }
             // Inline all mounts recursively under a block.
-            | BlockCommands::Mount(MountCommands::InlineRecursive(cmd)) => {
+            | Commands::Mount(MountCommands::InlineRecursive(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -1300,7 +1303,7 @@ impl BlockCommands {
                 }
             }
             // Extract block subtree to a file.
-            | BlockCommands::Mount(MountCommands::Extract(cmd)) => {
+            | Commands::Mount(MountCommands::Extract(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 let format_override = cmd.format.map(Into::into);
                 if targets.len() == 1 {
@@ -1366,7 +1369,7 @@ impl BlockCommands {
                 }
             }
             // Get mount information (path, format, expanded state).
-            | BlockCommands::Mount(MountCommands::Info(cmd)) => {
+            | Commands::Mount(MountCommands::Info(cmd)) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -1435,7 +1438,7 @@ impl BlockCommands {
                 }
             }
             // Save all expanded mounts to their source files.
-            | BlockCommands::Mount(MountCommands::Save(_)) => match store.save_mounts() {
+            | Commands::Mount(MountCommands::Save(_)) => match store.save_mounts() {
                 | Ok(()) => (store, CliResult::Success),
                 | Err(e) => (store, CliResult::Error(format!("Save mounts failed: {}", e))),
             },
@@ -1444,7 +1447,7 @@ impl BlockCommands {
             // ========================================================================
             // Sidebar UI state management.
             // Set panel sidebar state.
-            | BlockCommands::Panel(PanelCommands::Set(cmd)) => {
+            | Commands::Panel(PanelCommands::Set(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
                     | None => (store, CliResult::Error("Unknown block ID".to_string())),
@@ -1455,7 +1458,7 @@ impl BlockCommands {
                 }
             }
             // Get panel sidebar state.
-            | BlockCommands::Panel(PanelCommands::Get(cmd)) => {
+            | Commands::Panel(PanelCommands::Get(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
                     | None => (store, CliResult::Error("Unknown block ID".to_string())),
@@ -1469,7 +1472,7 @@ impl BlockCommands {
                 }
             }
             // Clear panel sidebar state.
-            | BlockCommands::Panel(PanelCommands::Clear(cmd)) => {
+            | Commands::Panel(PanelCommands::Clear(cmd)) => {
                 let id = Self::resolve_block_id(&store, &cmd.block_id);
                 match id {
                     | None => (store, CliResult::Error("Unknown block ID".to_string())),
@@ -1484,7 +1487,7 @@ impl BlockCommands {
             // ========================================================================
             // LLM context preparation.
             // Get block context for LLM requests.
-            | BlockCommands::Context(cmd) => {
+            | Commands::Context(cmd) => {
                 let targets = Self::expand_cli_targets(&cmd.block_id);
                 if targets.len() == 1 {
                     let id = Self::resolve_block_id(&store, &targets[0]);
@@ -1642,7 +1645,7 @@ impl BlockCommands {
     /// Find the nearest query match before/after a cursor block in DFS order.
     ///
     /// Matching uses [`BlockStore::find_block_point`], so mixed-language phrase
-    /// tokenization and full-query fallback stay consistent with `block find`.
+    /// tokenization and full-query fallback stay consistent with `bb find`.
     ///
     /// # Behavior
     /// - Returns `None` when query is empty or no matches exist.

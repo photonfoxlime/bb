@@ -10,12 +10,12 @@ pub enum FoldCommands {
     ///
     /// If collapsed, expands to show children. If expanded, collapses to hide.
     /// Returns `true` when the block is collapsed after the operation.
-    /// Example: `bb block fold toggle 1v1`.
+    /// Example: `bb fold toggle 1v1`.
     Toggle(ToggleFoldCommand),
 
     /// Get the fold state of a block.
     /// Returns `true` if collapsed and `false` if expanded.
-    /// Example: `bb block fold status 1v1`.
+    /// Example: `bb fold status 1v1`.
     Status(StatusFoldCommand),
 }
 

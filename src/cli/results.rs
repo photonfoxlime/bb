@@ -1,6 +1,6 @@
 //! CLI command results and output types.
 //!
-//! This module defines the result types returned by `BlockCommands::execute()`.
+//! This module defines the result types returned by `Commands::execute()`.
 //! These types encapsulate all possible outcomes of CLI operations and are
 //! subsequently formatted by `cli::output::print_result()` based on the
 //! user's requested output format (JSON or table).
@@ -14,14 +14,14 @@
 //! # Output Flow
 //!
 //! ```text
-//! BlockCommands::execute() -> CliResult
+//! Commands::execute() -> CliResult
 //!     └─> print_result(&CliResult, OutputFormat)
 //!         ├─> JSON: serde_json::json!() for all variants
 //!         └─> Table: Human-readable formatting per variant
 //! ```
 
-use crate::store::BlockId;
 use crate::llm::{BlockContext, ChildrenContext, LineageContext};
+use crate::store::BlockId;
 
 /// Result of executing a block command.
 ///

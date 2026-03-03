@@ -14,7 +14,7 @@ mod undo;
 
 use self::{
     app::AppState,
-    cli::{Cli, Commands, CliResult, print_result},
+    cli::{Cli, CliResult, Commands, print_result},
     paths::AppPaths,
     store::BlockStore,
 };
@@ -31,7 +31,7 @@ impl BloomingBlockery {
 
         let cli = Cli::parse();
         match cli.command {
-            Commands::GenerateCompletion { shell } => {
+            | Commands::GenerateCompletion { shell } => {
                 clap_complete::generate(
                     shell,
                     &mut Cli::command(),
@@ -39,7 +39,7 @@ impl BloomingBlockery {
                     &mut std::io::stdout(),
                 );
             }
-            Commands::Block(block_commands) => {
+            | cmd => {
                 let store_path = cli
                     .store
                     .clone()
@@ -54,7 +54,7 @@ impl BloomingBlockery {
 
                 let store = BlockStore::load_from_path(&store_path)
                     .unwrap_or_else(|_| BlockStore::default());
-                let (store, result) = block_commands.execute(store, &base_dir);
+                let (store, result) = cmd.execute(store, &base_dir);
 
                 if !matches!(result, CliResult::Error(_)) {
                     let () = store.save()?;

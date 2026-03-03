@@ -10,16 +10,15 @@
 //! ```text
 //! BbCli
 //! ├── generate-completion
-//! └── block (BlockCommands)
-//!     ├── roots, show, find (query commands)
-//!     ├── tree (structural edits)
-//!     ├── nav (navigation)
-//!     ├── draft (LLM interaction drafts)
-//!     ├── fold (collapse/expand)
-//!     ├── friend (cross-reference links)
-//!     ├── mount (external file integration)
-//!     ├── panel (sidebar state)
-//!     └── context (LLM context inspection)
+//! ├── roots, show, find (query commands)
+//! ├── tree (structural edits)
+//! ├── nav (navigation)
+//! ├── draft (LLM interaction drafts)
+//! ├── fold (collapse/expand)
+//! ├── friend (cross-reference links)
+//! ├── mount (external file integration)
+//! ├── panel (sidebar state)
+//! └── context (LLM context inspection)
 //! ```
 //!
 //! # Design Principles
@@ -32,24 +31,24 @@
 //!
 //! ```bash
 //! # Query with JSON output
-//! block --output json roots
+//! bb --output json roots
 //!
 //! # Tree operations
-//! block tree add-child 1v1 "New idea"
-//! block tree move 1v1 2v1 --after
+//! bb tree add-child 1v1 "New idea"
+//! bb tree move 1v1 2v1 --after
 //!
 //! # Draft management
-//! block draft expand 1v1 --rewrite "Refined text" --children "Child 1" "Child 2"
+//! bb draft expand 1v1 --rewrite "Refined text" --children "Child 1" "Child 2"
 //!
 //! # Mount external files
-//! block mount set 1v1 /path/to/file.md --format markdown
-//! block mount expand 1v1
+//! bb mount set 1v1 /path/to/file.md --format markdown
+//! bb mount expand 1v1
 //! ```
 //!
 //! # Execution Flow
 //!
-//! 1. CLI arguments are parsed into `BlockCommands`
-//! 2. `BlockCommands::execute()` is called with the `BlockStore`
+//! 1. CLI arguments are parsed into `Commands`
+//! 2. `Commands::execute()` is called with the `BlockStore`
 //! 3. A `CliResult` is returned and formatted by `cli::output::print_result()`
 
 use super::OutputFormat;
@@ -97,17 +96,6 @@ pub enum Commands {
         #[arg(value_name = "SHELL")]
         shell: clap_complete::Shell,
     },
-    #[command(subcommand)]
-    Block(BlockCommands),
-}
-
-/// Block store manipulation commands.
-///
-/// Each variant represents a distinct operation on the block store.
-/// Commands are executed by `BlockCommands::execute()` which returns
-/// both the (possibly modified) store and a `CliResult` for output.
-#[derive(Debug, Parser)]
-pub enum BlockCommands {
     /// List all root block IDs.
     Roots(RootCommand),
     /// Show details of a specific block.

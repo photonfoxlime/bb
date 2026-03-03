@@ -9,7 +9,9 @@ use serde_json::Value;
 use std::time::Duration;
 
 use crate::llm::config::{ApiStyle, LlmConfig};
-use crate::llm::context::{AtomizeResult, BlockContext, ExpandResult, ExpandSuggestion, ReduceResult};
+use crate::llm::context::{
+    AtomizeResult, BlockContext, ExpandResult, ExpandSuggestion, ReduceResult,
+};
 use crate::llm::error::{ApiError, LlmError};
 use crate::llm::prompt::{Prompt, TaskPromptConfig};
 use iced::futures::SinkExt;
@@ -182,10 +184,7 @@ impl LlmClient {
         let payload: AtomizeResponsePayload =
             serde_json::from_str(&content).map_err(|_| LlmError::InvalidAtomizeResponse)?;
 
-        let rewrite = payload
-            .rewrite
-            .map(|v| v.trim().to_string())
-            .filter(|v| !v.is_empty());
+        let rewrite = payload.rewrite.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
 
         let points = payload
             .points
