@@ -1,11 +1,11 @@
 //! LLM prompt construction from context.
 //!
-//! Custom prompts support partial override: set only `system_prompt`, only
-//! `user_prompt`, or both. Lineage and block context are always appended to
-//! the user message.
+//! All three tasks (reduce, expand, inquire) receive the same block context:
+//! lineage (Parent/Target), existing children, and friend blocks. Custom
+//! prompts support partial override; the full context block is always appended.
 //!
-//! Reduce, expand, and inquire share a unified construction flow via
-//! [`PromptTask`]; task-specific defaults are applied per variant.
+//! Construction is unified via [`PromptTask`]; task-specific defaults apply
+//! per variant.
 
 use crate::llm::context::BlockContext;
 use crate::llm::context::{ContextFormatter, ContextPresence};
@@ -29,24 +29,21 @@ pub(crate) enum PromptTask {
 impl PromptTask {
     fn context_qualifier(presence: ContextPresence) -> &'static str {
         match (presence.has_children, presence.has_friends) {
+            | (true, _) => ", existing children, and optional friend blocks as context",
             | (false, false) => " as context",
             | (false, true) => ", plus friend blocks as context",
-            | (true, _) => ", existing children, and optional friend blocks as context",
         }
     }
 
     fn friends_explanation(self, presence: ContextPresence) -> &'static str {
-        if !presence.has_friends {
-            return "";
-        }
-        match (self, presence.has_children) {
-            | (Self::Expand | Self::Reduce, true) => {
+        match (presence.has_friends, presence.has_children) {
+            | (false, _) => "",
+            | (true, true) => {
                 " Friend blocks are additional context only and must never appear in redundant_children. Friend blocks may include optional perspective text that can refine interpretation."
             }
-            | (Self::Expand | Self::Reduce, false) => {
+            | (true, false) => {
                 " Friend blocks are user-selected related context and are not children of the target. Each friend blocks may include an optional perspective describing how the target views that friend block; use it when relevant."
             }
-            | (Self::Inquire, _) => "",
         }
     }
 
@@ -116,13 +113,13 @@ impl Prompt {
         let instruction_prefix = instruction.map(|i| format!("{}\n\n", i)).unwrap_or_default();
 
         let user = if let Some(custom) = custom_user_prompt {
-            let lineage = fmt.lineage_lines();
+            let context_block = fmt.format_context_block();
             match task {
                 | PromptTask::Inquire => {
                     let instruction = instruction.expect("inquire requires instruction");
-                    format!("{custom}\n\n{lineage}\n\nInstruction: {instruction}")
+                    format!("{custom}\n\n{context_block}\n\nInstruction: {instruction}")
                 }
-                | _ => format!("{custom}\n\n{lineage}"),
+                | _ => format!("{custom}\n\n{context_block}"),
             }
         } else {
             match task {
@@ -357,6 +354,29 @@ mod tests {
         let prompt = Prompt::reduce_from_context(&context, None, Some("Custom system"), None);
         assert!(prompt.system.contains("Custom system"));
         assert!(prompt.user.contains("Reduce the target point with context:"));
+    }
+
+    #[test]
+    fn custom_user_prompts_include_full_context_block() {
+        let lineage = LineageContext::from_points(vec!["root".into(), "target".into()]);
+        let children = vec!["child A".to_string()];
+        let friends = vec![FriendContext::with_context(
+            "friend block".to_string(),
+            Some("perspective".to_string()),
+            true,
+            true,
+            None,
+            None,
+        )];
+        let ctx = BlockContext::new(lineage, children, friends);
+        let prompt =
+            Prompt::inquire_from_context(&ctx, "answer this", None, Some("Custom user preamble"));
+        assert!(prompt.user.contains("Custom user preamble"));
+        assert!(prompt.user.contains("Existing children:"));
+        assert!(prompt.user.contains("[0] child A"));
+        assert!(prompt.user.contains("Friend blocks:"));
+        assert!(prompt.user.contains("friend block"));
+        assert!(prompt.user.contains("perspective"));
     }
 
     #[test]

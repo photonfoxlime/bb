@@ -356,6 +356,21 @@ impl ContextFormatter {
         self.fmt_lineage()
     }
 
+    /// Full block context: lineage, existing children, and friend blocks.
+    ///
+    /// Same structure for all LLM tasks. Use when building user prompts so
+    /// reduce, expand, and inquire all receive identical context.
+    pub fn format_context_block(&self) -> String {
+        let mut s = self.fmt_lineage();
+        if self.presence().has_children {
+            s.push_str(&format!("\nExisting children:\n{}", self.fmt_children()));
+        }
+        if self.presence().has_friends {
+            s.push_str(&format!("\nFriend blocks:\n{}", self.fmt_friends()));
+        }
+        s
+    }
+
     /// Iterate over lineage point texts.
     pub fn lineage_points(&self) -> impl Iterator<Item = &str> + '_ {
         self.lineage.points()
@@ -373,14 +388,7 @@ impl ContextFormatter {
 
     /// Build the full user prompt body for a task (e.g. reduce or expand).
     pub fn build_user_body(&self, task_intro: &str) -> String {
-        let mut s = format!("{task_intro}\n{}", self.fmt_lineage());
-        if self.presence().has_children {
-            s.push_str(&format!("\nExisting children:\n{}", self.fmt_children()));
-        }
-        if self.presence().has_friends {
-            s.push_str(&format!("\nFriend blocks:\n{}", self.fmt_friends()));
-        }
-        s
+        format!("{task_intro}\n{}", self.format_context_block())
     }
 
     /// Full human-readable format for CLI display.
