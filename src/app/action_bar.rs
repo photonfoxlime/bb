@@ -489,6 +489,7 @@ pub fn shortcut_to_action(key: Key, modifiers: Modifiers) -> Option<ActionId> {
 
     match key {
         | Key::Character(value) if value == "." => Some(ActionId::Expand),
+        | Key::Character(value) if value == "/" => Some(ActionId::Atomize),
         | Key::Character(value) if value == "," => Some(ActionId::Reduce),
         | Key::Named(Named::Enter) => Some(ActionId::AddChild),
         | _ => None,
@@ -811,6 +812,14 @@ mod tests {
         let modifiers = Modifiers::COMMAND;
         let action = shortcut_to_action(key, modifiers);
         assert_eq!(action, Some(ActionId::Expand));
+    }
+
+    #[test]
+    fn shortcut_command_slash_atomizes() {
+        let key = Key::Character("/".into());
+        let modifiers = Modifiers::COMMAND;
+        let action = shortcut_to_action(key, modifiers);
+        assert_eq!(action, Some(ActionId::Atomize));
     }
 
     #[test]

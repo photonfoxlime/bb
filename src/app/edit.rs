@@ -155,6 +155,7 @@ fn command_shortcut_action_from_editor_insert(
 
     match action {
         | text_editor::Action::Edit(text_editor::Edit::Insert('.')) => Some(ActionId::Expand),
+        | text_editor::Action::Edit(text_editor::Edit::Insert('/')) => Some(ActionId::Atomize),
         | text_editor::Action::Edit(text_editor::Edit::Insert(',')) => Some(ActionId::Reduce),
         | _ => None,
     }
@@ -170,7 +171,7 @@ fn is_command_shortcut_editor_insert(
     matches!(
         action,
         text_editor::Action::Edit(text_editor::Edit::Insert(c))
-            if matches!(c.to_ascii_lowercase(), 'f' | 'g' | 'z' | '.' | ',')
+            if matches!(c.to_ascii_lowercase(), 'f' | 'g' | 'z' | '.' | '/' | ',')
     )
 }
 
@@ -637,6 +638,22 @@ mod tests {
         );
 
         assert!(state.llm_requests.is_reducing(root));
+    }
+
+    #[test]
+    fn command_slash_insert_triggers_atomize_for_block() {
+        let (mut state, root) = AppState::test_state();
+        state.ui_mut().keyboard_modifiers = keyboard::Modifiers::COMMAND;
+        state.store.update_point(&root, "needs atomize".to_string());
+        state.editor_buffers.set_text(&root, "needs atomize");
+
+        let _ = handle_point_edited(
+            &mut state,
+            root,
+            text_editor::Action::Edit(text_editor::Edit::Insert('/')),
+        );
+
+        assert!(state.llm_requests.is_atomizing(root));
     }
 
     #[test]

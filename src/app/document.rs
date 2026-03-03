@@ -378,6 +378,8 @@ impl<'a> DocumentView<'a> {
                 .size(theme::SHORTCUT_HELP_TEXT_SIZE),
             text(t!("shortcut_help_structure_expand").to_string())
                 .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_structure_atomize").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
             text(t!("shortcut_help_structure_reduce").to_string())
                 .size(theme::SHORTCUT_HELP_TEXT_SIZE),
             text(t!("shortcut_help_structure_add_child").to_string())
