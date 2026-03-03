@@ -206,8 +206,8 @@ impl Default for TaskSettings {
 
 /// Configuration for a single LLM task (reduce, expand, or inquire).
 ///
-/// Selects which provider to use, which model to request, and the
-/// maximum number of completion tokens.
+/// Selects which provider to use, which model to request, the
+/// maximum number of completion tokens, and optional custom prompts.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskConfig {
     /// Name of the provider (preset or custom) to use for this task.
@@ -219,6 +219,12 @@ pub struct TaskConfig {
     /// Max completion tokens. `0` means unlimited (omit from API request).
     #[serde(rename = "token-limit", default = "default_reduce_tokens")]
     pub token_limit: MaxTokens,
+    /// Custom system prompt. If empty, uses the built-in default.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub system_prompt: String,
+    /// Custom user prompt template. If empty, uses the built-in default.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub user_prompt: String,
 }
 
 impl TaskConfig {
@@ -228,6 +234,8 @@ impl TaskConfig {
             provider: default_provider_name(),
             model: default_model_name(),
             token_limit: default_reduce_tokens(),
+            system_prompt: String::new(),
+            user_prompt: String::new(),
         }
     }
 
@@ -237,6 +245,8 @@ impl TaskConfig {
             provider: default_provider_name(),
             model: default_model_name(),
             token_limit: default_expand_tokens(),
+            system_prompt: String::new(),
+            user_prompt: String::new(),
         }
     }
 
@@ -246,6 +256,8 @@ impl TaskConfig {
             provider: default_provider_name(),
             model: default_model_name(),
             token_limit: default_inquire_tokens(),
+            system_prompt: String::new(),
+            user_prompt: String::new(),
         }
     }
 }
@@ -348,11 +360,15 @@ mod tests {
                 provider: "deepseek".to_string(),
                 model: "deepseek-chat".to_string(),
                 token_limit: MaxTokens::new(300),
+                system_prompt: String::new(),
+                user_prompt: String::new(),
             },
             expand: TaskConfig {
                 provider: "openai".to_string(),
                 model: "gpt-4o".to_string(),
                 token_limit: MaxTokens::UNLIMITED,
+                system_prompt: String::new(),
+                user_prompt: String::new(),
             },
             inquire: TaskConfig::default_inquire(),
         };

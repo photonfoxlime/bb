@@ -134,6 +134,9 @@ settings_task_expand: "任务：展开"
 settings_task_inquire: "任务：询问"
 settings_task_provider: "提供方"
 settings_task_token_limit: "生成长度"
+settings_custom_system_prompt: "系统提示词"
+settings_custom_user_prompt: "用户提示词"
+settings_custom_prompt_hint: "留空使用默认"
 
 # Action bar buttons
 action_expand: "展开"

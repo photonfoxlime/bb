@@ -74,6 +74,16 @@ pub fn handle(state: &mut AppState, message: ExpandMessage) -> Task<Message> {
             let instruction =
                 state.store.remove_instruction_draft(&block_id).map(|d| d.instruction);
             let expand_max_tokens = state.config.tasks.expand.token_limit.as_api_param();
+            let custom_system_prompt = if state.config.tasks.expand.system_prompt.is_empty() {
+                None
+            } else {
+                Some(state.config.tasks.expand.system_prompt.clone())
+            };
+            let custom_user_prompt = if state.config.tasks.expand.user_prompt.is_empty() {
+                None
+            } else {
+                Some(state.config.tasks.expand.user_prompt.clone())
+            };
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
@@ -84,6 +94,8 @@ pub fn handle(state: &mut AppState, message: ExpandMessage) -> Task<Message> {
                                 &context,
                                 instruction.as_deref(),
                                 expand_max_tokens,
+                                custom_system_prompt,
+                                custom_user_prompt,
                             ),
                         )
                         .await,

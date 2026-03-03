@@ -113,6 +113,10 @@ pub struct TaskDraft {
     pub model: String,
     /// Draft text for the token-limit input. Empty when unlimited.
     pub max_tokens_text: String,
+    /// Custom system prompt.
+    pub system_prompt: String,
+    /// Custom user prompt template.
+    pub user_prompt: String,
 }
 
 impl TaskDraft {
@@ -126,6 +130,8 @@ impl TaskDraft {
             } else {
                 config.token_limit.raw().to_string()
             },
+            system_prompt: config.system_prompt.clone(),
+            user_prompt: config.user_prompt.clone(),
         }
     }
 }
@@ -322,6 +328,10 @@ pub enum SettingsMessage {
     MaxTokensChanged(TaskKind, String),
     /// Toggle the "unlimited" checkbox for a specific task kind.
     ToggleMaxTokensUnlimited(TaskKind, bool),
+    /// Change the custom system prompt for a specific task kind.
+    TaskSystemPromptChanged(TaskKind, String),
+    /// Change the custom user prompt for a specific task kind.
+    TaskUserPromptChanged(TaskKind, String),
 }
 
 impl SettingsState {
@@ -686,6 +696,64 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                 tracing::error!(%err, ?kind, unlimited, "failed to persist token limit toggle");
             } else {
                 tracing::info!(?kind, unlimited, "token limit unlimited toggled and persisted");
+            }
+            Task::none()
+        }
+        | SettingsMessage::TaskSystemPromptChanged(kind, prompt) => {
+            let task_draft = state.settings.task_drafts.get_mut(&kind);
+            task_draft.system_prompt = prompt.clone();
+            let task_cfg = match kind {
+                | TaskKind::Reduce => &mut state.config.tasks.reduce,
+                | TaskKind::Expand => &mut state.config.tasks.expand,
+                | TaskKind::Inquire => &mut state.config.tasks.inquire,
+            };
+            task_cfg.system_prompt = prompt.clone();
+            match kind {
+                | TaskKind::Reduce => {
+                    state.settings.config.tasks.reduce.system_prompt = prompt.clone()
+                }
+                | TaskKind::Expand => {
+                    state.settings.config.tasks.expand.system_prompt = prompt.clone()
+                }
+                | TaskKind::Inquire => {
+                    state.settings.config.tasks.inquire.system_prompt = prompt.clone()
+                }
+            }
+            if let Err(err) = config::save(&state.config) {
+                state.settings.status =
+                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                tracing::error!(%err, ?kind, "failed to persist system prompt");
+            } else {
+                tracing::info!(?kind, "system prompt changed and persisted");
+            }
+            Task::none()
+        }
+        | SettingsMessage::TaskUserPromptChanged(kind, prompt) => {
+            let task_draft = state.settings.task_drafts.get_mut(&kind);
+            task_draft.user_prompt = prompt.clone();
+            let task_cfg = match kind {
+                | TaskKind::Reduce => &mut state.config.tasks.reduce,
+                | TaskKind::Expand => &mut state.config.tasks.expand,
+                | TaskKind::Inquire => &mut state.config.tasks.inquire,
+            };
+            task_cfg.user_prompt = prompt.clone();
+            match kind {
+                | TaskKind::Reduce => {
+                    state.settings.config.tasks.reduce.user_prompt = prompt.clone()
+                }
+                | TaskKind::Expand => {
+                    state.settings.config.tasks.expand.user_prompt = prompt.clone()
+                }
+                | TaskKind::Inquire => {
+                    state.settings.config.tasks.inquire.user_prompt = prompt.clone()
+                }
+            }
+            if let Err(err) = config::save(&state.config) {
+                state.settings.status =
+                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                tracing::error!(%err, ?kind, "failed to persist user prompt");
+            } else {
+                tracing::info!(?kind, "user prompt changed and persisted");
             }
             Task::none()
         }
@@ -1211,7 +1279,43 @@ fn task_settings_section(
     .align_y(iced::Alignment::Center)
     .width(Fill);
 
-    section(title, column![provider_row, model_row, token_row].spacing(theme::FORM_ROW_GAP))
+    // Custom prompt inputs
+    let system_prompt_label = t!("settings_custom_system_prompt").to_string();
+    let system_prompt_hint = t!("settings_custom_prompt_hint").to_string();
+    let system_prompt_input = text_input(&system_prompt_hint, &draft.system_prompt)
+        .on_input(move |v| Message::Settings(SettingsMessage::TaskSystemPromptChanged(kind, v)))
+        .size(theme::INPUT_TEXT_SIZE)
+        .padding(theme::PANEL_PAD_V);
+
+    let system_prompt_row = column![
+        text(system_prompt_label)
+            .size(theme::LABEL_TEXT_SIZE)
+            .font(theme::INTER)
+            .color(theme::LIGHT.accent_muted),
+        system_prompt_input,
+    ]
+    .spacing(theme::INLINE_GAP);
+
+    let user_prompt_label = t!("settings_custom_user_prompt").to_string();
+    let user_prompt_input = text_input(&system_prompt_hint, &draft.user_prompt)
+        .on_input(move |v| Message::Settings(SettingsMessage::TaskUserPromptChanged(kind, v)))
+        .size(theme::INPUT_TEXT_SIZE)
+        .padding(theme::PANEL_PAD_V);
+
+    let user_prompt_row = column![
+        text(user_prompt_label)
+            .size(theme::LABEL_TEXT_SIZE)
+            .font(theme::INTER)
+            .color(theme::LIGHT.accent_muted),
+        user_prompt_input,
+    ]
+    .spacing(theme::INLINE_GAP);
+
+    section(
+        title,
+        column![provider_row, model_row, token_row, system_prompt_row, user_prompt_row]
+            .spacing(theme::FORM_ROW_GAP),
+    )
 }
 
 /// A read-only key-value row for path display.

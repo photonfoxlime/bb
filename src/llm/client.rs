@@ -62,6 +62,7 @@ impl LlmClient {
     /// - If response parsing fails, falls back to plain-text reduction with no redundant children.
     pub async fn reduce_block(
         &self, context: &BlockContext, instruction: Option<&str>, max_tokens: Option<u32>,
+        custom_system_prompt: Option<String>, custom_user_prompt: Option<String>,
     ) -> Result<ReduceResult, LlmError> {
         if context.is_empty() {
             return Err(LlmError::InvalidRequest);
@@ -69,7 +70,12 @@ impl LlmClient {
 
         let has_children =
             !context.existing_children.is_empty() || !context.friend_blocks.is_empty();
-        let prompt = Prompt::reduce_from_context(context, instruction);
+        let prompt = Prompt::reduce_from_context(
+            context,
+            instruction,
+            custom_system_prompt.as_deref(),
+            custom_user_prompt.as_deref(),
+        );
         let content = self.request_completion("reduce", &prompt, 0.2, max_tokens).await?;
 
         if has_children {
@@ -121,12 +127,18 @@ impl LlmClient {
     /// - Returns `Err(LlmError::InvalidExpandResponse)` if the response cannot be parsed.
     pub async fn expand_block(
         &self, context: &BlockContext, instruction: Option<&str>, max_tokens: Option<u32>,
+        custom_system_prompt: Option<String>, custom_user_prompt: Option<String>,
     ) -> Result<ExpandResult, LlmError> {
         if context.is_empty() {
             return Err(LlmError::InvalidRequest);
         }
 
-        let prompt = Prompt::expand_from_context(context, instruction);
+        let prompt = Prompt::expand_from_context(
+            context,
+            instruction,
+            custom_system_prompt.as_deref(),
+            custom_user_prompt.as_deref(),
+        );
         let content = self.request_completion("expand", &prompt, 0.7, max_tokens).await?;
         let payload: ExpandResponsePayload =
             serde_json::from_str(&content).map_err(|_| LlmError::InvalidExpandResponse)?;
@@ -170,6 +182,7 @@ impl LlmClient {
     /// - Returns `Err(LlmError::InvalidResponse)` if no usable text is returned.
     pub async fn inquire(
         &self, context: &BlockContext, instruction: &str, max_tokens: Option<u32>,
+        custom_system_prompt: Option<String>, custom_user_prompt: Option<String>,
     ) -> Result<String, LlmError> {
         if context.is_empty() {
             return Err(LlmError::InvalidRequest);
@@ -178,7 +191,12 @@ impl LlmClient {
             return Err(LlmError::InvalidRequest);
         }
 
-        let prompt = Prompt::inquire_from_context(context, instruction);
+        let prompt = Prompt::inquire_from_context(
+            context,
+            instruction,
+            custom_system_prompt.as_deref(),
+            custom_user_prompt.as_deref(),
+        );
         let content = self.request_completion("inquire", &prompt, 0.7, max_tokens).await?;
         let trimmed = content.trim();
         if trimmed.is_empty() {
@@ -217,7 +235,7 @@ impl LlmClient {
                     return Err(LlmError::InvalidRequest);
                 }
 
-                let prompt = Prompt::inquire_from_context(&context, &instruction);
+                let prompt = Prompt::inquire_from_context(&context, &instruction, None, None);
 
                 match self.stream_inquiry_chunks(&prompt, &mut output, max_tokens).await {
                     | Ok(stats) if stats.has_output() => {
@@ -232,16 +250,30 @@ impl LlmClient {
                         tracing::warn!(
                             "llm inquire streaming emitted no chunks; retrying with one-shot request"
                         );
-                        self.emit_inquiry_fallback(&context, &instruction, &mut output, max_tokens)
-                            .await
+                        self.emit_inquiry_fallback(
+                            &context,
+                            &instruction,
+                            &mut output,
+                            max_tokens,
+                            None,
+                            None,
+                        )
+                        .await
                     }
                     | Err(err) if should_fallback_to_non_stream(&err) => {
                         tracing::warn!(
                             error = %err,
                             "llm inquire streaming unsupported; retrying with one-shot request"
                         );
-                        self.emit_inquiry_fallback(&context, &instruction, &mut output, max_tokens)
-                            .await
+                        self.emit_inquiry_fallback(
+                            &context,
+                            &instruction,
+                            &mut output,
+                            max_tokens,
+                            None,
+                            None,
+                        )
+                        .await
                     }
                     | Err(err) => Err(err),
                 }
@@ -325,9 +357,12 @@ impl LlmClient {
     async fn emit_inquiry_fallback(
         &self, context: &BlockContext, instruction: &str,
         output: &mut iced::futures::channel::mpsc::Sender<InquireStreamEvent>,
-        max_tokens: Option<u32>,
+        max_tokens: Option<u32>, custom_system_prompt: Option<String>,
+        custom_user_prompt: Option<String>,
     ) -> Result<(), LlmError> {
-        let content = self.inquire(context, instruction, max_tokens).await?;
+        let content = self
+            .inquire(context, instruction, max_tokens, custom_system_prompt, custom_user_prompt)
+            .await?;
         let _ = output.send(InquireStreamEvent::Chunk(content.clone())).await;
         tracing::info!(chars = content.len(), "llm inquire fallback response");
         Ok(())

@@ -159,6 +159,9 @@ settings_task_expand: "Task: Expand"
 settings_task_inquire: "Task: Inquire"
 settings_task_provider: "Provider"
 settings_task_token_limit: "Token Limit"
+settings_custom_system_prompt: "System Prompt"
+settings_custom_user_prompt: "User Prompt"
+settings_custom_prompt_hint: "Leave empty to use default"
 
 # Instruction panel (additional)
 instruction_additional: "Additional instruction: %{instruction}"
