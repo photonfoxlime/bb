@@ -399,6 +399,25 @@ fn selected_blocks_without_selected_ancestors(
 /// - For single-block delete, focus moves to the previous visible block in
 ///   the current navigation view, matching the keyboard traversal direction.
 /// - The app exits multiselect mode after deletion completes.
+pub fn handle_multiselect_backspace(state: &mut AppState) -> Task<Message> {
+    let block_id = state
+        .ui()
+        .multiselect_selected_blocks
+        .iter()
+        .next()
+        .copied()
+        .or_else(|| state.focus().map(|f| f.block_id));
+
+    let Some(block_id) = block_id else {
+        tracing::debug!("multiselect backspace with no selection and no focus");
+        return Task::none();
+    };
+    if state.store.node(&block_id).is_none() {
+        return Task::none();
+    }
+    delete_multiselect_selection_on_backspace(state, block_id)
+}
+
 fn delete_multiselect_selection_on_backspace(
     state: &mut AppState, block_id: BlockId,
 ) -> Task<Message> {

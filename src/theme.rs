@@ -223,6 +223,8 @@ pub const FORM_ROW_GAP: f32 = 10.0;
 pub const FORM_SECTION_GAP: f32 = 12.0;
 /// Inline element gap.
 pub const INLINE_GAP: f32 = 4.0;
+/// Gap between section title text and trailing icon (e.g. task settings).
+pub const TITLE_ICON_GAP: f32 = 6.0;
 /// Compact vertical padding.
 pub const COMPACT_PAD_V: f32 = 6.0;
 /// Compact horizontal padding.

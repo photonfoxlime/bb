@@ -1241,6 +1241,42 @@ fn section(
     .into()
 }
 
+/// Icon for a task kind in the settings UI.
+/// Mirrors the icons used in the action bar for consistency.
+fn task_kind_icon(kind: TaskKind) -> Element<'static, Message> {
+    let icon = match kind {
+        | TaskKind::Expand => icons::icon_maximize_2(),
+        | TaskKind::Reduce => icons::icon_minimize_2(),
+        | TaskKind::Atomize => icons::icon_maximize(),
+        | TaskKind::Inquire => icons::icon_message_circle(),
+    };
+    icon.size(theme::SECTION_TITLE_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+/// A per-task settings section with an icon next to the title.
+fn task_section(
+    kind: TaskKind, title: String, content: impl Into<Element<'static, Message>>,
+) -> Element<'static, Message> {
+    let title_row = row![
+        text(title).size(theme::SECTION_TITLE_SIZE).font(theme::INTER),
+        task_kind_icon(kind),
+    ]
+    .spacing(theme::TITLE_ICON_GAP)
+    .align_y(iced::Alignment::Center);
+    container(
+        column![title_row, content.into(),]
+            .spacing(theme::FORM_SECTION_GAP),
+    )
+    .style(theme::draft_panel)
+    .padding(
+        iced::Padding::new(theme::PANEL_PAD_V).left(theme::PANEL_PAD_H).right(theme::PANEL_PAD_H),
+    )
+    .width(Fill)
+    .into()
+}
+
 /// A complete per-task configuration section: provider picker, model input, and token limit.
 ///
 /// Each section lets the user independently select a provider, model,
@@ -1378,7 +1414,8 @@ fn task_settings_section(
     ]
     .spacing(theme::INLINE_GAP);
 
-    section(
+    task_section(
+        kind,
         title,
         column![provider_row, model_row, token_row, system_prompt_row, user_prompt_row]
             .spacing(theme::FORM_ROW_GAP),

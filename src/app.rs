@@ -195,6 +195,9 @@ pub enum Message {
     LinkChipToggle(BlockId),
     /// Block clicked in multiselect mode. Modifiers at click time drive behavior.
     MultiselectBlockClicked(BlockId),
+    /// Plain Backspace in multiselect mode: delete selection. Handled globally
+    /// because blocks render as plain text (no editor to receive the key).
+    MultiselectBackspace,
     CursorPosition(iced::Point),
     EscapePressed,
 }
@@ -295,6 +298,12 @@ impl AppState {
                 multiselect::handle_block_clicked(self, block_id);
                 Task::none()
             }
+            | Message::MultiselectBackspace => {
+                if self.ui().document_mode != DocumentMode::Multiselect {
+                    return Task::none();
+                }
+                edit::handle_multiselect_backspace(self)
+            }
             | Message::SystemThemeChanged(mode) => {
                 if self.config.dark_mode.is_some() {
                     tracing::debug!(
@@ -359,6 +368,20 @@ impl AppState {
                     ..
                 }) if status != event::Status::Captured => {
                     Some(Message::LinkMode(LinkModeMessage::SelectNext))
+                }
+                | Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(keyboard::key::Named::Backspace),
+                    modifiers,
+                    ..
+                }) if status != event::Status::Captured
+                    && !modifiers.shift()
+                    && !modifiers.alt()
+                    && !modifiers.command()
+                    && !modifiers.control() =>
+                {
+                    // Emit unconditionally; update() no-ops when not in Multiselect.
+                    // Needed because multiselect blocks render as plain text (no editor).
+                    Some(Message::MultiselectBackspace)
                 }
                 | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                     if let Some(shortcut) = shortcut::movement_shortcut_from_key(&key, modifiers) {
