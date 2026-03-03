@@ -182,6 +182,11 @@ impl LlmClient {
         let payload: AtomizeResponsePayload =
             serde_json::from_str(&content).map_err(|_| LlmError::InvalidAtomizeResponse)?;
 
+        let rewrite = payload
+            .rewrite
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty());
+
         let points = payload
             .points
             .into_iter()
@@ -189,12 +194,12 @@ impl LlmClient {
             .filter(|value| !value.is_empty())
             .collect::<Vec<_>>();
 
-        if points.is_empty() {
+        if rewrite.is_none() && points.is_empty() {
             return Err(LlmError::InvalidAtomizeResponse);
         }
 
-        tracing::info!(points = points.len(), "llm atomize response");
-        Ok(AtomizeResult::new(points))
+        tracing::info!(rewrite = rewrite.is_some(), points = points.len(), "llm atomize response");
+        Ok(AtomizeResult::new(rewrite, points))
     }
 
     /// Send an instruction as a one-time inquiry to the LLM.
@@ -699,6 +704,7 @@ enum AnthropicContentBlock {
 
 #[derive(Deserialize)]
 pub struct AtomizeResponsePayload {
+    rewrite: Option<String>,
     #[serde(default)]
     points: Vec<String>,
 }

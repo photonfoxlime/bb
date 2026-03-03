@@ -19,10 +19,13 @@ pub struct ExpansionDraftRecord {
 
 /// Persisted atomization draft payload keyed by [`BlockId`].
 ///
-/// Stores the list of distinct information points produced by atomize until
-/// the user accepts or discards them.
+/// Stores an optional rewrite of the original text plus the list of distinct
+/// information points produced by atomize until the user accepts or discards.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AtomizationDraftRecord {
+    /// Optional restatement of the target block suitable as parent heading.
+    #[serde(default)]
+    pub rewrite: Option<String>,
     pub points: Vec<String>,
 }
 

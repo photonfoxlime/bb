@@ -128,7 +128,7 @@ impl TaskKind {
                 let context_qualifier = Self::context_qualifier(presence);
                 let friends_explanation = self.friends_explanation(presence);
                 format!(
-                    "You atomize one target bullet point using its ancestors{context_qualifier}. Break the text into a list of distinct information points without dropping details. Return strict JSON only: {{\"points\": string[]}}. Each point must be a single, self-contained fact or idea. Preserve all semantic content; do not summarize or condense.{friends_explanation} No markdown, no extra keys."
+                    "You atomize one target bullet point using its ancestors{context_qualifier}. Break the text into a list of distinct information points without dropping details. Return strict JSON only: {{\"rewrite\": string|null, \"points\": string[]}}. rewrite: optional concise restatement of the original suitable as the parent heading (one sentence); omit if the original needs no change. points: the decomposed facts/ideas, each a single self-contained item. Preserve all semantic content; do not summarize or condense.{friends_explanation} No markdown, no extra keys."
                 )
             }
             Self::Expand => {

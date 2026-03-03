@@ -526,8 +526,12 @@ pub fn action_to_message_by_id(
         | ActionId::DismissDraft => {
             if state.store.reduction_draft(block_id).is_some() {
                 Some(Message::Reduce(ReduceMessage::Reject(*block_id)))
-            } else if state.store.atomization_draft(block_id).is_some() {
-                Some(Message::Atomize(AtomizeMessage::DiscardAllChildren(*block_id)))
+            } else if let Some(atomization_draft) = state.store.atomization_draft(block_id) {
+                if atomization_draft.rewrite.is_some() && atomization_draft.points.is_empty() {
+                    Some(Message::Atomize(AtomizeMessage::RejectRewrite(*block_id)))
+                } else {
+                    Some(Message::Atomize(AtomizeMessage::DiscardAllChildren(*block_id)))
+                }
             } else if let Some(expansion_draft) = state.store.expansion_draft(block_id) {
                 if !expansion_draft.children.is_empty() {
                     Some(Message::Expand(ExpandMessage::DiscardAllChildren(*block_id)))

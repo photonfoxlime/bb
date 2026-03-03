@@ -280,21 +280,24 @@ impl ExpandResult {
 
 /// Structured result returned by one atomize request.
 ///
-/// Contains distinct information points extracted from the target block's text.
+/// Contains an optional rewrite of the original text plus distinct information
+/// points. The rewrite may summarize or restructure the source; points are the
+/// decomposed facts/ideas.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AtomizeResult {
+    rewrite: Option<String>,
     points: Vec<String>,
 }
 
 impl AtomizeResult {
-    /// Build from parsed points.
-    pub fn new(points: Vec<String>) -> Self {
-        Self { points }
+    /// Build from parsed rewrite and points.
+    pub fn new(rewrite: Option<String>, points: Vec<String>) -> Self {
+        Self { rewrite, points }
     }
 
-    /// Consume and return owned points.
-    pub fn into_points(self) -> Vec<String> {
-        self.points
+    /// Consume and return owned rewrite and points.
+    pub fn into_parts(self) -> (Option<String>, Vec<String>) {
+        (self.rewrite, self.points)
     }
 }
 
@@ -548,6 +551,30 @@ mod tests {
         let (rewrite, children) = result.into_parts();
         assert_eq!(rewrite, None);
         assert_eq!(children.len(), 2);
+    }
+
+    #[test]
+    fn atomize_result_into_parts_with_both() {
+        let result = AtomizeResult::new(Some("heading".into()), vec!["a".into(), "b".into()]);
+        let (rewrite, points) = result.into_parts();
+        assert_eq!(rewrite, Some("heading".to_string()));
+        assert_eq!(points, vec!["a".to_string(), "b".to_string()]);
+    }
+
+    #[test]
+    fn atomize_result_into_parts_rewrite_only() {
+        let result = AtomizeResult::new(Some("restated".into()), vec![]);
+        let (rewrite, points) = result.into_parts();
+        assert_eq!(rewrite, Some("restated".to_string()));
+        assert!(points.is_empty());
+    }
+
+    #[test]
+    fn atomize_result_into_parts_points_only() {
+        let result = AtomizeResult::new(None, vec!["p1".into()]);
+        let (rewrite, points) = result.into_parts();
+        assert_eq!(rewrite, None);
+        assert_eq!(points, vec!["p1".to_string()]);
     }
 
     #[test]

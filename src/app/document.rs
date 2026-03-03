@@ -872,6 +872,38 @@ impl<'a> TreeView<'a> {
     ) -> Element<'a, Message> {
         let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
 
+        if let Some(rewrite) = &draft.rewrite {
+            let old_text = self.state.store.point(block_id).unwrap_or_default();
+            let diff_content = self.render_diff_content(&old_text, rewrite);
+
+            panel = panel.push(
+                column![]
+                    .spacing(theme::PANEL_INNER_GAP)
+                    .push(container(text(t!("doc_rewrite").to_string())).width(Length::Fill))
+                    .push(container(diff_content).width(Length::Fill))
+                    .push(
+                        row![]
+                            .width(Length::Fill)
+                            .spacing(theme::PANEL_BUTTON_GAP)
+                            .push(space::horizontal())
+                            .push(
+                                TextButton::action(t!("doc_apply_rewrite").to_string(), 13.0)
+                                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                                    .on_press(Message::Atomize(AtomizeMessage::ApplyRewrite(
+                                        *block_id,
+                                    ))),
+                            )
+                            .push(
+                                TextButton::destructive(t!("doc_dismiss_rewrite").to_string(), 13.0)
+                                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                                    .on_press(Message::Atomize(AtomizeMessage::RejectRewrite(
+                                        *block_id,
+                                    ))),
+                            ),
+                    ),
+            );
+        }
+
         if !draft.points.is_empty() {
             panel = panel.push(
                 row![]
