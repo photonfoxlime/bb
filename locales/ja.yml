@@ -178,3 +178,9 @@ load_block_from_file: "ファイルからブロックを読み込む"
 move_mounted_file: "マウントファイルを移動"
 mount_inline_confirm_hint: "再度クリックすると、すべてのマウント内容をインライン化します"
 action_enter_block: "入る"
+
+# Link panel
+link_panel_title: "ファイルにリンク"
+link_panel_placeholder: "ファイルを検索..."
+link_panel_hint: "パスを入力するか検索。Escでキャンセル。"
+link_panel_close: "閉じる"

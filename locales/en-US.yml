@@ -185,3 +185,9 @@ load_block_from_file: "Load block from file"
 move_mounted_file: "Move mounted file"
 mount_inline_confirm_hint: "Click again to inline all mounted content"
 action_enter_block: "Enter"
+
+# Link panel
+link_panel_title: "Link to file"
+link_panel_placeholder: "Search files..."
+link_panel_hint: "Type a path or search. Esc to cancel."
+link_panel_close: "Close"

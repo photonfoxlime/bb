@@ -76,6 +76,7 @@ use super::{
     find_panel,
     friends_panel::{self, FriendPanelMessage},
     instruction_panel::{self, InstructionPanelMessage},
+    link_panel,
     settings::SettingsMessage,
 };
 use crate::{
@@ -330,6 +331,7 @@ impl<'a> DocumentView<'a> {
             floating_gear,
             toolbar_container,
             find_panel::floating_overlay(state),
+            link_panel::floating_overlay(state),
             breadcrumbs_container,
             floating_bottom_right,
             self.render_context_menu(),
@@ -778,14 +780,44 @@ impl<'a> TreeView<'a> {
                     .align_y(iced::Alignment::Center),
             )
             .style(theme::link_chip_button)
-            .padding(theme::LINK_CHIP_PAD);
+            .padding(theme::LINK_CHIP_PAD)
+            .on_press(Message::LinkChipToggle(*block_id));
 
-            mouse_area(chip)
-                .on_right_press(Message::ContextMenu(ContextMenuMessage::Show {
+            let is_expanded = self.state.ui().expanded_links.contains(block_id);
+
+            let mut chip_col = column![mouse_area(chip).on_right_press(Message::ContextMenu(
+                ContextMenuMessage::Show {
                     block_id: block_id_for_edit,
                     position: self.state.ui().cursor_position.unwrap_or(Point::ORIGIN),
-                }))
-                .into()
+                }
+            ))];
+
+            // Inline preview when expanded.
+            if is_expanded {
+                match link.kind {
+                    | LinkKind::Image => {
+                        let img =
+                            iced::widget::image(iced::widget::image::Handle::from_path(&link.href))
+                                .width(Fill);
+                        chip_col = chip_col.push(img);
+                    }
+                    | LinkKind::Markdown => {
+                        // Read file contents and display as plain text.
+                        let content_text = std::fs::read_to_string(&link.href)
+                            .unwrap_or_else(|e| format!("(error: {})", e));
+                        chip_col = chip_col.push(
+                            container(text(content_text).size(theme::FIND_RESULT_POINT_SIZE))
+                                .padding(theme::LINK_CHIP_PAD)
+                                .width(Fill),
+                        );
+                    }
+                    | LinkKind::Path => {
+                        // No preview for generic paths.
+                    }
+                }
+            }
+
+            chip_col.into()
         } else {
             let mut editor = text_editor(editor_content)
                 .placeholder(t!("doc_placeholder_point").to_string())
@@ -875,15 +907,22 @@ impl<'a> TreeView<'a> {
             self.state.ui().multiselect_selected_blocks.contains(block_id);
 
         match (self.state.ui().document_mode, self.state.focus().map(|s| s.block_id)) {
-            | (DocumentMode::Normal | DocumentMode::Find, Some(focused)) if focused == *block_id => {
+            | (
+                DocumentMode::Normal | DocumentMode::Find | DocumentMode::LinkInput,
+                Some(focused),
+            ) if focused == *block_id => {
                 // Render the block as the focused block
                 container(block).style(theme::focused_block).into()
             }
-            | (DocumentMode::Normal | DocumentMode::Find, _) if is_hovered_friend => {
+            | (DocumentMode::Normal | DocumentMode::Find | DocumentMode::LinkInput, _)
+                if is_hovered_friend =>
+            {
                 // Highlight block when friend panel hovers over it
                 container(block).style(theme::friend_picker_hover).into()
             }
-            | (DocumentMode::Normal | DocumentMode::Find, _) => block.into(),
+            | (DocumentMode::Normal | DocumentMode::Find | DocumentMode::LinkInput, _) => {
+                block.into()
+            }
             | (DocumentMode::PickFriend, Some(focused)) if focused == *block_id => {
                 // Render the picker block itself as is
                 block.into()

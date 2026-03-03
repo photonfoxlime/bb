@@ -109,6 +109,16 @@ pub const CANVAS_THRESHOLD_WIDE: f32 = 1800.0;
 /// Top padding inside the scrollable viewport.
 pub const CANVAS_TOP: f32 = 12.0;
 
+// --- Link panel ---
+/// Margin around the link panel overlay.
+pub const LINK_PANEL_MARGIN: f32 = 16.0;
+/// Vertical position ratio for the link panel (golden ratio-ish).
+pub const LINK_PANEL_TOP_RATIO: f32 = 0.382;
+/// Maximum width of the link panel.
+pub const LINK_PANEL_MAX_WIDTH: f32 = 680.0;
+/// Fixed height for the link panel candidate list.
+pub const LINK_PANEL_LIST_HEIGHT: f32 = 280.0;
+
 /// Computes the effective canvas max width based on window width.
 pub fn canvas_max_width(window_width: f32) -> f32 {
     if window_width <= CANVAS_THRESHOLD_STANDARD {

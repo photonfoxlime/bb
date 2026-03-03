@@ -567,6 +567,21 @@ pub fn handle_point_edited(
 
         if navigate_to.is_none() {
             let next_text = content.text();
+
+            // Detect `@` typed in an empty point: enter link mode.
+            // The iced text editor appends a trailing newline, so the buffer
+            // reads "@\n" when only `@` was typed.
+            if next_text.trim() == "@" {
+                // Clear the editor back to empty so no `@` remains visible.
+                content.perform(iced::widget::text_editor::Action::SelectAll);
+                content.perform(iced::widget::text_editor::Action::Edit(
+                    iced::widget::text_editor::Edit::Paste(String::new().into()),
+                ));
+                state.store.update_point(&block_id, String::new());
+                state.persist_with_context("clear for link mode");
+                return Task::done(Message::LinkMode(LinkModeMessage::Enter(block_id)));
+            }
+
             tracing::debug!(block_id = ?block_id, chars = next_text.len(), "point edited");
             state.store.update_point(&block_id, next_text);
             state.persist_with_context("after edit");

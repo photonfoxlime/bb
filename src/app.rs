@@ -17,6 +17,7 @@ mod context_menu;
 mod document;
 mod settings;
 mod find_panel;
+mod link_panel;
 mod error_banner;
 // Block Editor
 mod edit;
@@ -188,6 +189,9 @@ pub enum Message {
     SystemThemeChanged(iced::theme::Mode),
     Navigation(NavigationMessage),
     ContextMenu(ContextMenuMessage),
+    LinkMode(LinkModeMessage),
+    /// Toggle inline preview for a link chip (expand / collapse).
+    LinkChipToggle(BlockId),
     CursorPosition(iced::Point),
     EscapePressed,
 }
@@ -225,11 +229,20 @@ impl AppState {
             }
             | Message::Settings(message) => settings::handle(self, message),
             | Message::ContextMenu(message) => context_menu::handle(self, message),
+            | Message::LinkMode(message) => link_panel::handle(self, message),
+            | Message::LinkChipToggle(block_id) => {
+                if !self.ui_mut().expanded_links.remove(&block_id) {
+                    self.ui_mut().expanded_links.insert(block_id);
+                }
+                Task::none()
+            }
             | Message::EscapePressed => {
                 // Highest priority: close context menu if open
                 if self.ui().context_menu.is_some() {
                     self.ui_mut().context_menu = None;
                     Task::none()
+                } else if matches!(self.ui().document_mode, DocumentMode::LinkInput) {
+                    link_panel::handle(self, LinkModeMessage::Cancel)
                 } else {
                     find_panel::handle(self, FindMessage::Escape)
                 }
@@ -727,6 +740,45 @@ pub enum DocumentMode {
     /// exists as a dedicated state so future multi-select interactions can be
     /// added without overloading `Normal` behavior.
     Multiselect,
+    /// Link input mode: searching the filesystem for a path to link.
+    ///
+    /// Entered by typing `@` in an empty point editor. The mode shows a
+    /// floating panel with fuzzy filesystem search. Selecting a candidate
+    /// converts the block's point to a [`PointLink`].
+    LinkInput,
+}
+
+/// Messages for the link-input panel.
+#[derive(Debug, Clone)]
+pub enum LinkModeMessage {
+    /// Enter link mode for the given block.
+    Enter(BlockId),
+    /// The user changed the search query.
+    QueryChanged(String),
+    /// The user selected the current candidate (confirm).
+    Confirm,
+    /// The user pressed Up arrow.
+    SelectPrevious,
+    /// The user pressed Down arrow.
+    SelectNext,
+    /// Cancel link mode without changes.
+    Cancel,
+}
+
+/// Transient state for the link-input panel.
+///
+/// Tracks the search query, filesystem candidates, and which candidate
+/// is currently highlighted. Reset on mode exit.
+#[derive(Debug, Clone, Default)]
+pub struct LinkPanelState {
+    /// The block whose point is being replaced by a link.
+    pub block_id: Option<BlockId>,
+    /// Current search query (path fragment).
+    pub query: String,
+    /// Candidate filesystem paths matching the query.
+    pub candidates: Vec<std::path::PathBuf>,
+    /// Index of the currently highlighted candidate.
+    pub selected_index: usize,
 }
 
 /// Which top-level screen is active.
@@ -844,6 +896,12 @@ pub struct TransientUiState {
     pub context_menu: Option<(BlockId, iced::Point)>,
     /// Last known cursor position for context menu placement.
     pub cursor_position: Option<iced::Point>,
+    /// State for the link-input panel (filesystem search).
+    pub link_panel: LinkPanelState,
+    /// Set of blocks whose link chips are expanded (showing inline preview).
+    ///
+    /// Transient: not persisted, reset on restart.
+    pub expanded_links: BTreeSet<BlockId>,
 }
 
 /// Snapshot of undoable application state.

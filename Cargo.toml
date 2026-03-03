@@ -21,7 +21,7 @@ log = ["dep:tracing-subscriber"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-iced = { version = "0.14", features = ["tokio"] }
+iced = { version = "0.14", features = ["tokio", "image"] }
 directories = "6.0.0"
 reqwest = { version = "0.13.2", features = ["json", "stream"] }
 serde = { version = "1.0.218", features = ["derive"] }

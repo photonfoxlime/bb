@@ -178,3 +178,9 @@ load_block_from_file: "从文件加载块"
 move_mounted_file: "移动挂载文件"
 mount_inline_confirm_hint: "再次点击以将所有挂载内容内联到当前文件"
 action_enter_block: "进入"
+
+# Link panel
+link_panel_title: "链接到文件"
+link_panel_placeholder: "搜索文件..."
+link_panel_hint: "输入路径或搜索。按 Esc 取消。"
+link_panel_close: "关闭"
