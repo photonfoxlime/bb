@@ -75,16 +75,10 @@ pub fn handle(state: &mut AppState, message: ReduceMessage) -> Task<Message> {
             let instruction =
                 state.store.remove_instruction_draft(&block_id).map(|d| d.instruction);
             let reduce_max_tokens = state.config.tasks.reduce.token_limit.as_api_param();
-            let custom_system_prompt = if state.config.tasks.reduce.system_prompt.is_empty() {
-                None
-            } else {
-                Some(state.config.tasks.reduce.system_prompt.clone())
-            };
-            let custom_user_prompt = if state.config.tasks.reduce.user_prompt.is_empty() {
-                None
-            } else {
-                Some(state.config.tasks.reduce.user_prompt.clone())
-            };
+            let prompt_config = llm::TaskPromptConfig::reduce(
+                &state.config.tasks.reduce.system_prompt,
+                &state.config.tasks.reduce.user_prompt,
+            );
             let request_task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
@@ -95,8 +89,7 @@ pub fn handle(state: &mut AppState, message: ReduceMessage) -> Task<Message> {
                                 &context,
                                 instruction.as_deref(),
                                 reduce_max_tokens,
-                                custom_system_prompt,
-                                custom_user_prompt,
+                                &prompt_config,
                             ),
                         )
                         .await,

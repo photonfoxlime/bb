@@ -26,6 +26,50 @@ pub(crate) enum PromptTask {
     Inquire,
 }
 
+/// Per-task prompt configuration: task kind plus its optional custom prompts.
+///
+/// Each task (reduce, expand, inquire) has its own `system_prompt` and
+/// `user_prompt` in config; this struct bundles them for prompt construction.
+#[derive(Clone, Debug)]
+pub struct TaskPromptConfig {
+    pub task: PromptTask,
+    pub custom_system_prompt: Option<String>,
+    pub custom_user_prompt: Option<String>,
+}
+
+impl TaskPromptConfig {
+    fn optional(s: &str) -> Option<String> {
+        if s.is_empty() { None } else { Some(s.to_string()) }
+    }
+
+    /// Config for reduce task with its custom prompts.
+    pub fn reduce(system_prompt: &str, user_prompt: &str) -> Self {
+        Self {
+            task: PromptTask::Reduce,
+            custom_system_prompt: Self::optional(system_prompt),
+            custom_user_prompt: Self::optional(user_prompt),
+        }
+    }
+
+    /// Config for expand task with its custom prompts.
+    pub fn expand(system_prompt: &str, user_prompt: &str) -> Self {
+        Self {
+            task: PromptTask::Expand,
+            custom_system_prompt: Self::optional(system_prompt),
+            custom_user_prompt: Self::optional(user_prompt),
+        }
+    }
+
+    /// Config for inquire task with its custom prompts.
+    pub fn inquire(system_prompt: &str, user_prompt: &str) -> Self {
+        Self {
+            task: PromptTask::Inquire,
+            custom_system_prompt: Self::optional(system_prompt),
+            custom_user_prompt: Self::optional(user_prompt),
+        }
+    }
+}
+
 impl PromptTask {
     fn context_qualifier(presence: ContextPresence) -> &'static str {
         match (presence.has_children, presence.has_friends) {
@@ -99,20 +143,20 @@ impl PromptTask {
 impl Prompt {
     /// Build a prompt from block context using a unified construction flow.
     ///
-    /// - `task`: reduce, expand, or inquire.
-    /// - `instruction`: optional for reduce/expand (prefixed to system); required
-    ///   for inquire (embedded in user message). Must be `Some` when `task` is
-    ///   `Inquire`.
-    /// - Custom prompts override defaults when non-empty; lineage is always appended.
+    /// Uses [`TaskPromptConfig`] for task identity and custom prompts.
+    /// `instruction` is optional for reduce/expand (prefixed to system);
+    /// required for inquire (embedded in user message).
     pub(crate) fn from_context(
-        task: PromptTask, context: &BlockContext, instruction: Option<&str>,
-        custom_system_prompt: Option<&str>, custom_user_prompt: Option<&str>,
+        config: &TaskPromptConfig, context: &BlockContext, instruction: Option<&str>,
     ) -> Self {
+        let task = config.task;
         let fmt = ContextFormatter::from_block_context(context);
         let presence = fmt.presence();
         let instruction_prefix = instruction.map(|i| format!("{}\n\n", i)).unwrap_or_default();
+        let custom_system = config.custom_system_prompt.as_deref();
+        let custom_user = config.custom_user_prompt.as_deref();
 
-        let user = if let Some(custom) = custom_user_prompt {
+        let user = if let Some(custom) = custom_user {
             let context_block = fmt.format_context_block();
             match task {
                 | PromptTask::Inquire => {
@@ -136,60 +180,13 @@ impl Prompt {
         };
 
         let system =
-            custom_system_prompt.map(String::from).unwrap_or_else(|| task.default_system(presence));
+            custom_system.map(String::from).unwrap_or_else(|| task.default_system(presence));
         let system = match task {
             | PromptTask::Inquire => system,
             | _ => format!("{instruction_prefix}{system}"),
         };
 
         Self { system, user }
-    }
-
-    /// Build a reduce prompt from block context.
-    pub(crate) fn reduce_from_context(
-        context: &BlockContext, instruction: Option<&str>, custom_system_prompt: Option<&str>,
-        custom_user_prompt: Option<&str>,
-    ) -> Self {
-        Self::from_context(
-            PromptTask::Reduce,
-            context,
-            instruction,
-            custom_system_prompt,
-            custom_user_prompt,
-        )
-    }
-
-    /// Build an expand prompt from block context.
-    pub(crate) fn expand_from_context(
-        context: &BlockContext, instruction: Option<&str>, custom_system_prompt: Option<&str>,
-        custom_user_prompt: Option<&str>,
-    ) -> Self {
-        Self::from_context(
-            PromptTask::Expand,
-            context,
-            instruction,
-            custom_system_prompt,
-            custom_user_prompt,
-        )
-    }
-
-    /// Build a prompt for a one-time instruction inquiry.
-    ///
-    /// The inquiry prompt includes the block's lineage, direct children, and
-    /// friend blocks as context, followed by the user's instruction. The
-    /// response is a free-form text answer that can be applied as a rewrite to
-    /// the block's point.
-    pub(crate) fn inquire_from_context(
-        context: &BlockContext, instruction: &str, custom_system_prompt: Option<&str>,
-        custom_user_prompt: Option<&str>,
-    ) -> Self {
-        Self::from_context(
-            PromptTask::Inquire,
-            context,
-            Some(instruction),
-            custom_system_prompt,
-            custom_user_prompt,
-        )
     }
 }
 
@@ -202,7 +199,8 @@ mod tests {
         let lineage =
             LineageContext::from_points(vec!["first".into(), "second".into(), "third".into()]);
         let context = BlockContext::new(lineage, vec![], vec![]);
-        let prompt = Prompt::reduce_from_context(&context, None, None, None);
+        let config = TaskPromptConfig::reduce("", "");
+        let prompt = Prompt::from_context(&config, &context, None);
         assert!(prompt.user.contains("Parent: first"));
         assert!(prompt.user.contains("Parent: second"));
         assert!(prompt.user.contains("Target: third"));
@@ -213,7 +211,8 @@ mod tests {
         let lineage =
             LineageContext::from_points(vec!["first".into(), "second".into(), "third".into()]);
         let context = BlockContext::new(lineage, vec![], vec![]);
-        let prompt = Prompt::expand_from_context(&context, None, None, None);
+        let config = TaskPromptConfig::expand("", "");
+        let prompt = Prompt::from_context(&config, &context, None);
         assert!(prompt.user.contains("Parent: first"));
         assert!(prompt.user.contains("Parent: second"));
         assert!(prompt.user.contains("Target: third"));
@@ -223,7 +222,8 @@ mod tests {
     fn expand_prompt_mentions_concise_and_non_overlapping_constraints() {
         let lineage = LineageContext::from_points(vec!["root".into(), "target".into()]);
         let context = BlockContext::new(lineage, vec![], vec![]);
-        let prompt = Prompt::expand_from_context(&context, None, None, None);
+        let config = TaskPromptConfig::expand("", "");
+        let prompt = Prompt::from_context(&config, &context, None);
         assert!(prompt.system.contains("one concise sentence"));
         assert!(prompt.system.contains("mutually non-overlapping"));
         assert!(prompt.system.contains("distinct subtopic"));
@@ -235,7 +235,8 @@ mod tests {
         let lineage = LineageContext::from_points(vec!["root".into(), "target".into()]);
         let children = vec!["existing child A".to_string(), "existing child B".to_string()];
         let ctx = BlockContext::new(lineage, children, vec![]);
-        let prompt = Prompt::expand_from_context(&ctx, None, None, None);
+        let config = TaskPromptConfig::expand("", "");
+        let prompt = Prompt::from_context(&config, &ctx, None);
         assert!(prompt.user.contains("Existing children:"));
         assert!(prompt.user.contains("[0] existing child A"));
         assert!(prompt.user.contains("[1] existing child B"));
@@ -246,7 +247,8 @@ mod tests {
     fn expand_prompt_without_children_omits_section() {
         let lineage = LineageContext::from_points(vec!["root".into(), "target".into()]);
         let ctx = BlockContext::new(lineage, vec![], vec![]);
-        let prompt = Prompt::expand_from_context(&ctx, None, None, None);
+        let config = TaskPromptConfig::expand("", "");
+        let prompt = Prompt::from_context(&config, &ctx, None);
         assert!(!prompt.user.contains("Existing children:"));
     }
 
@@ -255,7 +257,8 @@ mod tests {
         let lineage = LineageContext::from_points(vec!["root".into(), "target".into()]);
         let children = vec!["child A".to_string()];
         let ctx = BlockContext::new(lineage, children, vec![]);
-        let prompt = Prompt::reduce_from_context(&ctx, None, None, None);
+        let config = TaskPromptConfig::reduce("", "");
+        let prompt = Prompt::from_context(&config, &ctx, None);
         assert!(prompt.user.contains("Existing children:"));
         assert!(prompt.user.contains("[0] child A"));
         assert!(prompt.system.contains("redundant_children"));
@@ -265,7 +268,8 @@ mod tests {
     fn reduce_prompt_without_children_is_plain() {
         let lineage = LineageContext::from_points(vec!["root".into(), "target".into()]);
         let ctx = BlockContext::new(lineage, vec![], vec![]);
-        let prompt = Prompt::reduce_from_context(&ctx, None, None, None);
+        let config = TaskPromptConfig::reduce("", "");
+        let prompt = Prompt::from_context(&config, &ctx, None);
         assert!(!prompt.user.contains("Existing children:"));
     }
 
@@ -284,7 +288,8 @@ mod tests {
             FriendContext::with_context("peer concept B".to_string(), None, true, true, None, None),
         ];
         let ctx = BlockContext::new(lineage, vec![], friends);
-        let prompt = Prompt::expand_from_context(&ctx, None, None, None);
+        let config = TaskPromptConfig::expand("", "");
+        let prompt = Prompt::from_context(&config, &ctx, None);
         assert!(prompt.user.contains("Friend blocks:"));
         assert!(prompt.user.contains("[0] peer concept A (perspective: historical lens)"));
         assert!(prompt.user.contains("[1] peer concept B"));
@@ -302,7 +307,8 @@ mod tests {
             None,
         )];
         let ctx = BlockContext::new(lineage, vec![], friends);
-        let prompt = Prompt::reduce_from_context(&ctx, None, None, None);
+        let config = TaskPromptConfig::reduce("", "");
+        let prompt = Prompt::from_context(&config, &ctx, None);
         assert!(prompt.user.contains("Friend blocks:"));
         assert!(
             prompt
@@ -319,7 +325,8 @@ mod tests {
             vec!["child one".to_string(), "child two".to_string()],
             vec![],
         );
-        let prompt = Prompt::inquire_from_context(&ctx, "answer this", None, None);
+        let config = TaskPromptConfig::inquire("", "");
+        let prompt = Prompt::from_context(&config, &ctx, Some("answer this"));
         assert!(prompt.user.contains("Existing children:"));
         assert!(prompt.user.contains("[0] child one"));
         assert!(prompt.user.contains("[1] child two"));
@@ -329,7 +336,8 @@ mod tests {
     fn inquire_prompt_omits_existing_children_when_empty() {
         let lineage = LineageContext::from_points(vec!["root".into(), "target".into()]);
         let ctx = BlockContext::new(lineage, vec![], vec![]);
-        let prompt = Prompt::inquire_from_context(&ctx, "answer this", None, None);
+        let config = TaskPromptConfig::inquire("", "");
+        let prompt = Prompt::from_context(&config, &ctx, Some("answer this"));
         assert!(!prompt.user.contains("Existing children:"));
     }
 
@@ -337,12 +345,8 @@ mod tests {
     fn custom_prompts_override_defaults() {
         let lineage = LineageContext::from_points(vec!["root".into(), "target".into()]);
         let context = BlockContext::new(lineage, vec![], vec![]);
-        let prompt = Prompt::reduce_from_context(
-            &context,
-            None,
-            Some("Custom system prompt"),
-            Some("Custom user prompt"),
-        );
+        let config = TaskPromptConfig::reduce("Custom system prompt", "Custom user prompt");
+        let prompt = Prompt::from_context(&config, &context, None);
         assert!(prompt.system.contains("Custom system prompt"));
         assert!(prompt.user.contains("Custom user prompt"));
     }
@@ -351,7 +355,8 @@ mod tests {
     fn custom_system_only_uses_default_user() {
         let lineage = LineageContext::from_points(vec!["root".into(), "target".into()]);
         let context = BlockContext::new(lineage, vec![], vec![]);
-        let prompt = Prompt::reduce_from_context(&context, None, Some("Custom system"), None);
+        let config = TaskPromptConfig::reduce("Custom system", "");
+        let prompt = Prompt::from_context(&config, &context, None);
         assert!(prompt.system.contains("Custom system"));
         assert!(prompt.user.contains("Reduce the target point with context:"));
     }
@@ -369,8 +374,8 @@ mod tests {
             None,
         )];
         let ctx = BlockContext::new(lineage, children, friends);
-        let prompt =
-            Prompt::inquire_from_context(&ctx, "answer this", None, Some("Custom user preamble"));
+        let config = TaskPromptConfig::inquire("", "Custom user preamble");
+        let prompt = Prompt::from_context(&config, &ctx, Some("answer this"));
         assert!(prompt.user.contains("Custom user preamble"));
         assert!(prompt.user.contains("Existing children:"));
         assert!(prompt.user.contains("[0] child A"));
@@ -383,8 +388,8 @@ mod tests {
     fn custom_user_only_uses_default_system() {
         let lineage = LineageContext::from_points(vec!["root".into(), "target".into()]);
         let context = BlockContext::new(lineage, vec![], vec![]);
-        let prompt =
-            Prompt::reduce_from_context(&context, None, None, Some("Custom user preamble"));
+        let config = TaskPromptConfig::reduce("", "Custom user preamble");
+        let prompt = Prompt::from_context(&config, &context, None);
         assert!(prompt.system.contains("You reduce a bullet point"));
         assert!(prompt.user.contains("Custom user preamble"));
     }

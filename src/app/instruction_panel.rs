@@ -141,12 +141,10 @@ pub fn handle(
             state.editor_buffers.set_instruction_text("");
             tracing::info!(block_id = ?target_block_id, "instruction inquiry started");
             let inquire_max_tokens = state.config.tasks.inquire.token_limit.as_api_param();
-            let custom_system_prompt =
-                if state.config.tasks.inquire.system_prompt.is_empty() { None }
-                else { Some(state.config.tasks.inquire.system_prompt.clone()) };
-            let custom_user_prompt =
-                if state.config.tasks.inquire.user_prompt.is_empty() { None }
-                else { Some(state.config.tasks.inquire.user_prompt.clone()) };
+            let prompt_config = llm::TaskPromptConfig::inquire(
+                &state.config.tasks.inquire.system_prompt,
+                &state.config.tasks.inquire.user_prompt,
+            );
             let client = llm::LlmClient::new(config);
             let request_task = iced::Task::run(
                 client.inquire_stream(
@@ -154,8 +152,7 @@ pub fn handle(
                     instruction,
                     LLM_REQUEST_TIMEOUT,
                     inquire_max_tokens,
-                    custom_system_prompt,
-                    custom_user_prompt,
+                    prompt_config,
                 ),
                 move |event| match event {
                     | llm::InquireStreamEvent::Chunk(chunk) => Message::InstructionPanel(
