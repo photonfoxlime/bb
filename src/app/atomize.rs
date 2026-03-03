@@ -179,7 +179,9 @@ pub fn handle(state: &mut AppState, message: AtomizeMessage) -> Task<Message> {
                     }
                 });
             if let Some(point) = point_opt {
-                let _ = state.store.append_child(&block_id, point);
+                if let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
+                    state.editor_buffers.set_text(&child_id, &point);
+                }
                 state.persist_with_context("after atomize accept child");
                 if let Some(draft) = state.store.atomization_draft(&block_id) {
                     if draft.points.is_empty() && draft.rewrite.is_none() {
@@ -206,7 +208,9 @@ pub fn handle(state: &mut AppState, message: AtomizeMessage) -> Task<Message> {
                     state.store.update_point(&block_id, rewrite);
                 }
                 for point in draft.points {
-                    let _ = state.store.append_child(&block_id, point);
+                    if let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
+                        state.editor_buffers.set_text(&child_id, &point);
+                    }
                 }
                 state.persist_with_context("after atomize accept all");
             }
