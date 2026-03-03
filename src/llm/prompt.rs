@@ -1,6 +1,6 @@
 //! LLM prompt construction from context.
 //!
-//! All four tasks (reduce, atomize, expand, inquire) receive the same block context:
+//! All four tasks (expand, reduce, atomize, inquire) receive the same block context:
 //! lineage (Parent/Target), existing children, and friend blocks. Custom
 //! prompts support partial override; the full context block is always appended.
 //!
@@ -47,6 +47,15 @@ impl TaskPromptConfig {
         if s.is_empty() { None } else { Some(s.to_string()) }
     }
 
+    /// Config for expand task with its custom prompts.
+    pub fn expand(system_prompt: &str, user_prompt: &str) -> Self {
+        Self {
+            task: TaskKind::Expand,
+            custom_system_prompt: Self::optional(system_prompt),
+            custom_user_prompt: Self::optional(user_prompt),
+        }
+    }
+
     /// Config for reduce task with its custom prompts.
     pub fn reduce(system_prompt: &str, user_prompt: &str) -> Self {
         Self {
@@ -60,15 +69,6 @@ impl TaskPromptConfig {
     pub fn atomize(system_prompt: &str, user_prompt: &str) -> Self {
         Self {
             task: TaskKind::Atomize,
-            custom_system_prompt: Self::optional(system_prompt),
-            custom_user_prompt: Self::optional(user_prompt),
-        }
-    }
-
-    /// Config for expand task with its custom prompts.
-    pub fn expand(system_prompt: &str, user_prompt: &str) -> Self {
-        Self {
-            task: TaskKind::Expand,
             custom_system_prompt: Self::optional(system_prompt),
             custom_user_prompt: Self::optional(user_prompt),
         }

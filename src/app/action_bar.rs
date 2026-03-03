@@ -26,8 +26,8 @@ use lucide_icons::iced as icons;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActionId {
     Expand,
-    Atomize,
     Reduce,
+    Atomize,
     Cancel,
     AddChild,
     AddParent,
@@ -104,8 +104,8 @@ impl ActionDescriptor {
 pub fn action_i18n_key(id: ActionId) -> &'static str {
     match id {
         | ActionId::Expand => "action_expand",
-        | ActionId::Atomize => "action_atomize",
         | ActionId::Reduce => "action_reduce",
+        | ActionId::Atomize => "action_atomize",
         | ActionId::AddChild => "action_add_child",
         | ActionId::AddParent => "action_add_parent",
         | ActionId::AcceptAll => "action_accept_all",
@@ -127,8 +127,8 @@ pub fn action_i18n_key(id: ActionId) -> &'static str {
 pub fn status_error_i18n_key(op: ActionId) -> &'static str {
     match op {
         | ActionId::Expand => "status_expand_failed",
-        | ActionId::Atomize => "status_atomize_failed",
         | ActionId::Reduce => "status_reduce_failed",
+        | ActionId::Atomize => "status_atomize_failed",
         | _ => "status_expand_failed",
     }
 }
@@ -178,11 +178,11 @@ pub struct RowContext {
     pub has_draft: bool,
     pub draft_suggestion_count: usize,
     pub has_expand_error: bool,
-    pub has_atomize_error: bool,
     pub has_reduce_error: bool,
+    pub has_atomize_error: bool,
     pub is_expanding: bool,
-    pub is_atomizing: bool,
     pub is_reducing: bool,
+    pub is_atomizing: bool,
     /// Whether this block is already part of a mounted file.
     /// When true, "Save to file" is disabled (one node = one file).
     pub is_mounted: bool,
@@ -201,12 +201,12 @@ pub struct RowContext {
 pub enum RowUiState {
     Idle,
     BusyExpand,
-    BusyAtomize,
     BusyReduce,
+    BusyAtomize,
     DraftActive,
     ErrorExpand,
-    ErrorAtomize,
     ErrorReduce,
+    ErrorAtomize,
 }
 
 impl RowContext {
@@ -214,20 +214,20 @@ impl RowContext {
         if self.is_expanding {
             return RowUiState::BusyExpand;
         }
-        if self.is_atomizing {
-            return RowUiState::BusyAtomize;
-        }
         if self.is_reducing {
             return RowUiState::BusyReduce;
+        }
+        if self.is_atomizing {
+            return RowUiState::BusyAtomize;
         }
         if self.has_expand_error {
             return RowUiState::ErrorExpand;
         }
-        if self.has_atomize_error {
-            return RowUiState::ErrorAtomize;
-        }
         if self.has_reduce_error {
             return RowUiState::ErrorReduce;
+        }
+        if self.has_atomize_error {
+            return RowUiState::ErrorAtomize;
         }
         if self.has_draft {
             return RowUiState::DraftActive;
@@ -297,13 +297,13 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
         ActionPriority::Pinned,
     ));
     vm.primary.push(ActionDescriptor::new(
-        ActionId::Atomize,
-        atomize_availability,
+        ActionId::Reduce,
+        reduce_availability,
         ActionPriority::Pinned,
     ));
     vm.primary.push(ActionDescriptor::new(
-        ActionId::Reduce,
-        reduce_availability,
+        ActionId::Atomize,
+        atomize_availability,
         ActionPriority::Pinned,
     ));
     vm.primary.push(ActionDescriptor::new(
@@ -574,11 +574,11 @@ fn cancel_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Mess
     if state.llm_requests.is_expanding(*block_id) {
         return Some(Message::Expand(ExpandMessage::Cancel(*block_id)));
     }
-    if state.llm_requests.is_atomizing(*block_id) {
-        return Some(Message::Atomize(AtomizeMessage::Cancel(*block_id)));
-    }
     if state.llm_requests.is_reducing(*block_id) {
         return Some(Message::Reduce(ReduceMessage::Cancel(*block_id)));
+    }
+    if state.llm_requests.is_atomizing(*block_id) {
+        return Some(Message::Atomize(AtomizeMessage::Cancel(*block_id)));
     }
     None
 }
@@ -587,11 +587,11 @@ fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Messa
     if state.llm_requests.has_expand_error(*block_id) {
         return Some(Message::Expand(ExpandMessage::Start(*block_id)));
     }
-    if state.llm_requests.has_atomize_error(*block_id) {
-        return Some(Message::Atomize(AtomizeMessage::Start(*block_id)));
-    }
     if state.llm_requests.has_reduce_error(*block_id) {
         return Some(Message::Reduce(ReduceMessage::Start(*block_id)));
+    }
+    if state.llm_requests.has_atomize_error(*block_id) {
+        return Some(Message::Atomize(AtomizeMessage::Start(*block_id)));
     }
     None
 }
@@ -600,8 +600,8 @@ fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Messa
 pub fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
     let icon = match id {
         | ActionId::Expand => icons::icon_maximize_2(),
-        | ActionId::Atomize => icons::icon_maximize(),
         | ActionId::Reduce => icons::icon_minimize_2(),
+        | ActionId::Atomize => icons::icon_maximize(),
         | ActionId::Cancel => icons::icon_circle_x(),
         | ActionId::AddChild => icons::icon_corner_down_right(),
         | ActionId::AddParent => icons::icon_corner_up_left(),
@@ -633,11 +633,11 @@ mod tests {
             has_draft: false,
             draft_suggestion_count: 0,
             has_expand_error: false,
-            has_atomize_error: false,
             has_reduce_error: false,
+            has_atomize_error: false,
             is_expanding: false,
-            is_atomizing: false,
             is_reducing: false,
+            is_atomizing: false,
             is_mounted: false,
             has_children: true,
             is_unexpanded_mount: false,
@@ -650,7 +650,7 @@ mod tests {
         let ids = vm.primary.into_iter().map(|action| action.id).collect::<Vec<_>>();
         assert_eq!(
             ids,
-            vec![ActionId::Expand, ActionId::Atomize, ActionId::Reduce, ActionId::AddChild]
+            vec![ActionId::Expand, ActionId::Reduce, ActionId::Atomize, ActionId::AddChild]
         );
     }
 

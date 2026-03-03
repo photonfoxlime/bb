@@ -19,17 +19,17 @@ use std::hash::{Hash, Hasher};
 /// This struct owns transient request state only; persisted drafts remain in
 /// `BlockStore` so request orchestration and persisted content stay decoupled.
 pub struct LlmRequests {
+    expand_states: SparseSecondaryMap<BlockId, ExpandState>,
     reduce_states: SparseSecondaryMap<BlockId, ReduceState>,
     atomize_states: SparseSecondaryMap<BlockId, AtomizeState>,
-    expand_states: SparseSecondaryMap<BlockId, ExpandState>,
     inquiry_states: SparseSecondaryMap<BlockId, InquiryState>,
+    expand_handles: SparseSecondaryMap<BlockId, task::Handle>,
     reduce_handles: SparseSecondaryMap<BlockId, task::Handle>,
     atomize_handles: SparseSecondaryMap<BlockId, task::Handle>,
-    expand_handles: SparseSecondaryMap<BlockId, task::Handle>,
     inquiry_handles: SparseSecondaryMap<BlockId, task::Handle>,
+    pending_expand_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
     pending_reduce_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
     pending_atomize_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
-    pending_expand_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
     pending_inquiry_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
     inquiry_errors: SparseSecondaryMap<BlockId, UiError>,
 }
@@ -40,17 +40,17 @@ impl LlmRequests {
     }
 
     pub fn clear(&mut self) {
+        self.expand_states.clear();
         self.reduce_states.clear();
         self.atomize_states.clear();
-        self.expand_states.clear();
         self.inquiry_states.clear();
+        self.expand_handles.clear();
         self.reduce_handles.clear();
         self.atomize_handles.clear();
-        self.expand_handles.clear();
         self.inquiry_handles.clear();
+        self.pending_expand_signatures.clear();
         self.pending_reduce_signatures.clear();
         self.pending_atomize_signatures.clear();
-        self.pending_expand_signatures.clear();
         self.pending_inquiry_signatures.clear();
         self.inquiry_errors.clear();
     }
@@ -292,6 +292,19 @@ impl LlmRequests {
     }
 }
 
+/// Per-block expand operation state: Idle → Loading → Idle/Error.
+///
+/// Stored in a map keyed by `BlockId`; missing entry means Idle.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum ExpandState {
+    #[default]
+    Idle,
+    Loading,
+    Error {
+        reason: UiError,
+    },
+}
+
 /// Per-block reduce operation state: Idle → Loading → Idle/Error.
 ///
 /// Stored in a map keyed by `BlockId`; missing entry means Idle.
@@ -310,19 +323,6 @@ pub enum ReduceState {
 /// Stored in a map keyed by `BlockId`; missing entry means Idle.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum AtomizeState {
-    #[default]
-    Idle,
-    Loading,
-    Error {
-        reason: UiError,
-    },
-}
-
-/// Per-block expand operation state: Idle → Loading → Idle/Error.
-///
-/// Stored in a map keyed by `BlockId`; missing entry means Idle.
-#[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum ExpandState {
     #[default]
     Idle,
     Loading,

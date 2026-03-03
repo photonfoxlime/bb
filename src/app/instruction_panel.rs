@@ -464,15 +464,6 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
         button_row = button_row.push(
             TextButton::action(
-                t!("instruction_inquire").to_string(),
-                theme::INSTRUCTION_BUTTON_SIZE,
-            )
-            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Inquire)),
-        );
-
-        button_row = button_row.push(
-            TextButton::action(
                 t!("instruction_expand").to_string(),
                 theme::INSTRUCTION_BUTTON_SIZE,
             )
@@ -493,6 +484,15 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 block_id,
                 InstructionPanelMessage::ReduceWithInstruction,
             )),
+        );
+
+        button_row = button_row.push(
+            TextButton::action(
+                t!("instruction_inquire").to_string(),
+                theme::INSTRUCTION_BUTTON_SIZE,
+            )
+            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Inquire)),
         );
 
         instruction_section = instruction_section.push(button_row);

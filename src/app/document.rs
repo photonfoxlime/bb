@@ -378,9 +378,9 @@ impl<'a> DocumentView<'a> {
                 .size(theme::SHORTCUT_HELP_TEXT_SIZE),
             text(t!("shortcut_help_structure_expand").to_string())
                 .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_atomize").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
             text(t!("shortcut_help_structure_reduce").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_structure_atomize").to_string())
                 .size(theme::SHORTCUT_HELP_TEXT_SIZE),
             text(t!("shortcut_help_structure_add_child").to_string())
                 .size(theme::SHORTCUT_HELP_TEXT_SIZE),
@@ -525,11 +525,11 @@ impl<'a> DocumentView<'a> {
                 + atomization_draft.map(|d| d.points.len()).unwrap_or(0)
                 + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
             has_expand_error: self.state.llm_requests.has_expand_error(block_id),
-            has_atomize_error: self.state.llm_requests.has_atomize_error(block_id),
             has_reduce_error: self.state.llm_requests.has_reduce_error(block_id),
+            has_atomize_error: self.state.llm_requests.has_atomize_error(block_id),
             is_expanding: self.state.llm_requests.is_expanding(block_id),
-            is_atomizing: self.state.llm_requests.is_atomizing(block_id),
             is_reducing: self.state.llm_requests.is_reducing(block_id),
+            is_atomizing: self.state.llm_requests.is_atomizing(block_id),
             is_mounted: self.state.store.mount_table().entry(block_id).is_some(),
             is_unexpanded_mount: node.is_some_and(|n| n.mount_path().is_some()),
             has_children: !self.state.store.children(&block_id).is_empty(),
@@ -1156,11 +1156,11 @@ impl<'a> TreeView<'a> {
                 + atomization_draft.map(|d| d.points.len()).unwrap_or(0)
                 + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
             has_expand_error: self.state.llm_requests.has_expand_error(*block_id),
-            has_atomize_error: self.state.llm_requests.has_atomize_error(*block_id),
             has_reduce_error: self.state.llm_requests.has_reduce_error(*block_id),
+            has_atomize_error: self.state.llm_requests.has_atomize_error(*block_id),
             is_expanding: self.state.llm_requests.is_expanding(*block_id),
-            is_atomizing: self.state.llm_requests.is_atomizing(*block_id),
             is_reducing: self.state.llm_requests.is_reducing(*block_id),
+            is_atomizing: self.state.llm_requests.is_atomizing(*block_id),
             is_mounted: self.state.store.mount_table().entry(*block_id).is_some(),
             is_unexpanded_mount: node.is_some_and(|n| n.mount_path().is_some()),
             has_children: !self.state.store.children(block_id).is_empty(),

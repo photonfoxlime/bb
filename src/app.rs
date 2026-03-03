@@ -46,8 +46,9 @@ use self::{
     editor_buffers::EditorBuffers,
     error::{AppError, ErrorMessage, UiError},
     error_banner::ErrorBanner,
-    atomize::AtomizeMessage,
     expand::ExpandMessage,
+    reduce::ReduceMessage,
+    atomize::AtomizeMessage,
     find_panel::{FindMessage, FindUiState},
     friends_panel::FriendPanelMessage,
     instruction_panel::InstructionPanelMessage,
@@ -55,7 +56,6 @@ use self::{
     mount_file::MountFileMessage,
     navigation::{NavigationMessage, NavigationStack},
     overlay::OverlayMessage,
-    reduce::ReduceMessage,
     settings::{SettingsMessage, SettingsState},
     shortcut::ShortcutMessage,
     structure::StructureMessage,
@@ -168,9 +168,9 @@ pub enum Message {
     Edit(EditMessage),
     Shortcut(ShortcutMessage),
     Error(ErrorMessage),
+    Expand(ExpandMessage),
     Reduce(ReduceMessage),
     Atomize(AtomizeMessage),
-    Expand(ExpandMessage),
     Structure(StructureMessage),
     Find(FindMessage),
     Overlay(OverlayMessage),
@@ -208,9 +208,9 @@ impl AppState {
             | Message::Shortcut(message) => shortcut::handle(self, message),
             | Message::Error(message) => error::handle(self, message),
             | Message::Edit(message) => edit::handle(self, message),
+            | Message::Expand(message) => expand::handle(self, message),
             | Message::Reduce(message) => reduce::handle(self, message),
             | Message::Atomize(message) => atomize::handle(self, message),
-            | Message::Expand(message) => expand::handle(self, message),
             | Message::Find(message) => find_panel::handle(self, message),
             | Message::Overlay(message) => overlay::handle(self, message),
             | Message::FriendPanel(message) => friends_panel::handle(self, message),
@@ -402,9 +402,9 @@ impl AppState {
         let mut errors = vec![];
         // Validate each task's configured provider at startup.
         for task_cfg in [
+            &config.tasks.expand,
             &config.tasks.reduce,
             &config.tasks.atomize,
-            &config.tasks.expand,
             &config.tasks.inquire,
         ] {
             if let Err(err) = providers.resolve(&task_cfg.provider, &task_cfg.model) {

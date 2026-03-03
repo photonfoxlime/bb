@@ -84,7 +84,7 @@ impl BlockStore {
     /// - direct children point texts,
     /// - user-selected friend blocks.
     ///
-    /// Used by inquire/reduce/expand handlers so all three operations read the
+    /// Used by expand/reduce/atomize/inquire handlers so all four operations read the
     /// same context envelope.
     pub fn block_context_for_id(&self, target: &BlockId) -> llm::BlockContext {
         let friend_ids = self.friend_blocks.get(*target).cloned().unwrap_or_default();

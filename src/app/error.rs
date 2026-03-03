@@ -43,10 +43,10 @@ pub enum AppError {
     Configuration(UiError),
     #[error("persistence error: {0}")]
     Persistence(UiError),
-    #[error("reduce error: {0}")]
-    Reduce(UiError),
     #[error("expand error: {0}")]
     Expand(UiError),
+    #[error("reduce error: {0}")]
+    Reduce(UiError),
     #[error("atomize error: {0}")]
     Atomize(UiError),
     #[error("mount error: {0}")]
@@ -60,8 +60,8 @@ impl AppError {
         match self {
             | Self::Configuration(err)
             | Self::Persistence(err)
-            | Self::Reduce(err)
             | Self::Expand(err)
+            | Self::Reduce(err)
             | Self::Atomize(err)
             | Self::Mount(err)
             | Self::Inquire(err) => err.as_str(),

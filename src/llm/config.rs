@@ -14,7 +14,7 @@
 //! - [`ApiStyle::Anthropic`] for the Anthropic Messages API.
 //!
 //! Note: model selection is **not** part of the provider config. Each LLM task
-//! (reduce, atomize, expand, inquire) independently selects its own provider + model via
+//! (expand, reduce, atomize, inquire) independently selects its own provider + model via
 //! [`crate::app::config::TaskSettings`].
 //!
 //! [`LlmProviders`] stores both sets. The on-disk format is a single TOML file
@@ -81,12 +81,12 @@ impl fmt::Display for ApiStyle {
 /// and UI discriminants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TaskKind {
+    /// Expansion / child-suggestion requests.
+    Expand,
     /// Condensation / summary requests.
     Reduce,
     /// Break text into distinct information points without dropping details.
     Atomize,
-    /// Expansion / child-suggestion requests.
-    Expand,
     /// Free-form instruction / inquiry requests.
     Inquire,
 }
@@ -303,8 +303,8 @@ impl Default for CustomProvider {
 /// Invariants:
 /// - Every [`PresetProvider`] variant has an entry in `presets`.
 ///
-/// Note: there is no global "active" provider. Each LLM task (reduce, atomize,
-/// expand, inquire) independently selects a provider + model via
+/// Note: there is no global "active" provider. Each LLM task (expand, reduce,
+/// atomize, inquire) independently selects a provider + model via
 /// [`crate::app::config::TaskConfig`]. Legacy `active` fields in TOML are
 /// silently ignored on load.
 ///

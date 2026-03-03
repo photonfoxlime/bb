@@ -180,20 +180,20 @@ impl fmt::Display for MaxTokens {
 /// Per-[`TaskKind`] LLM settings persisted in `app.toml`.
 ///
 /// Each task independently selects a provider, model, and token limit.
-/// Uses `[tasks.reduce]`, `[tasks.atomize]`, `[tasks.expand]`, `[tasks.inquire]` TOML tables.
+/// Uses `[tasks.expand]`, `[tasks.reduce]`, `[tasks.atomize]`, `[tasks.inquire]` TOML tables.
 ///
 /// [`TaskKind`]: crate::llm::TaskKind
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TaskSettings {
+    /// Settings for the expand task.
+    #[serde(default = "TaskConfig::default_expand")]
+    pub expand: TaskConfig,
     /// Settings for the reduce task.
     #[serde(default = "TaskConfig::default_reduce")]
     pub reduce: TaskConfig,
     /// Settings for the atomize task.
     #[serde(default = "TaskConfig::default_atomize")]
     pub atomize: TaskConfig,
-    /// Settings for the expand task.
-    #[serde(default = "TaskConfig::default_expand")]
-    pub expand: TaskConfig,
     /// Settings for the inquire task.
     #[serde(default = "TaskConfig::default_inquire")]
     pub inquire: TaskConfig,
@@ -202,9 +202,9 @@ pub struct TaskSettings {
 impl Default for TaskSettings {
     fn default() -> Self {
         Self {
+            expand: TaskConfig::default_expand(),
             reduce: TaskConfig::default_reduce(),
             atomize: TaskConfig::default_atomize(),
-            expand: TaskConfig::default_expand(),
             inquire: TaskConfig::default_inquire(),
         }
     }
@@ -381,6 +381,13 @@ mod tests {
     #[test]
     fn task_settings_round_trips_through_toml() {
         let tasks = TaskSettings {
+            expand: TaskConfig {
+                provider: "openai".to_string(),
+                model: "gpt-5.2".to_string(),
+                token_limit: MaxTokens::UNLIMITED,
+                system_prompt: String::new(),
+                user_prompt: String::new(),
+            },
             reduce: TaskConfig {
                 provider: "deepseek".to_string(),
                 model: "deepseek-chat".to_string(),
@@ -389,13 +396,6 @@ mod tests {
                 user_prompt: String::new(),
             },
             atomize: TaskConfig::default_atomize(),
-            expand: TaskConfig {
-                provider: "openai".to_string(),
-                model: "gpt-5.2".to_string(),
-                token_limit: MaxTokens::UNLIMITED,
-                system_prompt: String::new(),
-                user_prompt: String::new(),
-            },
             inquire: TaskConfig::default_inquire(),
         };
         let config = AppConfig { tasks: tasks.clone(), ..Default::default() };

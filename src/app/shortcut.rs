@@ -378,11 +378,11 @@ fn run_shortcut_for_block(
             + atomization_draft.map(|d| d.points.len()).unwrap_or(0)
             + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
         has_expand_error: state.llm_requests.has_expand_error(block_id),
-        has_atomize_error: state.llm_requests.has_atomize_error(block_id),
         has_reduce_error: state.llm_requests.has_reduce_error(block_id),
+        has_atomize_error: state.llm_requests.has_atomize_error(block_id),
         is_expanding: state.llm_requests.is_expanding(block_id),
-        is_atomizing: state.llm_requests.is_atomizing(block_id),
         is_reducing: state.llm_requests.is_reducing(block_id),
+        is_atomizing: state.llm_requests.is_atomizing(block_id),
         is_mounted: state.store.mount_table().entry(block_id).is_some(),
         has_children: !state.store.children(&block_id).is_empty(),
         is_unexpanded_mount: state.store.node(&block_id).is_some_and(|n| n.mount_path().is_some()),
