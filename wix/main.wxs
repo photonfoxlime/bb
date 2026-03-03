@@ -109,6 +109,10 @@
                     </Component>
                     -->
 
+                    <Directory Id="ProgramMenuFolder">
+                      <Directory Id="ApplicationProgramsFolder" Name="Blooming Blockery"/>
+                    </Directory>
+
                     <Directory Id='Bin' Name='bin'>
                         <Component Id='Path' Guid='2928733B-C69F-4B07-AEF6-1366D623051A' KeyPath='yes'>
                             <Environment
@@ -131,7 +135,7 @@
                         <Component Id='binary1' Guid='*'>
                             <File
                                 Id='exe1'
-                                Name='blooming-blockery.exe'
+                                Name='Blooming Blockery.exe'
                                 DiskId='1'
                                 Source='$(var.CargoTargetBinDir)\blooming-blockery.exe'
                                 KeyPath='yes'/>
@@ -159,6 +163,7 @@
 
             <ComponentRef Id='binary0'/>
             <ComponentRef Id='binary1'/>
+            <ComponentRef Id="StartMenuShortcuts"/>
 
             <Feature
                 Id='Environment'
