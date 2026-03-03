@@ -5,8 +5,30 @@
 //! with fuzzy filesystem search starting from `$HOME`. Selecting a candidate
 //! converts the entire point to a link via [`PointLink::infer`].
 //!
-//! Note: Only filesystem paths are supported as link sources for now;
-//! URL link sources may be added later.
+//! # User interaction flow
+//!
+//! 1. User focuses an empty block and types `@`.
+//! 2. The `@` is detected in [`crate::app::edit`] (PointEdited handler),
+//!    which clears the editor and emits [`LinkModeMessage::Enter`].
+//! 3. The panel opens, showing `$HOME` entries. The search input is focused.
+//! 4. Typing narrows the candidates via [`search_filesystem`].
+//! 5. **Confirm** (Enter or click): the selected path replaces the block's
+//!    point with a [`PointLink`]. The editor buffer is removed since link
+//!    blocks render as chips, not text editors.
+//! 6. **Cancel** (Escape): exits link mode with no changes.
+//! 7. **Double-`@`**: typing `@` as the first character in the search input
+//!    exits link mode and inserts a literal `@` into the block's point editor.
+//!
+//! # Design rationale
+//!
+//! - **Filesystem only**: URL link sources may be added later. The search
+//!   currently enumerates local directories synchronously. This is acceptable
+//!   for `$HOME`-level browsing but may need async I/O for deep trees.
+//! - **Absolute paths**: selected paths are stored as absolute strings. This
+//!   simplifies display and image loading but makes documents non-portable.
+//!   May be revisited with relative-path support later.
+//! - **No validation**: broken links are not detected or flagged.
+//!   The chip always renders, even if the target does not exist.
 
 use std::path::{Path, PathBuf};
 
@@ -44,6 +66,19 @@ pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
             focus(link_query_input_id())
         }
         | LinkModeMessage::QueryChanged(query) => {
+            // Double-@ escape: typing `@` as the first character in the link
+            // panel query exits link mode and inserts a literal `@` into the
+            // block's point editor.
+            if query == "@" {
+                if let Some(block_id) = state.ui().link_panel.block_id {
+                    state.store.update_point(&block_id, "@".to_string());
+                    state.editor_buffers.set_text(&block_id, "@");
+                    state.persist_with_context("insert literal @");
+                }
+                exit_link_mode(state);
+                return Task::none();
+            }
+
             let candidates = search_filesystem(&query);
             state.ui_mut().link_panel.selected_index = 0;
             state.ui_mut().link_panel.candidates = candidates;
@@ -72,7 +107,9 @@ pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
                 let href = path.to_string_lossy().to_string();
                 let link = PointLink::infer(href);
                 state.store.set_point_content(&block_id, crate::store::PointContent::Link(link));
-                // Clear the editor buffer so it doesn't show stale text.
+                state.persist_with_context("convert to link");
+                // Clear the editor buffer — link blocks render as chips, not
+                // text editors, so the buffer would be stale.
                 state.editor_buffers.remove_blocks(&[block_id]);
             }
             exit_link_mode(state);
@@ -202,8 +239,17 @@ fn home_dir() -> Option<PathBuf> {
 
 /// Search the filesystem based on the query string.
 ///
-/// If the query looks like an absolute or relative path prefix, list the
-/// matching directory. Otherwise, fuzzy-filter `$HOME` entries.
+/// The search strategy has three tiers:
+///
+/// 1. **Empty query**: return all entries in `$HOME`.
+/// 2. **Path prefix** (query ends with `/` or contains a valid parent dir):
+///    list the matching directory and filter by the filename fragment.
+///    For example, `/Users/foo/Do` shows entries in `/Users/foo/` whose
+///    names contain `"do"` (case-insensitive).
+/// 3. **Fallback**: fuzzy-filter `$HOME` entries by the query.
+///
+/// Note: all I/O is synchronous. This is acceptable for shallow directory
+/// listings but would need async for deep recursive searches.
 fn search_filesystem(query: &str) -> Vec<PathBuf> {
     if query.is_empty() {
         return list_home_entries();

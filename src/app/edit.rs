@@ -569,6 +569,13 @@ pub fn handle_point_edited(
             let next_text = content.text();
 
             // Detect `@` typed in an empty point: enter link mode.
+            //
+            // Note: detection happens AFTER `content.perform(action)` rather
+            // than in `editor_key_binding`, because the key binding callback
+            // does not have access to the editor's current text content.
+            // Checking here also avoids any visual flash — the editor is
+            // cleared in the same event-loop iteration before the next render.
+            //
             // The iced text editor appends a trailing newline, so the buffer
             // reads "@\n" when only `@` was typed.
             if next_text.trim() == "@" {

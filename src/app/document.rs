@@ -64,9 +64,9 @@
 
 use super::{
     AppState, AtomizeMessage, ContextMenuAction, ContextMenuMessage, DocumentMode, EditMessage,
-    ErrorBanner, ErrorMessage, ExpandMessage, FindMessage, Message, MountFileMessage,
-    NavigationMessage, OverlayMessage, ReduceMessage, ShortcutMessage, StructureMessage,
-    UndoRedoMessage,
+    ErrorBanner, ErrorMessage, ExpandMessage, FindMessage, LinkModeMessage, Message,
+    MountFileMessage, NavigationMessage, OverlayMessage, ReduceMessage, ShortcutMessage,
+    StructureMessage, UndoRedoMessage,
     action_bar::{
         ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
         ViewportBucket, action_i18n_key, action_icon, action_to_message, build_action_bar_vm,
@@ -120,6 +120,7 @@ impl<'a> DocumentView<'a> {
         // Document mode buttons reflect the underlying document mode, independent of find overlay
         let is_normal_mode = state.ui().document_mode == DocumentMode::Normal;
         let is_find_mode = state.ui().document_mode == DocumentMode::Find;
+        let is_link_mode = state.ui().document_mode == DocumentMode::LinkInput;
         let is_multiselect_mode = state.ui().document_mode == DocumentMode::Multiselect;
 
         let normal_mode_btn = IconButton::mode(
@@ -144,6 +145,21 @@ impl<'a> DocumentView<'a> {
             FindMessage::Open
         }));
 
+        let mut link_mode_btn = IconButton::mode(
+            icons::icon_link()
+                .size(theme::TOOLBAR_ICON_SIZE)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into(),
+            is_link_mode,
+        );
+        if is_link_mode {
+            link_mode_btn = link_mode_btn.on_press(Message::LinkMode(LinkModeMessage::Cancel));
+        } else if let Some(bid) = self.state.focus().map(|f| f.block_id) {
+            // Enter link mode targeting the currently focused block.
+            // Disabled (no on_press) when no block is focused.
+            link_mode_btn = link_mode_btn.on_press(Message::LinkMode(LinkModeMessage::Enter(bid)));
+        }
+
         let multiselect_mode_btn = IconButton::mode(
             icons::icon_square_check()
                 .size(theme::TOOLBAR_ICON_SIZE)
@@ -157,8 +173,8 @@ impl<'a> DocumentView<'a> {
             DocumentMode::Multiselect
         }));
 
-        let toolbar =
-            row![normal_mode_btn, find_mode_btn, multiselect_mode_btn].spacing(theme::ACTION_GAP);
+        let toolbar = row![normal_mode_btn, find_mode_btn, link_mode_btn, multiselect_mode_btn]
+            .spacing(theme::ACTION_GAP);
 
         let toolbar_container = container(
             container(toolbar)
@@ -694,14 +710,35 @@ impl<'a> TreeView<'a> {
             self.state.store.mount_table().entry(*block_id).map(|entry| entry.rel_path.as_path())
         });
 
-        let Some(editor_content) = self.state.editor_buffers.get(block_id) else {
-            let fallback_text = self.state.store.point(block_id).unwrap_or_default();
-            tracing::error!(block_id = ?block_id, "missing editor content for rendered block");
-            return container(text(fallback_text).style(theme::spine_text)).into();
+        // Link blocks bypass the editor buffer entirely — they render a chip
+        // widget instead of a text editor. Checking here avoids the "missing
+        // editor content" error that would otherwise fire for blocks whose
+        // buffer was removed on link conversion.
+        let is_link_block =
+            matches!(self.state.store.point_content(block_id), Some(PointContent::Link(_)));
+
+        // Editor content is only needed for non-link blocks.
+        let editor_content = if is_link_block {
+            None
+        } else {
+            let content = self.state.editor_buffers.get(block_id);
+            if content.is_none() {
+                let fallback_text = self.state.store.point(block_id).unwrap_or_default();
+                tracing::error!(block_id = ?block_id, "missing editor content for rendered block");
+                return container(text(fallback_text).style(theme::spine_text)).into();
+            }
+            content
         };
 
         let block_id_for_edit = *block_id;
-        let row_context = self.action_row_context(block_id, editor_content.text());
+
+        // For action bar context, use editor text or link display text.
+        let point_text_for_context = if is_link_block {
+            self.state.store.point(block_id).unwrap_or_default()
+        } else {
+            editor_content.unwrap().text()
+        };
+        let row_context = self.action_row_context(block_id, point_text_for_context);
         let action_bar =
             project_for_viewport(build_action_bar_vm(&row_context), self.viewport_bucket());
 
@@ -819,6 +856,10 @@ impl<'a> TreeView<'a> {
 
             chip_col.into()
         } else {
+            // Safety: editor_content is always Some for non-link blocks (early
+            // return above handles the None case).
+            let editor_content =
+                editor_content.expect("editor_content must be Some for text blocks");
             let mut editor = text_editor(editor_content)
                 .placeholder(t!("doc_placeholder_point").to_string())
                 .style(theme::point_editor)
