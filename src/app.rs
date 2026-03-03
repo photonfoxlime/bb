@@ -35,6 +35,7 @@ mod expand;
 mod reduce;
 // Structural Operations
 mod structure;
+mod multiselect;
 mod navigation;
 mod mount_file;
 
@@ -192,6 +193,8 @@ pub enum Message {
     LinkMode(LinkModeMessage),
     /// Toggle inline preview for a link chip (expand / collapse).
     LinkChipToggle(BlockId),
+    /// Block clicked in multiselect mode. Modifiers at click time drive behavior.
+    MultiselectBlockClicked(BlockId),
     CursorPosition(iced::Point),
     EscapePressed,
 }
@@ -268,15 +271,28 @@ impl AppState {
 
                         self.ui_mut().document_mode = DocumentMode::Multiselect;
                         self.ui_mut().multiselect_selected_blocks.clear();
+                        self.ui_mut().multiselect_anchor = None;
                         if let Some(block_id) = selected {
                             self.ui_mut().multiselect_selected_blocks.insert(block_id);
+                            self.ui_mut().multiselect_anchor = Some(block_id);
                         }
                     }
                     | _ => {
                         self.ui_mut().document_mode = mode;
                         self.ui_mut().multiselect_selected_blocks.clear();
+                        self.ui_mut().multiselect_anchor = None;
                     }
                 }
+                Task::none()
+            }
+            | Message::MultiselectBlockClicked(block_id) => {
+                if self.ui().document_mode != DocumentMode::Multiselect {
+                    return Task::none();
+                }
+                if self.store.node(&block_id).is_none() {
+                    return Task::none();
+                }
+                multiselect::handle_block_clicked(self, block_id);
                 Task::none()
             }
             | Message::SystemThemeChanged(mode) => {
@@ -862,6 +878,9 @@ pub struct TransientUiState {
     /// This set is only interpreted while `document_mode == Multiselect`.
     /// Outside multiselect mode it is cleared eagerly.
     pub multiselect_selected_blocks: BTreeSet<BlockId>,
+    /// Anchor for Shift+click range selection in multiselect mode.
+    /// Set when entering multiselect or on the last block affected by a click.
+    pub multiselect_anchor: Option<BlockId>,
     /// Which top-level screen is currently shown.
     pub active_view: ViewMode,
     /// Current window dimensions for responsive layout.

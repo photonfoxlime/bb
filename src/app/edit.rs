@@ -524,6 +524,7 @@ pub fn handle_point_edited(
     if should_enter_multiselect_on_backspace(state, block_id, &action) {
         state.ui_mut().document_mode = DocumentMode::Multiselect;
         state.set_focus(block_id);
+        state.ui_mut().multiselect_anchor = Some(block_id);
         tracing::info!(block_id = ?block_id, "entered multiselect mode from empty backspace");
         return Task::none();
     }

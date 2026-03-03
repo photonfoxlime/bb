@@ -589,6 +589,19 @@ pub fn focused_block(theme: &Theme) -> container::Style {
     }
 }
 
+/// Multiselect selected block — accent border and wash.
+///
+/// Visually distinct from `focused_block`: a 1px accent border signals
+/// "selected for batch action" without implying keyboard focus.
+pub fn multiselect_selected(theme: &Theme) -> container::Style {
+    let p = focused_palette(theme);
+    container::Style {
+        background: Some(p.focus_wash.into()),
+        border: border::rounded(4).width(1).color(p.accent),
+        ..Default::default()
+    }
+}
+
 /// Friend picker hover — indicates block is clickable to select as friend.
 pub fn friend_picker_hover(theme: &Theme) -> container::Style {
     let p = focused_palette(theme);

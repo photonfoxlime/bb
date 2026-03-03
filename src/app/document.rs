@@ -48,6 +48,14 @@
 //! shortcuts when the editor instance is focused. Non-focused editors return the
 //! default binding.
 //!
+//! # Multiselect Visual Design
+//!
+//! In multiselect mode, blocks render as read-only text (no editors) so the
+//! full row is clickable. Selected blocks use `multiselect_selected` style
+//! (accent border and wash) distinct from normal focus. Unselected blocks are
+//! plain; both are wrapped in buttons that send `MultiselectBlockClicked`.
+//! A selection count badge appears next to the mode bar when blocks are selected.
+//!
 //! # Mode Bar Semantics
 //!
 //! Mode buttons represent document modes (Normal, PickFriend, Multiselect).
@@ -173,8 +181,32 @@ impl<'a> DocumentView<'a> {
             DocumentMode::Multiselect
         }));
 
-        let toolbar = row![normal_mode_btn, find_mode_btn, link_mode_btn, multiselect_mode_btn]
-            .spacing(theme::ACTION_GAP);
+        let multiselect_badge: Element<'a, Message> = if is_multiselect_mode {
+            let count = self.state.ui().multiselect_selected_blocks.len();
+            if count > 0 {
+                container(
+                    text(t!("multiselect_count", count = count).to_string())
+                        .size(theme::SMALL_TEXT_SIZE)
+                        .style(theme::status_text),
+                )
+                .padding( Padding::new(theme::CHIP_PAD_V).horizontal(theme::CHIP_PAD_H))
+                .into()
+            } else {
+                Element::from(iced::widget::Space::new())
+            }
+        } else {
+            Element::from(iced::widget::Space::new())
+        };
+
+        let toolbar = row![
+            normal_mode_btn,
+            find_mode_btn,
+            link_mode_btn,
+            multiselect_mode_btn,
+            multiselect_badge,
+        ]
+        .spacing(theme::ACTION_GAP)
+        .align_y(iced::Alignment::Center);
 
         let toolbar_container = container(
             container(toolbar)
@@ -440,6 +472,19 @@ impl<'a> DocumentView<'a> {
         ]
         .spacing(theme::SHORTCUT_HELP_ROW_GAP);
 
+        let multiselect_section = column![
+            text(t!("shortcut_help_section_multiselect").to_string())
+                .font(theme::INTER)
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_multiselect_click").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_multiselect_shift_click").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(t!("shortcut_help_multiselect_cmd_click").to_string())
+                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+        ]
+        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
+
         let banner = container(
             column![
                 title,
@@ -448,6 +493,7 @@ impl<'a> DocumentView<'a> {
                 structure_section,
                 movement_section,
                 backspace_section,
+                multiselect_section,
             ]
             .spacing(theme::SHORTCUT_HELP_SECTION_GAP),
         )
@@ -788,6 +834,7 @@ impl<'a> TreeView<'a> {
         };
 
         let is_pick_friend_mode = self.state.ui().document_mode == DocumentMode::PickFriend;
+        let is_multiselect_mode = self.state.ui().document_mode == DocumentMode::Multiselect;
         let is_target_block =
             is_pick_friend_mode && self.state.focus().is_some_and(|s| s.block_id != *block_id);
 
@@ -798,8 +845,8 @@ impl<'a> TreeView<'a> {
                 && self.state.navigation.is_in_current_view(&self.state.store, block_id)
         });
 
-        let point_editor: Element<'a, Message> = if is_target_block {
-            // In friend picker mode, render as plain text so the button wrapper can capture clicks
+        let point_editor: Element<'a, Message> = if is_target_block || is_multiselect_mode {
+            // In friend picker or multiselect mode, render as plain text so the block wrapper can capture clicks
             let point_text = self.state.store.point(block_id).unwrap_or_default();
             container(text(point_text)).width(Fill).height(Length::Shrink).into()
         } else if let Some(link) =
@@ -983,9 +1030,19 @@ impl<'a> TreeView<'a> {
                     .into()
             }
             | (DocumentMode::Multiselect, _) if is_multiselect_selected => {
-                container(block).style(theme::focused_block).into()
+                button(container(block).style(theme::multiselect_selected))
+                    .on_press(Message::MultiselectBlockClicked(*block_id))
+                    .padding(0)
+                    .style(theme::action_button)
+                    .into()
             }
-            | (DocumentMode::Multiselect, _) => block.into(),
+            | (DocumentMode::Multiselect, _) => {
+                button(container(block))
+                    .on_press(Message::MultiselectBlockClicked(*block_id))
+                    .padding(0)
+                    .style(theme::action_button)
+                    .into()
+            }
             | (_, None) => block.into(),
         }
     }

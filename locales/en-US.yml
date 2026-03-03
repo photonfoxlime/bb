@@ -71,6 +71,11 @@ shortcut_help_movement_indent: "Alt+Shift+Right: Move to previous sibling first 
 shortcut_help_section_backspace: "Backspace Behavior"
 shortcut_help_backspace_enter_multiselect: "Backspace on empty point: Enter multiselect"
 shortcut_help_backspace_delete_multiselect: "Backspace in multiselect: Delete selection and exit mode"
+shortcut_help_section_multiselect: "Multiselect"
+shortcut_help_multiselect_click: "Click: Select block"
+shortcut_help_multiselect_shift_click: "Shift+Click: Range select"
+shortcut_help_multiselect_cmd_click: "Cmd/Ctrl+Click: Toggle block"
+multiselect_count: "%{count} selected"
 # Find panel
 find_placeholder: "Find points..."
 find_hint_type: "Type to search"
