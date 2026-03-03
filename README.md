@@ -41,8 +41,6 @@ npm install -g @miorin.blooming-blockery
 </details>
 
 
-
-
 ## Skills
 
 The CLI for Blooming Blockery: `blooming-blockery-cli`
@@ -53,3 +51,15 @@ npx skills add https://github.com/photonfoxlime/bb --skill blooming-blockery-cli
 ## Design
 
 See [DESIGN.md](./DESIGN.md).
+
+## Data Collection
+
+We believe in privacy and transparency. This software does not collect any data from you. However, your LLM providers may collect data from you. Please check their privacy policies.
+
+## License
+
+This software is licensed under the Apache License 2.0. See [LICENSE](./LICENSE) for details.
+
+## Credits
+
+Logo by [@laurentowel](https://github.com/laurentowel).
