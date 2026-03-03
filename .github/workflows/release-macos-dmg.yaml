@@ -1,21 +1,33 @@
 name: Release macOS DMG
 
 on:
-  workflow_call:
-    inputs:
-      plan:
-        required: true
-        type: string
+  release:
+    types: [published]
+
+permissions:
+  contents: write
 
 jobs:
   dmg:
-    runs-on: macos-14
-    permissions:
-      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            target: aarch64-apple-darwin
+          - runner: macos-13
+            target: x86_64-apple-darwin
+
+    runs-on: ${{ matrix.runner }}
+
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - name: Install cargo-bundle
         run: cargo install cargo-bundle
@@ -24,19 +36,16 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
-          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          echo "TAG=${{ github.event.release.tag_name }}" >> "$GITHUB_ENV"
+          echo "VERSION=${{ github.event.release.tag_name }}" | sed 's/^v//' | awk '{print "VERSION="$0}' >> "$GITHUB_ENV"
 
       - name: Build .app via cargo-bundle
         shell: bash
         run: |
           set -euo pipefail
+          cargo bundle --release --format osx --bin blooming-blockery --target "${{ matrix.target }}"
 
-          # 生成 macOS app bundle
-          cargo bundle --release --format osx --bin blooming-blockery
-
-          # cargo-bundle 常见输出目录（找到第一个 .app）
-          APP_PATH="$(ls -d target/release/bundle/osx/*.app | head -n1)"
+          APP_PATH="$(ls -d target/${{ matrix.target }}/release/bundle/osx/*.app | head -n1)"
           echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
           echo "Bundled app: $APP_PATH"
 
@@ -44,7 +53,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          DMG_NAME="blooming-blockery-${VERSION}-macos.dmg"
+          DMG_NAME="blooming-blockery-${VERSION}-${{ matrix.target }}.dmg"
           hdiutil create \
             -volname "Blooming Blockery" \
             -srcfolder "$APP_PATH" \
