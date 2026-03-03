@@ -1,6 +1,10 @@
 //! Draft commands (LLM in-progress suggestions).
 
-use super::BlockId;
+use super::{
+    BlockId, execute,
+    results::{BatchError, BatchOutput, CliResult, ExpansionDraftInfo, ReductionDraftInfo},
+};
+use crate::store::BlockStore;
 use clap::Parser;
 
 /// Draft operations (LLM in-progress suggestions).
@@ -155,4 +159,224 @@ pub struct ClearDraftCommand {
     /// This is the default if no specific flag is provided.
     #[arg(long, default_value = "true")]
     pub all: bool,
+}
+
+// =============================================================================
+// Execution
+// =============================================================================
+
+/// Execute a draft command.
+pub fn execute(store: BlockStore, cmd: DraftCommands) -> (BlockStore, CliResult) {
+    match cmd {
+        | DraftCommands::Expand(c) => execute_expand(store, &c),
+        | DraftCommands::Reduce(c) => execute_reduce(store, &c),
+        | DraftCommands::Instruction(c) => execute_instruction(store, &c),
+        | DraftCommands::Inquiry(c) => execute_inquiry(store, &c),
+        | DraftCommands::List(c) => execute_list(store, &c),
+        | DraftCommands::Clear(c) => execute_clear(store, &c),
+    }
+}
+
+fn execute_expand(mut store: BlockStore, cmd: &ExpandDraftCommand) -> (BlockStore, CliResult) {
+    let id = execute::resolve_block_id(&store, &cmd.block_id);
+    match id {
+        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+        | Some(block_id) => {
+            let draft = crate::store::ExpansionDraftRecord {
+                rewrite: cmd.rewrite.clone(),
+                children: cmd.children.clone(),
+            };
+            store.insert_expansion_draft(block_id, draft);
+            (store, CliResult::Success)
+        }
+    }
+}
+
+fn execute_reduce(mut store: BlockStore, cmd: &ReduceDraftCommand) -> (BlockStore, CliResult) {
+    let id = execute::resolve_block_id(&store, &cmd.block_id);
+    match id {
+        | None => (store, CliResult::Error("Unknown block ID".to_string())),
+        | Some(block_id) => {
+            let redundant: Vec<_> = cmd
+                .redundant_children
+                .iter()
+                .filter_map(|c| execute::resolve_block_id(&store, c))
+                .collect();
+            let draft = crate::store::ReductionDraftRecord {
+                reduction: cmd.reduction.clone(),
+                redundant_children: redundant,
+            };
+            store.insert_reduction_draft(block_id, draft);
+            (store, CliResult::Success)
+        }
+    }
+}
+
+fn execute_instruction(mut store: BlockStore, cmd: &InstructionDraftCommand) -> (BlockStore, CliResult) {
+    let targets = execute::expand_cli_targets(&cmd.block_id);
+    if targets.len() == 1 {
+        let id = execute::resolve_block_id(&store, &targets[0]);
+        match id {
+            | None => (store, CliResult::Error("Unknown block ID".to_string())),
+            | Some(block_id) => {
+                store.set_instruction_draft(block_id, cmd.text.clone());
+                (store, CliResult::Success)
+            }
+        }
+    } else {
+        let mut outputs = Vec::new();
+        let mut errors = Vec::new();
+        for target in targets {
+            let input = target.0.clone();
+            match execute::resolve_block_id(&store, &target) {
+                | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
+                | Some(block_id) => {
+                    store.set_instruction_draft(block_id, cmd.text.clone());
+                    outputs.push(BatchOutput::Success { input });
+                }
+            }
+        }
+        (store, CliResult::Batch(execute::make_batch_result("draft.instruction", outputs, errors)))
+    }
+}
+
+fn execute_inquiry(mut store: BlockStore, cmd: &InquiryDraftCommand) -> (BlockStore, CliResult) {
+    let targets = execute::expand_cli_targets(&cmd.block_id);
+    if targets.len() == 1 {
+        let id = execute::resolve_block_id(&store, &targets[0]);
+        match id {
+            | None => (store, CliResult::Error("Unknown block ID".to_string())),
+            | Some(block_id) => {
+                store.set_inquiry_draft(block_id, cmd.response.clone());
+                (store, CliResult::Success)
+            }
+        }
+    } else {
+        let mut outputs = Vec::new();
+        let mut errors = Vec::new();
+        for target in targets {
+            let input = target.0.clone();
+            match execute::resolve_block_id(&store, &target) {
+                | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
+                | Some(block_id) => {
+                    store.set_inquiry_draft(block_id, cmd.response.clone());
+                    outputs.push(BatchOutput::Success { input });
+                }
+            }
+        }
+        (store, CliResult::Batch(execute::make_batch_result("draft.inquiry", outputs, errors)))
+    }
+}
+
+fn execute_list(store: BlockStore, cmd: &ListDraftCommand) -> (BlockStore, CliResult) {
+    let targets = execute::expand_cli_targets(&cmd.block_id);
+    if targets.len() == 1 {
+        let id = execute::resolve_block_id(&store, &targets[0]);
+        match id {
+            | None => (store, CliResult::Error("Unknown block ID".to_string())),
+            | Some(block_id) => {
+                let expansion = store.expansion_draft(&block_id).map(|d| ExpansionDraftInfo {
+                    rewrite: d.rewrite.clone(),
+                    children: d.children.clone(),
+                });
+                let reduction = store.reduction_draft(&block_id).map(|d| ReductionDraftInfo {
+                    reduction: d.reduction.clone(),
+                    redundant_children: d
+                        .redundant_children
+                        .iter()
+                        .map(|id| format!("{}", id))
+                        .collect(),
+                });
+                let instruction = store.instruction_draft(&block_id).map(|d| d.instruction.clone());
+                let inquiry = store.inquiry_draft(&block_id).map(|d| d.response.clone());
+                (
+                    store,
+                    CliResult::DraftList { expansion, reduction, instruction, inquiry },
+                )
+            }
+        }
+    } else {
+        let mut outputs = Vec::new();
+        let mut errors = Vec::new();
+        for target in targets {
+            let input = target.0.clone();
+            match execute::resolve_block_id(&store, &target) {
+                | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
+                | Some(block_id) => {
+                    let expansion = store.expansion_draft(&block_id).map(|d| ExpansionDraftInfo {
+                        rewrite: d.rewrite.clone(),
+                        children: d.children.clone(),
+                    });
+                    let reduction = store.reduction_draft(&block_id).map(|d| ReductionDraftInfo {
+                        reduction: d.reduction.clone(),
+                        redundant_children: d
+                            .redundant_children
+                            .iter()
+                            .map(|id| format!("{}", id))
+                            .collect(),
+                    });
+                    let instruction = store.instruction_draft(&block_id).map(|d| d.instruction.clone());
+                    let inquiry = store.inquiry_draft(&block_id).map(|d| d.response.clone());
+                    outputs.push(BatchOutput::DraftList {
+                        input,
+                        expansion,
+                        reduction,
+                        instruction,
+                        inquiry,
+                    });
+                }
+            }
+        }
+        (store, CliResult::Batch(execute::make_batch_result("draft.list", outputs, errors)))
+    }
+}
+
+fn execute_clear(mut store: BlockStore, cmd: &ClearDraftCommand) -> (BlockStore, CliResult) {
+    let targets = execute::expand_cli_targets(&cmd.block_id);
+    if targets.len() == 1 {
+        let id = execute::resolve_block_id(&store, &targets[0]);
+        match id {
+            | None => (store, CliResult::Error("Unknown block ID".to_string())),
+            | Some(block_id) => {
+                if cmd.all || cmd.expand {
+                    store.remove_expansion_draft(&block_id);
+                }
+                if cmd.all || cmd.reduce {
+                    store.remove_reduction_draft(&block_id);
+                }
+                if cmd.all || cmd.instruction {
+                    store.remove_instruction_draft(&block_id);
+                }
+                if cmd.all || cmd.inquiry {
+                    store.remove_inquiry_draft(&block_id);
+                }
+                (store, CliResult::Success)
+            }
+        }
+    } else {
+        let mut outputs = Vec::new();
+        let mut errors = Vec::new();
+        for target in targets {
+            let input = target.0.clone();
+            match execute::resolve_block_id(&store, &target) {
+                | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
+                | Some(block_id) => {
+                    if cmd.all || cmd.expand {
+                        store.remove_expansion_draft(&block_id);
+                    }
+                    if cmd.all || cmd.reduce {
+                        store.remove_reduction_draft(&block_id);
+                    }
+                    if cmd.all || cmd.instruction {
+                        store.remove_instruction_draft(&block_id);
+                    }
+                    if cmd.all || cmd.inquiry {
+                        store.remove_inquiry_draft(&block_id);
+                    }
+                    outputs.push(BatchOutput::Success { input });
+                }
+            }
+        }
+        (store, CliResult::Batch(execute::make_batch_result("draft.clear", outputs, errors)))
+    }
 }
