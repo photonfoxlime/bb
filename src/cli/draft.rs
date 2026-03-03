@@ -212,7 +212,9 @@ fn execute_reduce(mut store: BlockStore, cmd: &ReduceDraftCommand) -> (BlockStor
     }
 }
 
-fn execute_instruction(mut store: BlockStore, cmd: &InstructionDraftCommand) -> (BlockStore, CliResult) {
+fn execute_instruction(
+    mut store: BlockStore, cmd: &InstructionDraftCommand,
+) -> (BlockStore, CliResult) {
     let targets = execute::expand_cli_targets(&cmd.block_id);
     if targets.len() == 1 {
         let id = execute::resolve_block_id(&store, &targets[0]);
@@ -289,10 +291,7 @@ fn execute_list(store: BlockStore, cmd: &ListDraftCommand) -> (BlockStore, CliRe
                 });
                 let instruction = store.instruction_draft(&block_id).map(|d| d.instruction.clone());
                 let inquiry = store.inquiry_draft(&block_id).map(|d| d.response.clone());
-                (
-                    store,
-                    CliResult::DraftList { expansion, reduction, instruction, inquiry },
-                )
+                (store, CliResult::DraftList { expansion, reduction, instruction, inquiry })
             }
         }
     } else {
@@ -315,7 +314,8 @@ fn execute_list(store: BlockStore, cmd: &ListDraftCommand) -> (BlockStore, CliRe
                             .map(|id| format!("{}", id))
                             .collect(),
                     });
-                    let instruction = store.instruction_draft(&block_id).map(|d| d.instruction.clone());
+                    let instruction =
+                        store.instruction_draft(&block_id).map(|d| d.instruction.clone());
                     let inquiry = store.inquiry_draft(&block_id).map(|d| d.response.clone());
                     outputs.push(BatchOutput::DraftList {
                         input,

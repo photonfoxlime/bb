@@ -199,13 +199,17 @@ fn execute_set(mut store: BlockStore, cmd: &SetMountCommand) -> (BlockStore, Cli
         let id = execute::resolve_block_id(&store, &targets[0]);
         match id {
             | None => (store, CliResult::Error("Unknown block ID".to_string())),
-            | Some(block_id) => match store.set_mount_path_with_format(&block_id, cmd.path.clone(), format) {
-                | Some(()) => (store, CliResult::Success),
-                | None => (
-                    store,
-                    CliResult::Error("Failed to set mount path (block may have children)".to_string()),
-                ),
-            },
+            | Some(block_id) => {
+                match store.set_mount_path_with_format(&block_id, cmd.path.clone(), format) {
+                    | Some(()) => (store, CliResult::Success),
+                    | None => (
+                        store,
+                        CliResult::Error(
+                            "Failed to set mount path (block may have children)".to_string(),
+                        ),
+                    ),
+                }
+            }
         }
     } else {
         if !execute::is_directory_like(&cmd.path) {
@@ -260,7 +264,9 @@ fn execute_expand(
                 | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
                 | Some(block_id) => match store.expand_mount(&block_id, base_dir) {
                     | Ok(_) => outputs.push(BatchOutput::Success { input }),
-                    | Err(e) => errors.push(BatchError { input, error: format!("Expand failed: {}", e) }),
+                    | Err(e) => {
+                        errors.push(BatchError { input, error: format!("Expand failed: {}", e) })
+                    }
                 },
             }
         }
@@ -276,10 +282,7 @@ fn execute_collapse(mut store: BlockStore, cmd: &CollapseMountCommand) -> (Block
             | None => (store, CliResult::Error("Unknown block ID".to_string())),
             | Some(block_id) => match store.collapse_mount(&block_id) {
                 | Some(()) => (store, CliResult::Success),
-                | None => (
-                    store,
-                    CliResult::Error("Block is not an expanded mount".to_string()),
-                ),
+                | None => (store, CliResult::Error("Block is not an expanded mount".to_string())),
             },
         }
     } else {
@@ -337,10 +340,9 @@ fn execute_move(
                     let path = execute::batch_child_file_path(&cmd.path, &input, ext);
                     match store.move_mount_file(&block_id, &path, base_dir) {
                         | Ok(()) => outputs.push(BatchOutput::Success { input }),
-                        | Err(e) => errors.push(BatchError {
-                            input,
-                            error: format!("Move failed: {}", e),
-                        }),
+                        | Err(e) => {
+                            errors.push(BatchError { input, error: format!("Move failed: {}", e) })
+                        }
                     }
                 }
             }
@@ -371,10 +373,9 @@ fn execute_inline(
                 | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
                 | Some(block_id) => match store.inline_mount(&block_id, base_dir) {
                     | Ok(()) => outputs.push(BatchOutput::Success { input }),
-                    | Err(e) => errors.push(BatchError {
-                        input,
-                        error: format!("Inline failed: {}", e),
-                    }),
+                    | Err(e) => {
+                        errors.push(BatchError { input, error: format!("Inline failed: {}", e) })
+                    }
                 },
             }
         }
@@ -411,7 +412,10 @@ fn execute_inline_recursive(
                 },
             }
         }
-        (store, CliResult::Batch(execute::make_batch_result("mount.inline-recursive", outputs, errors)))
+        (
+            store,
+            CliResult::Batch(execute::make_batch_result("mount.inline-recursive", outputs, errors)),
+        )
     }
 }
 
@@ -461,10 +465,8 @@ fn execute_extract(
                         format_override,
                     ) {
                         | Ok(()) => outputs.push(BatchOutput::Success { input }),
-                        | Err(e) => errors.push(BatchError {
-                            input,
-                            error: format!("Extract failed: {}", e),
-                        }),
+                        | Err(e) => errors
+                            .push(BatchError { input, error: format!("Extract failed: {}", e) }),
                     }
                 }
             }
@@ -511,25 +513,21 @@ fn execute_info(store: BlockStore, cmd: &InfoMountCommand) -> (BlockStore, CliRe
                     let node = store.node(&block_id);
                     let mount_entry = store.mount_table().entry(block_id);
                     match (node, mount_entry) {
-                        | (
-                            Some(crate::store::BlockNode::Mount { path, format }),
-                            None,
-                        ) => outputs.push(BatchOutput::MountInfo {
-                            input,
-                            path: Some(path.display().to_string()),
-                            format: format!("{}", format),
-                            expanded: false,
-                        }),
+                        | (Some(crate::store::BlockNode::Mount { path, format }), None) => outputs
+                            .push(BatchOutput::MountInfo {
+                                input,
+                                path: Some(path.display().to_string()),
+                                format: format!("{}", format),
+                                expanded: false,
+                            }),
                         | (_, Some(entry)) => outputs.push(BatchOutput::MountInfo {
                             input,
                             path: Some(entry.path.display().to_string()),
                             format: format!("{}", entry.format),
                             expanded: true,
                         }),
-                        | _ => errors.push(BatchError {
-                            input,
-                            error: "Block is not a mount".to_string(),
-                        }),
+                        | _ => errors
+                            .push(BatchError { input, error: "Block is not a mount".to_string() }),
                     }
                 }
             }

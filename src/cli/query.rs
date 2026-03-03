@@ -73,10 +73,7 @@ pub fn execute_show(store: BlockStore, cmd: &ShowCommand) -> (BlockStore, CliRes
         for target in targets {
             let input = target.0.clone();
             match execute::resolve_block_id(&store, &target) {
-                | None => errors.push(BatchError {
-                    input,
-                    error: "Unknown block ID".to_string(),
-                }),
+                | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
                 | Some(id) => {
                     let text = store.point(&id).unwrap_or_default();
                     let children: Vec<String> =
@@ -86,10 +83,7 @@ pub fn execute_show(store: BlockStore, cmd: &ShowCommand) -> (BlockStore, CliRes
                 }
             }
         }
-        (
-            store,
-            CliResult::Batch(execute::make_batch_result("query.show", outputs, errors)),
-        )
+        (store, CliResult::Batch(execute::make_batch_result("query.show", outputs, errors)))
     }
 }
 

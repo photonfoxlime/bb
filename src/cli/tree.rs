@@ -196,12 +196,13 @@ fn execute_add_child(mut store: BlockStore, cmd: &AddChildCommand) -> (BlockStor
         for target in targets {
             let input = target.0.clone();
             match execute::resolve_block_id(&store, &target) {
-                | None => errors.push(BatchError {
-                    input,
-                    error: "Unknown parent block ID".to_string(),
-                }),
+                | None => {
+                    errors.push(BatchError { input, error: "Unknown parent block ID".to_string() })
+                }
                 | Some(parent_id) => match store.append_child(&parent_id, cmd.text.clone()) {
-                    | Some(new_id) => outputs.push(BatchOutput::Id { input, id: format!("{}", new_id) }),
+                    | Some(new_id) => {
+                        outputs.push(BatchOutput::Id { input, id: format!("{}", new_id) })
+                    }
                     | None => errors.push(BatchError {
                         input,
                         error: "Failed to add child (parent may be a mount)".to_string(),
@@ -232,11 +233,11 @@ fn execute_add_sibling(mut store: BlockStore, cmd: &AddSiblingCommand) -> (Block
             match execute::resolve_block_id(&store, &target) {
                 | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
                 | Some(block_id) => match store.append_sibling(&block_id, cmd.text.clone()) {
-                    | Some(new_id) => outputs.push(BatchOutput::Id { input, id: format!("{}", new_id) }),
-                    | None => errors.push(BatchError {
-                        input,
-                        error: "Failed to add sibling".to_string(),
-                    }),
+                    | Some(new_id) => {
+                        outputs.push(BatchOutput::Id { input, id: format!("{}", new_id) })
+                    }
+                    | None => errors
+                        .push(BatchError { input, error: "Failed to add sibling".to_string() }),
                 },
             }
         }
@@ -263,11 +264,12 @@ fn execute_wrap(mut store: BlockStore, cmd: &WrapCommand) -> (BlockStore, CliRes
             match execute::resolve_block_id(&store, &target) {
                 | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
                 | Some(block_id) => match store.insert_parent(&block_id, cmd.text.clone()) {
-                    | Some(new_id) => outputs.push(BatchOutput::Id { input, id: format!("{}", new_id) }),
-                    | None => errors.push(BatchError {
-                        input,
-                        error: "Failed to wrap block".to_string(),
-                    }),
+                    | Some(new_id) => {
+                        outputs.push(BatchOutput::Id { input, id: format!("{}", new_id) })
+                    }
+                    | None => {
+                        errors.push(BatchError { input, error: "Failed to wrap block".to_string() })
+                    }
                 },
             }
         }
@@ -294,11 +296,12 @@ fn execute_duplicate(mut store: BlockStore, cmd: &DuplicateCommand) -> (BlockSto
             match execute::resolve_block_id(&store, &target) {
                 | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
                 | Some(block_id) => match store.duplicate_subtree_after(&block_id) {
-                    | Some(new_id) => outputs.push(BatchOutput::Id { input, id: format!("{}", new_id) }),
-                    | None => errors.push(BatchError {
-                        input,
-                        error: "Failed to duplicate".to_string(),
-                    }),
+                    | Some(new_id) => {
+                        outputs.push(BatchOutput::Id { input, id: format!("{}", new_id) })
+                    }
+                    | None => {
+                        errors.push(BatchError { input, error: "Failed to duplicate".to_string() })
+                    }
                 },
             }
         }
@@ -332,10 +335,9 @@ fn execute_delete(mut store: BlockStore, cmd: &DeleteCommand) -> (BlockStore, Cl
                         input,
                         removed: ids.iter().map(|id| format!("{}", id)).collect(),
                     }),
-                    | None => errors.push(BatchError {
-                        input,
-                        error: "Failed to delete".to_string(),
-                    }),
+                    | None => {
+                        errors.push(BatchError { input, error: "Failed to delete".to_string() })
+                    }
                 },
             }
         }
@@ -363,10 +365,7 @@ fn execute_move(mut store: BlockStore, cmd: &MoveCommand) -> (BlockStore, CliRes
         match (source, target) {
             | (Some(src), Some(tgt)) => match store.move_block(&src, &tgt, dir) {
                 | Some(()) => (store, CliResult::Success),
-                | None => (
-                    store,
-                    CliResult::Error("Move failed (check constraints)".to_string()),
-                ),
+                | None => (store, CliResult::Error("Move failed (check constraints)".to_string())),
             },
             | _ => (store, CliResult::Error("Unknown source or target block ID".to_string())),
         }

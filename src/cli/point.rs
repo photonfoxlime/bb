@@ -3,7 +3,10 @@
 //! This module provides CLI commands for modifying the text content (point) of blocks.
 //! Supports both plain text and link points via the `--link` flag.
 
-use super::{BlockId, execute, results::{BatchError, BatchOutput, CliResult}};
+use super::{
+    BlockId, execute,
+    results::{BatchError, BatchOutput, CliResult},
+};
 use crate::store::BlockStore;
 use clap::Parser;
 
@@ -60,10 +63,7 @@ pub fn execute_point(mut store: BlockStore, cmd: &EditPointCommand) -> (BlockSto
         for target in targets {
             let input = target.0.clone();
             match execute::resolve_block_id(&store, &target) {
-                | None => errors.push(BatchError {
-                    input,
-                    error: "Unknown block ID".to_string(),
-                }),
+                | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
                 | Some(block_id) => {
                     store.update_point(&block_id, cmd.text.clone());
                     if cmd.link {

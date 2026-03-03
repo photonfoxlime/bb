@@ -219,13 +219,7 @@ fn execute_find_next(store: BlockStore, cmd: &FindNextCommand) -> (BlockStore, C
     match id {
         | None => (store, CliResult::Error("Unknown block ID".to_string())),
         | Some(block_id) => {
-            let next = find_relative_query_match(
-                &store,
-                &block_id,
-                &cmd.query,
-                true,
-                !cmd.no_wrap,
-            );
+            let next = find_relative_query_match(&store, &block_id, &cmd.query, true, !cmd.no_wrap);
             (store, CliResult::OptionalBlockId(next))
         }
     }
@@ -236,13 +230,8 @@ fn execute_find_prev(store: BlockStore, cmd: &FindPrevCommand) -> (BlockStore, C
     match id {
         | None => (store, CliResult::Error("Unknown block ID".to_string())),
         | Some(block_id) => {
-            let prev = find_relative_query_match(
-                &store,
-                &block_id,
-                &cmd.query,
-                false,
-                !cmd.no_wrap,
-            );
+            let prev =
+                find_relative_query_match(&store, &block_id, &cmd.query, false, !cmd.no_wrap);
             (store, CliResult::OptionalBlockId(prev))
         }
     }
@@ -250,11 +239,7 @@ fn execute_find_prev(store: BlockStore, cmd: &FindPrevCommand) -> (BlockStore, C
 
 /// Find the nearest query match before/after a cursor block in DFS order.
 fn find_relative_query_match(
-    store: &BlockStore,
-    cursor: &crate::store::BlockId,
-    query: &str,
-    forward: bool,
-    wrap: bool,
+    store: &BlockStore, cursor: &crate::store::BlockId, query: &str, forward: bool, wrap: bool,
 ) -> Option<crate::store::BlockId> {
     let query = query.trim();
     if query.is_empty() {

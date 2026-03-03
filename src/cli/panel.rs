@@ -1,10 +1,7 @@
 //! Panel state commands.
 
-use super::{
-    BlockId, BlockPanelBarStateCli, execute,
-    results::CliResult,
-};
-use crate::store::{BlockStore, BlockPanelBarState};
+use super::{BlockId, BlockPanelBarStateCli, execute, results::CliResult};
+use crate::store::{BlockPanelBarState, BlockStore};
 use clap::Parser;
 
 /// Panel state operations.

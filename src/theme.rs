@@ -108,6 +108,9 @@ pub const CANVAS_THRESHOLD_STANDARD: f32 = 1200.0;
 pub const CANVAS_THRESHOLD_WIDE: f32 = 1800.0;
 /// Top padding inside the scrollable viewport.
 pub const CANVAS_TOP: f32 = 12.0;
+/// Fraction of viewport height used as extra bottom padding so the last item
+/// can scroll up to the vertical center when at max scroll.
+pub const CANVAS_SCROLL_TAIL_RATIO: f32 = 0.5;
 
 // --- Link panel ---
 /// Margin around the link panel overlay.

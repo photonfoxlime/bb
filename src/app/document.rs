@@ -193,12 +193,13 @@ impl<'a> DocumentView<'a> {
         let tree = TreeView::new(state).render_roots();
         let max_width = theme::canvas_max_width(state.ui().window_size.width);
         let content = container(tree).padding(theme::CANVAS_PAD).max_width(max_width);
+        let scroll_tail = self.state.ui().window_size.height * theme::CANVAS_SCROLL_TAIL_RATIO;
         layout = layout.push(
             scrollable(
                 container(content)
                     .width(Fill)
                     .center_x(Fill)
-                    .padding(iced::Padding::ZERO.top(theme::CANVAS_TOP)),
+                    .padding(iced::Padding::ZERO.top(theme::CANVAS_TOP).bottom(scroll_tail)),
             )
             .height(Fill),
         );
