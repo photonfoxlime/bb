@@ -851,11 +851,16 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
                 .right(theme::FORM_ROW_GAP),
         );
 
-    let add_row = row![new_provider_input, add_button]
-        .spacing(theme::PANEL_BUTTON_GAP)
-        .align_y(iced::Alignment::Center);
+    let provider_row = row![
+        provider_picker.width(Length::FillPortion(2)),
+        new_provider_input.width(Length::FillPortion(2)),
+        add_button,
+    ]
+    .spacing(theme::FORM_ROW_GAP)
+    .align_y(iced::Alignment::Center)
+    .width(Fill);
 
-    let mut provider_management = column![provider_picker, add_row].spacing(theme::FORM_ROW_GAP);
+    let mut provider_management = column![provider_row].spacing(theme::FORM_ROW_GAP);
 
     // Only custom providers can be deleted (presets are always available).
     if !settings.selected_is_preset {
