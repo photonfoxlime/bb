@@ -86,8 +86,19 @@ impl BloomingBlockery {
     }
 
     pub fn gui() -> anyhow::Result<()> {
+        let window_settings = {
+            let mut window_settings = iced::window::Settings::default();
+            window_settings.icon = iced::window::icon::from_file_data(
+                include_bytes!("../assets/icons/icon.PNG").as_slice(),
+                None,
+            )
+            .ok();
+            window_settings
+        };
+
         let () = iced::application(AppState::load, AppState::update, AppState::view)
             .subscription(AppState::subscription)
+            .window(window_settings)
             .font(include_bytes!("../assets/fonts/Inter-300.woff2").as_slice())
             .font(include_bytes!("../assets/fonts/Inter-400.woff2").as_slice())
             .font(include_bytes!("../assets/fonts/Inter-500.woff2").as_slice())
@@ -99,6 +110,7 @@ impl BloomingBlockery {
             .theme(|state: &AppState| AppState::theme(state.is_dark_mode()))
             .title("Blooming Blockery")
             .run()?;
+
         Ok(())
     }
 }
