@@ -14,7 +14,7 @@ mod undo;
 
 use self::{
     app::AppState,
-    cli::{BlockCli, CliResult, Commands, print_result},
+    cli::{BbCli, BbCommands, CliResult, print_result},
     paths::AppPaths,
     store::BlockStore,
 };
@@ -24,27 +24,22 @@ use std::path::PathBuf;
 pub struct BloomingBlockery;
 
 impl BloomingBlockery {
-    pub fn main() -> anyhow::Result<()> {
+    /// Runs the CLI-only entry point (used by the `bb` binary).
+    pub fn run_cli(binary_name: &str) -> anyhow::Result<()> {
         #[cfg(feature = "log")]
         Self::init_tracing()?;
 
-        let cli = BlockCli::parse();
-        // Handle CLI commands
+        let cli = BbCli::parse();
         match cli.command {
-            | Some(Commands::GenerateCompletion { shell }) => {
+            BbCommands::GenerateCompletion { shell } => {
                 clap_complete::generate(
                     shell,
-                    &mut BlockCli::command(),
-                    "blooming-blockery",
+                    &mut BbCli::command(),
+                    binary_name,
                     &mut std::io::stdout(),
                 );
             }
-            | Some(Commands::Gui) | None => {
-                let () = Self::gui()?;
-            }
-            // Block store manipulation commands
-            | Some(Commands::Block(block_commands)) => {
-                // Load store from CLI path or default to AppPaths::data_file()
+            BbCommands::Block(block_commands) => {
                 let store_path = cli
                     .store
                     .clone()
@@ -53,26 +48,29 @@ impl BloomingBlockery {
                 let base_dir = cli
                     .store
                     .as_ref()
-                    .and_then(|p| p.parent())
+                    .and_then(|p: &PathBuf| p.parent())
                     .map(PathBuf::from)
                     .unwrap_or_else(|| PathBuf::from("."));
 
                 let store = BlockStore::load_from_path(&store_path)
                     .unwrap_or_else(|_| BlockStore::default());
-
-                // Execute the command
                 let (store, result) = block_commands.execute(store, &base_dir);
 
-                // Save store if command didn't fail
                 if !matches!(result, CliResult::Error(_)) {
                     let () = store.save()?;
                 }
-
-                // Print result with formatting
                 print_result(&result, cli.output);
             }
         }
         Ok(())
+    }
+
+    /// Runs the GUI entry point (used by the `blooming-blockery` binary).
+    pub fn run_gui() -> anyhow::Result<()> {
+        #[cfg(feature = "log")]
+        Self::init_tracing()?;
+
+        Self::gui()
     }
 
     #[cfg(feature = "log")]

@@ -1,11 +1,11 @@
 ---
 name: blooming-blockery-cli
-description: Documents the blooming-blockery CLI contract and teaches context-first tree authoring for design specifications and documentation.
+description: Documents the bb CLI contract and teaches context-first tree authoring for design specifications and documentation.
 ---
 
 # blooming-blockery-cli
 
-Use this skill when operating the `blooming-blockery` CLI and when shaping
+Use this skill when operating the `bb` CLI and when shaping
 content into tree structure for better LLM context quality.
 
 Primary goal: treat Blooming Blockery as a tree-structure based design
@@ -33,7 +33,7 @@ possible.
 
 ## When to use
 
-- The user asks how to use `blooming-blockery` from terminal scripts.
+- The user asks how to use `bb` from terminal scripts.
 - The user needs to restructure mixed or overloaded notes into a cleaner tree.
 - The user needs LLM-ready context around a specific block.
 - The user hits CLI parsing errors with block IDs, mount formats, or panel states.
@@ -88,15 +88,15 @@ the core tree semantics.
 
 ## CLI Invocation Convention
 
-All examples below are shown with full command names:
+The CLI binary is `bb`; the GUI binary is `blooming-blockery`. All examples
+below use the full form:
 
 ```bash
-blooming-blockery block ...
+bb block ...
 ```
 
-If you need shorter snippets in explanations, you may omit `blooming-blockery`
-and start at `block ...`, but keep full-form examples in instructions and
-automation scripts.
+You may abbreviate to `block ...` in short explanations, but use full-form
+`bb block ...` in instructions and automation scripts.
 
 ## Global Flags
 
@@ -116,8 +116,8 @@ Block IDs use a clean format like `1v1`, `2v3` where:
 Batch-capable commands also accept comma-separated IDs in a single ID argument:
 
 ```bash
-blooming-blockery block show 1v1,2v1,3v1
-blooming-blockery block tree add-child 1v1,2v1 "Shared child text"
+bb block show 1v1,2v1,3v1
+bb block tree add-child 1v1,2v1 "Shared child text"
 ```
 
 Batch execution is continue-on-error: all targets are attempted and errors are
@@ -129,27 +129,27 @@ reported after processing completes.
 
 ```bash
 # Add a sibling when topic shifts at same hierarchy level
-blooming-blockery block tree add-sibling <BLOCK_ID> "New topic"
+bb block tree add-sibling <BLOCK_ID> "New topic"
 
 # Wrap current block when introducing a new organizing parent
-blooming-blockery block tree wrap <BLOCK_ID> "Parent concept"
+bb block tree wrap <BLOCK_ID> "Parent concept"
 
 # Move misplaced content under the correct parent
-blooming-blockery block tree move <SOURCE_ID> <TARGET_ID> --under
+bb block tree move <SOURCE_ID> <TARGET_ID> --under
 ```
 
 ### 2) Inspect context before asking LLM features
 
 ```bash
-blooming-blockery block nav lineage <BLOCK_ID>
-blooming-blockery block context <BLOCK_ID> --output json
-blooming-blockery block friend list <BLOCK_ID> --output json
+bb block nav lineage <BLOCK_ID>
+bb block context <BLOCK_ID> --output json
+bb block friend list <BLOCK_ID> --output json
 ```
 
 ### 3) Keep cross-cutting references explicit
 
 ```bash
-blooming-blockery block friend add <TARGET_ID> <FRIEND_ID> \
+bb block friend add <TARGET_ID> <FRIEND_ID> \
   --perspective "reference architecture constraint" \
   --telescope-lineage
 ```
@@ -163,174 +163,174 @@ scope is needed for the specific LLM task.
 
 ```bash
 # List all root block IDs
-blooming-blockery block roots
-blooming-blockery block roots --output json
+bb block roots
+bb block roots --output json
 
 # Show block details
-blooming-blockery block show <BLOCK_ID>
-blooming-blockery block show 1v1 --output json
+bb block show <BLOCK_ID>
+bb block show 1v1 --output json
 
 # Search blocks by text (case-insensitive substring)
-blooming-blockery block find "search query"
-blooming-blockery block find "TODO" --limit 10
+bb block find "search query"
+bb block find "TODO" --limit 10
 
 # Edit the text content of a block
-blooming-blockery block point <BLOCK_ID> "New text content"
-blooming-blockery block point 1v1 "Updated text"
+bb block point <BLOCK_ID> "New text content"
+bb block point 1v1 "Updated text"
 ```
 
 ### Tree Structure Commands
 
 ```bash
 # Add child block under parent (parent must not be a mount)
-blooming-blockery block tree add-child <PARENT_ID> "Text content"
-blooming-blockery block tree add-child 1v1 "My new idea"
+bb block tree add-child <PARENT_ID> "Text content"
+bb block tree add-child 1v1 "My new idea"
 
 # Add sibling after a block
-blooming-blockery block tree add-sibling <BLOCK_ID> "Text content"
-blooming-blockery block tree add-sibling 1v1 "Next sibling"
+bb block tree add-sibling <BLOCK_ID> "Text content"
+bb block tree add-sibling 1v1 "Next sibling"
 
 # Wrap a block with a new parent
-blooming-blockery block tree wrap <BLOCK_ID> "Parent text"
-blooming-blockery block tree wrap 1v1 "New parent section"
+bb block tree wrap <BLOCK_ID> "Parent text"
+bb block tree wrap 1v1 "New parent section"
 
 # Duplicate a subtree
-blooming-blockery block tree duplicate <BLOCK_ID>
-blooming-blockery block tree duplicate 1v1
+bb block tree duplicate <BLOCK_ID>
+bb block tree duplicate 1v1
 
 # Delete a subtree (removes block and all descendants)
-blooming-blockery block tree delete <BLOCK_ID>
-blooming-blockery block tree delete 1v1
+bb block tree delete <BLOCK_ID>
+bb block tree delete 1v1
 
 # Move block relative to target
-blooming-blockery block tree move <SOURCE_ID> <TARGET_ID> --before
-blooming-blockery block tree move <SOURCE_ID> <TARGET_ID> --after
-blooming-blockery block tree move <SOURCE_ID> <TARGET_ID> --under
+bb block tree move <SOURCE_ID> <TARGET_ID> --before
+bb block tree move <SOURCE_ID> <TARGET_ID> --after
+bb block tree move <SOURCE_ID> <TARGET_ID> --under
 ```
 
 ### Navigation Commands
 
 ```bash
 # Get next visible block in DFS order
-blooming-blockery block nav next <BLOCK_ID>
-blooming-blockery block nav next 1v1
+bb block nav next <BLOCK_ID>
+bb block nav next 1v1
 
 # Get previous visible block
-blooming-blockery block nav prev <BLOCK_ID>
-blooming-blockery block nav prev 2v1
+bb block nav prev <BLOCK_ID>
+bb block nav prev 2v1
 
 # Get lineage (ancestor chain)
-blooming-blockery block nav lineage <BLOCK_ID>
-blooming-blockery block nav lineage 1v1
+bb block nav lineage <BLOCK_ID>
+bb block nav lineage 1v1
 
 # Search-aware navigation
-blooming-blockery block nav find-next <BLOCK_ID> "query"
-blooming-blockery block nav find-prev <BLOCK_ID> "query" --no-wrap
+bb block nav find-next <BLOCK_ID> "query"
+bb block nav find-prev <BLOCK_ID> "query" --no-wrap
 ```
 
 ### Draft Commands (LLM suggestions)
 
 ```bash
 # Set expansion draft (rewrite + proposed children)
-blooming-blockery block draft expand <BLOCK_ID> --rewrite "Refined text" --children "Child 1" "Child 2"
-blooming-blockery block draft expand 1v1 --children "Just kids"
+bb block draft expand <BLOCK_ID> --rewrite "Refined text" --children "Child 1" "Child 2"
+bb block draft expand 1v1 --children "Just kids"
 
 # Set reduction draft (condensed version)
-blooming-blockery block draft reduce <BLOCK_ID> --reduction "Condensed text" --redundant-children 2v1 3v1
+bb block draft reduce <BLOCK_ID> --reduction "Condensed text" --redundant-children 2v1 3v1
 
 # Set instruction draft (user-authored LLM instructions)
-blooming-blockery block draft instruction <BLOCK_ID> --text "Make this more concise"
+bb block draft instruction <BLOCK_ID> --text "Make this more concise"
 
 # Set inquiry draft (LLM response to ask query)
-blooming-blockery block draft inquiry <BLOCK_ID> --response "The key insight is..."
+bb block draft inquiry <BLOCK_ID> --response "The key insight is..."
 
 # List all drafts for a block
-blooming-blockery block draft list <BLOCK_ID>
+bb block draft list <BLOCK_ID>
 
 # Clear drafts (use --all or specific flags)
-blooming-blockery block draft clear <BLOCK_ID> --all
-blooming-blockery block draft clear <BLOCK_ID> --expand
-blooming-blockery block draft clear <BLOCK_ID> --reduce --instruction
+bb block draft clear <BLOCK_ID> --all
+bb block draft clear <BLOCK_ID> --expand
+bb block draft clear <BLOCK_ID> --reduce --instruction
 ```
 
 ### Fold (Collapse) Commands
 
 ```bash
 # Toggle fold state
-blooming-blockery block fold toggle <BLOCK_ID>
+bb block fold toggle <BLOCK_ID>
 
 # Get fold status
-blooming-blockery block fold status <BLOCK_ID>
+bb block fold status <BLOCK_ID>
 ```
 
 ### Friend (Cross-reference) Commands
 
 ```bash
 # Add friend block with optional perspective
-blooming-blockery block friend add <TARGET_ID> <FRIEND_ID> --perspective "Related design"
-blooming-blockery block friend add <TARGET_ID> <FRIEND_ID> --telescope-lineage --telescope-children
+bb block friend add <TARGET_ID> <FRIEND_ID> --perspective "Related design"
+bb block friend add <TARGET_ID> <FRIEND_ID> --telescope-lineage --telescope-children
 
 # Remove friend
-blooming-blockery block friend remove <TARGET_ID> <FRIEND_ID>
+bb block friend remove <TARGET_ID> <FRIEND_ID>
 
 # List friends
-blooming-blockery block friend list <TARGET_ID>
+bb block friend list <TARGET_ID>
 ```
 
 ### Mount (External File) Commands
 
 ```bash
 # Set mount path (block must be leaf, no children)
-blooming-blockery block mount set <BLOCK_ID> <PATH> [--format json|markdown]
-blooming-blockery block mount set 1v1 /data/external.json
-blooming-blockery block mount set 1v1 /notes/notes.md --format markdown
+bb block mount set <BLOCK_ID> <PATH> [--format json|markdown]
+bb block mount set 1v1 /data/external.json
+bb block mount set 1v1 /notes/notes.md --format markdown
 
 # Expand mount (load external file)
-blooming-blockery block mount expand <BLOCK_ID>
+bb block mount expand <BLOCK_ID>
 
 # Collapse mount (remove loaded blocks, restore mount node)
-blooming-blockery block mount collapse <BLOCK_ID>
+bb block mount collapse <BLOCK_ID>
 
 # Move mount backing file and update metadata
-blooming-blockery block mount move <BLOCK_ID> <PATH>
+bb block mount move <BLOCK_ID> <PATH>
 
 # Inline mounted content into current store
-blooming-blockery block mount inline <BLOCK_ID>
+bb block mount inline <BLOCK_ID>
 
 # Inline all mounts recursively under a subtree
-blooming-blockery block mount inline-recursive <BLOCK_ID>
+bb block mount inline-recursive <BLOCK_ID>
 
 # Extract subtree to external file
-blooming-blockery block mount extract <BLOCK_ID> --output <PATH> [--format json|markdown]
-blooming-blockery block mount extract 1v1 --output /backup/notes.json
+bb block mount extract <BLOCK_ID> --output <PATH> [--format json|markdown]
+bb block mount extract 1v1 --output /backup/notes.json
 
 # Persist all expanded mounts to their source files
-blooming-blockery block mount save
+bb block mount save
 
 # Show mount info
-blooming-blockery block mount info <BLOCK_ID>
+bb block mount info <BLOCK_ID>
 ```
 
 ### Panel Commands
 
 ```bash
 # Set block panel state
-blooming-blockery block panel set <BLOCK_ID> friends
-blooming-blockery block panel set <BLOCK_ID> instruction
+bb block panel set <BLOCK_ID> friends
+bb block panel set <BLOCK_ID> instruction
 
 # Get block panel state
-blooming-blockery block panel get <BLOCK_ID>
+bb block panel get <BLOCK_ID>
 
 # Clear block panel state
-blooming-blockery block panel clear <BLOCK_ID>
+bb block panel clear <BLOCK_ID>
 ```
 
 ### Context Command
 
 ```bash
 # Get LLM context for a block (lineage, children, friends)
-blooming-blockery block context <BLOCK_ID>
-blooming-blockery block context 1v1
+bb block context <BLOCK_ID>
+bb block context 1v1
 ```
 
 ## Common Error Patterns
@@ -376,6 +376,6 @@ When helping users author specs/docs, prefer these decisions:
      (`existing/dir` or a path without extension), and each target will use
      `<BLOCK_ID>.<ext>` under that directory.
 5. Panel states are `friends` or `instruction`
-6. The GUI launches by default if no subcommand is given
+6. The GUI is `blooming-blockery`; `bb` requires a subcommand
 7. If users report low-quality LLM responses, first fix tree placement and
    friend/telescope scope before rewriting prompts

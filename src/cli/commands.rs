@@ -5,11 +5,10 @@
 //!
 //! # Architecture
 //!
-//! The CLI is organized into a hierarchical command structure:
+//! The CLI (`bb`) is organized into a hierarchical command structure:
 //!
 //! ```text
-//! BlockCli
-//! ├── gui (default)
+//! BbCli
 //! ├── generate-completion
 //! └── block (BlockCommands)
 //!     ├── roots, show, find (query commands)
@@ -67,55 +66,33 @@ pub use super::point::EditPointCommand;
 pub use super::query::{FindCommand, RootCommand, ShowCommand};
 pub use super::tree::TreeCommands;
 
-/// CLI application for manipulating the block document store.
+/// CLI for the `bb` binary (CLI-only, no GUI).
 ///
-/// This is the main entry point for the `block` command-line tool.
-/// All flags are marked as `global = true`, allowing them to be specified
-/// before or after the subcommand for user convenience.
+/// Subcommand is required; use `blooming-blockery` for the graphical interface.
 #[derive(Debug, Parser)]
-#[command(name = "blooming-blockery", about, long_about)]
-pub struct BlockCli {
-    /// The command to execute. Defaults to `Gui` if not specified.
+#[command(name = "bb", about, long_about)]
+pub struct BbCli {
     #[command(subcommand)]
-    pub command: Option<Commands>,
+    pub command: BbCommands,
 
     /// Path to the block store file.
-    ///
-    /// If not provided, uses the default application data file path.
     #[arg(long, global = true, value_name = "PATH")]
     pub store: Option<std::path::PathBuf>,
 
-    /// Enable verbose output.
-    ///
-    /// Currently unused; reserved for future debugging output.
     #[arg(short, long, global = true)]
     pub verbose: bool,
 
-    /// Output format for query results.
-    ///
-    /// Use `table` for human-readable output or `json` for scripting.
     #[arg(long, global = true, value_name = "FORMAT", default_value = "table")]
     pub output: OutputFormat,
 }
 
-/// Top-level command categories.
+/// Commands available in the `bb` CLI binary (no GUI variant).
 #[derive(Debug, Parser)]
-pub enum Commands {
-    /// Launch the GUI (default).
-    ///
-    /// Opens the interactive graphical interface for visual block editing.
-    Gui,
-    /// Generate shell completions.
-    ///
-    /// Outputs completion scripts for bash, zsh, fish, elvish, and powershell.
+pub enum BbCommands {
     GenerateCompletion {
         #[arg(value_name = "SHELL")]
         shell: clap_complete::Shell,
     },
-    /// Block store manipulation commands.
-    ///
-    /// This subcommand group contains all operations for reading and modifying
-    /// the block document store.
     #[command(subcommand)]
     Block(BlockCommands),
 }
