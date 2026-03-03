@@ -180,7 +180,7 @@ impl fmt::Display for MaxTokens {
 /// Per-[`TaskKind`] LLM settings persisted in `app.toml`.
 ///
 /// Each task independently selects a provider, model, and token limit.
-/// Uses `[tasks.reduce]`, `[tasks.expand]`, `[tasks.inquire]` TOML tables.
+/// Uses `[tasks.reduce]`, `[tasks.atomize]`, `[tasks.expand]`, `[tasks.inquire]` TOML tables.
 ///
 /// [`TaskKind`]: crate::llm::TaskKind
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -188,6 +188,9 @@ pub struct TaskSettings {
     /// Settings for the reduce task.
     #[serde(default = "TaskConfig::default_reduce")]
     pub reduce: TaskConfig,
+    /// Settings for the atomize task.
+    #[serde(default = "TaskConfig::default_atomize")]
+    pub atomize: TaskConfig,
     /// Settings for the expand task.
     #[serde(default = "TaskConfig::default_expand")]
     pub expand: TaskConfig,
@@ -200,6 +203,7 @@ impl Default for TaskSettings {
     fn default() -> Self {
         Self {
             reduce: TaskConfig::default_reduce(),
+            atomize: TaskConfig::default_atomize(),
             expand: TaskConfig::default_expand(),
             inquire: TaskConfig::default_inquire(),
         }
@@ -245,6 +249,17 @@ impl TaskConfig {
         }
     }
 
+    /// Default config for the atomize task.
+    pub fn default_atomize() -> Self {
+        Self {
+            provider: default_provider_name(),
+            model: default_model_name(),
+            token_limit: default_atomize_tokens(),
+            system_prompt: String::new(),
+            user_prompt: String::new(),
+        }
+    }
+
     /// Default config for the expand task.
     pub fn default_expand() -> Self {
         Self {
@@ -277,6 +292,9 @@ fn default_model_name() -> String {
 }
 
 fn default_reduce_tokens() -> MaxTokens {
+    MaxTokens::UNLIMITED
+}
+fn default_atomize_tokens() -> MaxTokens {
     MaxTokens::UNLIMITED
 }
 fn default_expand_tokens() -> MaxTokens {
@@ -353,10 +371,11 @@ mod tests {
     fn task_settings_defaults_are_sensible() {
         let tasks = TaskSettings::default();
         assert!(tasks.reduce.token_limit.is_unlimited());
+        assert!(tasks.atomize.token_limit.is_unlimited());
         assert!(tasks.expand.token_limit.is_unlimited());
         assert!(tasks.inquire.token_limit.is_unlimited());
         assert_eq!(tasks.reduce.provider, "openai");
-        assert_eq!(tasks.reduce.model, "gpt-4o");
+        assert_eq!(tasks.reduce.model, "gpt-5.2");
     }
 
     #[test]
@@ -369,9 +388,10 @@ mod tests {
                 system_prompt: String::new(),
                 user_prompt: String::new(),
             },
+            atomize: TaskConfig::default_atomize(),
             expand: TaskConfig {
                 provider: "openai".to_string(),
-                model: "gpt-4o".to_string(),
+                model: "gpt-5.2".to_string(),
                 token_limit: MaxTokens::UNLIMITED,
                 system_prompt: String::new(),
                 user_prompt: String::new(),
@@ -384,6 +404,7 @@ mod tests {
         assert_eq!(parsed.tasks.reduce.provider, "deepseek");
         assert_eq!(parsed.tasks.reduce.model, "deepseek-chat");
         assert_eq!(parsed.tasks.reduce.token_limit.raw(), 300);
+        assert_eq!(parsed.tasks.atomize.token_limit.raw(), 0);
         assert_eq!(parsed.tasks.expand.token_limit.raw(), 0);
         assert_eq!(parsed.tasks.inquire.token_limit.raw(), 0);
     }
@@ -393,6 +414,7 @@ mod tests {
         let toml_str = r#"locale = "en-US""#;
         let config: AppConfig = toml::from_str(toml_str).expect("deserialize");
         assert!(config.tasks.reduce.token_limit.is_unlimited());
+        assert!(config.tasks.atomize.token_limit.is_unlimited());
         assert!(config.tasks.expand.token_limit.is_unlimited());
         assert!(config.tasks.inquire.token_limit.is_unlimited());
         assert_eq!(config.tasks.reduce.provider, "openai");

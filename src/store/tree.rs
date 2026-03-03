@@ -146,6 +146,7 @@ impl BlockStore {
             self.nodes.remove(*id);
             self.points.remove(*id);
             self.expansion_drafts.remove(*id);
+            self.atomization_drafts.remove(*id);
             self.reduction_drafts.remove(*id);
             self.instruction_drafts.remove(*id);
             self.inquiry_drafts.remove(*id);

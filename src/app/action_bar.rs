@@ -10,7 +10,10 @@
 //! Keep module docs broad; pipeline and interaction semantics are documented on
 //! owning VM types and builder/projection functions below.
 
-use super::{AppState, ExpandMessage, Message, MountFileMessage, ReduceMessage, StructureMessage};
+use super::{
+    AtomizeMessage, AppState, ExpandMessage, Message, MountFileMessage, ReduceMessage,
+    StructureMessage,
+};
 use crate::store::BlockId;
 use iced::keyboard::{Key, Modifiers, key::Named};
 
@@ -22,6 +25,7 @@ use iced::keyboard::{Key, Modifiers, key::Named};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActionId {
     Expand,
+    Atomize,
     Reduce,
     Cancel,
     AddChild,
@@ -99,6 +103,7 @@ impl ActionDescriptor {
 pub fn action_i18n_key(id: ActionId) -> &'static str {
     match id {
         | ActionId::Expand => "action_expand",
+        | ActionId::Atomize => "action_atomize",
         | ActionId::Reduce => "action_reduce",
         | ActionId::AddChild => "action_add_child",
         | ActionId::AddParent => "action_add_parent",
@@ -121,6 +126,7 @@ pub fn action_i18n_key(id: ActionId) -> &'static str {
 pub fn status_error_i18n_key(op: ActionId) -> &'static str {
     match op {
         | ActionId::Expand => "status_expand_failed",
+        | ActionId::Atomize => "status_atomize_failed",
         | ActionId::Reduce => "status_reduce_failed",
         | _ => "status_expand_failed",
     }
@@ -171,8 +177,10 @@ pub struct RowContext {
     pub has_draft: bool,
     pub draft_suggestion_count: usize,
     pub has_expand_error: bool,
+    pub has_atomize_error: bool,
     pub has_reduce_error: bool,
     pub is_expanding: bool,
+    pub is_atomizing: bool,
     pub is_reducing: bool,
     /// Whether this block is already part of a mounted file.
     /// When true, "Save to file" is disabled (one node = one file).
@@ -192,9 +200,11 @@ pub struct RowContext {
 pub enum RowUiState {
     Idle,
     BusyExpand,
+    BusyAtomize,
     BusyReduce,
     DraftActive,
     ErrorExpand,
+    ErrorAtomize,
     ErrorReduce,
 }
 
@@ -203,11 +213,17 @@ impl RowContext {
         if self.is_expanding {
             return RowUiState::BusyExpand;
         }
+        if self.is_atomizing {
+            return RowUiState::BusyAtomize;
+        }
         if self.is_reducing {
             return RowUiState::BusyReduce;
         }
         if self.has_expand_error {
             return RowUiState::ErrorExpand;
+        }
+        if self.has_atomize_error {
+            return RowUiState::ErrorAtomize;
         }
         if self.has_reduce_error {
             return RowUiState::ErrorReduce;
@@ -238,20 +254,37 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
 
     let reduce_availability = if ctx.is_empty_point() {
         ActionAvailability::DisabledEmptyPoint
-    } else if matches!(row_state, RowUiState::BusyExpand | RowUiState::BusyReduce) {
+    } else if matches!(
+        row_state,
+        RowUiState::BusyExpand | RowUiState::BusyAtomize | RowUiState::BusyReduce
+    ) {
         ActionAvailability::DisabledBusy
     } else {
         ActionAvailability::Enabled
     };
 
-    let expand_availability =
-        if matches!(row_state, RowUiState::BusyExpand | RowUiState::BusyReduce) {
-            ActionAvailability::DisabledBusy
-        } else {
-            ActionAvailability::Enabled
-        };
+    let expand_availability = if matches!(
+        row_state,
+        RowUiState::BusyExpand | RowUiState::BusyAtomize | RowUiState::BusyReduce
+    ) {
+        ActionAvailability::DisabledBusy
+    } else {
+        ActionAvailability::Enabled
+    };
 
-    let add_child_availability = if matches!(row_state, RowUiState::BusyExpand) {
+    let atomize_availability = if ctx.is_empty_point() {
+        ActionAvailability::DisabledEmptyPoint
+    } else if matches!(
+        row_state,
+        RowUiState::BusyExpand | RowUiState::BusyAtomize | RowUiState::BusyReduce
+    ) {
+        ActionAvailability::DisabledBusy
+    } else {
+        ActionAvailability::Enabled
+    };
+
+    let add_child_availability =
+        if matches!(row_state, RowUiState::BusyExpand | RowUiState::BusyAtomize) {
         ActionAvailability::DisabledBusy
     } else {
         ActionAvailability::Enabled
@@ -260,6 +293,11 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     vm.primary.push(ActionDescriptor::new(
         ActionId::Expand,
         expand_availability,
+        ActionPriority::Pinned,
+    ));
+    vm.primary.push(ActionDescriptor::new(
+        ActionId::Atomize,
+        atomize_availability,
         ActionPriority::Pinned,
     ));
     vm.primary.push(ActionDescriptor::new(
@@ -281,7 +319,10 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
         ));
     }
 
-    if matches!(row_state, RowUiState::ErrorExpand | RowUiState::ErrorReduce) {
+    if matches!(
+        row_state,
+        RowUiState::ErrorExpand | RowUiState::ErrorAtomize | RowUiState::ErrorReduce
+    ) {
         vm.contextual.push(ActionDescriptor::new(
             ActionId::Retry,
             ActionAvailability::Enabled,
@@ -289,7 +330,10 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
         ));
     }
 
-    if matches!(row_state, RowUiState::BusyExpand | RowUiState::BusyReduce) {
+    if matches!(
+        row_state,
+        RowUiState::BusyExpand | RowUiState::BusyAtomize | RowUiState::BusyReduce
+    ) {
         vm.contextual.push(ActionDescriptor::new(
             ActionId::Cancel,
             ActionAvailability::Enabled,
@@ -354,9 +398,13 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
 
     vm.status_chip = match row_state {
         | RowUiState::BusyExpand => Some(StatusChipVm::Loading { op: ActionId::Expand }),
+        | RowUiState::BusyAtomize => Some(StatusChipVm::Loading { op: ActionId::Atomize }),
         | RowUiState::BusyReduce => Some(StatusChipVm::Loading { op: ActionId::Reduce }),
         | RowUiState::ErrorExpand => {
             Some(StatusChipVm::Error { op: ActionId::Expand, retry_action: ActionId::Retry })
+        }
+        | RowUiState::ErrorAtomize => {
+            Some(StatusChipVm::Error { op: ActionId::Atomize, retry_action: ActionId::Retry })
         }
         | RowUiState::ErrorReduce => {
             Some(StatusChipVm::Error { op: ActionId::Reduce, retry_action: ActionId::Retry })
@@ -467,15 +515,18 @@ pub fn action_to_message_by_id(
 ) -> Option<Message> {
     match action_id {
         | ActionId::Expand => Some(Message::Expand(ExpandMessage::Start(*block_id))),
+        | ActionId::Atomize => Some(Message::Atomize(AtomizeMessage::Start(*block_id))),
         | ActionId::Reduce => Some(Message::Reduce(ReduceMessage::Start(*block_id))),
         | ActionId::AddChild => Some(Message::Structure(StructureMessage::AddChild(*block_id))),
         | ActionId::AddParent => Some(Message::Structure(StructureMessage::AddParent(*block_id))),
-        | ActionId::AcceptAll => Some(Message::Expand(ExpandMessage::AcceptAllChildren(*block_id))),
+        | ActionId::AcceptAll => accept_all_message_for_block(state, block_id),
         | ActionId::Cancel => cancel_message_for_block(state, block_id),
         | ActionId::Retry => retry_message_for_block(state, block_id),
         | ActionId::DismissDraft => {
             if state.store.reduction_draft(block_id).is_some() {
                 Some(Message::Reduce(ReduceMessage::Reject(*block_id)))
+            } else if state.store.atomization_draft(block_id).is_some() {
+                Some(Message::Atomize(AtomizeMessage::DiscardAllChildren(*block_id)))
             } else if let Some(expansion_draft) = state.store.expansion_draft(block_id) {
                 if !expansion_draft.children.is_empty() {
                     Some(Message::Expand(ExpandMessage::DiscardAllChildren(*block_id)))
@@ -506,9 +557,19 @@ pub fn action_to_message_by_id(
     }
 }
 
+fn accept_all_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
+    if state.store.atomization_draft(block_id).is_some() {
+        return Some(Message::Atomize(AtomizeMessage::AcceptAllChildren(*block_id)));
+    }
+    Some(Message::Expand(ExpandMessage::AcceptAllChildren(*block_id)))
+}
+
 fn cancel_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
     if state.llm_requests.is_expanding(*block_id) {
         return Some(Message::Expand(ExpandMessage::Cancel(*block_id)));
+    }
+    if state.llm_requests.is_atomizing(*block_id) {
+        return Some(Message::Atomize(AtomizeMessage::Cancel(*block_id)));
     }
     if state.llm_requests.is_reducing(*block_id) {
         return Some(Message::Reduce(ReduceMessage::Cancel(*block_id)));
@@ -519,6 +580,9 @@ fn cancel_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Mess
 fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
     if state.llm_requests.has_expand_error(*block_id) {
         return Some(Message::Expand(ExpandMessage::Start(*block_id)));
+    }
+    if state.llm_requests.has_atomize_error(*block_id) {
+        return Some(Message::Atomize(AtomizeMessage::Start(*block_id)));
     }
     if state.llm_requests.has_reduce_error(*block_id) {
         return Some(Message::Reduce(ReduceMessage::Start(*block_id)));
@@ -537,8 +601,10 @@ mod tests {
             has_draft: false,
             draft_suggestion_count: 0,
             has_expand_error: false,
+            has_atomize_error: false,
             has_reduce_error: false,
             is_expanding: false,
+            is_atomizing: false,
             is_reducing: false,
             is_mounted: false,
             has_children: true,
@@ -550,7 +616,10 @@ mod tests {
     fn shows_primary_actions_by_default() {
         let vm = build_action_bar_vm(&row_context());
         let ids = vm.primary.into_iter().map(|action| action.id).collect::<Vec<_>>();
-        assert_eq!(ids, vec![ActionId::Expand, ActionId::Reduce, ActionId::AddChild]);
+        assert_eq!(
+            ids,
+            vec![ActionId::Expand, ActionId::Atomize, ActionId::Reduce, ActionId::AddChild]
+        );
     }
 
     #[test]
@@ -671,6 +740,7 @@ mod tests {
         let visible = vm.visible_actions();
 
         assert!(visible.iter().any(|action| action.id == ActionId::Expand));
+        assert!(visible.iter().any(|action| action.id == ActionId::Atomize));
         assert!(visible.iter().any(|action| action.id == ActionId::Reduce));
         assert!(visible.iter().any(|action| action.id == ActionId::AddChild));
         assert!(visible.iter().any(|action| action.id == ActionId::DismissDraft));
@@ -711,6 +781,7 @@ mod tests {
         assert!(projected.primary.is_empty());
         assert!(projected.contextual.is_empty());
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::Expand));
+        assert!(projected.overflow.iter().any(|action| action.id == ActionId::Atomize));
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::Reduce));
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::AddChild));
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::AddParent));
@@ -731,7 +802,7 @@ mod tests {
         let projected = project_for_viewport(vm, ViewportBucket::Wide);
 
         assert_eq!(projected.primary.len(), original_count);
-        assert_eq!(projected.primary.len(), 3);
+        assert_eq!(projected.primary.len(), 4);
     }
 
     #[test]

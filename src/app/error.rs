@@ -47,6 +47,8 @@ pub enum AppError {
     Reduce(UiError),
     #[error("expand error: {0}")]
     Expand(UiError),
+    #[error("atomize error: {0}")]
+    Atomize(UiError),
     #[error("mount error: {0}")]
     Mount(UiError),
     #[error("inquire error: {0}")]
@@ -60,6 +62,7 @@ impl AppError {
             | Self::Persistence(err)
             | Self::Reduce(err)
             | Self::Expand(err)
+            | Self::Atomize(err)
             | Self::Mount(err)
             | Self::Inquire(err) => err.as_str(),
         }

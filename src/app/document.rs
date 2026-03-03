@@ -64,8 +64,9 @@
 
 use super::{
     AppState, ContextMenuAction, ContextMenuMessage, DocumentMode, EditMessage, ErrorBanner,
-    ErrorMessage, ExpandMessage, FindMessage, Message, MountFileMessage, NavigationMessage,
-    OverlayMessage, ReduceMessage, ShortcutMessage, StructureMessage, UndoRedoMessage,
+    AtomizeMessage, ErrorMessage, ExpandMessage, FindMessage, Message, MountFileMessage,
+    NavigationMessage, OverlayMessage, ReduceMessage, ShortcutMessage, StructureMessage,
+    UndoRedoMessage,
     action_bar::{
         ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
         ViewportBucket, action_i18n_key, action_to_message, build_action_bar_vm,
@@ -80,7 +81,8 @@ use super::{
 use crate::{
     component::icon_button::IconButton,
     component::text_button::TextButton,
-    store::{BlockId, BlockPanelBarState, ExpansionDraftRecord, ReductionDraftRecord},
+    store::{AtomizationDraftRecord, BlockId, BlockPanelBarState, ExpansionDraftRecord,
+            ReductionDraftRecord},
     text::truncate_for_display,
     theme,
 };
@@ -508,17 +510,23 @@ impl<'a> DocumentView<'a> {
         // Build action bar for this block
         let point_text = self.state.store.point(&block_id).unwrap_or_default().to_string();
         let expansion_draft = self.state.store.expansion_draft(&block_id);
+        let atomization_draft = self.state.store.atomization_draft(&block_id);
         let reduction_draft = self.state.store.reduction_draft(&block_id);
         let node = self.state.store.node(&block_id);
         let row_context = RowContext {
             block_id,
             point_text,
-            has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
+            has_draft: expansion_draft.is_some()
+                || atomization_draft.is_some()
+                || reduction_draft.is_some(),
             draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0)
+                + atomization_draft.map(|d| d.points.len()).unwrap_or(0)
                 + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
             has_expand_error: self.state.llm_requests.has_expand_error(block_id),
+            has_atomize_error: self.state.llm_requests.has_atomize_error(block_id),
             has_reduce_error: self.state.llm_requests.has_reduce_error(block_id),
             is_expanding: self.state.llm_requests.is_expanding(block_id),
+            is_atomizing: self.state.llm_requests.is_atomizing(block_id),
             is_reducing: self.state.llm_requests.is_reducing(block_id),
             is_mounted: self.state.store.mount_table().entry(block_id).is_some(),
             is_unexpanded_mount: node.is_some_and(|n| n.mount_path().is_some()),
@@ -800,6 +808,9 @@ impl<'a> TreeView<'a> {
                     .padding(Padding::ZERO.left(theme::INDENT)),
             );
         }
+        if let Some(draft) = self.state.store.atomization_draft(block_id) {
+            return self.render_atomization_panel(block_id, draft);
+        }
         if let Some(draft) = self.state.store.expansion_draft(block_id) {
             block = block.push(self.render_expansion_panel(block_id, draft));
         }
@@ -852,6 +863,66 @@ impl<'a> TreeView<'a> {
             | (DocumentMode::Multiselect, _) => block.into(),
             | (_, None) => block.into(),
         }
+    }
+
+    fn render_atomization_panel(
+        &self, block_id: &BlockId, draft: &'a AtomizationDraftRecord,
+    ) -> Element<'a, Message> {
+        let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
+
+        if !draft.points.is_empty() {
+            panel = panel.push(
+                row![]
+                    .spacing(theme::PANEL_BUTTON_GAP)
+                    .push(
+                        container(text(t!("doc_atomize_points").to_string()))
+                            .width(Length::Fill),
+                    )
+                    .push(
+                        TextButton::action(t!("doc_accept_all").to_string(), 13.0)
+                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                            .on_press(Message::Atomize(AtomizeMessage::AcceptAllChildren(
+                                *block_id,
+                            ))),
+                    )
+                    .push(
+                        TextButton::destructive(t!("doc_discard_all").to_string(), 13.0)
+                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                            .on_press(Message::Atomize(AtomizeMessage::DiscardAllChildren(
+                                *block_id,
+                            ))),
+                    ),
+            );
+
+            for (index, point) in draft.points.iter().enumerate() {
+                panel = panel.push(
+                    row![]
+                        .spacing(theme::PANEL_BUTTON_GAP)
+                        .push(container(text(point.as_str())).width(Length::Fill))
+                        .push(
+                            TextButton::action(t!("doc_keep").to_string(), 13.0)
+                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                                .on_press(Message::Atomize(AtomizeMessage::AcceptChild {
+                                    block_id: *block_id,
+                                    child_index: index,
+                                })),
+                        )
+                        .push(
+                            TextButton::destructive(t!("doc_drop").to_string(), 13.0)
+                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                                .on_press(Message::Atomize(AtomizeMessage::RejectChild {
+                                    block_id: *block_id,
+                                    child_index: index,
+                                })),
+                        ),
+                );
+            }
+        }
+
+        container(panel)
+            .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
+            .style(theme::draft_panel)
+            .into()
     }
 
     fn render_expansion_panel(
@@ -1038,17 +1109,23 @@ impl<'a> TreeView<'a> {
 
     fn action_row_context(&self, block_id: &BlockId, point_text: String) -> RowContext {
         let expansion_draft = self.state.store.expansion_draft(block_id);
+        let atomization_draft = self.state.store.atomization_draft(block_id);
         let reduction_draft = self.state.store.reduction_draft(block_id);
         let node = self.state.store.node(block_id);
         RowContext {
             block_id: *block_id,
             point_text,
-            has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
+            has_draft: expansion_draft.is_some()
+                || atomization_draft.is_some()
+                || reduction_draft.is_some(),
             draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0)
+                + atomization_draft.map(|d| d.points.len()).unwrap_or(0)
                 + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
             has_expand_error: self.state.llm_requests.has_expand_error(*block_id),
+            has_atomize_error: self.state.llm_requests.has_atomize_error(*block_id),
             has_reduce_error: self.state.llm_requests.has_reduce_error(*block_id),
             is_expanding: self.state.llm_requests.is_expanding(*block_id),
+            is_atomizing: self.state.llm_requests.is_atomizing(*block_id),
             is_reducing: self.state.llm_requests.is_reducing(*block_id),
             is_mounted: self.state.store.mount_table().entry(*block_id).is_some(),
             is_unexpanded_mount: node.is_some_and(|n| n.mount_path().is_some()),
@@ -1130,6 +1207,9 @@ impl<'a> TreeView<'a> {
         let label = match &vm.status_chip {
             | Some(StatusChipVm::Loading { op: ActionId::Expand }) => {
                 t!("doc_status_expanding").to_string()
+            }
+            | Some(StatusChipVm::Loading { op: ActionId::Atomize }) => {
+                t!("doc_status_atomizing").to_string()
             }
             | Some(StatusChipVm::Loading { op: ActionId::Reduce }) => {
                 t!("doc_status_reducing").to_string()
@@ -1758,6 +1838,7 @@ mod tests {
 fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
     let icon = match id {
         | ActionId::Expand => icons::icon_maximize_2(),
+        | ActionId::Atomize => icons::icon_list(),
         | ActionId::Reduce => icons::icon_minimize_2(),
         | ActionId::Cancel => icons::icon_circle_x(),
         | ActionId::AddChild => icons::icon_corner_down_right(),

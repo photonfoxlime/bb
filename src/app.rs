@@ -29,6 +29,7 @@ mod instruction_panel;
 // Actions and LLM Requests
 mod action_bar;
 mod llm_requests;
+mod atomize;
 mod expand;
 mod reduce;
 // Structural Operations
@@ -45,6 +46,7 @@ use self::{
     editor_buffers::EditorBuffers,
     error::{AppError, ErrorMessage, UiError},
     error_banner::ErrorBanner,
+    atomize::AtomizeMessage,
     expand::ExpandMessage,
     find_panel::{FindMessage, FindUiState},
     friends_panel::FriendPanelMessage,
@@ -167,6 +169,7 @@ pub enum Message {
     Shortcut(ShortcutMessage),
     Error(ErrorMessage),
     Reduce(ReduceMessage),
+    Atomize(AtomizeMessage),
     Expand(ExpandMessage),
     Structure(StructureMessage),
     Find(FindMessage),
@@ -206,6 +209,7 @@ impl AppState {
             | Message::Error(message) => error::handle(self, message),
             | Message::Edit(message) => edit::handle(self, message),
             | Message::Reduce(message) => reduce::handle(self, message),
+            | Message::Atomize(message) => atomize::handle(self, message),
             | Message::Expand(message) => expand::handle(self, message),
             | Message::Find(message) => find_panel::handle(self, message),
             | Message::Overlay(message) => overlay::handle(self, message),
@@ -397,7 +401,12 @@ impl AppState {
         let config = crate::app::config::load();
         let mut errors = vec![];
         // Validate each task's configured provider at startup.
-        for task_cfg in [&config.tasks.reduce, &config.tasks.expand, &config.tasks.inquire] {
+        for task_cfg in [
+            &config.tasks.reduce,
+            &config.tasks.atomize,
+            &config.tasks.expand,
+            &config.tasks.inquire,
+        ] {
             if let Err(err) = providers.resolve(&task_cfg.provider, &task_cfg.model) {
                 errors.push(AppError::Configuration(UiError::from_message(err)));
             }
@@ -540,6 +549,19 @@ impl AppState {
                 let ui_err = UiError::from_message(err);
                 self.record_error(AppError::Configuration(ui_err.clone()));
                 self.llm_requests.set_reduce_error(block_id, ui_err);
+                None
+            }
+        }
+    }
+
+    fn llm_config_for_atomize(&mut self, block_id: BlockId) -> Option<llm::LlmConfig> {
+        let task = &self.config.tasks.atomize;
+        match self.providers.resolve(&task.provider, &task.model) {
+            | Ok(config) => Some(config),
+            | Err(err) => {
+                let ui_err = UiError::from_message(err);
+                self.record_error(AppError::Configuration(ui_err.clone()));
+                self.llm_requests.set_atomize_error(block_id, ui_err);
                 None
             }
         }

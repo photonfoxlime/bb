@@ -14,7 +14,7 @@
 //! - [`ApiStyle::Anthropic`] for the Anthropic Messages API.
 //!
 //! Note: model selection is **not** part of the provider config. Each LLM task
-//! (reduce, expand, inquire) independently selects its own provider + model via
+//! (reduce, atomize, expand, inquire) independently selects its own provider + model via
 //! [`crate::app::config::TaskSettings`].
 //!
 //! [`LlmProviders`] stores both sets. The on-disk format is a single TOML file
@@ -75,7 +75,7 @@ impl fmt::Display for ApiStyle {
     }
 }
 
-/// Identifies one of the three LLM task categories.
+/// Identifies one of the four LLM task categories.
 ///
 /// Used for per-task settings (provider, model, prompts), prompt construction,
 /// and UI discriminants.
@@ -83,6 +83,8 @@ impl fmt::Display for ApiStyle {
 pub enum TaskKind {
     /// Condensation / summary requests.
     Reduce,
+    /// Break text into distinct information points without dropping details.
+    Atomize,
     /// Expansion / child-suggestion requests.
     Expand,
     /// Free-form instruction / inquiry requests.
@@ -165,6 +167,10 @@ pub enum PresetProvider {
     Groq,
     /// <https://api.anthropic.com/v1>
     Anthropic,
+    /// <https://api.moonshot.ai/v1> — Kimi (Moonshot AI)
+    Kimi,
+    /// <https://api.minimax.io/v1> — OpenAI-compatible endpoint
+    Minimax,
 }
 
 /// All preset provider variants in display order.
@@ -175,6 +181,8 @@ const ALL_PRESETS: &[PresetProvider] = &[
     PresetProvider::Gemini,
     PresetProvider::Groq,
     PresetProvider::Anthropic,
+    PresetProvider::Kimi,
+    PresetProvider::Minimax,
 ];
 
 /// Default provider name used for per-task config defaults.
@@ -190,6 +198,8 @@ impl PresetProvider {
             | Self::Gemini => "https://generativelanguage.googleapis.com/v1beta/openai",
             | Self::Groq => "https://api.groq.com/openai/v1",
             | Self::Anthropic => "https://api.anthropic.com/v1",
+            | Self::Kimi => "https://api.moonshot.ai/v1",
+            | Self::Minimax => "https://api.minimax.io/v1",
         }
     }
 
@@ -197,10 +207,12 @@ impl PresetProvider {
     /// offers too many models to pick a sensible default.
     pub fn default_model(self) -> &'static str {
         match self {
-            | Self::OpenAI => "gpt-4o",
+            | Self::OpenAI => "gpt-5.2",
             | Self::DeepSeek => "deepseek-chat",
-            | Self::Gemini => "gemini-2.0-flash",
-            | Self::Anthropic => "claude-sonnet-4-20250514",
+            | Self::Gemini => "gemini-2.5-flash",
+            | Self::Anthropic => "claude-sonnet-4-6",
+            | Self::Kimi => "kimi-k2.5",
+            | Self::Minimax => "MiniMax-M2.5",
             | Self::OpenRouter | Self::Groq => "",
         }
     }
@@ -214,6 +226,8 @@ impl PresetProvider {
             | Self::Gemini => "gemini",
             | Self::Groq => "groq",
             | Self::Anthropic => "anthropic",
+            | Self::Kimi => "kimi",
+            | Self::Minimax => "minimax",
         }
     }
 
@@ -221,9 +235,13 @@ impl PresetProvider {
     pub fn api_style(self) -> ApiStyle {
         match self {
             | Self::Anthropic => ApiStyle::Anthropic,
-            | Self::OpenAI | Self::OpenRouter | Self::DeepSeek | Self::Gemini | Self::Groq => {
-                ApiStyle::OpenAi
-            }
+            | Self::OpenAI
+            | Self::OpenRouter
+            | Self::DeepSeek
+            | Self::Gemini
+            | Self::Groq
+            | Self::Kimi
+            | Self::Minimax => ApiStyle::OpenAi,
         }
     }
 
@@ -285,8 +303,8 @@ impl Default for CustomProvider {
 /// Invariants:
 /// - Every [`PresetProvider`] variant has an entry in `presets`.
 ///
-/// Note: there is no global "active" provider. Each LLM task (reduce, expand,
-/// inquire) independently selects a provider + model via
+/// Note: there is no global "active" provider. Each LLM task (reduce, atomize,
+/// expand, inquire) independently selects a provider + model via
 /// [`crate::app::config::TaskConfig`]. Legacy `active` fields in TOML are
 /// silently ignored on load.
 ///

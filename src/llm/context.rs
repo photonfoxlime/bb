@@ -278,6 +278,26 @@ impl ExpandResult {
     }
 }
 
+/// Structured result returned by one atomize request.
+///
+/// Contains distinct information points extracted from the target block's text.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AtomizeResult {
+    points: Vec<String>,
+}
+
+impl AtomizeResult {
+    /// Build from parsed points.
+    pub fn new(points: Vec<String>) -> Self {
+        Self { points }
+    }
+
+    /// Consume and return owned points.
+    pub fn into_points(self) -> Vec<String> {
+        self.points
+    }
+}
+
 /// Structured result returned by one reduce request.
 ///
 /// Contains the condensed text plus 0-based indices of existing children

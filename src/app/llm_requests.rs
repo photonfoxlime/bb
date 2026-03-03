@@ -20,12 +20,15 @@ use std::hash::{Hash, Hasher};
 /// `BlockStore` so request orchestration and persisted content stay decoupled.
 pub struct LlmRequests {
     reduce_states: SparseSecondaryMap<BlockId, ReduceState>,
+    atomize_states: SparseSecondaryMap<BlockId, AtomizeState>,
     expand_states: SparseSecondaryMap<BlockId, ExpandState>,
     inquiry_states: SparseSecondaryMap<BlockId, InquiryState>,
     reduce_handles: SparseSecondaryMap<BlockId, task::Handle>,
+    atomize_handles: SparseSecondaryMap<BlockId, task::Handle>,
     expand_handles: SparseSecondaryMap<BlockId, task::Handle>,
     inquiry_handles: SparseSecondaryMap<BlockId, task::Handle>,
     pending_reduce_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
+    pending_atomize_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
     pending_expand_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
     pending_inquiry_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
     inquiry_errors: SparseSecondaryMap<BlockId, UiError>,
@@ -38,12 +41,15 @@ impl LlmRequests {
 
     pub fn clear(&mut self) {
         self.reduce_states.clear();
+        self.atomize_states.clear();
         self.expand_states.clear();
         self.inquiry_states.clear();
         self.reduce_handles.clear();
+        self.atomize_handles.clear();
         self.expand_handles.clear();
         self.inquiry_handles.clear();
         self.pending_reduce_signatures.clear();
+        self.pending_atomize_signatures.clear();
         self.pending_expand_signatures.clear();
         self.pending_inquiry_signatures.clear();
         self.inquiry_errors.clear();
@@ -51,6 +57,12 @@ impl LlmRequests {
 
     pub fn is_reducing(&self, block_id: BlockId) -> bool {
         self.reduce_states.get(block_id).is_some_and(|state| matches!(state, ReduceState::Loading))
+    }
+
+    pub fn is_atomizing(&self, block_id: BlockId) -> bool {
+        self.atomize_states
+            .get(block_id)
+            .is_some_and(|state| matches!(state, AtomizeState::Loading))
     }
 
     pub fn is_expanding(&self, block_id: BlockId) -> bool {
@@ -69,6 +81,12 @@ impl LlmRequests {
             .is_some_and(|state| matches!(state, ReduceState::Error { .. }))
     }
 
+    pub fn has_atomize_error(&self, block_id: BlockId) -> bool {
+        self.atomize_states
+            .get(block_id)
+            .is_some_and(|state| matches!(state, AtomizeState::Error { .. }))
+    }
+
     pub fn has_expand_error(&self, block_id: BlockId) -> bool {
         self.expand_states
             .get(block_id)
@@ -78,6 +96,11 @@ impl LlmRequests {
     pub fn mark_reduce_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
         self.reduce_states.insert(block_id, ReduceState::Loading);
         self.pending_reduce_signatures.insert(block_id, request_signature);
+    }
+
+    pub fn mark_atomize_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
+        self.atomize_states.insert(block_id, AtomizeState::Loading);
+        self.pending_atomize_signatures.insert(block_id, request_signature);
     }
 
     pub fn mark_expand_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
@@ -96,6 +119,13 @@ impl LlmRequests {
             previous.abort();
         }
         self.reduce_handles.insert(block_id, handle.abort_on_drop());
+    }
+
+    pub fn replace_atomize_handle(&mut self, block_id: BlockId, handle: task::Handle) {
+        if let Some(previous) = self.atomize_handles.remove(block_id) {
+            previous.abort();
+        }
+        self.atomize_handles.insert(block_id, handle.abort_on_drop());
     }
 
     pub fn replace_expand_handle(&mut self, block_id: BlockId, handle: task::Handle) {
@@ -120,6 +150,13 @@ impl LlmRequests {
         self.reduce_handles.remove(block_id);
         self.reduce_states.remove(block_id);
         self.pending_reduce_signatures.remove(block_id)
+    }
+
+    /// Finalize an atomize request and return its captured lineage signature.
+    pub fn finish_atomize_request(&mut self, block_id: BlockId) -> Option<RequestSignature> {
+        self.atomize_handles.remove(block_id);
+        self.atomize_states.remove(block_id);
+        self.pending_atomize_signatures.remove(block_id)
     }
 
     /// Finalize an expand request and return its captured lineage signature.
@@ -153,6 +190,10 @@ impl LlmRequests {
         self.reduce_states.insert(block_id, ReduceState::Error { reason });
     }
 
+    pub fn set_atomize_error(&mut self, block_id: BlockId, reason: UiError) {
+        self.atomize_states.insert(block_id, AtomizeState::Error { reason });
+    }
+
     pub fn set_expand_error(&mut self, block_id: BlockId, reason: UiError) {
         self.expand_states.insert(block_id, ExpandState::Error { reason });
     }
@@ -166,6 +207,18 @@ impl LlmRequests {
         }
         self.reduce_states.remove(block_id);
         self.pending_reduce_signatures.remove(block_id);
+        true
+    }
+
+    pub fn cancel_atomize(&mut self, block_id: BlockId) -> bool {
+        if !self.is_atomizing(block_id) {
+            return false;
+        }
+        if let Some(handle) = self.atomize_handles.remove(block_id) {
+            handle.abort();
+        }
+        self.atomize_states.remove(block_id);
+        self.pending_atomize_signatures.remove(block_id);
         true
     }
 
@@ -198,6 +251,9 @@ impl LlmRequests {
         if let Some(handle) = self.reduce_handles.remove(block_id) {
             handle.abort();
         }
+        if let Some(handle) = self.atomize_handles.remove(block_id) {
+            handle.abort();
+        }
         if let Some(handle) = self.expand_handles.remove(block_id) {
             handle.abort();
         }
@@ -205,10 +261,12 @@ impl LlmRequests {
             handle.abort();
         }
         self.pending_reduce_signatures.remove(block_id);
+        self.pending_atomize_signatures.remove(block_id);
         self.pending_expand_signatures.remove(block_id);
         self.pending_inquiry_signatures.remove(block_id);
         self.inquiry_errors.remove(block_id);
         self.reduce_states.remove(block_id);
+        self.atomize_states.remove(block_id);
         self.expand_states.remove(block_id);
         self.inquiry_states.remove(block_id);
     }
@@ -239,6 +297,19 @@ impl LlmRequests {
 /// Stored in a map keyed by `BlockId`; missing entry means Idle.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum ReduceState {
+    #[default]
+    Idle,
+    Loading,
+    Error {
+        reason: UiError,
+    },
+}
+
+/// Per-block atomize operation state: Idle → Loading → Idle/Error.
+///
+/// Stored in a map keyed by `BlockId`; missing entry means Idle.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum AtomizeState {
     #[default]
     Idle,
     Loading,

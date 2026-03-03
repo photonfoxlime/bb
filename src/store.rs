@@ -68,7 +68,8 @@ mod persist;
 mod tree;
 
 pub use drafts::{
-    ExpansionDraftRecord, InquiryDraftRecord, InstructionDraftRecord, ReductionDraftRecord,
+    AtomizationDraftRecord, ExpansionDraftRecord, InquiryDraftRecord, InstructionDraftRecord,
+    ReductionDraftRecord,
 };
 pub use mount::MountFormat;
 pub use persist::StoreLoadError;
@@ -254,6 +255,9 @@ pub struct BlockStore {
     /// Sparse by design: only blocks with pending expansion drafts are stored.
     #[serde(default)]
     pub expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord>,
+    /// Persisted per-block atomization drafts.
+    #[serde(default)]
+    pub atomization_drafts: SparseSecondaryMap<BlockId, AtomizationDraftRecord>,
     /// Persisted per-block reduction drafts.
     ///
     /// Invariant: keys should reference existing blocks in [`Self::nodes`].
@@ -307,6 +311,7 @@ impl BlockStore {
             SparseSecondaryMap::new(),
             SparseSecondaryMap::new(),
             SparseSecondaryMap::new(),
+            SparseSecondaryMap::new(),
             None,
         )
     }
@@ -315,6 +320,7 @@ impl BlockStore {
         roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
         points: SecondaryMap<BlockId, String>,
         expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord>,
+        atomization_drafts: SparseSecondaryMap<BlockId, AtomizationDraftRecord>,
         reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord>,
         instruction_drafts: SparseSecondaryMap<BlockId, InstructionDraftRecord>,
         inquiry_drafts: SparseSecondaryMap<BlockId, InquiryDraftRecord>,
@@ -328,6 +334,7 @@ impl BlockStore {
             points,
             mount_table: MountTable::new(),
             expansion_drafts,
+            atomization_drafts,
             reduction_drafts,
             instruction_drafts,
             inquiry_drafts,
@@ -439,6 +446,11 @@ impl PartialEq for BlockStore {
                 .expansion_drafts
                 .iter()
                 .all(|(id, draft)| other.expansion_drafts.get(id) == Some(draft))
+            && self.atomization_drafts.len() == other.atomization_drafts.len()
+            && self
+                .atomization_drafts
+                .iter()
+                .all(|(id, draft)| other.atomization_drafts.get(id) == Some(draft))
             && self.reduction_drafts.len() == other.reduction_drafts.len()
             && self
                 .reduction_drafts

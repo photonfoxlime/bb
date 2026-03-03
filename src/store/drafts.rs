@@ -17,6 +17,15 @@ pub struct ExpansionDraftRecord {
     pub children: Vec<String>,
 }
 
+/// Persisted atomization draft payload keyed by [`BlockId`].
+///
+/// Stores the list of distinct information points produced by atomize until
+/// the user accepts or discards them.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AtomizationDraftRecord {
+    pub points: Vec<String>,
+}
+
 /// Persisted reduction draft payload keyed by [`BlockId`].
 ///
 /// When `redundant_children` is non-empty, the reduction draft suggests that
@@ -79,6 +88,26 @@ impl BlockStore {
     /// Remove the expansion draft for a block, returning the removed draft if any.
     pub fn remove_expansion_draft(&mut self, id: &BlockId) -> Option<ExpansionDraftRecord> {
         self.expansion_drafts.remove(*id)
+    }
+
+    /// Get the atomization draft for a block, if any.
+    pub fn atomization_draft(&self, id: &BlockId) -> Option<&AtomizationDraftRecord> {
+        self.atomization_drafts.get(*id)
+    }
+
+    /// Get a mutable reference to the atomization draft for a block, if any.
+    pub fn atomization_draft_mut(&mut self, id: &BlockId) -> Option<&mut AtomizationDraftRecord> {
+        self.atomization_drafts.get_mut(*id)
+    }
+
+    /// Insert or replace the atomization draft for a block.
+    pub fn insert_atomization_draft(&mut self, id: BlockId, draft: AtomizationDraftRecord) {
+        self.atomization_drafts.insert(id, draft);
+    }
+
+    /// Remove the atomization draft for a block, returning the removed draft if any.
+    pub fn remove_atomization_draft(&mut self, id: &BlockId) -> Option<AtomizationDraftRecord> {
+        self.atomization_drafts.remove(*id)
     }
 
     /// Get the reduction draft for a block, if any.

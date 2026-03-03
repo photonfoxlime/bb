@@ -20,6 +20,8 @@ pub enum LlmError {
     InvalidResponse,
     #[error("invalid expand response")]
     InvalidExpandResponse,
+    #[error("invalid atomize response")]
+    InvalidAtomizeResponse,
     #[error("invalid reduce response")]
     InvalidReduceResponse,
 }

@@ -9,7 +9,7 @@ use serde_json::Value;
 use std::time::Duration;
 
 use crate::llm::config::{ApiStyle, LlmConfig};
-use crate::llm::context::{BlockContext, ExpandResult, ExpandSuggestion, ReduceResult};
+use crate::llm::context::{AtomizeResult, BlockContext, ExpandResult, ExpandSuggestion, ReduceResult};
 use crate::llm::error::{ApiError, LlmError};
 use crate::llm::prompt::{Prompt, TaskPromptConfig};
 use iced::futures::SinkExt;
@@ -153,6 +153,48 @@ impl LlmClient {
             "llm expand response"
         );
         Ok(ExpandResult::new(rewrite, children))
+    }
+
+    /// Atomize one target point into distinct information points.
+    ///
+    /// Breaks the text into a list of self-contained facts/ideas without
+    /// dropping details.
+    ///
+    /// `max_tokens` caps the completion length (`None` = unlimited, omits the
+    /// field from the API request).
+    ///
+    /// # Requires
+    /// - `context` must not be empty (must have a lineage).
+    ///
+    /// # Ensures
+    /// - Returns `Ok(AtomizeResult)` with the list of points.
+    /// - Returns `Err(LlmError::InvalidAtomizeResponse)` if the response cannot be parsed.
+    pub async fn atomize_block(
+        &self, context: &BlockContext, instruction: Option<&str>, max_tokens: Option<u32>,
+        config: &TaskPromptConfig,
+    ) -> Result<AtomizeResult, LlmError> {
+        if context.is_empty() {
+            return Err(LlmError::InvalidRequest);
+        }
+
+        let prompt = Prompt::from_context(config, context, instruction);
+        let content = self.request_completion("atomize", &prompt, 0.2, max_tokens).await?;
+        let payload: AtomizeResponsePayload =
+            serde_json::from_str(&content).map_err(|_| LlmError::InvalidAtomizeResponse)?;
+
+        let points = payload
+            .points
+            .into_iter()
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .collect::<Vec<_>>();
+
+        if points.is_empty() {
+            return Err(LlmError::InvalidAtomizeResponse);
+        }
+
+        tracing::info!(points = points.len(), "llm atomize response");
+        Ok(AtomizeResult::new(points))
     }
 
     /// Send an instruction as a one-time inquiry to the LLM.
@@ -653,6 +695,12 @@ enum AnthropicContentBlock {
     /// Catch-all for unknown block types (tool_use, etc.).
     #[serde(other)]
     Other,
+}
+
+#[derive(Deserialize)]
+pub struct AtomizeResponsePayload {
+    #[serde(default)]
+    points: Vec<String>,
 }
 
 #[derive(Deserialize)]

@@ -366,16 +366,22 @@ fn run_shortcut_for_block(
     let point_text =
         state.editor_buffers.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
     let expansion_draft = state.store.expansion_draft(&block_id);
+    let atomization_draft = state.store.atomization_draft(&block_id);
     let reduction_draft = state.store.reduction_draft(&block_id);
     let row_context = RowContext {
         block_id,
         point_text,
-        has_draft: expansion_draft.is_some() || reduction_draft.is_some(),
+        has_draft: expansion_draft.is_some()
+            || atomization_draft.is_some()
+            || reduction_draft.is_some(),
         draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0)
+            + atomization_draft.map(|d| d.points.len()).unwrap_or(0)
             + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
         has_expand_error: state.llm_requests.has_expand_error(block_id),
+        has_atomize_error: state.llm_requests.has_atomize_error(block_id),
         has_reduce_error: state.llm_requests.has_reduce_error(block_id),
         is_expanding: state.llm_requests.is_expanding(block_id),
+        is_atomizing: state.llm_requests.is_atomizing(block_id),
         is_reducing: state.llm_requests.is_reducing(block_id),
         is_mounted: state.store.mount_table().entry(block_id).is_some(),
         has_children: !state.store.children(&block_id).is_empty(),

@@ -30,7 +30,8 @@
 //! [`extract_mount_store`](BlockStore::extract_mount_store).
 
 use super::drafts::{
-    ExpansionDraftRecord, InquiryDraftRecord, InstructionDraftRecord, ReductionDraftRecord,
+    AtomizationDraftRecord, ExpansionDraftRecord, InquiryDraftRecord, InstructionDraftRecord,
+    ReductionDraftRecord,
 };
 use super::{BlockId, BlockNode, BlockPanelBarState, BlockStore, FriendBlock, MountProjection};
 use serde::{Deserialize, Serialize};
@@ -316,6 +317,7 @@ impl BlockStore {
             self.nodes.remove(*id);
             self.points.remove(*id);
             self.expansion_drafts.remove(*id);
+            self.atomization_drafts.remove(*id);
             self.reduction_drafts.remove(*id);
             self.instruction_drafts.remove(*id);
             self.inquiry_drafts.remove(*id);
@@ -553,6 +555,7 @@ impl BlockStore {
                     self.nodes.remove(id);
                     self.points.remove(id);
                     self.expansion_drafts.remove(id);
+                    self.atomization_drafts.remove(id);
                     self.reduction_drafts.remove(id);
                     self.instruction_drafts.remove(id);
                     self.inquiry_drafts.remove(id);
@@ -568,6 +571,7 @@ impl BlockStore {
             self.nodes.remove(id);
             self.points.remove(id);
             self.expansion_drafts.remove(id);
+            self.atomization_drafts.remove(id);
             self.reduction_drafts.remove(id);
             self.instruction_drafts.remove(id);
             self.inquiry_drafts.remove(id);
@@ -600,6 +604,8 @@ impl BlockStore {
         let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
         let mut sub_points: SecondaryMap<BlockId, String> = SecondaryMap::new();
         let mut sub_expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord> =
+            SparseSecondaryMap::new();
+        let mut sub_atomization_drafts: SparseSecondaryMap<BlockId, AtomizationDraftRecord> =
             SparseSecondaryMap::new();
         let mut sub_reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord> =
             SparseSecondaryMap::new();
@@ -660,6 +666,11 @@ impl BlockStore {
                 sub_expansion_drafts.insert(new_id, draft.clone());
             }
         }
+        for (old_id, draft) in &self.atomization_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                sub_atomization_drafts.insert(new_id, draft.clone());
+            }
+        }
         for (old_id, draft) in &self.reduction_drafts {
             if let Some(&new_id) = id_map.get(&old_id) {
                 sub_reduction_drafts.insert(new_id, draft.clone());
@@ -710,6 +721,7 @@ impl BlockStore {
             sub_nodes,
             sub_points,
             sub_expansion_drafts,
+            sub_atomization_drafts,
             sub_reduction_drafts,
             sub_instruction_drafts,
             sub_inquiry_drafts,
@@ -771,6 +783,11 @@ impl BlockStore {
         for (old_id, draft) in &sub_store.expansion_drafts {
             if let Some(&new_id) = id_map.get(&old_id) {
                 self.expansion_drafts.insert(new_id, draft.clone());
+            }
+        }
+        for (old_id, draft) in &sub_store.atomization_drafts {
+            if let Some(&new_id) = id_map.get(&old_id) {
+                self.atomization_drafts.insert(new_id, draft.clone());
             }
         }
         for (old_id, draft) in &sub_store.reduction_drafts {

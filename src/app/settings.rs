@@ -105,6 +105,7 @@ pub struct SettingsState {
 #[derive(Debug, Clone)]
 pub struct TaskDrafts {
     pub reduce: TaskDraft,
+    pub atomize: TaskDraft,
     pub expand: TaskDraft,
     pub inquire: TaskDraft,
 }
@@ -146,6 +147,7 @@ impl TaskDrafts {
     pub fn from_config(config: &AppConfig) -> Self {
         Self {
             reduce: TaskDraft::from_config(&config.tasks.reduce),
+            atomize: TaskDraft::from_config(&config.tasks.atomize),
             expand: TaskDraft::from_config(&config.tasks.expand),
             inquire: TaskDraft::from_config(&config.tasks.inquire),
         }
@@ -155,6 +157,7 @@ impl TaskDrafts {
     pub fn get_mut(&mut self, kind: &TaskKind) -> &mut TaskDraft {
         match kind {
             | TaskKind::Reduce => &mut self.reduce,
+            | TaskKind::Atomize => &mut self.atomize,
             | TaskKind::Expand => &mut self.expand,
             | TaskKind::Inquire => &mut self.inquire,
         }
@@ -578,6 +581,7 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             state.settings.task_drafts.get_mut(&kind).provider = provider.clone();
             let task_cfg = match kind {
                 | TaskKind::Reduce => &mut state.config.tasks.reduce,
+                | TaskKind::Atomize => &mut state.config.tasks.atomize,
                 | TaskKind::Expand => &mut state.config.tasks.expand,
                 | TaskKind::Inquire => &mut state.config.tasks.inquire,
             };
@@ -586,6 +590,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             match kind {
                 | TaskKind::Reduce => {
                     state.settings.config.tasks.reduce.provider = provider.clone()
+                }
+                | TaskKind::Atomize => {
+                    state.settings.config.tasks.atomize.provider = provider.clone()
                 }
                 | TaskKind::Expand => {
                     state.settings.config.tasks.expand.provider = provider.clone()
@@ -607,12 +614,14 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             state.settings.task_drafts.get_mut(&kind).model = model.clone();
             let task_cfg = match kind {
                 | TaskKind::Reduce => &mut state.config.tasks.reduce,
+                | TaskKind::Atomize => &mut state.config.tasks.atomize,
                 | TaskKind::Expand => &mut state.config.tasks.expand,
                 | TaskKind::Inquire => &mut state.config.tasks.inquire,
             };
             task_cfg.model = model.clone();
             match kind {
                 | TaskKind::Reduce => state.settings.config.tasks.reduce.model = model.clone(),
+                | TaskKind::Atomize => state.settings.config.tasks.atomize.model = model.clone(),
                 | TaskKind::Expand => state.settings.config.tasks.expand.model = model.clone(),
                 | TaskKind::Inquire => state.settings.config.tasks.inquire.model = model.clone(),
             }
@@ -633,6 +642,7 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                     let mt = MaxTokens::new(n);
                     let task_cfg = match kind {
                         | TaskKind::Reduce => &mut state.config.tasks.reduce,
+                        | TaskKind::Atomize => &mut state.config.tasks.atomize,
                         | TaskKind::Expand => &mut state.config.tasks.expand,
                         | TaskKind::Inquire => &mut state.config.tasks.inquire,
                     };
@@ -640,6 +650,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                     match kind {
                         | TaskKind::Reduce => {
                             state.settings.config.tasks.reduce.token_limit = mt;
+                        }
+                        | TaskKind::Atomize => {
+                            state.settings.config.tasks.atomize.token_limit = mt;
                         }
                         | TaskKind::Expand => {
                             state.settings.config.tasks.expand.token_limit = mt;
@@ -670,6 +683,7 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             // Update both configs.
             let task_cfg = match kind {
                 | TaskKind::Reduce => &mut state.config.tasks.reduce,
+                | TaskKind::Atomize => &mut state.config.tasks.atomize,
                 | TaskKind::Expand => &mut state.config.tasks.expand,
                 | TaskKind::Inquire => &mut state.config.tasks.inquire,
             };
@@ -677,6 +691,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             match kind {
                 | TaskKind::Reduce => {
                     state.settings.config.tasks.reduce.token_limit = mt;
+                }
+                | TaskKind::Atomize => {
+                    state.settings.config.tasks.atomize.token_limit = mt;
                 }
                 | TaskKind::Expand => {
                     state.settings.config.tasks.expand.token_limit = mt;
@@ -701,6 +718,7 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             task_draft.system_prompt = prompt.clone();
             let task_cfg = match kind {
                 | TaskKind::Reduce => &mut state.config.tasks.reduce,
+                | TaskKind::Atomize => &mut state.config.tasks.atomize,
                 | TaskKind::Expand => &mut state.config.tasks.expand,
                 | TaskKind::Inquire => &mut state.config.tasks.inquire,
             };
@@ -708,6 +726,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             match kind {
                 | TaskKind::Reduce => {
                     state.settings.config.tasks.reduce.system_prompt = prompt.clone()
+                }
+                | TaskKind::Atomize => {
+                    state.settings.config.tasks.atomize.system_prompt = prompt.clone()
                 }
                 | TaskKind::Expand => {
                     state.settings.config.tasks.expand.system_prompt = prompt.clone()
@@ -730,6 +751,7 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             task_draft.user_prompt = prompt.clone();
             let task_cfg = match kind {
                 | TaskKind::Reduce => &mut state.config.tasks.reduce,
+                | TaskKind::Atomize => &mut state.config.tasks.atomize,
                 | TaskKind::Expand => &mut state.config.tasks.expand,
                 | TaskKind::Inquire => &mut state.config.tasks.inquire,
             };
@@ -737,6 +759,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             match kind {
                 | TaskKind::Reduce => {
                     state.settings.config.tasks.reduce.user_prompt = prompt.clone()
+                }
+                | TaskKind::Atomize => {
+                    state.settings.config.tasks.atomize.user_prompt = prompt.clone()
                 }
                 | TaskKind::Expand => {
                     state.settings.config.tasks.expand.user_prompt = prompt.clone()
@@ -1077,6 +1102,14 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         settings.system_prompt_hints_expanded.contains(&TaskKind::Reduce),
         settings.user_prompt_hints_expanded.contains(&TaskKind::Reduce),
     );
+    let task_section_atomize = task_settings_section(
+        t!("settings_task_atomize").to_string(),
+        TaskKind::Atomize,
+        &settings.task_drafts.atomize,
+        &settings.provider_names,
+        settings.system_prompt_hints_expanded.contains(&TaskKind::Atomize),
+        settings.user_prompt_hints_expanded.contains(&TaskKind::Atomize),
+    );
     let task_section_expand = task_settings_section(
         t!("settings_task_expand").to_string(),
         TaskKind::Expand,
@@ -1133,6 +1166,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         provider_section,
         config_section,
         task_section_reduce,
+        task_section_atomize,
         task_section_expand,
         task_section_inquire,
         paths_section

@@ -1,6 +1,6 @@
 //! LLM prompt construction from context.
 //!
-//! All three tasks (reduce, expand, inquire) receive the same block context:
+//! All four tasks (reduce, atomize, expand, inquire) receive the same block context:
 //! lineage (Parent/Target), existing children, and friend blocks. Custom
 //! prompts support partial override; the full context block is always appended.
 //!
@@ -51,6 +51,15 @@ impl TaskPromptConfig {
     pub fn reduce(system_prompt: &str, user_prompt: &str) -> Self {
         Self {
             task: TaskKind::Reduce,
+            custom_system_prompt: Self::optional(system_prompt),
+            custom_user_prompt: Self::optional(user_prompt),
+        }
+    }
+
+    /// Config for atomize task with its custom prompts.
+    pub fn atomize(system_prompt: &str, user_prompt: &str) -> Self {
+        Self {
+            task: TaskKind::Atomize,
             custom_system_prompt: Self::optional(system_prompt),
             custom_user_prompt: Self::optional(user_prompt),
         }
@@ -115,6 +124,13 @@ impl TaskKind {
                     "You reduce a bullet point using its ancestors{context_qualifier}. Return strict JSON only: {json_schema}. The reduction must be a single concise sentence{reduction_qualifier}.{children_explanation}{friends_explanation} No markdown, no extra keys."
                 )
             }
+            Self::Atomize => {
+                let context_qualifier = Self::context_qualifier(presence);
+                let friends_explanation = self.friends_explanation(presence);
+                format!(
+                    "You atomize one target bullet point using its ancestors{context_qualifier}. Break the text into a list of distinct information points without dropping details. Return strict JSON only: {{\"points\": string[]}}. Each point must be a single, self-contained fact or idea. Preserve all semantic content; do not summarize or condense.{friends_explanation} No markdown, no extra keys."
+                )
+            }
             Self::Expand => {
                 let context_qualifier = Self::context_qualifier(presence);
                 let children_qualifier = if presence.has_children {
@@ -139,6 +155,7 @@ impl TaskKind {
     pub(crate) fn default_user_intro(self) -> &'static str {
         match self {
             | Self::Reduce => "Reduce the target point with context:",
+            | Self::Atomize => "Atomize the target point with context:",
             | Self::Expand => "Expand the target point with context:",
             | Self::Inquire => "Context:",
         }
