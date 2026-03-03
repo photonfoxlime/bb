@@ -14,8 +14,9 @@ use super::{
     AtomizeMessage, AppState, ExpandMessage, Message, MountFileMessage, ReduceMessage,
     StructureMessage,
 };
-use crate::store::BlockId;
-use iced::keyboard::{Key, Modifiers, key::Named};
+use crate::{store::BlockId, theme};
+use iced::{keyboard::{Key, Modifiers, key::Named}, Element};
+use lucide_icons::iced as icons;
 
 /// Identifier for a user-visible action in the action bar.
 ///
@@ -593,6 +594,32 @@ fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Messa
         return Some(Message::Reduce(ReduceMessage::Start(*block_id)));
     }
     None
+}
+
+/// Icon element for a toolbar action.
+pub fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
+    let icon = match id {
+        | ActionId::Expand => icons::icon_maximize_2(),
+        | ActionId::Atomize => icons::icon_maximize(),
+        | ActionId::Reduce => icons::icon_minimize_2(),
+        | ActionId::Cancel => icons::icon_circle_x(),
+        | ActionId::AddChild => icons::icon_corner_down_right(),
+        | ActionId::AddParent => icons::icon_corner_up_left(),
+        | ActionId::AcceptAll => icons::icon_check_check(),
+        | ActionId::Retry => icons::icon_refresh_cw(),
+        | ActionId::DismissDraft => icons::icon_x(),
+        | ActionId::CollapseBranch => icons::icon_chevron_down(),
+        | ActionId::ExpandBranch => icons::icon_chevron_right(),
+        | ActionId::AddSibling => icons::icon_plus(),
+        | ActionId::DuplicateBlock => icons::icon_copy(),
+        | ActionId::ArchiveBlock => icons::icon_archive(),
+        | ActionId::SaveToFile => icons::icon_hard_drive_download(),
+        | ActionId::LoadFromFile => icons::icon_hard_drive_upload(),
+        | ActionId::EnterBlock => icons::icon_log_in(),
+    };
+    icon.size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
 }
 
 #[cfg(test)]
