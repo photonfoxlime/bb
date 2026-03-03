@@ -2,6 +2,22 @@
 
 use crate::llm::context::{BlockContext, FriendContext, Lineage};
 
+/// Indicates which optional context sections are present when building prompts.
+#[derive(Clone, Copy)]
+struct ContextPresence {
+    has_children: bool,
+    has_friends: bool,
+}
+
+impl From<&BlockContext> for ContextPresence {
+    fn from(ctx: &BlockContext) -> Self {
+        Self {
+            has_children: !ctx.existing_children.is_empty(),
+            has_friends: !ctx.friend_blocks.is_empty(),
+        }
+    }
+}
+
 /// System + user prompt pair sent to the chat completions endpoint.
 pub struct Prompt {
     pub(crate) system: String,
@@ -9,6 +25,22 @@ pub struct Prompt {
 }
 
 impl Prompt {
+    /// Build user prompt body from lineage plus optional children and friend sections.
+    fn build_user_sections(
+        task_intro: &str,
+        lineage_lines: &str,
+        children_lines: Option<&str>,
+        friend_lines: Option<&str>,
+    ) -> String {
+        let mut s = format!("{task_intro}\n{lineage_lines}");
+        if let Some(c) = children_lines {
+            s.push_str(&format!("\nExisting children:\n{c}"));
+        }
+        if let Some(f) = friend_lines {
+            s.push_str(&format!("\nFriend blocks:\n{f}"));
+        }
+        s
+    }
     /// Format lineage items as labeled lines.
     fn format_lineage_lines(lineage: &Lineage) -> String {
         let mut lines = String::new();
@@ -69,7 +101,9 @@ impl Prompt {
         custom_user_prompt: Option<&str>,
     ) -> Self {
         let lineage_lines = Self::format_lineage_lines(&context.lineage);
+        let children_lines = Self::format_children_lines(&context.existing_children);
         let friend_lines = Self::format_friend_blocks_lines(&context.friend_blocks);
+        let presence = ContextPresence::from(context);
 
         let instruction_prefix = instruction.map(|i| format!("{}\n\n", i)).unwrap_or_default();
 
@@ -80,42 +114,45 @@ impl Prompt {
             };
         }
 
-        if context.existing_children.is_empty() && context.friend_blocks.is_empty() {
-            return Self {
-                system: format!(
-                    "{}You reduce a bullet point using its ancestors as context. Return strict JSON only: {{\"reduction\": string}}. The reduction must be a single concise sentence. No markdown, no extra keys.",
-                    instruction_prefix
-                ),
-                user: format!("Reduce the target point with context:\n{lineage_lines}"),
-            };
-        }
+        let user = Self::build_user_sections(
+            "Reduce the target point with context:",
+            &lineage_lines,
+            presence.has_children.then_some(children_lines.as_str()),
+            presence.has_friends.then_some(friend_lines.as_str()),
+        );
 
-        if context.existing_children.is_empty() {
-            return Self {
-                system: format!(
-                    "{}You reduce a bullet point using its ancestors plus friend blocks as context. Return strict JSON only: {{\"reduction\": string}}. The reduction must be a single concise sentence. Friend blocks are user-selected related context and are not children of the target. Each friend block may include an optional perspective describing how the target views that friend block; use it when helpful. No markdown, no extra keys.",
-                    instruction_prefix
-                ),
-                user: format!(
-                    "Reduce the target point with context:\n{lineage_lines}\nFriend blocks:\n{friend_lines}"
-                ),
-            };
-        }
-
-        let children_lines = Self::format_children_lines(&context.existing_children);
-        let friend_context = if context.friend_blocks.is_empty() {
-            String::new()
-        } else {
-            format!("\nFriend blocks:\n{friend_lines}")
+        let context_qualifier = match (presence.has_children, presence.has_friends) {
+            (false, false) => " as context",
+            (false, true) => " plus friend blocks as context",
+            (true, _) => ", existing children, and optional friend blocks as context",
         };
+        let (json_schema, reduction_qualifier) = if presence.has_children {
+            (r#"{"reduction": string, "redundant_children": number[]}"#, " that captures the essential meaning")
+        } else {
+            (r#"{"reduction": string}"#, "")
+        };
+        let children_explanation = if presence.has_children {
+            " redundant_children: 0-based indices of existing children whose information is fully captured by the reduction and can be safely removed. Only mark a child redundant when its content is genuinely subsumed."
+        } else {
+            ""
+        };
+        let friends_explanation = if presence.has_friends {
+            if presence.has_children {
+                " Friend blocks are additional context only and must never appear in redundant_children. Friend blocks may include optional perspective text that can refine interpretation."
+            } else {
+                " Friend blocks are user-selected related context and are not children of the target. Each friend block may include an optional perspective describing how the target views that friend block; use it when helpful."
+            }
+        } else {
+            ""
+        };
+
+        let system = format!(
+            "You reduce a bullet point using its ancestors{context_qualifier}. Return strict JSON only: {json_schema}. The reduction must be a single concise sentence{reduction_qualifier}.{children_explanation}{friends_explanation} No markdown, no extra keys."
+        );
+
         Self {
-            system: format!(
-                "{}You reduce a bullet point using its ancestors, existing children, and optional friend blocks as context. Return strict JSON only: {{\"reduction\": string, \"redundant_children\": number[]}}. The reduction must be a single concise sentence that captures the essential meaning. redundant_children: 0-based indices of existing children whose information is fully captured by the reduction and can be safely removed. Friend blocks are additional context only and must never appear in redundant_children. Friend blocks may include optional perspective text that can refine interpretation. Only mark a child redundant when its content is genuinely subsumed. No markdown, no extra keys.",
-                instruction_prefix
-            ),
-            user: format!(
-                "Reduce the target point with context:\n{lineage_lines}\nExisting children:\n{children_lines}{friend_context}"
-            ),
+            system: format!("{instruction_prefix}{system}"),
+            user,
         }
     }
 
@@ -125,7 +162,9 @@ impl Prompt {
         custom_user_prompt: Option<&str>,
     ) -> Self {
         let lineage_lines = Self::format_lineage_lines(&context.lineage);
+        let children_lines = Self::format_children_lines(&context.existing_children);
         let friend_lines = Self::format_friend_blocks_lines(&context.friend_blocks);
+        let presence = ContextPresence::from(context);
 
         let instruction_prefix = instruction.map(|i| format!("{}\n\n", i)).unwrap_or_default();
 
@@ -136,42 +175,45 @@ impl Prompt {
             };
         }
 
-        if context.existing_children.is_empty() && context.friend_blocks.is_empty() {
-            return Self {
-                system: format!(
-                    "{}You expand one target bullet point using its ancestors as context. Return strict JSON only with this shape: {{\"rewrite\": string|null, \"children\": string[]}}. Keep rewrite to one concise sentence. Generate 3-6 concise child points. Children must be mutually non-overlapping, each focused on a distinct subtopic, and should not restate the rewrite. No markdown, no extra keys.",
-                    instruction_prefix
-                ),
-                user: format!("Expand the target point with context:\n{lineage_lines}"),
-            };
-        }
+        let user = Self::build_user_sections(
+            "Expand the target point with context:",
+            &lineage_lines,
+            presence.has_children.then_some(children_lines.as_str()),
+            presence.has_friends.then_some(friend_lines.as_str()),
+        );
 
-        if context.existing_children.is_empty() {
-            return Self {
-                system: format!(
-                    "{}You expand one target bullet point using its ancestors plus friend blocks as context. Return strict JSON only with this shape: {{\"rewrite\": string|null, \"children\": string[]}}. Keep rewrite to one concise sentence. Generate 3-6 concise child points. Children must be mutually non-overlapping, each focused on a distinct subtopic, and should not restate the rewrite. Friend blocks are user-selected related context and are not children of the target. Friend blocks may include an optional perspective describing how the target views that friend block; use it when relevant. No markdown, no extra keys.",
-                    instruction_prefix
-                ),
-                user: format!(
-                    "Expand the target point with context:\n{lineage_lines}\nFriend blocks:\n{friend_lines}"
-                ),
-            };
-        }
-
-        let children_lines = Self::format_children_lines(&context.existing_children);
-        let friend_context = if context.friend_blocks.is_empty() {
-            String::new()
-        } else {
-            format!("\nFriend blocks:\n{friend_lines}")
+        let context_qualifier = match (presence.has_children, presence.has_friends) {
+            (false, false) => " as context",
+            (false, true) => " plus friend blocks as context",
+            (true, _) => ", existing children, and optional friend blocks as context",
         };
+        let children_qualifier = if presence.has_children {
+            " Generate 3-6 concise NEW child points."
+        } else {
+            " Generate 3-6 concise child points."
+        };
+        let children_constraint = if presence.has_children {
+            ", and MUST NOT overlap with the existing children listed below"
+        } else {
+            ""
+        };
+        let friends_explanation = if presence.has_friends {
+            if presence.has_children {
+                " Friend blocks are additional context only and are not children. Friend blocks may include optional perspective text that can refine interpretation."
+            } else {
+                " Friend blocks are user-selected related context and are not children of the target. Friend blocks may include an optional perspective describing how the target views that friend block; use it when relevant."
+            }
+        } else {
+            ""
+        };
+
+        let system = format!(
+            "You expand one target bullet point using its ancestors{context_qualifier}. Return strict JSON only with this shape: {{\"rewrite\": string|null, \"children\": string[]}}. Keep rewrite to one concise sentence.{children_qualifier} Children must be mutually non-overlapping, each focused on a distinct subtopic, and should not restate the rewrite{children_constraint}.{friends_explanation} No markdown, no extra keys."
+        );
+
         Self {
-            system: format!(
-                "{}You expand one target bullet point using its ancestors, existing children, and optional friend blocks as context. Return strict JSON only with this shape: {{\"rewrite\": string|null, \"children\": string[]}}. Keep rewrite to one concise sentence. Generate 3-6 concise NEW child points. Children must be mutually non-overlapping, each focused on a distinct subtopic, should not restate the rewrite, and MUST NOT overlap with the existing children listed below. Friend blocks are additional context only and are not children. Friend blocks may include optional perspective text that can refine interpretation. No markdown, no extra keys.",
-                instruction_prefix
-            ),
-            user: format!(
-                "Expand the target point with context:\n{lineage_lines}\nExisting children:\n{children_lines}{friend_context}"
-            ),
+            system: format!("{instruction_prefix}{system}"),
+            user,
         }
     }
 
