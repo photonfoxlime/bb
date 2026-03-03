@@ -26,6 +26,35 @@ pub(crate) enum PromptTask {
     Inquire,
 }
 
+/// Task kind for fetching default prompt hints (e.g. in the settings UI).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TaskKindHint {
+    Reduce,
+    Expand,
+    Inquire,
+}
+
+/// Default system prompt for the given task, with simplest context (no children, no friends).
+/// Used as a foldable hint in the settings UI.
+pub fn default_system_prompt_hint(task: TaskKindHint) -> String {
+    let presence = ContextPresence { has_children: false, has_friends: false };
+    let pt = match task {
+        TaskKindHint::Reduce => PromptTask::Reduce,
+        TaskKindHint::Expand => PromptTask::Expand,
+        TaskKindHint::Inquire => PromptTask::Inquire,
+    };
+    pt.default_system(presence)
+}
+
+/// Default user prompt intro for the given task.
+pub fn default_user_prompt_hint(task: TaskKindHint) -> &'static str {
+    match task {
+        TaskKindHint::Reduce => PromptTask::Reduce.default_user_intro(),
+        TaskKindHint::Expand => PromptTask::Expand.default_user_intro(),
+        TaskKindHint::Inquire => PromptTask::Inquire.default_user_intro(),
+    }
+}
+
 /// Per-task prompt configuration: task kind plus its optional custom prompts.
 ///
 /// Each task (reduce, expand, inquire) has its own `system_prompt` and

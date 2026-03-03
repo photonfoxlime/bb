@@ -40,6 +40,7 @@
 use super::config::{self, AppConfig, MaxTokens, TaskConfig};
 use super::{AppState, Message, ViewMode};
 use crate::component::icon_button::IconButton;
+use std::collections::BTreeSet;
 use crate::component::text_button::TextButton;
 use crate::i18n;
 use crate::llm;
@@ -47,7 +48,7 @@ use crate::paths::AppPaths;
 use crate::theme;
 use iced::alignment::Horizontal;
 use iced::widget::{
-    checkbox, column, container, pick_list, row, slider, text, text_input, tooltip,
+    button, checkbox, column, container, pick_list, row, slider, text, text_input, tooltip,
 };
 use iced::{Alignment, Element, Fill, Length, Task};
 use lucide_icons::iced as icons;
@@ -91,6 +92,10 @@ pub struct SettingsState {
     pub config: AppConfig,
     /// Per-task draft form values (provider name, model text, token limit text).
     pub task_drafts: TaskDrafts,
+    /// Which tasks have the system-prompt default hint expanded.
+    pub system_prompt_hints_expanded: BTreeSet<TaskKind>,
+    /// Which tasks have the user-prompt default hint expanded.
+    pub user_prompt_hints_expanded: BTreeSet<TaskKind>,
 }
 
 /// Per-task draft values for the settings UI.
@@ -275,7 +280,7 @@ impl std::fmt::Display for FirstLineEnterBehavior {
 ///
 /// Used as a discriminant in [`SettingsMessage`] variants that target a
 /// specific token-limit field.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TaskKind {
     /// Condensation / summary requests.
     Reduce,
@@ -332,6 +337,10 @@ pub enum SettingsMessage {
     TaskSystemPromptChanged(TaskKind, String),
     /// Change the custom user prompt for a specific task kind.
     TaskUserPromptChanged(TaskKind, String),
+    /// Toggle expansion of the system-prompt default hint for a task.
+    ToggleSystemPromptHintExpanded(TaskKind),
+    /// Toggle expansion of the user-prompt default hint for a task.
+    ToggleUserPromptHintExpanded(TaskKind),
 }
 
 impl SettingsState {
@@ -354,6 +363,8 @@ impl SettingsState {
             selected_is_preset,
             task_drafts: TaskDrafts::from_config(config),
             config: config.clone(),
+            system_prompt_hints_expanded: BTreeSet::new(),
+            user_prompt_hints_expanded: BTreeSet::new(),
         }
     }
 
@@ -757,6 +768,22 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             }
             Task::none()
         }
+        | SettingsMessage::ToggleSystemPromptHintExpanded(kind) => {
+            if state.settings.system_prompt_hints_expanded.contains(&kind) {
+                state.settings.system_prompt_hints_expanded.remove(&kind);
+            } else {
+                state.settings.system_prompt_hints_expanded.insert(kind);
+            }
+            Task::none()
+        }
+        | SettingsMessage::ToggleUserPromptHintExpanded(kind) => {
+            if state.settings.user_prompt_hints_expanded.contains(&kind) {
+                state.settings.user_prompt_hints_expanded.remove(&kind);
+            } else {
+                state.settings.user_prompt_hints_expanded.insert(kind);
+            }
+            Task::none()
+        }
     }
 }
 
@@ -1061,18 +1088,24 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         TaskKind::Reduce,
         &settings.task_drafts.reduce,
         &settings.provider_names,
+        settings.system_prompt_hints_expanded.contains(&TaskKind::Reduce),
+        settings.user_prompt_hints_expanded.contains(&TaskKind::Reduce),
     );
     let task_section_expand = task_settings_section(
         t!("settings_task_expand").to_string(),
         TaskKind::Expand,
         &settings.task_drafts.expand,
         &settings.provider_names,
+        settings.system_prompt_hints_expanded.contains(&TaskKind::Expand),
+        settings.user_prompt_hints_expanded.contains(&TaskKind::Expand),
     );
     let task_section_inquire = task_settings_section(
         t!("settings_task_inquire").to_string(),
         TaskKind::Inquire,
         &settings.task_drafts.inquire,
         &settings.provider_names,
+        settings.system_prompt_hints_expanded.contains(&TaskKind::Inquire),
+        settings.user_prompt_hints_expanded.contains(&TaskKind::Inquire),
     );
 
     // ── Data Paths section ───────────────────────────────────────────
@@ -1193,7 +1226,12 @@ fn section(
 /// Each section lets the user independently select a provider, model,
 /// and token limit for one task kind (reduce, expand, inquire).
 fn task_settings_section(
-    title: String, kind: TaskKind, draft: &TaskDraft, provider_names: &[String],
+    title: String,
+    kind: TaskKind,
+    draft: &TaskDraft,
+    provider_names: &[String],
+    system_hint_expanded: bool,
+    user_hint_expanded: bool,
 ) -> Element<'static, Message> {
     let provider_label = t!("settings_task_provider").to_string();
     let model_label = t!("settings_model").to_string();
@@ -1281,33 +1319,55 @@ fn task_settings_section(
 
     // Custom prompt inputs
     let system_prompt_label = t!("settings_custom_system_prompt").to_string();
-    let system_prompt_hint = t!("settings_custom_prompt_hint").to_string();
-    let system_prompt_input = text_input(&system_prompt_hint, &draft.system_prompt)
+    let system_prompt_input_hint = t!("settings_custom_prompt_hint").to_string();
+    let system_prompt_input = text_input(&system_prompt_input_hint, &draft.system_prompt)
         .on_input(move |v| Message::Settings(SettingsMessage::TaskSystemPromptChanged(kind, v)))
         .size(theme::INPUT_TEXT_SIZE)
         .padding(theme::PANEL_PAD_V);
 
+    let task_hint = match kind {
+        TaskKind::Reduce => llm::TaskKindHint::Reduce,
+        TaskKind::Expand => llm::TaskKindHint::Expand,
+        TaskKind::Inquire => llm::TaskKindHint::Inquire,
+    };
+    let system_default_hint = llm::default_system_prompt_hint(task_hint);
+    let system_hint_toggle = foldable_hint_row(
+        "Default",
+        &system_default_hint,
+        system_hint_expanded,
+        move || Message::Settings(SettingsMessage::ToggleSystemPromptHintExpanded(kind)),
+    );
     let system_prompt_row = column![
         text(system_prompt_label)
             .size(theme::LABEL_TEXT_SIZE)
             .font(theme::INTER)
             .color(theme::LIGHT.accent_muted),
         system_prompt_input,
+        system_hint_toggle,
     ]
     .spacing(theme::INLINE_GAP);
 
     let user_prompt_label = t!("settings_custom_user_prompt").to_string();
-    let user_prompt_input = text_input(&system_prompt_hint, &draft.user_prompt)
+    let user_prompt_input_hint = t!("settings_custom_prompt_hint").to_string();
+    let user_prompt_input = text_input(&user_prompt_input_hint, &draft.user_prompt)
         .on_input(move |v| Message::Settings(SettingsMessage::TaskUserPromptChanged(kind, v)))
         .size(theme::INPUT_TEXT_SIZE)
         .padding(theme::PANEL_PAD_V);
 
+    let user_default_hint = llm::default_user_prompt_hint(task_hint);
+    let user_hint_toggle = foldable_hint_row(
+        "Default",
+        user_default_hint,
+        user_hint_expanded,
+        move || Message::Settings(SettingsMessage::ToggleUserPromptHintExpanded(kind)),
+    );
     let user_prompt_row = column![
         text(user_prompt_label)
             .size(theme::LABEL_TEXT_SIZE)
             .font(theme::INTER)
             .color(theme::LIGHT.accent_muted),
         user_prompt_input,
+        user_hint_toggle,
     ]
     .spacing(theme::INLINE_GAP);
 
@@ -1316,6 +1376,47 @@ fn task_settings_section(
         column![provider_row, model_row, token_row, system_prompt_row, user_prompt_row]
             .spacing(theme::FORM_ROW_GAP),
     )
+}
+
+/// A foldable row: clickable label with chevron, optional content when expanded.
+fn foldable_hint_row<F>(
+    label: &'static str,
+    content: &str,
+    expanded: bool,
+    on_toggle: F,
+) -> Element<'static, Message>
+where
+    F: Fn() -> Message + 'static,
+{
+    let chevron: Element<'static, Message> = if expanded {
+        icons::icon_chevron_down()
+            .size(theme::LABEL_TEXT_SIZE)
+            .line_height(iced::widget::text::LineHeight::Relative(1.0))
+            .into()
+    } else {
+        icons::icon_chevron_right()
+            .size(theme::LABEL_TEXT_SIZE)
+            .line_height(iced::widget::text::LineHeight::Relative(1.0))
+            .into()
+    };
+    let label_text = text(label.to_string())
+        .size(theme::LABEL_TEXT_SIZE)
+        .font(theme::INTER)
+        .color(theme::LIGHT.accent_muted);
+    let header = row![chevron, label_text]
+    .spacing(theme::INLINE_GAP)
+    .align_y(iced::Alignment::Center);
+    let clickable = button(header).style(theme::action_button).on_press(on_toggle());
+    let content_text = text(content.to_string())
+        .size(theme::SMALL_TEXT_SIZE)
+        .font(theme::INTER)
+        .color(theme::LIGHT.accent_muted);
+    let col = if expanded && !content.is_empty() {
+        column![clickable, content_text].spacing(theme::INLINE_GAP)
+    } else {
+        column![clickable].spacing(theme::INLINE_GAP)
+    };
+    col.into()
 }
 
 /// A read-only key-value row for path display.
