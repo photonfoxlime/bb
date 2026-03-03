@@ -38,7 +38,7 @@
 use super::BlockId;
 use super::results::{
     BatchError, BatchOutput, BatchResult, CliResult, ExpansionDraftInfo, FriendInfo, Match,
-    ReductionDraftInfo,
+    ReductionDraftInfo, ShowResult,
 };
 use super::{
     BlockCommands, draft::DraftCommands, fold::FoldCommands, friend::FriendCommands,
@@ -97,7 +97,12 @@ impl BlockCommands {
                             let text = store.point(&id).unwrap_or_default();
                             let children: Vec<String> =
                                 store.children(&id).iter().map(|c| format!("{}", c)).collect();
-                            (store, CliResult::Show { id, text, children })
+                            let show = ShowResult {
+                                id: format!("{}", id),
+                                text,
+                                children,
+                            };
+                            (store, CliResult::Show(show))
                         }
                     }
                 } else {
@@ -112,12 +117,12 @@ impl BlockCommands {
                                 let text = store.point(&id).unwrap_or_default();
                                 let children: Vec<String> =
                                     store.children(&id).iter().map(|c| format!("{}", c)).collect();
-                                outputs.push(BatchOutput::Show {
-                                    input,
+                                let show = ShowResult {
                                     id: format!("{}", id),
                                     text,
                                     children,
-                                });
+                                };
+                                outputs.push(BatchOutput::Show { input, show });
                             }
                         }
                     }
@@ -538,8 +543,7 @@ impl BlockCommands {
                         | None => (store, CliResult::Error("Unknown block ID".to_string())),
                         | Some(block_id) => {
                             let lineage = store.lineage_points_for_id(&block_id);
-                            let points: Vec<String> = lineage.points().map(String::from).collect();
-                            (store, CliResult::Lineage(points))
+                            (store, CliResult::Lineage(lineage))
                         }
                     }
                 } else {
@@ -552,10 +556,7 @@ impl BlockCommands {
                                 .push(BatchError { input, error: "Unknown block ID".to_string() }),
                             | Some(block_id) => {
                                 let lineage = store.lineage_points_for_id(&block_id);
-                                outputs.push(BatchOutput::Lineage {
-                                    input,
-                                    points: lineage.points().map(String::from).collect(),
-                                });
+                                outputs.push(BatchOutput::Lineage { input, lineage });
                             }
                         }
                     }
@@ -1493,11 +1494,7 @@ impl BlockCommands {
                         | None => (store, CliResult::Error("Unknown block ID".to_string())),
                         | Some(block_id) => {
                             let context = store.block_context_for_id(&block_id);
-                            let lineage: Vec<String> =
-                                context.lineage.points().map(String::from).collect();
-                            let children = context.existing_children.clone().into_points();
-                            let friends = context.friend_blocks.len();
-                            (store, CliResult::Context { lineage, children, friends })
+                            (store, CliResult::Context(context))
                         }
                     }
                 } else {
@@ -1510,11 +1507,12 @@ impl BlockCommands {
                                 .push(BatchError { input, error: "Unknown block ID".to_string() }),
                             | Some(block_id) => {
                                 let context = store.block_context_for_id(&block_id);
+                                let fmt = crate::llm::ContextFormatter::from_block_context(&context);
                                 outputs.push(BatchOutput::Context {
                                     input,
-                                    lineage: context.lineage.points().map(String::from).collect(),
-                                    children: context.existing_children.clone().into_points(),
-                                    friends: context.friend_blocks.len(),
+                                    lineage: fmt.lineage_points().map(String::from).collect(),
+                                    children: fmt.children().clone(),
+                                    friends: fmt.friends_count(),
                                 });
                             }
                         }

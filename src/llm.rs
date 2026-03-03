@@ -21,6 +21,6 @@ pub use config::{
     PresetProvider,
 };
 pub use context::{
-    BlockContext, ChildContext, ChildrenContext, ExpandResult, ExpandSuggestion, FriendContext,
+    BlockContext, ChildrenContext, ContextFormatter, ExpandResult, ExpandSuggestion, FriendContext,
     LineageContext, ReduceResult,
 };

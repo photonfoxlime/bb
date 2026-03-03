@@ -36,10 +36,19 @@ use crate::cli::{
     CliResult, OutputFormat,
     results::{
         BatchError, BatchOutput, BatchResult, ExpansionDraftInfo, FriendInfo, Match,
-        ReductionDraftInfo,
+        ReductionDraftInfo, ShowResult,
     },
 };
+use crate::llm::{BlockContext, ContextFormatter, LineageContext};
 use crate::store;
+
+fn indent_lines(s: impl AsRef<str>) -> String {
+    s.as_ref()
+        .lines()
+        .map(|line| format!("  {}", line))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
 
 /// Print a `CliResult` to stdout in the specified format.
 ///
@@ -67,8 +76,8 @@ pub fn print_result(result: &CliResult, output: OutputFormat) {
         | CliResult::Roots(ids) => {
             print_roots(ids, output);
         }
-        | CliResult::Show { id, text, children } => {
-            print_show(*id, text, children, output);
+        | CliResult::Show(show) => {
+            print_show(show, output);
         }
         | CliResult::Find(matches) => {
             print_find(matches, output);
@@ -85,11 +94,11 @@ pub fn print_result(result: &CliResult, output: OutputFormat) {
         | CliResult::Collapsed(collapsed) => {
             print_collapsed(*collapsed, output);
         }
-        | CliResult::Lineage(points) => {
-            print_lineage(points, output);
+        | CliResult::Lineage(lineage) => {
+            print_lineage(lineage, output);
         }
-        | CliResult::Context { lineage, children, friends } => {
-            print_context(lineage, children, *friends, output);
+        | CliResult::Context(ctx) => {
+            print_context(ctx, output);
         }
         | CliResult::DraftList { expansion, reduction, instruction, inquiry } => {
             print_draft_list(expansion, reduction, instruction, inquiry, output);
@@ -149,18 +158,22 @@ fn print_batch_output_table(item: &BatchOutput) {
         | BatchOutput::OptionalId { input, id } => {
             println!("{} -> {}", input, id.as_deref().unwrap_or("(none)"))
         }
-        | BatchOutput::Lineage { input, points } => {
-            println!("{} -> lineage: {}", input, points.join(" | "))
+        | BatchOutput::Lineage { input, lineage } => {
+            let fmt = ContextFormatter::new(lineage.clone()).build();
+            println!("{} ->\n{}", input, indent_lines(fmt.lineage_lines()));
         }
-        | BatchOutput::Show { input, id, text, children } => {
-            println!("{} -> id: {}, text: {}, children: {}", input, id, text, children.join(", "))
+        | BatchOutput::Show { input, show } => {
+            println!("{} ->\n{}", input, indent_lines(format_show_table(show)));
         }
         | BatchOutput::Context { input, lineage, children, friends } => {
+            let fmt = ContextFormatter::new(LineageContext::from_points(lineage.clone()))
+                .with_children(children.clone())
+                .build();
             println!(
                 "{} -> lineage: {}, children: {}, friends: {}",
                 input,
-                lineage.join(" | "),
-                children.join(", "),
+                fmt.lineage_points().collect::<Vec<_>>().join(" | "),
+                fmt.children().point_strs().collect::<Vec<_>>().join(", "),
                 friends
             )
         }
@@ -206,23 +219,25 @@ fn print_roots(ids: &[String], output: OutputFormat) {
     }
 }
 
+fn format_show_table(show: &ShowResult) -> String {
+    let mut s = format!("ID: {}\nText: {}", show.id, show.text);
+    if !show.children.is_empty() {
+        s.push_str("\n\nChildren\n");
+        for (i, c) in show.children.iter().enumerate() {
+            s.push_str(&format!("[{}] {}\n", i, c));
+        }
+    }
+    s
+}
+
 /// Print block details (ID, text, children).
-fn print_show(id: store::BlockId, text: &str, children: &[String], output: OutputFormat) {
+fn print_show(show: &ShowResult, output: OutputFormat) {
     match output {
         | OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::json!({
-                    "id": format!("{}", id),
-                    "text": text,
-                    "children": children
-                })
-            );
+            println!("{}", serde_json::to_string(show).unwrap_or_default());
         }
         | OutputFormat::Table => {
-            println!("ID:       {}", id);
-            println!("Text:     {}", text);
-            println!("Children: {}", children.join(", "));
+            println!("{}", format_show_table(show));
         }
     }
 }
@@ -242,39 +257,27 @@ fn print_find(matches: &[Match], output: OutputFormat) {
 }
 
 /// Print lineage (ancestor chain) points.
-fn print_lineage(points: &[String], output: OutputFormat) {
+fn print_lineage(lineage: &LineageContext, output: OutputFormat) {
     match output {
         | OutputFormat::Json => {
-            println!("{}", serde_json::json!({ "lineage": points }));
+            println!("{}", serde_json::to_string(lineage).unwrap_or_default());
         }
         | OutputFormat::Table => {
-            for (i, p) in points.iter().enumerate() {
-                println!("{}. {}", i + 1, p);
-            }
+            let fmt = ContextFormatter::new(lineage.clone()).build();
+            print!("{}", fmt.lineage_lines());
         }
     }
 }
 
 /// Print block context for LLM requests.
-fn print_context(lineage: &[String], children: &[String], friends: usize, output: OutputFormat) {
+fn print_context(ctx: &BlockContext, output: OutputFormat) {
     match output {
         | OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::json!({
-                    "lineage": lineage,
-                    "children": children,
-                    "friends": friends
-                })
-            );
+            println!("{}", serde_json::to_string(ctx).unwrap_or_default());
         }
         | OutputFormat::Table => {
-            println!("Lineage:");
-            for p in lineage {
-                println!("  - {}", p);
-            }
-            println!("Children: {}", children.join(", "));
-            println!("Friends: {}", friends);
+            let fmt = ContextFormatter::from_block_context(ctx);
+            println!("{}", fmt.format_for_display());
         }
     }
 }
@@ -340,16 +343,16 @@ fn print_friend_list(friends: &[FriendInfo], output: OutputFormat) {
             if friends.is_empty() {
                 println!("(no friends)");
             } else {
-                for f in friends {
-                    println!("{}", f.id);
+                for (i, f) in friends.iter().enumerate() {
+                    println!("[{}] {}", i, f.id);
                     if let Some(p) = &f.perspective {
-                        println!("  Perspective: {}", p);
+                        println!("  perspective: {}", p);
                     }
                     if f.telescope_lineage {
-                        println!("  Telescope lineage: yes");
+                        println!("  telescope_lineage: yes");
                     }
                     if f.telescope_children {
-                        println!("  Telescope children: yes");
+                        println!("  telescope_children: yes");
                     }
                 }
             }

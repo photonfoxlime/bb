@@ -99,11 +99,12 @@ impl BlockStore {
         &self, target: &BlockId, friend_block_ids: &[FriendBlock],
     ) -> llm::BlockContext {
         let lineage = self.lineage_points_for_id(target);
-        let existing_children = self
-            .children(target)
-            .iter()
-            .filter_map(|child_id| self.point(child_id))
-            .collect::<Vec<_>>();
+        let existing_children = llm::ChildrenContext::from_points(
+            self.children(target)
+                .iter()
+                .filter_map(|child_id| self.point(child_id))
+                .collect::<Vec<_>>(),
+        );
         let friend_blocks = friend_block_ids
             .iter()
             .filter_map(|friend| {
@@ -114,12 +115,12 @@ impl BlockStore {
                     None
                 };
                 let friend_children = if friend.children_telescope {
-                    Some(
+                    Some(llm::ChildrenContext::from_points(
                         self.children(&friend.block_id)
                             .iter()
                             .filter_map(|child_id| self.point(child_id))
-                            .collect(),
-                    )
+                            .collect::<Vec<_>>(),
+                    ))
                 } else {
                     None
                 };

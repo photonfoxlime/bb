@@ -21,6 +21,7 @@
 //! ```
 
 use crate::store::BlockId;
+use crate::llm::{BlockContext, ChildrenContext, LineageContext};
 
 /// Result of executing a block command.
 ///
@@ -45,7 +46,7 @@ pub enum CliResult {
     ///
     /// Returned by the `show` command, containing the block's ID,
     /// point text, and immediate children IDs.
-    Show { id: BlockId, text: String, children: Vec<String> },
+    Show(ShowResult),
     /// Search results from the `find` command.
     Find(Vec<Match>),
     /// A single block ID from creation operations.
@@ -71,12 +72,12 @@ pub enum CliResult {
     ///
     /// Returned by the `nav lineage` command, containing the
     /// point text of all ancestors from root to parent.
-    Lineage(Vec<String>),
+    Lineage(LineageContext),
     /// LLM context information.
     ///
     /// Returned by the `context` command, providing the data
     /// that would be sent to an LLM for this block.
-    Context { lineage: Vec<String>, children: Vec<String>, friends: usize },
+    Context(BlockContext),
     /// Draft listing result.
     ///
     /// Returned by `draft list`, showing all active drafts for a block.
@@ -148,11 +149,11 @@ pub enum BatchOutput {
     /// Optional block ID output for navigation operations.
     OptionalId { input: String, id: Option<String> },
     /// Lineage text output.
-    Lineage { input: String, points: Vec<String> },
+    Lineage { input: String, lineage: LineageContext },
     /// Show command output.
-    Show { input: String, id: String, text: String, children: Vec<String> },
+    Show { input: String, show: ShowResult },
     /// Context command output.
-    Context { input: String, lineage: Vec<String>, children: Vec<String>, friends: usize },
+    Context { input: String, lineage: Vec<String>, children: ChildrenContext, friends: usize },
     /// Draft listing output.
     DraftList {
         input: String,
@@ -193,13 +194,24 @@ pub struct ReductionDraftInfo {
     pub redundant_children: Vec<String>,
 }
 
+/// Show command result: block ID, point text, and child block IDs.
+#[derive(Debug, serde::Serialize)]
+pub struct ShowResult {
+    /// Block ID in NvG format.
+    pub id: String,
+    /// Point text content.
+    pub text: String,
+    /// Direct child block IDs.
+    pub children: Vec<String>,
+}
+
 /// Search match result.
 ///
 /// A single block matching a `find` query, containing its ID
 /// and full point text.
 #[derive(Debug, serde::Serialize)]
 pub struct Match {
-    /// Block ID in NvG format (e.g., "1v14d5e").
+    /// Block ID in NvG format (e.g., "1v1").
     pub id: String,
     /// Full point text content of the block.
     pub text: String,

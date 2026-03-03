@@ -54,9 +54,9 @@ fn read_after_write_add_child() {
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
 
     match result {
-        | CliResult::Show { text, children, .. } => {
-            assert_eq!(text, "new block");
-            assert!(children.is_empty());
+        | CliResult::Show(show) => {
+            assert_eq!(show.text, "new block");
+            assert!(show.children.is_empty());
         }
         | _ => panic!("Expected Show result"),
     }
@@ -89,8 +89,8 @@ fn read_after_write_chain() {
         let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
 
         match result {
-            | CliResult::Show { text, .. } => {
-                assert_eq!(text, format!("child{}", i - 1));
+            | CliResult::Show(show) => {
+                assert_eq!(show.text, format!("child{}", i - 1));
             }
             | _ => panic!("Expected Show for child {}", i - 1),
         }
@@ -101,8 +101,8 @@ fn read_after_write_chain() {
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
 
     match result {
-        | CliResult::Show { children, .. } => {
-            assert_eq!(children.len(), 5);
+        | CliResult::Show(show) => {
+            assert_eq!(show.children.len(), 5);
         }
         | _ => panic!("Expected Show for root"),
     }
@@ -292,11 +292,11 @@ fn ids_stable_after_operations() {
     // Original IDs should still work
     let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId(root_str) });
     let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
-    assert!(matches!(result, CliResult::Show { id, .. } if id == root_id));
+    assert!(matches!(result, CliResult::Show(show) if show.id == fmt(root_id)));
 
     let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId(child1_str) });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
-    assert!(matches!(result, CliResult::Show { id, .. } if id == child1));
+    assert!(matches!(result, CliResult::Show(show) if show.id == fmt(child1)));
 }
 
 // ============================================================================
@@ -358,8 +358,8 @@ fn lineage_after_wrap() {
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
 
     match result {
-        | CliResult::Lineage(points) => {
-            assert_eq!(points.len(), 4); // root, root again?, wrapper, child1
+        | CliResult::Lineage(lineage) => {
+            assert_eq!(lineage.items.len(), 4); // root, root again?, wrapper, child1
         }
         | _ => panic!("Expected Lineage"),
     }
@@ -1139,9 +1139,9 @@ fn nav_lineage_for_deeply_nested_block() {
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
 
     match result {
-        | CliResult::Lineage(points) => {
+        | CliResult::Lineage(lineage) => {
             // Should have all ancestors (20 levels + root counted twice in lineage?)
-            assert!(points.len() >= 20);
+            assert!(lineage.items.len() >= 20);
         }
         | _ => panic!("Expected Lineage"),
     }
@@ -1176,10 +1176,10 @@ fn context_command_with_friends() {
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
 
     match result {
-        | CliResult::Context { lineage, children, friends } => {
-            assert!(lineage.len() >= 1); // Should include root
-            assert_eq!(children.len(), 0); // No children
-            assert_eq!(friends, 1); // One friend
+        | CliResult::Context(ctx) => {
+            assert!(ctx.lineage().points().count() >= 1); // Should include root
+            assert_eq!(ctx.existing_children().len(), 0); // No children
+            assert_eq!(ctx.friend_blocks().len(), 1); // One friend
         }
         | _ => panic!("Expected Context"),
     }
@@ -1199,10 +1199,10 @@ fn context_for_root_block() {
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
 
     match result {
-        | CliResult::Context { lineage: _, children, friends } => {
+        | CliResult::Context(ctx) => {
             // Root may have itself in lineage, just verify it works
-            assert_eq!(children.len(), 2);
-            assert_eq!(friends, 0);
+            assert_eq!(ctx.existing_children().len(), 2);
+            assert_eq!(ctx.friend_blocks().len(), 0);
         }
         | _ => panic!("Expected Context"),
     }

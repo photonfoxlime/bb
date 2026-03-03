@@ -62,8 +62,8 @@ fn show_command() {
     let root_id = store.roots()[0];
     let cmd = BlockCommands::Show(ShowCommand { block_id: BlockId(format_block_id(root_id)) });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
-    assert!(matches!(result, CliResult::Show { id, text, children }
-        if id == root_id && text.contains("Tree of Thoughts") && children.len() == 2));
+    assert!(matches!(result, CliResult::Show(show)
+        if show.id == format_block_id(root_id) && show.text.contains("Tree of Thoughts") && show.children.len() == 2));
 }
 
 #[test]
@@ -227,7 +227,7 @@ fn nav_lineage_command() {
         block_id: BlockId(format_block_id(child_id)),
     }));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
-    assert!(matches!(result, CliResult::Lineage(points) if !points.is_empty()));
+    assert!(matches!(result, CliResult::Lineage(lineage) if !lineage.is_empty()));
 }
 
 #[test]

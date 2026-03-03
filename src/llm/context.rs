@@ -11,7 +11,8 @@
 /// target point, parent chain, direct children, and friend blocks.
 ///
 /// Constructed by the store layer; consumed by [`LlmClient`] methods.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub struct BlockContext {
     pub lineage: LineageContext,
     pub existing_children: ChildrenContext,
@@ -53,7 +54,7 @@ impl BlockContext {
 ///
 /// Used to give the LLM context about where in the document tree the
 /// target point lives. The last item is always the target.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct LineageContext {
     pub items: Vec<LineageItem>,
 }
@@ -86,7 +87,7 @@ impl LineageContext {
 }
 
 /// One element in a [`Lineage`] chain: wraps a block's point text.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct LineageItem {
     point: String,
 }
@@ -172,6 +173,20 @@ impl From<ChildrenContext> for Vec<String> {
     }
 }
 
+impl serde::Serialize for ChildrenContext {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        use serde::ser::SerializeSeq;
+        let mut seq = serializer.serialize_seq(Some(self.len()))?;
+        for point in self.point_strs() {
+            seq.serialize_element(point)?;
+        }
+        seq.end()
+    }
+}
+
 /// One friend context item supplied alongside lineage and existing children.
 ///
 /// `point` is the friend block text itself.
@@ -181,14 +196,15 @@ impl From<ChildrenContext> for Vec<String> {
 /// `children_telescope` controls whether the friend block's children are included.
 /// `friend_lineage` contains the friend block's parent lineage (when visible).
 /// `friend_children` contains the friend block's children point texts (when visible).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub struct FriendContext {
     pub point: String,
     pub perspective: Option<String>,
     pub parent_lineage_telescope: bool,
     pub children_telescope: bool,
     pub friend_lineage: Option<LineageContext>,
-    pub friend_children: Option<Vec<String>>,
+    pub friend_children: Option<ChildrenContext>,
 }
 
 impl FriendContext {
@@ -196,7 +212,7 @@ impl FriendContext {
     pub fn with_context(
         point: String, perspective: Option<String>, parent_lineage_telescope: bool,
         children_telescope: bool, friend_lineage: Option<LineageContext>,
-        friend_children: Option<Vec<String>>,
+        friend_children: Option<ChildrenContext>,
     ) -> Self {
         Self {
             point,
@@ -220,8 +236,8 @@ impl FriendContext {
         self.friend_lineage.as_ref()
     }
 
-    pub fn friend_children(&self) -> Option<&[String]> {
-        self.friend_children.as_deref()
+    pub fn friend_children(&self) -> Option<&ChildrenContext> {
+        self.friend_children.as_ref()
     }
 }
 
@@ -309,7 +325,7 @@ impl From<&BlockContext> for ContextPresence {
 #[derive(Debug)]
 pub struct ContextFormatter {
     lineage: LineageContext,
-    children: Vec<String>,
+    children: ChildrenContext,
     friends: Vec<FriendContext>,
 }
 
@@ -317,7 +333,7 @@ impl ContextFormatter {
     /// Create from a block context (primary entry point).
     pub fn from_block_context(ctx: &BlockContext) -> Self {
         Self::new(ctx.lineage.clone())
-            .with_children(ctx.existing_children.clone().into_points())
+            .with_children(ctx.existing_children.clone())
             .with_friends(ctx.friend_blocks.clone())
             .build()
     }
@@ -340,6 +356,21 @@ impl ContextFormatter {
         self.fmt_lineage()
     }
 
+    /// Iterate over lineage point texts.
+    pub fn lineage_points(&self) -> impl Iterator<Item = &str> + '_ {
+        self.lineage.points()
+    }
+
+    /// Child contexts.
+    pub fn children(&self) -> &ChildrenContext {
+        &self.children
+    }
+
+    /// Number of friend blocks.
+    pub fn friends_count(&self) -> usize {
+        self.friends.len()
+    }
+
     /// Build the full user prompt body for a task (e.g. reduce or expand).
     pub fn build_user_body(&self, task_intro: &str) -> String {
         let mut s = format!("{task_intro}\n{}", self.fmt_lineage());
@@ -348,6 +379,23 @@ impl ContextFormatter {
         }
         if self.presence().has_friends {
             s.push_str(&format!("\nFriend blocks:\n{}", self.fmt_friends()));
+        }
+        s
+    }
+
+    /// Full human-readable format for CLI display.
+    ///
+    /// Multi-line output with lineage (Parent/Target labels), numbered children,
+    /// and friend blocks with optional lineage, children, and perspective.
+    pub fn format_for_display(&self) -> String {
+        let mut s = self.fmt_lineage().trim_end().to_string();
+        if self.presence().has_children {
+            s.push_str("\n\nChildren\n");
+            s.push_str(&self.fmt_children());
+        }
+        if self.presence().has_friends {
+            s.push_str("\n\nFriends\n");
+            s.push_str(&self.fmt_friends());
         }
         s
     }
@@ -364,8 +412,8 @@ impl ContextFormatter {
 
     fn fmt_children(&self) -> String {
         let mut lines = String::new();
-        for (index, child) in self.children.iter().enumerate() {
-            lines.push_str(&format!("[{index}] {child}\n"));
+        for (index, point) in self.children.point_strs().enumerate() {
+            lines.push_str(&format!("[{index}] {point}\n"));
         }
         lines
     }
@@ -385,7 +433,7 @@ impl ContextFormatter {
             if friend_block.children_telescope {
                 if let Some(children) = friend_block.friend_children() {
                     if !children.is_empty() {
-                        let children_str = children.join("; ");
+                        let children_str = children.point_strs().collect::<Vec<_>>().join("; ");
                         line.push_str(&format!(" (children: {})", children_str));
                     }
                 }
@@ -405,18 +453,22 @@ impl ContextFormatter {
 /// Builder for [`ContextFormatter`].
 pub struct ContextFormatterBuilder {
     lineage: LineageContext,
-    children: Vec<String>,
+    children: ChildrenContext,
     friends: Vec<FriendContext>,
 }
 
 impl ContextFormatterBuilder {
     fn new(lineage: LineageContext) -> Self {
-        Self { lineage, children: Vec::new(), friends: Vec::new() }
+        Self {
+            lineage,
+            children: ChildrenContext::default(),
+            friends: Vec::new(),
+        }
     }
 
-    /// Add existing children (child point texts).
-    pub fn with_children(mut self, children: Vec<String>) -> Self {
-        self.children = children;
+    /// Add existing children (child contexts).
+    pub fn with_children(mut self, children: impl Into<ChildrenContext>) -> Self {
+        self.children = children.into();
         self
     }
 
