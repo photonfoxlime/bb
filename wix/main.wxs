@@ -123,6 +123,14 @@
                         <Component Id='binary0' Guid='*'>
                             <File
                                 Id='exe0'
+                                Name='bb.exe'
+                                DiskId='1'
+                                Source='$(var.CargoTargetBinDir)\bb.exe'
+                                KeyPath='yes'/>
+                        </Component>
+                        <Component Id='binary1' Guid='*'>
+                            <File
+                                Id='exe1'
                                 Name='blooming-blockery.exe'
                                 DiskId='1'
                                 Source='$(var.CargoTargetBinDir)\blooming-blockery.exe'
@@ -150,6 +158,7 @@
             <!--<ComponentRef Id='License'/>-->
 
             <ComponentRef Id='binary0'/>
+            <ComponentRef Id='binary1'/>
 
             <Feature
                 Id='Environment'
@@ -163,16 +172,14 @@
 
         <SetProperty Id='ARPINSTALLLOCATION' Value='[APPLICATIONFOLDER]' After='CostFinalize'/>
 
-        
         <!--
-          Uncomment the following `Icon` and `Property` tags to change the product icon.
-
-          The product icon is the graphic that appears in the Add/Remove
-          Programs control panel for the application.
+          Disabling the custom product icon for the application in the
+          Add/Remove Programs control panel requires commenting out or
+          removing the following `Icon` and `Property` tags.
         -->
-        <!--<Icon Id='ProductICO' SourceFile='wix\Product.ico'/>-->
-        <!--<Property Id='ARPPRODUCTICON' Value='ProductICO' />-->
-
+        <Icon Id='ProductICO' SourceFile='assets/icons/icon.ico'/>
+        <Property Id='ARPPRODUCTICON' Value='ProductICO' />
+        
         <Property Id='ARPHELPLINK' Value='https://github.com/photonfoxlime/bb'/>
         
         <UI>

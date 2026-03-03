@@ -14,6 +14,7 @@ upgrade-guid = "94C63B44-F187-4646-978A-26AF57C4D6C9"
 path-guid = "2928733B-C69F-4B07-AEF6-1366D623051A"
 license = false
 eula = false
+product-icon = "assets/icons/icon.ico"
 
 [features]
 default = ["log"]
