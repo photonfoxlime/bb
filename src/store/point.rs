@@ -106,6 +106,10 @@ impl PointLink {
     }
 
     /// Create a link with an explicit label.
+    ///
+    /// Note: currently only used in tests. Kept as public API for future
+    /// callers (e.g. user-provided link labels).
+    #[allow(dead_code)]
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
         self

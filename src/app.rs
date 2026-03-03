@@ -329,6 +329,21 @@ impl AppState {
                     key: keyboard::Key::Named(keyboard::key::Named::Escape),
                     ..
                 }) => Some(Message::EscapePressed),
+                // Arrow keys for link panel candidate navigation.
+                // Emitted unconditionally; `update()` ignores them when not
+                // in `DocumentMode::LinkInput`.
+                | Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(keyboard::key::Named::ArrowUp),
+                    ..
+                }) if status != event::Status::Captured => {
+                    Some(Message::LinkMode(LinkModeMessage::SelectPrevious))
+                }
+                | Event::Keyboard(keyboard::Event::KeyPressed {
+                    key: keyboard::Key::Named(keyboard::key::Named::ArrowDown),
+                    ..
+                }) if status != event::Status::Captured => {
+                    Some(Message::LinkMode(LinkModeMessage::SelectNext))
+                }
                 | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
                     if let Some(shortcut) = shortcut::movement_shortcut_from_key(&key, modifiers) {
                         return Some(Message::Shortcut(shortcut));

@@ -715,7 +715,7 @@ impl<'a> TreeView<'a> {
         // editor content" error that would otherwise fire for blocks whose
         // buffer was removed on link conversion.
         let is_link_block =
-            matches!(self.state.store.point_content(block_id), Some(PointContent::Link(_)));
+            self.state.store.point_content(block_id).map_or(false, PointContent::is_link);
 
         // Editor content is only needed for non-link blocks.
         let editor_content = if is_link_block {
@@ -801,7 +801,9 @@ impl<'a> TreeView<'a> {
             // In friend picker mode, render as plain text so the button wrapper can capture clicks
             let point_text = self.state.store.point(block_id).unwrap_or_default();
             container(text(point_text)).width(Fill).height(Length::Shrink).into()
-        } else if let Some(PointContent::Link(link)) = self.state.store.point_content(block_id) {
+        } else if let Some(link) =
+            self.state.store.point_content(block_id).and_then(PointContent::as_link)
+        {
             // Link point: render as a clickable chip instead of a text editor.
             let kind_icon: Element<'a, Message> = match link.kind {
                 | LinkKind::Image => icons::icon_image().size(theme::LINK_CHIP_ICON_SIZE).into(),
