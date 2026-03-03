@@ -1,0 +1,62 @@
+name: Release macOS DMG
+
+on:
+  workflow_call:
+    inputs:
+      plan:
+        required: true
+        type: string
+
+jobs:
+  dmg:
+    runs-on: macos-14
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-bundle
+        run: cargo install cargo-bundle
+
+      - name: Compute tag/version
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "TAG=${GITHUB_REF_NAME}" >> "$GITHUB_ENV"
+          echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+
+      - name: Build .app via cargo-bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # 生成 macOS app bundle
+          cargo bundle --release --format osx --bin blooming-blockery
+
+          # cargo-bundle 常见输出目录（找到第一个 .app）
+          APP_PATH="$(ls -d target/release/bundle/osx/*.app | head -n1)"
+          echo "APP_PATH=$APP_PATH" >> "$GITHUB_ENV"
+          echo "Bundled app: $APP_PATH"
+
+      - name: Create DMG
+        shell: bash
+        run: |
+          set -euo pipefail
+          DMG_NAME="blooming-blockery-${VERSION}-macos.dmg"
+          hdiutil create \
+            -volname "Blooming Blockery" \
+            -srcfolder "$APP_PATH" \
+            -ov \
+            -format UDZO \
+            "$DMG_NAME"
+          echo "DMG_NAME=$DMG_NAME" >> "$GITHUB_ENV"
+
+      - name: Upload DMG to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$TAG" "$DMG_NAME" --clobber

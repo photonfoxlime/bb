@@ -16,7 +16,7 @@ license = false
 eula = false
 product-icon = "assets/icons/icon.ico"
 
-[package.metadata.bundle.bin.blooming-blockery]
+[package.metadata.bundle]
 name = "Blooming Blockery"
 identifier = "app.miorin.blooming-blockery"
 icon = ["assets/icons/icon.icns"]
