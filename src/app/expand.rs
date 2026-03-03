@@ -60,6 +60,16 @@ pub fn handle(state: &mut AppState, message: ExpandMessage) -> Task<Message> {
             if state.llm_requests.is_expanding(block_id) {
                 return Task::none();
             }
+            // Sync editor buffer to store when focus was on the point editor, then snapshot
+            // for undo (aligns with atomize and reduce behavior).
+            if let Some(content) = state.editor_buffers.get(&block_id) {
+                let text = content.text();
+                if state.store.point(&block_id).as_deref() != Some(text.as_str()) {
+                    state.store.update_point(&block_id, text.to_string());
+                    state.editor_buffers.invalidate_token_cache(&block_id);
+                }
+            }
+            state.snapshot_for_undo();
             let context = state.store.block_context_for_id(&block_id);
             let Some(config) = state.llm_config_for_expand(block_id) else {
                 return Task::none();

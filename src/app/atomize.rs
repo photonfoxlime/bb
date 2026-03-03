@@ -53,6 +53,16 @@ pub fn handle(state: &mut AppState, message: AtomizeMessage) -> Task<Message> {
             if state.llm_requests.is_atomizing(block_id) {
                 return Task::none();
             }
+            // Sync editor buffer to store when focus was on the point editor, then snapshot
+            // for undo (aligns with expand and reduce behavior).
+            if let Some(content) = state.editor_buffers.get(&block_id) {
+                let text = content.text();
+                if state.store.point(&block_id).as_deref() != Some(text.as_str()) {
+                    state.store.update_point(&block_id, text.to_string());
+                    state.editor_buffers.invalidate_token_cache(&block_id);
+                }
+            }
+            state.snapshot_for_undo();
             let context = state.store.block_context_for_id(&block_id);
             let Some(config) = state.llm_config_for_atomize(block_id) else {
                 return Task::none();
@@ -103,19 +113,23 @@ pub fn handle(state: &mut AppState, message: AtomizeMessage) -> Task<Message> {
             request_task
         }
         | AtomizeMessage::ApplyRewrite(block_id) => {
-            let rewrite_opt = state
-                .store
-                .atomization_draft_mut(&block_id)
-                .and_then(|draft| draft.rewrite.take());
-            if let Some(rewrite) = rewrite_opt {
-                state.store.update_point(&block_id, rewrite);
-                state.persist_with_context("after atomize apply rewrite");
-                if let Some(draft) = state.store.atomization_draft(&block_id) {
-                    if draft.points.is_empty() {
-                        state.store.remove_atomization_draft(&block_id);
+            state.mutate_with_undo_and_persist("after atomize apply rewrite", |state| {
+                let rewrite_opt = state
+                    .store
+                    .atomization_draft_mut(&block_id)
+                    .and_then(|draft| draft.rewrite.take());
+                if let Some(rewrite) = rewrite_opt {
+                    state.store.update_point(&block_id, rewrite.clone());
+                    state.editor_buffers.set_text(&block_id, &rewrite);
+                    if let Some(draft) = state.store.atomization_draft(&block_id) {
+                        if draft.points.is_empty() {
+                            state.store.remove_atomization_draft(&block_id);
+                        }
                     }
+                    return true;
                 }
-            }
+                false
+            });
             Task::none()
         }
         | AtomizeMessage::RejectRewrite(block_id) => {
@@ -168,27 +182,30 @@ pub fn handle(state: &mut AppState, message: AtomizeMessage) -> Task<Message> {
             Task::none()
         }
         | AtomizeMessage::AcceptChild { block_id, child_index } => {
-            let point_opt = state
-                .store
-                .atomization_draft_mut(&block_id)
-                .and_then(|draft| {
-                    if child_index < draft.points.len() {
-                        Some(draft.points.remove(child_index))
-                    } else {
-                        None
+            state.mutate_with_undo_and_persist("after atomize accept child", |state| {
+                let point_opt = state
+                    .store
+                    .atomization_draft_mut(&block_id)
+                    .and_then(|draft| {
+                        if child_index < draft.points.len() {
+                            Some(draft.points.remove(child_index))
+                        } else {
+                            None
+                        }
+                    });
+                if let Some(point) = point_opt {
+                    if let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
+                        state.editor_buffers.set_text(&child_id, &point);
                     }
-                });
-            if let Some(point) = point_opt {
-                if let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
-                    state.editor_buffers.set_text(&child_id, &point);
-                }
-                state.persist_with_context("after atomize accept child");
-                if let Some(draft) = state.store.atomization_draft(&block_id) {
-                    if draft.points.is_empty() && draft.rewrite.is_none() {
-                        state.store.remove_atomization_draft(&block_id);
+                    if let Some(draft) = state.store.atomization_draft(&block_id) {
+                        if draft.points.is_empty() && draft.rewrite.is_none() {
+                            state.store.remove_atomization_draft(&block_id);
+                        }
                     }
+                    return true;
                 }
-            }
+                false
+            });
             Task::none()
         }
         | AtomizeMessage::RejectChild { block_id, child_index } => {
@@ -203,17 +220,21 @@ pub fn handle(state: &mut AppState, message: AtomizeMessage) -> Task<Message> {
             Task::none()
         }
         | AtomizeMessage::AcceptAllChildren(block_id) => {
-            if let Some(draft) = state.store.remove_atomization_draft(&block_id) {
-                if let Some(rewrite) = draft.rewrite {
-                    state.store.update_point(&block_id, rewrite);
-                }
-                for point in draft.points {
-                    if let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
-                        state.editor_buffers.set_text(&child_id, &point);
+            state.mutate_with_undo_and_persist("after atomize accept all", |state| {
+                if let Some(draft) = state.store.remove_atomization_draft(&block_id) {
+                    if let Some(rewrite) = draft.rewrite {
+                        state.store.update_point(&block_id, rewrite.clone());
+                        state.editor_buffers.set_text(&block_id, &rewrite);
                     }
+                    for point in draft.points {
+                        if let Some(child_id) = state.store.append_child(&block_id, point.clone()) {
+                            state.editor_buffers.set_text(&child_id, &point);
+                        }
+                    }
+                    return true;
                 }
-                state.persist_with_context("after atomize accept all");
-            }
+                false
+            });
             Task::none()
         }
         | AtomizeMessage::DiscardAllChildren(block_id) => {
