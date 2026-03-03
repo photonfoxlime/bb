@@ -220,9 +220,11 @@ pub struct TaskConfig {
     #[serde(rename = "token-limit", default = "default_reduce_tokens")]
     pub token_limit: MaxTokens,
     /// Custom system prompt. If empty, uses the built-in default.
+    /// Can be set independently of `user_prompt` (partial customization).
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub system_prompt: String,
     /// Custom user prompt template. If empty, uses the built-in default.
+    /// Lineage context is always appended. Can be set independently of `system_prompt`.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub user_prompt: String,
 }

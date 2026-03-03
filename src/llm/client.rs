@@ -227,7 +227,8 @@ impl LlmClient {
     /// - Emits [`InquireStreamEvent::Failed`] before `Finished` on failure.
     pub fn inquire_stream(
         self, context: BlockContext, instruction: String, timeout: Duration,
-        max_tokens: Option<u32>,
+        max_tokens: Option<u32>, custom_system_prompt: Option<String>,
+        custom_user_prompt: Option<String>,
     ) -> impl Stream<Item = InquireStreamEvent> {
         iced::stream::channel(64, async move |mut output| {
             let request = async {
@@ -235,7 +236,12 @@ impl LlmClient {
                     return Err(LlmError::InvalidRequest);
                 }
 
-                let prompt = Prompt::inquire_from_context(&context, &instruction, None, None);
+                let prompt = Prompt::inquire_from_context(
+                    &context,
+                    &instruction,
+                    custom_system_prompt.as_deref(),
+                    custom_user_prompt.as_deref(),
+                );
 
                 match self.stream_inquiry_chunks(&prompt, &mut output, max_tokens).await {
                     | Ok(stats) if stats.has_output() => {
@@ -255,8 +261,8 @@ impl LlmClient {
                             &instruction,
                             &mut output,
                             max_tokens,
-                            None,
-                            None,
+                            custom_system_prompt,
+                            custom_user_prompt,
                         )
                         .await
                     }
@@ -270,8 +276,8 @@ impl LlmClient {
                             &instruction,
                             &mut output,
                             max_tokens,
-                            None,
-                            None,
+                            custom_system_prompt,
+                            custom_user_prompt,
                         )
                         .await
                     }

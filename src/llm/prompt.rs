@@ -1,4 +1,8 @@
 //! LLM prompt construction from context.
+//!
+//! Custom prompts support partial override: set only `system_prompt`, only
+//! `user_prompt`, or both. Lineage and block context are always appended to
+//! the user message.
 
 use crate::llm::context::ContextFormatter;
 use crate::llm::context::BlockContext;
@@ -22,14 +26,18 @@ impl Prompt {
 
         let instruction_prefix = instruction.map(|i| format!("{}\n\n", i)).unwrap_or_default();
 
-        if let (Some(system), Some(user)) = (custom_system_prompt, custom_user_prompt) {
+        let user = if let Some(custom) = custom_user_prompt {
+            format!("{custom}\n\n{}", fmt.lineage_lines())
+        } else {
+            fmt.build_user_body("Reduce the target point with context:")
+        };
+
+        if let Some(system) = custom_system_prompt {
             return Self {
                 system: format!("{instruction_prefix}{system}"),
-                user: format!("{user}\n\n{}", fmt.lineage_lines()),
+                user,
             };
         }
-
-        let user = fmt.build_user_body("Reduce the target point with context:");
 
         let context_qualifier = match (presence.has_children, presence.has_friends) {
             (false, false) => " as context",
@@ -76,14 +84,18 @@ impl Prompt {
 
         let instruction_prefix = instruction.map(|i| format!("{}\n\n", i)).unwrap_or_default();
 
-        if let (Some(system), Some(user)) = (custom_system_prompt, custom_user_prompt) {
+        let user = if let Some(custom) = custom_user_prompt {
+            format!("{custom}\n\n{}", fmt.lineage_lines())
+        } else {
+            fmt.build_user_body("Expand the target point with context:")
+        };
+
+        if let Some(system) = custom_system_prompt {
             return Self {
                 system: format!("{instruction_prefix}{system}"),
-                user: format!("{user}\n\n{}", fmt.lineage_lines()),
+                user,
             };
         }
-
-        let user = fmt.build_user_body("Expand the target point with context:");
 
         let context_qualifier = match (presence.has_children, presence.has_friends) {
             (false, false) => " as context",
@@ -132,23 +144,22 @@ impl Prompt {
     ) -> Self {
         let fmt = ContextFormatter::from_block_context(context);
 
-        if let (Some(system), Some(user)) = (custom_system_prompt, custom_user_prompt) {
-            return Self {
-                system: system.to_string(),
-                user: format!(
-                    "{user}\n\n{}\n\nInstruction: {instruction}",
-                    fmt.lineage_lines()
-                ),
-            };
-        }
+        let user = if let Some(custom) = custom_user_prompt {
+            format!("{custom}\n\n{}\n\nInstruction: {instruction}", fmt.lineage_lines())
+        } else {
+            format!(
+                "{}\n\nInstruction: {instruction}\n\nProvide a response that addresses the instruction.",
+                fmt.build_user_body("Context:"),
+                instruction = instruction
+            )
+        };
 
-        let user = fmt.build_user_body("Context:");
-        Self {
-            system: "You are a helpful writing assistant. Respond to the user's instruction based on the provided context.".to_string(),
-            user: format!(
-                "{user}\n\nInstruction: {instruction}\n\nProvide a response that addresses the instruction."
-            ),
-        }
+        let system = custom_system_prompt
+            .map(String::from)
+            .unwrap_or_else(|| {
+                "You are a helpful writing assistant. Respond to the user's instruction based on the provided context.".to_string()
+            });
+        Self { system, user }
     }
 }
 
@@ -302,5 +313,25 @@ mod tests {
         );
         assert!(prompt.system.contains("Custom system prompt"));
         assert!(prompt.user.contains("Custom user prompt"));
+    }
+
+    #[test]
+    fn custom_system_only_uses_default_user() {
+        let lineage = LineageContext::from_points(vec!["root".into(), "target".into()]);
+        let context = BlockContext::new(lineage, vec![], vec![]);
+        let prompt =
+            Prompt::reduce_from_context(&context, None, Some("Custom system"), None);
+        assert!(prompt.system.contains("Custom system"));
+        assert!(prompt.user.contains("Reduce the target point with context:"));
+    }
+
+    #[test]
+    fn custom_user_only_uses_default_system() {
+        let lineage = LineageContext::from_points(vec!["root".into(), "target".into()]);
+        let context = BlockContext::new(lineage, vec![], vec![]);
+        let prompt =
+            Prompt::reduce_from_context(&context, None, None, Some("Custom user preamble"));
+        assert!(prompt.system.contains("You reduce a bullet point"));
+        assert!(prompt.user.contains("Custom user preamble"));
     }
 }
