@@ -811,7 +811,7 @@ impl<'a> TreeView<'a> {
             );
         }
         if let Some(draft) = self.state.store.atomization_draft(block_id) {
-            return self.render_atomization_panel(block_id, draft);
+            block = block.push(self.render_atomization_panel(block_id, draft));
         }
         if let Some(draft) = self.state.store.expansion_draft(block_id) {
             block = block.push(self.render_expansion_panel(block_id, draft));
