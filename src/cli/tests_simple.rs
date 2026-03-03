@@ -89,6 +89,7 @@ fn point_edit_command() {
     let cmd = BlockCommands::Point(EditPointCommand {
         block_id: BlockId(format_block_id(root_id)),
         text: "Updated text".to_string(),
+        link: false,
     });
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Success));
@@ -101,6 +102,7 @@ fn point_edit_unknown_block() {
     let cmd = BlockCommands::Point(EditPointCommand {
         block_id: BlockId("0v0".to_string()),
         text: "Should not work".to_string(),
+        link: false,
     });
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Error(msg) if msg.contains("Unknown block ID")));
@@ -548,6 +550,7 @@ fn batch_point_continues_and_reports_errors() {
     let cmd = BlockCommands::Point(EditPointCommand {
         block_id: BlockId(batch),
         text: "batched update".to_string(),
+        link: false,
     });
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
 

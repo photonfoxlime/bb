@@ -97,11 +97,7 @@ impl BlockCommands {
                             let text = store.point(&id).unwrap_or_default();
                             let children: Vec<String> =
                                 store.children(&id).iter().map(|c| format!("{}", c)).collect();
-                            let show = ShowResult {
-                                id: format!("{}", id),
-                                text,
-                                children,
-                            };
+                            let show = ShowResult { id: format!("{}", id), text, children };
                             (store, CliResult::Show(show))
                         }
                     }
@@ -117,11 +113,7 @@ impl BlockCommands {
                                 let text = store.point(&id).unwrap_or_default();
                                 let children: Vec<String> =
                                     store.children(&id).iter().map(|c| format!("{}", c)).collect();
-                                let show = ShowResult {
-                                    id: format!("{}", id),
-                                    text,
-                                    children,
-                                };
+                                let show = ShowResult { id: format!("{}", id), text, children };
                                 outputs.push(BatchOutput::Show { input, show });
                             }
                         }
@@ -154,6 +146,9 @@ impl BlockCommands {
                         | None => (store, CliResult::Error("Unknown block ID".to_string())),
                         | Some(block_id) => {
                             store.update_point(&block_id, cmd.text);
+                            if cmd.link {
+                                store.toggle_to_link(&block_id);
+                            }
                             (store, CliResult::Success)
                         }
                     }
@@ -167,6 +162,9 @@ impl BlockCommands {
                                 .push(BatchError { input, error: "Unknown block ID".to_string() }),
                             | Some(block_id) => {
                                 store.update_point(&block_id, cmd.text.clone());
+                                if cmd.link {
+                                    store.toggle_to_link(&block_id);
+                                }
                                 outputs.push(BatchOutput::Success { input });
                             }
                         }
@@ -1507,7 +1505,8 @@ impl BlockCommands {
                                 .push(BatchError { input, error: "Unknown block ID".to_string() }),
                             | Some(block_id) => {
                                 let context = store.block_context_for_id(&block_id);
-                                let fmt = crate::llm::ContextFormatter::from_block_context(&context);
+                                let fmt =
+                                    crate::llm::ContextFormatter::from_block_context(&context);
                                 outputs.push(BatchOutput::Context {
                                     input,
                                     lineage: fmt.lineage_points().map(String::from).collect(),
