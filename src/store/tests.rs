@@ -1431,7 +1431,7 @@ fn snapshot_excludes_new_nodes_under_expanded_mount() {
     );
     assert!(has_mount);
     let leaks_new_mounted_node =
-        snapshot.points.iter().any(|(_, point)| point == "unsaved-in-main");
+        snapshot.points.iter().any(|(_, point)| point.display_text() == "unsaved-in-main");
     assert!(!leaks_new_mounted_node);
 }
 

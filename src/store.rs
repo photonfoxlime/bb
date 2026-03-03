@@ -65,6 +65,7 @@ mod markdown;
 mod mount;
 mod navigate;
 mod persist;
+mod point;
 mod tree;
 
 pub use drafts::{
@@ -73,6 +74,7 @@ pub use drafts::{
 };
 pub use mount::MountFormat;
 pub use persist::StoreLoadError;
+pub use point::{LinkKind, PointContent, PointLink};
 
 use mount::MountTable;
 use serde::{Deserialize, Serialize};
@@ -243,8 +245,12 @@ pub struct BlockStore {
     pub roots: Vec<BlockId>,
     /// The structural map of blocks, keyed by [`BlockId`].
     pub nodes: SlotMap<BlockId, BlockNode>,
-    /// Text content for each block, keyed by [`BlockId`].
-    pub points: SecondaryMap<BlockId, String>,
+    /// Typed content for each block, keyed by [`BlockId`].
+    ///
+    /// Historically plain `String`; now [`PointContent`] to support links.
+    /// Backward-compatible serde: bare JSON strings deserialize as
+    /// [`PointContent::Text`].
+    pub points: SecondaryMap<BlockId, PointContent>,
     /// Runtime-only mount tracking. Not serialized; reconstructed by
     /// re-expanding [`BlockNode::Mount`] nodes after deserialization.
     #[serde(skip)]
@@ -288,7 +294,11 @@ pub struct BlockStore {
 }
 
 impl BlockStore {
-    /// Construct a store from pre-built roots, nodes, and points.
+    /// Construct a store from pre-built roots, nodes, and plain-text points.
+    ///
+    /// Accepts `SecondaryMap<BlockId, String>` for backward compatibility with
+    /// existing call sites and tests. Strings are wrapped in
+    /// [`PointContent::Text`] internally.
     ///
     /// # Requires
     /// - Every id in `roots` must exist as a key in both `nodes` and `points`.
@@ -300,10 +310,11 @@ impl BlockStore {
         roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
         points: SecondaryMap<BlockId, String>,
     ) -> Self {
+        let typed_points = Self::convert_string_points(&nodes, points);
         Self::new_with_drafts(
             roots,
             nodes,
-            points,
+            typed_points,
             SparseSecondaryMap::new(),
             SparseSecondaryMap::new(),
             SparseSecondaryMap::new(),
@@ -316,9 +327,12 @@ impl BlockStore {
         )
     }
 
-    pub fn new_with_drafts(
+    /// Internal constructor accepting fully-typed [`PointContent`] points.
+    ///
+    /// Used by projection/rekey paths that already operate on `PointContent`.
+    pub(crate) fn new_with_drafts(
         roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
-        points: SecondaryMap<BlockId, String>,
+        points: SecondaryMap<BlockId, PointContent>,
         expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord>,
         atomization_drafts: SparseSecondaryMap<BlockId, AtomizationDraftRecord>,
         reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord>,
@@ -343,6 +357,22 @@ impl BlockStore {
             block_panel_state,
             hint,
         }
+    }
+
+    /// Convert a `SecondaryMap<BlockId, String>` to `SecondaryMap<BlockId, PointContent>`.
+    ///
+    /// Used by [`Self::new`] to bridge the public `String`-based API to the
+    /// internal `PointContent` representation.
+    fn convert_string_points(
+        nodes: &SlotMap<BlockId, BlockNode>, mut string_points: SecondaryMap<BlockId, String>,
+    ) -> SecondaryMap<BlockId, PointContent> {
+        let mut typed = SecondaryMap::new();
+        for (id, _) in nodes.iter() {
+            if let Some(s) = string_points.remove(id) {
+                typed.insert(id, PointContent::Text(s));
+            }
+        }
+        typed
     }
     /// The ordered root block ids.
     ///
@@ -383,20 +413,76 @@ impl BlockStore {
         self.nodes.get(*id).map(|n| n.children()).unwrap_or(&[])
     }
 
-    /// Return the text point of a block, or `None` if the id is unknown.
+    /// Return the display text of a block's point, or `None` if unknown.
+    ///
+    /// For [`PointContent::Text`] this is the raw string; for
+    /// [`PointContent::Link`] it is the label (or href if no label).
+    /// Most call sites use this; only UI rendering needs [`Self::point_content`].
     pub fn point(&self, id: &BlockId) -> Option<String> {
-        self.points.get(*id).cloned()
+        self.points.get(*id).map(|pc| pc.display_text().to_owned())
+    }
+
+    /// Return a reference to the full [`PointContent`] for UI branching.
+    ///
+    /// Use this when the caller needs to distinguish text from link
+    /// (e.g., rendering an image preview vs. a text editor).
+    pub fn point_content(&self, id: &BlockId) -> Option<&PointContent> {
+        self.points.get(*id)
     }
 
     /// Overwrite the text point of an existing block.
     ///
+    /// If the block currently holds a [`PointContent::Link`], the link's label
+    /// is updated (preserving href and kind). If it holds `Text`, the string
+    /// is replaced.
+    ///
     /// # Ensures
-    /// - If the id exists, its point is updated to the new value.
+    /// - If the id exists, its display text is updated to `value`.
     /// - If the id is unknown, this is a no-op.
     pub fn update_point(&mut self, id: &BlockId, value: String) {
-        if self.nodes.contains_key(*id) {
-            self.points.insert(*id, value);
+        if !self.nodes.contains_key(*id) {
+            return;
         }
+        match self.points.get_mut(*id) {
+            | Some(PointContent::Text(s)) => *s = value,
+            | Some(PointContent::Link(link)) => link.label = Some(value),
+            | None => {
+                self.points.insert(*id, PointContent::Text(value));
+            }
+        }
+    }
+
+    /// Replace a block's point content wholesale.
+    ///
+    /// Used by the toggle action (text -> link or link -> text).
+    pub fn set_point_content(&mut self, id: &BlockId, content: PointContent) {
+        if self.nodes.contains_key(*id) {
+            self.points.insert(*id, content);
+        }
+    }
+
+    /// Toggle a text point to a link: the current text becomes the href,
+    /// [`LinkKind`] is inferred from the extension.
+    ///
+    /// No-op if the block is already a link or does not exist.
+    pub fn toggle_to_link(&mut self, id: &BlockId) {
+        let Some(PointContent::Text(text)) = self.points.get(*id).cloned() else {
+            return;
+        };
+        let link = PointLink::infer(text);
+        self.points.insert(*id, PointContent::Link(link));
+    }
+
+    /// Toggle a link point back to plain text: the display text (label or href)
+    /// becomes the new text content.
+    ///
+    /// No-op if the block is already text or does not exist.
+    pub fn toggle_to_text(&mut self, id: &BlockId) {
+        let Some(PointContent::Link(link)) = self.points.get(*id).cloned() else {
+            return;
+        };
+        let text = link.label.unwrap_or(link.href);
+        self.points.insert(*id, PointContent::Text(text));
     }
 
     /// Construct a minimal one-root workspace for startup recovery mode.

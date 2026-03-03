@@ -33,7 +33,9 @@ use super::drafts::{
     AtomizationDraftRecord, ExpansionDraftRecord, InquiryDraftRecord, InstructionDraftRecord,
     ReductionDraftRecord,
 };
-use super::{BlockId, BlockNode, BlockPanelBarState, BlockStore, FriendBlock, MountProjection};
+use super::{
+    BlockId, BlockNode, BlockPanelBarState, BlockStore, FriendBlock, MountProjection, PointContent,
+};
 use serde::{Deserialize, Serialize};
 use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
 use std::fs;
@@ -263,12 +265,12 @@ impl BlockStore {
         // tracing::trace!(point = ?self.points.get(*mount_point), "mount point content");
         // tracing::trace!(hint = ?sub_store.hint, "hint");
 
-        // If the mount point is empty, use the hint to fill it's content.
-        if let Some(point) = self.points.get_mut(*mount_point)
-            && point.is_empty()
+        // If the mount point is empty, use the hint to fill its content.
+        if let Some(content) = self.points.get_mut(*mount_point)
+            && content.is_empty_text()
             && let Some(hint) = &sub_store.hint
         {
-            *point = hint.clone();
+            *content = PointContent::Text(hint.clone());
         }
 
         let (new_roots, all_new_ids) = self.rekey_sub_store(&sub_store, mount_point);
@@ -501,7 +503,7 @@ impl BlockStore {
         let hint = self
             .points
             .get(*block_id)
-            .cloned()
+            .map(|pc| pc.display_text().to_owned())
             .and_then(|p| if p.is_empty() { None } else { Some(p) });
         let children = node.children().to_vec();
 
@@ -602,7 +604,7 @@ impl BlockStore {
         mount_path_overrides: &std::collections::HashMap<BlockId, MountProjection>,
     ) -> BlockStore {
         let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
-        let mut sub_points: SecondaryMap<BlockId, String> = SecondaryMap::new();
+        let mut sub_points: SecondaryMap<BlockId, PointContent> = SecondaryMap::new();
         let mut sub_expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord> =
             SparseSecondaryMap::new();
         let mut sub_atomization_drafts: SparseSecondaryMap<BlockId, AtomizationDraftRecord> =
@@ -908,7 +910,7 @@ impl BlockStore {
         let hint = self
             .points
             .get(*mount_point)
-            .cloned()
+            .map(|pc| pc.display_text().to_owned())
             .and_then(|p| if p.is_empty() { None } else { Some(p) });
 
         self.build_projected_store(&own_ids, hint, &root_ids, &mount_path_overrides)

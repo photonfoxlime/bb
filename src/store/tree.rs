@@ -4,7 +4,7 @@
 //! forest.  Also contains internal helpers for collecting subtree ids and
 //! walking the parent chain (lineage).
 
-use super::{BlockId, BlockNode, BlockStore, Direction, mount::BlockOrigin};
+use super::{BlockId, BlockNode, BlockStore, Direction, PointContent, mount::BlockOrigin};
 
 impl BlockStore {
     /// Add one child block under the parent and return the new child id.
@@ -22,7 +22,7 @@ impl BlockStore {
         }
 
         let child_id = self.nodes.insert(BlockNode::with_children(vec![]));
-        self.points.insert(child_id, point);
+        self.points.insert(child_id, PointContent::Text(point));
         if let Some(mount_point) = self.inherited_mount_point_for_anchor(parent_id) {
             self.mount_table.set_origin(child_id, BlockOrigin::Mounted { mount_point });
         }
@@ -49,7 +49,7 @@ impl BlockStore {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
 
         let parent_block_id = self.nodes.insert(BlockNode::with_children(vec![*block_id]));
-        self.points.insert(parent_block_id, point);
+        self.points.insert(parent_block_id, PointContent::Text(point));
 
         if let Some(mount_point) = self.inherited_mount_point_for_anchor(block_id) {
             self.mount_table.set_origin(parent_block_id, BlockOrigin::Mounted { mount_point });
@@ -79,7 +79,7 @@ impl BlockStore {
     pub fn append_sibling(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
         let sibling_id = self.nodes.insert(BlockNode::with_children(vec![]));
-        self.points.insert(sibling_id, point);
+        self.points.insert(sibling_id, PointContent::Text(point));
         if let Some(mount_point) = self.inherited_mount_point_for_anchor(block_id) {
             self.mount_table.set_origin(sibling_id, BlockOrigin::Mounted { mount_point });
         }
@@ -159,7 +159,7 @@ impl BlockStore {
 
         if self.roots.is_empty() {
             let root_id = self.nodes.insert(BlockNode::with_children(vec![]));
-            self.points.insert(root_id, String::new());
+            self.points.insert(root_id, PointContent::Text(String::new()));
             self.roots.push(root_id);
         }
 
@@ -264,7 +264,7 @@ impl BlockStore {
 
     fn clone_subtree_with_new_ids(&mut self, source_id: &BlockId) -> Option<BlockId> {
         let source_node = self.node(source_id)?.clone();
-        let source_point = self.point(source_id).unwrap_or_default();
+        let source_content = self.points.get(*source_id).cloned().unwrap_or_default();
         let source_children: Vec<BlockId> = source_node.children().to_vec();
         let mut child_ids = Vec::with_capacity(source_children.len());
         for child in &source_children {
@@ -272,7 +272,7 @@ impl BlockStore {
         }
 
         let next_id = self.nodes.insert(BlockNode::with_children(child_ids));
-        self.points.insert(next_id, source_point);
+        self.points.insert(next_id, source_content);
         if let Some(mount_point) = self.inherited_mount_point_for_anchor(source_id) {
             self.mount_table.set_origin(next_id, BlockOrigin::Mounted { mount_point });
         }
@@ -334,7 +334,8 @@ impl BlockStore {
             return false;
         }
 
-        let point = self.points.get(*current).cloned().unwrap_or_default();
+        let point =
+            self.points.get(*current).map(|pc| pc.display_text().to_owned()).unwrap_or_default();
         out.push(point);
         if current == target {
             return true;

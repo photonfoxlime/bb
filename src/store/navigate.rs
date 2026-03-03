@@ -46,7 +46,7 @@ impl BlockStore {
     fn find_block_point_in_subtree(
         &self, current: &BlockId, query_lower: &str, query_terms: &[String], out: &mut Vec<BlockId>,
     ) {
-        let point = self.points.get(*current).map(String::as_str).unwrap_or_default();
+        let point = self.points.get(*current).map(|pc| pc.display_text()).unwrap_or_default();
         let point_lower = point.to_lowercase();
         let is_match = point_lower.contains(query_lower)
             || query_terms.iter().any(|phrase| point_lower.contains(phrase));
