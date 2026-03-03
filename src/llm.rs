@@ -5,8 +5,8 @@
 //! - [`config`] - Configuration types for LLM providers and endpoint settings.
 //!   Key types: [`LlmConfig`], [`LlmProviders`], [`PresetProvider`], [`CustomProvider`], [`ApiStyle`].
 //! - [`error`] - Error types for LLM runtime failures.
-//! - [`context`] - Domain types representing block context sent to the LLM.
-//!   Key types: [`BlockContext`], [`Lineage`], [`FriendContext`], [`ExpandResult`], [`ReduceResult`].
+//! - [`context`] - Domain types and formatting for block context sent to the LLM.
+//!   Key types: [`BlockContext`], [`Lineage`], [`FriendContext`], [`ExpandResult`], [`ReduceResult`], [`ContextFormatter`].
 //! - [`prompt`] - Prompt construction from block context.
 //! - [`client`] - HTTP client for OpenAI-compatible and Anthropic endpoints.
 

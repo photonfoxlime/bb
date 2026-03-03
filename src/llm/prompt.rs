@@ -1,22 +1,9 @@
 //! LLM prompt construction from context.
 
-use crate::llm::context::{BlockContext, FriendContext, Lineage};
-
-/// Indicates which optional context sections are present when building prompts.
-#[derive(Clone, Copy)]
-struct ContextPresence {
-    has_children: bool,
-    has_friends: bool,
-}
-
-impl From<&BlockContext> for ContextPresence {
-    fn from(ctx: &BlockContext) -> Self {
-        Self {
-            has_children: !ctx.existing_children.is_empty(),
-            has_friends: !ctx.friend_blocks.is_empty(),
-        }
-    }
-}
+use crate::llm::context::ContextFormatter;
+use crate::llm::context::BlockContext;
+#[cfg(test)]
+use crate::llm::context::{FriendContext, Lineage};
 
 /// System + user prompt pair sent to the chat completions endpoint.
 pub struct Prompt {
@@ -25,101 +12,24 @@ pub struct Prompt {
 }
 
 impl Prompt {
-    /// Build user prompt body from lineage plus optional children and friend sections.
-    fn build_user_sections(
-        task_intro: &str,
-        lineage_lines: &str,
-        children_lines: Option<&str>,
-        friend_lines: Option<&str>,
-    ) -> String {
-        let mut s = format!("{task_intro}\n{lineage_lines}");
-        if let Some(c) = children_lines {
-            s.push_str(&format!("\nExisting children:\n{c}"));
-        }
-        if let Some(f) = friend_lines {
-            s.push_str(&format!("\nFriend blocks:\n{f}"));
-        }
-        s
-    }
-    /// Format lineage items as labeled lines.
-    fn format_lineage_lines(lineage: &Lineage) -> String {
-        let mut lines = String::new();
-        let total = lineage.items.len();
-        for (index, item) in lineage.iter().enumerate() {
-            let label = if index + 1 == total { "Target" } else { "Parent" };
-            lines.push_str(&format!("{label}: {}\n", item.point()));
-        }
-        lines
-    }
-
-    /// Format existing children as indexed lines.
-    fn format_children_lines(children: &[String]) -> String {
-        let mut lines = String::new();
-        for (index, child) in children.iter().enumerate() {
-            lines.push_str(&format!("[{index}] {child}\n"));
-        }
-        lines
-    }
-
-    fn format_friend_blocks_lines(friend_blocks: &[FriendContext]) -> String {
-        let mut lines = String::new();
-        for (index, friend_block) in friend_blocks.iter().enumerate() {
-            let mut line = format!("[{}] {}", index, friend_block.point());
-
-            // Add lineage if visible
-            if friend_block.parent_lineage_telescope {
-                if let Some(lineage) = friend_block.friend_lineage() {
-                    let lineage_str = lineage.points().collect::<Vec<_>>().join(" > ");
-                    line.push_str(&format!(" (lineage: {})", lineage_str));
-                }
-            }
-
-            // Add children if visible
-            if friend_block.children_telescope {
-                if let Some(children) = friend_block.friend_children() {
-                    if !children.is_empty() {
-                        let children_str = children.join("; ");
-                        line.push_str(&format!(" (children: {})", children_str));
-                    }
-                }
-            }
-
-            // Add perspective
-            if let Some(perspective) = friend_block.perspective() {
-                line.push_str(&format!(" (perspective: {})", perspective));
-            }
-
-            lines.push_str(&line);
-            lines.push('\n');
-        }
-        lines
-    }
-
     /// Build a reduce prompt from block context.
     pub(crate) fn reduce_from_context(
         context: &BlockContext, instruction: Option<&str>, custom_system_prompt: Option<&str>,
         custom_user_prompt: Option<&str>,
     ) -> Self {
-        let lineage_lines = Self::format_lineage_lines(&context.lineage);
-        let children_lines = Self::format_children_lines(&context.existing_children);
-        let friend_lines = Self::format_friend_blocks_lines(&context.friend_blocks);
-        let presence = ContextPresence::from(context);
+        let fmt = ContextFormatter::from_block_context(context);
+        let presence = fmt.presence();
 
         let instruction_prefix = instruction.map(|i| format!("{}\n\n", i)).unwrap_or_default();
 
         if let (Some(system), Some(user)) = (custom_system_prompt, custom_user_prompt) {
             return Self {
                 system: format!("{instruction_prefix}{system}"),
-                user: format!("{user}\n\n{lineage_lines}"),
+                user: format!("{user}\n\n{}", fmt.lineage_lines()),
             };
         }
 
-        let user = Self::build_user_sections(
-            "Reduce the target point with context:",
-            &lineage_lines,
-            presence.has_children.then_some(children_lines.as_str()),
-            presence.has_friends.then_some(friend_lines.as_str()),
-        );
+        let user = fmt.build_user_body("Reduce the target point with context:");
 
         let context_qualifier = match (presence.has_children, presence.has_friends) {
             (false, false) => " as context",
@@ -161,26 +71,19 @@ impl Prompt {
         context: &BlockContext, instruction: Option<&str>, custom_system_prompt: Option<&str>,
         custom_user_prompt: Option<&str>,
     ) -> Self {
-        let lineage_lines = Self::format_lineage_lines(&context.lineage);
-        let children_lines = Self::format_children_lines(&context.existing_children);
-        let friend_lines = Self::format_friend_blocks_lines(&context.friend_blocks);
-        let presence = ContextPresence::from(context);
+        let fmt = ContextFormatter::from_block_context(context);
+        let presence = fmt.presence();
 
         let instruction_prefix = instruction.map(|i| format!("{}\n\n", i)).unwrap_or_default();
 
         if let (Some(system), Some(user)) = (custom_system_prompt, custom_user_prompt) {
             return Self {
                 system: format!("{instruction_prefix}{system}"),
-                user: format!("{user}\n\n{lineage_lines}"),
+                user: format!("{user}\n\n{}", fmt.lineage_lines()),
             };
         }
 
-        let user = Self::build_user_sections(
-            "Expand the target point with context:",
-            &lineage_lines,
-            presence.has_children.then_some(children_lines.as_str()),
-            presence.has_friends.then_some(friend_lines.as_str()),
-        );
+        let user = fmt.build_user_body("Expand the target point with context:");
 
         let context_qualifier = match (presence.has_children, presence.has_friends) {
             (false, false) => " as context",
@@ -227,33 +130,23 @@ impl Prompt {
         context: &BlockContext, instruction: &str, custom_system_prompt: Option<&str>,
         custom_user_prompt: Option<&str>,
     ) -> Self {
-        let lineage_lines = Self::format_lineage_lines(&context.lineage);
-        let children_lines = Self::format_children_lines(&context.existing_children);
-        let friend_lines = Self::format_friend_blocks_lines(&context.friend_blocks);
+        let fmt = ContextFormatter::from_block_context(context);
 
         if let (Some(system), Some(user)) = (custom_system_prompt, custom_user_prompt) {
             return Self {
                 system: system.to_string(),
-                user: format!("{user}\n\n{lineage_lines}\n\nInstruction: {instruction}"),
+                user: format!(
+                    "{user}\n\n{}\n\nInstruction: {instruction}",
+                    fmt.lineage_lines()
+                ),
             };
         }
 
-        let children_context = if context.existing_children.is_empty() {
-            String::new()
-        } else {
-            format!("\nExisting children:\n{children_lines}")
-        };
-
-        let friend_context = if context.friend_blocks.is_empty() {
-            String::new()
-        } else {
-            format!("\nFriend blocks:\n{friend_lines}")
-        };
-
+        let user = fmt.build_user_body("Context:");
         Self {
             system: "You are a helpful writing assistant. Respond to the user's instruction based on the provided context.".to_string(),
             user: format!(
-                "Context:\n{lineage_lines}{children_context}{friend_context}\n\nInstruction: {instruction}\n\nProvide a response that addresses the instruction."
+                "{user}\n\nInstruction: {instruction}\n\nProvide a response that addresses the instruction."
             ),
         }
     }

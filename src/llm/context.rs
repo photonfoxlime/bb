@@ -1,4 +1,7 @@
-//! LLM context types: block context, lineage, friend blocks, and result types.
+//! LLM context types and formatting for prompt construction.
+//!
+//! Includes block context, lineage, friend blocks, result types, and
+//! [`ContextFormatter`] for converting context into prompt-ready strings.
 
 /// Immutable snapshot of a block's LLM-relevant context: ancestor lineage,
 /// existing child point texts, and user-selected friend blocks.
@@ -28,12 +31,12 @@ pub struct BlockContext {
 /// `friend_children` contains the friend block's children point texts (when visible).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FriendContext {
-    pub(crate) point: String,
-    pub(crate) perspective: Option<String>,
-    pub(crate) parent_lineage_telescope: bool,
-    pub(crate) children_telescope: bool,
-    pub(crate) friend_lineage: Option<Lineage>,
-    pub(crate) friend_children: Option<Vec<String>>,
+    pub point: String,
+    pub perspective: Option<String>,
+    pub parent_lineage_telescope: bool,
+    pub children_telescope: bool,
+    pub friend_lineage: Option<Lineage>,
+    pub friend_children: Option<Vec<String>>,
 }
 
 impl BlockContext {
@@ -60,7 +63,7 @@ impl BlockContext {
         &self.friend_blocks
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.lineage.is_empty()
     }
 }
@@ -105,7 +108,7 @@ impl FriendContext {
 /// target point lives. The last item is always the target.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Lineage {
-    pub(crate) items: Vec<LineageItem>,
+    pub items: Vec<LineageItem>,
 }
 
 impl Lineage {
@@ -121,11 +124,11 @@ impl Lineage {
         Self::new(points.into_iter().map(LineageItem::new).collect())
     }
 
-    pub(crate) fn is_empty(&self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.items.is_empty()
     }
 
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &LineageItem> {
+    pub fn iter(&self) -> impl Iterator<Item = &LineageItem> {
         self.items.iter()
     }
 
@@ -147,7 +150,7 @@ impl LineageItem {
         Self { point }
     }
 
-    pub(crate) fn point(&self) -> &str {
+    pub fn point(&self) -> &str {
         &self.point
     }
 }
@@ -210,6 +213,160 @@ impl ReduceResult {
     /// Consume and return owned parts.
     pub fn into_parts(self) -> (String, Vec<usize>) {
         (self.reduction, self.redundant_children)
+    }
+}
+
+/// Indicates which optional context sections are present when building prompts.
+#[derive(Clone, Copy, Debug)]
+pub struct ContextPresence {
+    pub has_children: bool,
+    pub has_friends: bool,
+}
+
+impl From<&BlockContext> for ContextPresence {
+    fn from(ctx: &BlockContext) -> Self {
+        Self {
+            has_children: !ctx.existing_children.is_empty(),
+            has_friends: !ctx.friend_blocks.is_empty(),
+        }
+    }
+}
+
+/// Context holder that formats raw lineage, BlockContext children, and friends for prompt construction.
+///
+/// Built via [`ContextFormatter::from_block_context`] or [`ContextFormatterBuilder`].
+/// Holds raw structural data and formats on demand.
+#[derive(Debug)]
+pub struct ContextFormatter {
+    lineage: Lineage,
+    children: Vec<String>,
+    friends: Vec<FriendContext>,
+}
+
+impl ContextFormatter {
+    /// Create from a block context (primary entry point).
+    pub fn from_block_context(ctx: &BlockContext) -> Self {
+        Self::new(ctx.lineage.clone())
+            .with_children(ctx.existing_children.clone())
+            .with_friends(ctx.friend_blocks.clone())
+            .build()
+    }
+
+    /// Start building with lineage. Use `with_children` and `with_friends` to add optional sections.
+    pub fn new(lineage: Lineage) -> ContextFormatterBuilder {
+        ContextFormatterBuilder::new(lineage)
+    }
+
+    /// Which optional sections are present.
+    pub fn presence(&self) -> ContextPresence {
+        ContextPresence {
+            has_children: !self.children.is_empty(),
+            has_friends: !self.friends.is_empty(),
+        }
+    }
+
+    /// Formatted lineage lines (Parent / Target labels).
+    pub fn lineage_lines(&self) -> String {
+        self.fmt_lineage()
+    }
+
+    /// Build the full user prompt body for a task (e.g. reduce or expand).
+    pub fn build_user_body(&self, task_intro: &str) -> String {
+        let mut s = format!("{task_intro}\n{}", self.fmt_lineage());
+        if self.presence().has_children {
+            s.push_str(&format!("\nExisting children:\n{}", self.fmt_children()));
+        }
+        if self.presence().has_friends {
+            s.push_str(&format!("\nFriend blocks:\n{}", self.fmt_friends()));
+        }
+        s
+    }
+
+    fn fmt_lineage(&self) -> String {
+        let mut lines = String::new();
+        let total = self.lineage.items.len();
+        for (index, item) in self.lineage.iter().enumerate() {
+            let label = if index + 1 == total { "Target" } else { "Parent" };
+            lines.push_str(&format!("{label}: {}\n", item.point()));
+        }
+        lines
+    }
+
+    fn fmt_children(&self) -> String {
+        let mut lines = String::new();
+        for (index, child) in self.children.iter().enumerate() {
+            lines.push_str(&format!("[{index}] {child}\n"));
+        }
+        lines
+    }
+
+    fn fmt_friends(&self) -> String {
+        let mut lines = String::new();
+        for (index, friend_block) in self.friends.iter().enumerate() {
+            let mut line = format!("[{}] {}", index, friend_block.point());
+
+            if friend_block.parent_lineage_telescope {
+                if let Some(lineage) = friend_block.friend_lineage() {
+                    let lineage_str = lineage.points().collect::<Vec<_>>().join(" > ");
+                    line.push_str(&format!(" (lineage: {})", lineage_str));
+                }
+            }
+
+            if friend_block.children_telescope {
+                if let Some(children) = friend_block.friend_children() {
+                    if !children.is_empty() {
+                        let children_str = children.join("; ");
+                        line.push_str(&format!(" (children: {})", children_str));
+                    }
+                }
+            }
+
+            if let Some(perspective) = friend_block.perspective() {
+                line.push_str(&format!(" (perspective: {})", perspective));
+            }
+
+            lines.push_str(&line);
+            lines.push('\n');
+        }
+        lines
+    }
+}
+
+/// Builder for [`ContextFormatter`].
+pub struct ContextFormatterBuilder {
+    lineage: Lineage,
+    children: Vec<String>,
+    friends: Vec<FriendContext>,
+}
+
+impl ContextFormatterBuilder {
+    fn new(lineage: Lineage) -> Self {
+        Self {
+            lineage,
+            children: Vec::new(),
+            friends: Vec::new(),
+        }
+    }
+
+    /// Add existing children (child point texts).
+    pub fn with_children(mut self, children: Vec<String>) -> Self {
+        self.children = children;
+        self
+    }
+
+    /// Add friend blocks (user-selected related context).
+    pub fn with_friends(mut self, friends: Vec<FriendContext>) -> Self {
+        self.friends = friends;
+        self
+    }
+
+    /// Produce the context formatter with raw structural data.
+    pub fn build(self) -> ContextFormatter {
+        ContextFormatter {
+            lineage: self.lineage,
+            children: self.children,
+            friends: self.friends,
+        }
     }
 }
 
@@ -316,5 +473,32 @@ mod tests {
         assert_eq!(ctx.lineage(), &lineage);
         assert_eq!(ctx.existing_children(), &children[..]);
         assert_eq!(ctx.friend_blocks(), &friends[..]);
+    }
+
+    #[test]
+    fn context_formatter_builder_produces_same_output_as_from_block_context() {
+        let lineage = Lineage::from_points(vec!["root".into(), "target".into()]);
+        let children = vec!["child".to_string()];
+        let friends = vec![FriendContext::with_context(
+            "friend".to_string(),
+            Some("perspective".to_string()),
+            true,
+            true,
+            None,
+            None,
+        )];
+
+        let ctx = BlockContext::new(lineage.clone(), children.clone(), friends.clone());
+        let from_ctx = ContextFormatter::from_block_context(&ctx);
+        let from_builder =
+            ContextFormatter::new(lineage).with_children(children).with_friends(friends).build();
+
+        assert_eq!(from_ctx.lineage_lines(), from_builder.lineage_lines());
+        assert_eq!(from_ctx.presence().has_children, from_builder.presence().has_children);
+        assert_eq!(from_ctx.presence().has_friends, from_builder.presence().has_friends);
+        assert_eq!(
+            from_ctx.build_user_body("Task:"),
+            from_builder.build_user_body("Task:")
+        );
     }
 }
