@@ -6,8 +6,8 @@
 use crate::cli::{
     BlockId, Commands,
     draft::{
-        ClearDraftCommand, DraftCommands, AmplifyDraftCommand, InstructionDraftCommand,
-        ListDraftCommand, DistillDraftCommand,
+        AmplifyDraftCommand, ClearDraftCommand, DistillDraftCommand, DraftCommands,
+        InstructionDraftCommand, ListDraftCommand,
     },
     fold::{FoldCommands, StatusFoldCommand, ToggleFoldCommand},
     friend::{AddFriendCommand, FriendCommands, ListFriendCommand, RemoveFriendCommand},

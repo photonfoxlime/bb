@@ -548,10 +548,7 @@ impl PartialEq for BlockStore {
                 .iter()
                 .all(|(id, draft)| other.instruction_drafts.get(id) == Some(draft))
             && self.probe_drafts.len() == other.probe_drafts.len()
-            && self
-                .probe_drafts
-                .iter()
-                .all(|(id, draft)| other.probe_drafts.get(id) == Some(draft))
+            && self.probe_drafts.iter().all(|(id, draft)| other.probe_drafts.get(id) == Some(draft))
             && self.view_collapsed.len() == other.view_collapsed.len()
             && self.view_collapsed.iter().all(|(id, _)| other.view_collapsed.contains_key(id))
             && self.friend_blocks.len() == other.friend_blocks.len()

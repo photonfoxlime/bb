@@ -11,8 +11,8 @@ use crate::cli::{
     BlockId, Commands, MountFormatCli, OutputFormat,
     commands::RootCommand,
     draft::{
-        ClearDraftCommand, DraftCommands, AmplifyDraftCommand, InstructionDraftCommand, ListDraftCommand,
-        ProbeDraftCommand, DistillDraftCommand,
+        AmplifyDraftCommand, ClearDraftCommand, DistillDraftCommand, DraftCommands,
+        InstructionDraftCommand, ListDraftCommand, ProbeDraftCommand,
     },
     fold::{FoldCommands, StatusFoldCommand, ToggleFoldCommand},
     friend::{AddFriendCommand, FriendCommands, ListFriendCommand, RemoveFriendCommand},
@@ -322,7 +322,10 @@ fn draft_list_command() {
     let root_id = store.roots()[0];
     store.insert_amplification_draft(
         root_id,
-        crate::store::AmplificationDraftRecord { rewrite: Some("test".to_string()), children: vec![] },
+        crate::store::AmplificationDraftRecord {
+            rewrite: Some("test".to_string()),
+            children: vec![],
+        },
     );
     let cmd = Commands::Draft(DraftCommands::List(ListDraftCommand {
         block_id: BlockId(format_block_id(root_id)),

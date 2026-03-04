@@ -302,18 +302,20 @@ fn execute_list(store: BlockStore, cmd: &ListDraftCommand) -> (BlockStore, CliRe
             match execute::resolve_block_id(&store, &target) {
                 | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
                 | Some(block_id) => {
-                    let expansion = store.amplification_draft(&block_id).map(|d| ExpansionDraftInfo {
-                        rewrite: d.rewrite.clone(),
-                        children: d.children.clone(),
-                    });
-                    let reduction = store.distillation_draft(&block_id).map(|d| ReductionDraftInfo {
-                        reduction: d.reduction.clone(),
-                        redundant_children: d
-                            .redundant_children
-                            .iter()
-                            .map(|id| format!("{}", id))
-                            .collect(),
-                    });
+                    let expansion =
+                        store.amplification_draft(&block_id).map(|d| ExpansionDraftInfo {
+                            rewrite: d.rewrite.clone(),
+                            children: d.children.clone(),
+                        });
+                    let reduction =
+                        store.distillation_draft(&block_id).map(|d| ReductionDraftInfo {
+                            reduction: d.reduction.clone(),
+                            redundant_children: d
+                                .redundant_children
+                                .iter()
+                                .map(|id| format!("{}", id))
+                                .collect(),
+                        });
                     let instruction =
                         store.instruction_draft(&block_id).map(|d| d.instruction.clone());
                     let inquiry = store.probe_draft(&block_id).map(|d| d.response.clone());

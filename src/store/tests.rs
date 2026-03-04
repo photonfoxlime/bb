@@ -523,7 +523,10 @@ fn remove_subtree_cleans_persisted_drafts() {
     );
     store.distillation_drafts.insert(
         child_b,
-        DistillationDraftRecord { reduction: Some("draft".to_string()), redundant_children: vec![] },
+        DistillationDraftRecord {
+            reduction: Some("draft".to_string()),
+            redundant_children: vec![],
+        },
     );
     store.set_instruction_draft(child_a, "instruction draft".to_string());
     store.set_probe_response(child_b, "inquiry draft".to_string());

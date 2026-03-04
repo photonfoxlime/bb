@@ -14,7 +14,9 @@ use crate::component::patch_panel::{
     ChildItem, ChildrenSection, PanelButton, PanelButtonStyle, RewriteSection,
 };
 use crate::llm;
-use crate::store::{AmplificationDraftRecord, AtomizationDraftRecord, BlockId, DistillationDraftRecord};
+use crate::store::{
+    AmplificationDraftRecord, AtomizationDraftRecord, BlockId, DistillationDraftRecord,
+};
 use iced::{Element, Task};
 use rust_i18n::t;
 
@@ -327,8 +329,10 @@ fn handle_done(
                 return Task::none();
             }
             state.mutate_with_undo_and_persist("after creating amplification draft", |s| {
-                s.store
-                    .insert_amplification_draft(block_id, AmplificationDraftRecord { rewrite, children });
+                s.store.insert_amplification_draft(
+                    block_id,
+                    AmplificationDraftRecord { rewrite, children },
+                );
                 s.errors.retain(|e| !matches!(e, AppError::Amplify(_)));
                 true
             });
@@ -376,14 +380,23 @@ fn handle_done(
 }
 
 fn handle_apply_rewrite(state: &mut AppState, block_id: BlockId) -> Task<Message> {
-    let rewrite_opt = state
-        .store
-        .amplification_draft_mut(&block_id)
-        .and_then(|d| d.rewrite.take())
-        .or_else(|| state.store.atomization_draft_mut(&block_id).and_then(|d| d.rewrite.take()))
-        .or_else(|| state.store.distillation_draft(&block_id).and_then(|d| d.reduction.clone()));
-    if let Some(rewrite) = rewrite_opt {
-        state.mutate_with_undo_and_persist("after applying rewrite", |s| {
+    let has_rewrite =
+        state.store.amplification_draft(&block_id).is_some_and(|d| d.rewrite.is_some())
+            || state.store.atomization_draft(&block_id).is_some_and(|d| d.rewrite.is_some())
+            || state.store.distillation_draft(&block_id).is_some_and(|d| d.reduction.is_some());
+    if !has_rewrite {
+        return Task::none();
+    }
+    // Note: Extraction and consumption of rewrite must run inside the mutate
+    // closure so the undo snapshot captures the draft before it is modified.
+    state.mutate_with_undo_and_persist("after applying rewrite", |s| {
+        let rewrite_opt = s
+            .store
+            .amplification_draft_mut(&block_id)
+            .and_then(|d| d.rewrite.take())
+            .or_else(|| s.store.atomization_draft_mut(&block_id).and_then(|d| d.rewrite.take()))
+            .or_else(|| s.store.distillation_draft_mut(&block_id).and_then(|d| d.reduction.take()));
+        if let Some(rewrite) = rewrite_opt {
             s.store.update_point(&block_id, rewrite.clone());
             s.editor_buffers.set_text(&block_id, &rewrite);
             if let Some(d) = s.store.amplification_draft(&block_id) {
@@ -402,8 +415,10 @@ fn handle_apply_rewrite(state: &mut AppState, block_id: BlockId) -> Task<Message
                 }
             }
             true
-        });
-    }
+        } else {
+            false
+        }
+    });
     Task::none()
 }
 
@@ -450,32 +465,52 @@ fn handle_reject_rewrite(state: &mut AppState, block_id: BlockId) -> Task<Messag
 fn handle_accept_child(
     state: &mut AppState, block_id: BlockId, child_index: usize,
 ) -> Task<Message> {
-    let point_opt = state
+    let has_add_child = state
         .store
-        .amplification_draft_mut(&block_id)
-        .and_then(|d| {
-            if child_index < d.children.len() { Some(d.children.remove(child_index)) } else { None }
-        })
-        .or_else(|| {
-            state.store.atomization_draft_mut(&block_id).and_then(|d| {
-                if child_index < d.points.len() { Some(d.points.remove(child_index)) } else { None }
-            })
-        });
-    if let Some(point) = point_opt {
+        .amplification_draft(&block_id)
+        .is_some_and(|d| child_index < d.children.len())
+        || state
+            .store
+            .atomization_draft(&block_id)
+            .is_some_and(|d| child_index < d.points.len());
+    if has_add_child {
+        // Note: Point extraction must run inside the mutate closure so the
+        // undo snapshot captures the draft before it is modified.
         state.mutate_with_undo_and_persist("after accepting patch child", |s| {
+            let point_opt = s
+                .store
+                .amplification_draft_mut(&block_id)
+                .and_then(|d| {
+                    if child_index < d.children.len() {
+                        Some(d.children.remove(child_index))
+                    } else {
+                        None
+                    }
+                })
+                .or_else(|| {
+                    s.store.atomization_draft_mut(&block_id).and_then(|d| {
+                        if child_index < d.points.len() {
+                            Some(d.points.remove(child_index))
+                        } else {
+                            None
+                        }
+                    })
+                });
             let mut save = false;
-            if let Some(child_id) = s.store.append_child(&block_id, point.clone()) {
-                s.editor_buffers.set_text(&child_id, &point);
-                save = true;
-            }
-            if let Some(d) = s.store.amplification_draft(&block_id) {
-                if d.rewrite.is_none() && d.children.is_empty() {
-                    s.store.remove_amplification_draft(&block_id);
+            if let Some(point) = point_opt {
+                if let Some(child_id) = s.store.append_child(&block_id, point.clone()) {
+                    s.editor_buffers.set_text(&child_id, &point);
+                    save = true;
                 }
-            }
-            if let Some(d) = s.store.atomization_draft(&block_id) {
-                if d.points.is_empty() && d.rewrite.is_none() {
-                    s.store.remove_atomization_draft(&block_id);
+                if let Some(d) = s.store.amplification_draft(&block_id) {
+                    if d.rewrite.is_none() && d.children.is_empty() {
+                        s.store.remove_amplification_draft(&block_id);
+                    }
+                }
+                if let Some(d) = s.store.atomization_draft(&block_id) {
+                    if d.points.is_empty() && d.rewrite.is_none() {
+                        s.store.remove_atomization_draft(&block_id);
+                    }
                 }
             }
             save
@@ -513,36 +548,51 @@ fn handle_accept_child(
 fn handle_reject_child(
     state: &mut AppState, block_id: BlockId, child_index: usize,
 ) -> Task<Message> {
-    let mut changed = false;
-    if let Some(d) = state.store.amplification_draft_mut(&block_id) {
-        if child_index < d.children.len() {
-            d.children.remove(child_index);
-            changed = true;
-        }
-        if d.rewrite.is_none() && d.children.is_empty() {
-            state.store.remove_amplification_draft(&block_id);
-        }
+    let has_rejectable = state
+        .store
+        .amplification_draft(&block_id)
+        .is_some_and(|d| child_index < d.children.len())
+        || state
+            .store
+            .atomization_draft(&block_id)
+            .is_some_and(|d| child_index < d.points.len())
+        || state
+            .store
+            .distillation_draft(&block_id)
+            .is_some_and(|d| child_index < d.redundant_children.len());
+    if !has_rejectable {
+        return Task::none();
     }
-    if let Some(d) = state.store.atomization_draft_mut(&block_id) {
-        if child_index < d.points.len() {
-            d.points.remove(child_index);
-            changed = true;
+    state.mutate_with_undo_and_persist("after rejecting patch child", |s| {
+        let mut changed = false;
+        if let Some(d) = s.store.amplification_draft_mut(&block_id) {
+            if child_index < d.children.len() {
+                d.children.remove(child_index);
+                changed = true;
+            }
+            if d.rewrite.is_none() && d.children.is_empty() {
+                s.store.remove_amplification_draft(&block_id);
+            }
         }
-        if d.points.is_empty() && d.rewrite.is_none() {
-            state.store.remove_atomization_draft(&block_id);
+        if let Some(d) = s.store.atomization_draft_mut(&block_id) {
+            if child_index < d.points.len() {
+                d.points.remove(child_index);
+                changed = true;
+            }
+            if d.points.is_empty() && d.rewrite.is_none() {
+                s.store.remove_atomization_draft(&block_id);
+            }
         }
-    }
-    if let Some(draft) = state.store.distillation_draft(&block_id) {
-        if child_index < draft.redundant_children.len() {
-            let mut updated = draft.clone();
-            updated.redundant_children.remove(child_index);
-            state.store.insert_distillation_draft(block_id, updated);
-            changed = true;
+        if let Some(draft) = s.store.distillation_draft(&block_id) {
+            if child_index < draft.redundant_children.len() {
+                let mut updated = draft.clone();
+                updated.redundant_children.remove(child_index);
+                s.store.insert_distillation_draft(block_id, updated);
+                changed = true;
+            }
         }
-    }
-    if changed {
-        state.persist_with_context("after rejecting patch child");
-    }
+        changed
+    });
     Task::none()
 }
 
@@ -595,31 +645,47 @@ fn handle_accept_all_children(state: &mut AppState, block_id: BlockId) -> Task<M
 }
 
 fn handle_discard_all_children(state: &mut AppState, block_id: BlockId) -> Task<Message> {
-    let mut changed = false;
-    if let Some(d) = state.store.amplification_draft_mut(&block_id) {
-        if !d.children.is_empty() {
-            d.children.clear();
+    let has_discardable = state
+        .store
+        .amplification_draft(&block_id)
+        .is_some_and(|d| !d.children.is_empty())
+        || state.store.atomization_draft(&block_id).is_some()
+        || state
+            .store
+            .distillation_draft(&block_id)
+            .is_some_and(|d| !d.redundant_children.is_empty());
+    if !has_discardable {
+        return Task::none();
+    }
+    state.mutate_with_undo_and_persist("after discarding patch children", |s| {
+        let mut changed = false;
+        if let Some(d) = s.store.amplification_draft_mut(&block_id) {
+            if !d.children.is_empty() {
+                d.children.clear();
+                changed = true;
+            }
+            if d.rewrite.is_none() && d.children.is_empty() {
+                s.store.remove_amplification_draft(&block_id);
+            }
+        }
+        if s.store.atomization_draft(&block_id).is_some() {
+            s.store.remove_atomization_draft(&block_id);
             changed = true;
         }
-        if d.rewrite.is_none() && d.children.is_empty() {
-            state.store.remove_amplification_draft(&block_id);
+        if let Some(d) = s.store.distillation_draft(&block_id) {
+            if !d.redundant_children.is_empty() {
+                s.store.insert_distillation_draft(
+                    block_id,
+                    DistillationDraftRecord {
+                        reduction: d.reduction.clone(),
+                        redundant_children: vec![],
+                    },
+                );
+                changed = true;
+            }
         }
-    }
-    if state.store.atomization_draft(&block_id).is_some() {
-        state.store.remove_atomization_draft(&block_id);
-        changed = true;
-    }
-    let reduction_clear_children =
-        state.store.distillation_draft(&block_id).filter(|d| !d.redundant_children.is_empty()).map(
-            |d| DistillationDraftRecord { reduction: d.reduction.clone(), redundant_children: vec![] },
-        );
-    if let Some(draft) = reduction_clear_children {
-        state.store.insert_distillation_draft(block_id, draft);
-        changed = true;
-    }
-    if changed {
-        state.persist_with_context("after discarding patch children");
-    }
+        changed
+    });
     Task::none()
 }
 

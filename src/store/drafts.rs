@@ -80,7 +80,9 @@ impl BlockStore {
     }
 
     /// Get a mutable reference to the amplification draft for a block, if any.
-    pub fn amplification_draft_mut(&mut self, id: &BlockId) -> Option<&mut AmplificationDraftRecord> {
+    pub fn amplification_draft_mut(
+        &mut self, id: &BlockId,
+    ) -> Option<&mut AmplificationDraftRecord> {
         self.amplification_drafts.get_mut(*id)
     }
 

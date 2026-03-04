@@ -491,12 +491,9 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         );
 
         button_row = button_row.push(
-            TextButton::action(
-                t!("instruction_probe").to_string(),
-                theme::INSTRUCTION_BUTTON_SIZE,
-            )
-            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Probe)),
+            TextButton::action(t!("instruction_probe").to_string(), theme::INSTRUCTION_BUTTON_SIZE)
+                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Probe)),
         );
 
         instruction_section = instruction_section.push(button_row);
