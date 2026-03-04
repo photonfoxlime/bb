@@ -539,7 +539,7 @@ pub fn action_to_message_by_id(
         | ActionId::Retry => retry_message_for_block(state, block_id),
         | ActionId::DismissDraft => {
             if state.store.reduction_draft(block_id).is_some() {
-                Some(Message::Patch(PatchMessage::Reject(*block_id)))
+                Some(Message::Patch(PatchMessage::RejectRewrite(*block_id)))
             } else if let Some(atomization_draft) = state.store.atomization_draft(block_id) {
                 if atomization_draft.rewrite.is_some() && atomization_draft.points.is_empty() {
                     Some(Message::Patch(PatchMessage::RejectRewrite(*block_id)))

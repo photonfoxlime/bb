@@ -35,9 +35,13 @@ pub struct AtomizationDraftRecord {
 /// those children are captured by the condensed text and can be deleted.
 /// The [`BlockId`]s are resolved at response time from the LLM's returned
 /// indices into the children snapshot that was sent with the request.
+///
+/// Note: `reduction` is `None` when the user rejected the replacement but
+/// chose to continue reviewing children; point and children are independent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ReductionDraftRecord {
-    pub reduction: String,
+    /// Proposed replacement text; `None` if user rejected it (children review only).
+    pub reduction: Option<String>,
     /// Children whose information is captured by the reduction.
     ///
     /// May contain stale ids if children were modified between response
@@ -120,6 +124,11 @@ impl BlockStore {
     /// - `None` if no reduction draft exists for this block.
     pub fn reduction_draft(&self, id: &BlockId) -> Option<&ReductionDraftRecord> {
         self.reduction_drafts.get(*id)
+    }
+
+    /// Get a mutable reference to the reduction draft for a block, if any.
+    pub fn reduction_draft_mut(&mut self, id: &BlockId) -> Option<&mut ReductionDraftRecord> {
+        self.reduction_drafts.get_mut(*id)
     }
 
     /// Insert or replace the reduction draft for a block.

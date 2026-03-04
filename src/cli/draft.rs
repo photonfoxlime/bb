@@ -203,7 +203,7 @@ fn execute_reduce(mut store: BlockStore, cmd: &ReduceDraftCommand) -> (BlockStor
                 .filter_map(|c| execute::resolve_block_id(&store, c))
                 .collect();
             let draft = crate::store::ReductionDraftRecord {
-                reduction: cmd.reduction.clone(),
+                reduction: Some(cmd.reduction.clone()),
                 redundant_children: redundant,
             };
             store.insert_reduction_draft(block_id, draft);

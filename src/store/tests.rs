@@ -465,7 +465,10 @@ fn serde_round_trip_preserves_persisted_drafts() {
     );
     store.reduction_drafts.insert(
         child_a,
-        ReductionDraftRecord { reduction: "reduction".to_string(), redundant_children: vec![] },
+        ReductionDraftRecord {
+            reduction: Some("reduction".to_string()),
+            redundant_children: vec![],
+        },
     );
     store.set_instruction_draft(root, "instruction".to_string());
     store.set_inquiry_draft(child_a, "inquiry".to_string());
@@ -520,7 +523,10 @@ fn remove_subtree_cleans_persisted_drafts() {
     );
     store.reduction_drafts.insert(
         child_b,
-        ReductionDraftRecord { reduction: "draft".to_string(), redundant_children: vec![] },
+        ReductionDraftRecord {
+            reduction: Some("draft".to_string()),
+            redundant_children: vec![],
+        },
     );
     store.set_instruction_draft(child_a, "instruction draft".to_string());
     store.set_inquiry_draft(child_b, "inquiry draft".to_string());

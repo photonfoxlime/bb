@@ -188,8 +188,8 @@ pub struct ExpansionDraftInfo {
 /// created by `draft reduce`.
 #[derive(Debug, serde::Serialize)]
 pub struct ReductionDraftInfo {
-    /// Summary text describing what was reduced.
-    pub reduction: String,
+    /// Summary text; `None` if user rejected it (children review only).
+    pub reduction: Option<String>,
     /// IDs of child blocks marked as redundant.
     pub redundant_children: Vec<String>,
 }
