@@ -338,7 +338,8 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     if matches!(
         row_state,
         RowUiState::BusyExpand | RowUiState::BusyAtomize | RowUiState::BusyReduce
-    ) {
+    ) && !ctx.has_draft
+    {
         vm.contextual.push(ActionDescriptor::new(
             ActionId::Cancel,
             ActionAvailability::Enabled,
@@ -716,6 +717,15 @@ mod tests {
         ctx.is_reducing = true;
         let vm = build_action_bar_vm(&ctx);
         assert!(vm.contextual.iter().any(|action| action.id == ActionId::Cancel));
+    }
+
+    #[test]
+    fn hides_cancel_when_draft_active_after_apply() {
+        let mut ctx = row_context();
+        ctx.has_draft = true;
+        ctx.is_reducing = false;
+        let vm = build_action_bar_vm(&ctx);
+        assert!(!vm.contextual.iter().any(|action| action.id == ActionId::Cancel));
     }
 
     #[test]
