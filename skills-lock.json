@@ -10,6 +10,16 @@
       "source": "qrafty-ai/opencode-kanban",
       "sourceType": "github",
       "computedHash": "1195bbb41f3707997679287f846bb847bbc80874ba89bfeca6bada76b4af877f"
+    },
+    "project-consolidation-rust-general": {
+      "source": "/Users/Artemis/Arc/miorin-project/blooming-blockery/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "project-consolidation-rust-iced": {
+      "source": "/Users/Artemis/Arc/miorin-project/blooming-blockery/.agents/skills",
+      "sourceType": "local",
+      "computedHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     }
   }
 }
