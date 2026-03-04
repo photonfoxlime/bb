@@ -108,18 +108,17 @@ fn render_rewrite_section<'a, Msg: Clone + 'a>(
     match section {
         | RewriteSection::Diff { title, old_text, new_text, buttons } => {
             let diff = render_diff(is_dark, &old_text, &new_text);
-            let mut btn_row = row![]
+            let mut header_row = row![]
                 .width(Length::Fill)
                 .spacing(theme::PANEL_BUTTON_GAP)
-                .push(space::horizontal());
+                .push(container(text(title)).width(Length::Fill));
             for btn in buttons {
-                btn_row = btn_row.push(make_button(btn));
+                header_row = header_row.push(make_button(btn));
             }
             column![]
                 .spacing(theme::PANEL_INNER_GAP)
-                .push(container(text(title)).width(Length::Fill))
+                .push(header_row)
                 .push(container(diff).width(Length::Fill))
-                .push(btn_row)
                 .into()
         }
         | RewriteSection::Content { title, content, buttons } => {

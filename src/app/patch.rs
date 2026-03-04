@@ -691,76 +691,37 @@ pub fn render_patch_panel<'a>(
         | PatchDraft::Reduction(d) => {
             let current_point = state.store.point(block_id).unwrap_or_default();
             let point_applied = d.reduction.as_ref().map_or(false, |r| current_point == *r);
-            let rewrite = if point_applied {
-                None
-            } else if let Some(ref r) = d.reduction {
-                Some(RewriteSection::Diff {
-                    title: t!("doc_reduce").to_string(),
-                    old_text: current_point,
-                    new_text: r.to_string(),
-                    buttons: vec![
-                        PanelButton {
-                            label: t!("doc_apply_reduction").to_string(),
-                            style: PanelButtonStyle::Action,
-                            on_press: Message::Patch(PatchMessage::ApplyRewrite(*block_id)),
-                        },
-                        PanelButton {
-                            label: t!("doc_dismiss_reduction").to_string(),
-                            style: PanelButtonStyle::Destructive,
-                            on_press: Message::Patch(PatchMessage::RejectRewrite(*block_id)),
-                        },
-                    ],
-                })
-            } else {
-                None
-            };
-            // Delete-children section: primary = delete (destructive), secondary = keep (action).
-            let child_items: Vec<(usize, String)> = d
-                .redundant_children
-                .iter()
-                .enumerate()
-                .filter(|(_, id)| state.store.node(id).is_some())
-                .map(|(idx, id)| (idx, state.store.point(id).unwrap_or_default()))
-                .collect();
-            let children = if child_items.is_empty() {
-                None
-            } else {
-                Some(ChildrenSection {
-                    header: t!("doc_redundant_children").to_string(),
-                    bulk_primary: PanelButton {
-                        label: t!("doc_delete_all").to_string(),
-                        style: PanelButtonStyle::Destructive,
-                        on_press: Message::Patch(PatchMessage::AcceptAllChildren(*block_id)),
-                    },
-                    bulk_secondary: PanelButton {
-                        label: t!("doc_keep_all").to_string(),
+            let rewrite = d.reduction.as_deref().filter(|_| !point_applied).map(|r| RewriteSection::Diff {
+                title: t!("doc_reduce").to_string(),
+                old_text: current_point,
+                new_text: r.to_string(),
+                buttons: vec![
+                    PanelButton {
+                        label: t!("doc_apply_reduction").to_string(),
                         style: PanelButtonStyle::Action,
-                        on_press: Message::Patch(PatchMessage::DiscardAllChildren(*block_id)),
+                        on_press: Message::Patch(PatchMessage::ApplyRewrite(*block_id)),
                     },
-                    items: child_items
-                        .into_iter()
-                        .map(|(idx, point)| ChildItem {
-                            text: point,
-                            primary: PanelButton {
-                                label: t!("doc_delete").to_string(),
-                                style: PanelButtonStyle::Destructive,
-                                on_press: Message::Patch(PatchMessage::AcceptChild {
-                                    block_id: *block_id,
-                                    child_index: idx,
-                                }),
-                            },
-                            secondary: PanelButton {
-                                label: t!("doc_keep").to_string(),
-                                style: PanelButtonStyle::Action,
-                                on_press: Message::Patch(PatchMessage::RejectChild {
-                                    block_id: *block_id,
-                                    child_index: idx,
-                                }),
-                            },
-                        })
-                        .collect(),
-                })
-            };
+                    PanelButton {
+                        label: t!("doc_dismiss_reduction").to_string(),
+                        style: PanelButtonStyle::Destructive,
+                        on_press: Message::Patch(PatchMessage::RejectRewrite(*block_id)),
+                    },
+                ],
+            });
+            let children = build_delete_children_section(
+                block_id,
+                t!("doc_redundant_children").to_string(),
+                t!("doc_delete_all").to_string(),
+                t!("doc_keep_all").to_string(),
+                t!("doc_delete").to_string(),
+                t!("doc_keep").to_string(),
+                d.redundant_children
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, id)| state.store.node(id).is_some())
+                    .map(|(idx, id)| (idx, state.store.point(id).unwrap_or_default()))
+                    .collect(),
+            );
             crate::component::patch_panel::view(is_dark, rewrite, children)
         }
     }
@@ -803,6 +764,53 @@ fn build_add_children_section(
                 secondary: PanelButton {
                     label: per_item_secondary_label.clone(),
                     style: PanelButtonStyle::Destructive,
+                    on_press: Message::Patch(PatchMessage::RejectChild {
+                        block_id: *block_id,
+                        child_index: idx,
+                    }),
+                },
+            })
+            .collect(),
+    })
+}
+
+/// Build a `ChildrenSection` for delete-children operations (reduce).
+///
+/// Primary = delete (destructive style), secondary = keep (action style).
+fn build_delete_children_section(
+    block_id: &BlockId, header: String, bulk_primary_label: String, bulk_secondary_label: String,
+    per_item_primary_label: String, per_item_secondary_label: String, items: Vec<(usize, String)>,
+) -> Option<ChildrenSection<Message>> {
+    if items.is_empty() {
+        return None;
+    }
+    Some(ChildrenSection {
+        header,
+        bulk_primary: PanelButton {
+            label: bulk_primary_label,
+            style: PanelButtonStyle::Destructive,
+            on_press: Message::Patch(PatchMessage::AcceptAllChildren(*block_id)),
+        },
+        bulk_secondary: PanelButton {
+            label: bulk_secondary_label,
+            style: PanelButtonStyle::Action,
+            on_press: Message::Patch(PatchMessage::DiscardAllChildren(*block_id)),
+        },
+        items: items
+            .into_iter()
+            .map(|(idx, point)| ChildItem {
+                text: point,
+                primary: PanelButton {
+                    label: per_item_primary_label.clone(),
+                    style: PanelButtonStyle::Destructive,
+                    on_press: Message::Patch(PatchMessage::AcceptChild {
+                        block_id: *block_id,
+                        child_index: idx,
+                    }),
+                },
+                secondary: PanelButton {
+                    label: per_item_secondary_label.clone(),
+                    style: PanelButtonStyle::Action,
                     on_press: Message::Patch(PatchMessage::RejectChild {
                         block_id: *block_id,
                         child_index: idx,
