@@ -40,8 +40,6 @@ pub(crate) enum RewriteSection<'a, Msg> {
     /// Arbitrary pre-built content element (e.g. a scrollable inquiry
     /// response) paired with action buttons.
     Content { title: String, content: Element<'a, Msg>, buttons: Vec<PanelButton<Msg>> },
-    /// Header with a single dismiss/close button; no body content.
-    DismissOnly { title: String, button: PanelButton<Msg> },
 }
 
 /// One item in a children list section.
@@ -138,11 +136,6 @@ fn render_rewrite_section<'a, Msg: Clone + 'a>(
             }
             inner.into()
         }
-        | RewriteSection::DismissOnly { title, button } => row![]
-            .spacing(theme::PANEL_BUTTON_GAP)
-            .push(container(text(title)).width(Length::Fill))
-            .push(make_button(button))
-            .into(),
     }
 }
 
