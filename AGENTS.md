@@ -1,4 +1,7 @@
-# LLM Instructions
+# Repository Guidelines
+
+> `CLAUDE.md` is a symlink to this file. Do not edit `CLAUDE.md` directly -- edit `AGENTS.md` instead.
+
 
 Above all: consolidate key understandings and new findings as inline Rust documentation
 (`//!` module docs and `///` item docs) close to the relevant code.
