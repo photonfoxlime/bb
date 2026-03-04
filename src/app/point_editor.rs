@@ -2,9 +2,9 @@
 //!
 //! Renders the editable content of a single block point, which can be in one
 //! of three states:
-//! - **Plain text**: read-only display used in friend-picker or multiselect mode
-//! - **Link chip**: a clickable chip showing a filesystem link with optional inline preview
-//! - **Text editor**: an interactive `iced::text_editor` for freeform text input
+//! - Plain text: read-only display used in friend-picker or multiselect mode
+//! - Link chip: a clickable chip showing a filesystem link with optional inline preview
+//! - Text editor: an interactive `iced::text_editor` for freeform text input
 //!
 //! Key-binding resolution logic lives here alongside the view function so that
 //! shortcut routing and visual rendering remain co-located.
@@ -14,13 +14,14 @@
 //! See the top-level `document` module doc for the invariants around
 //! structural Enter shortcuts and focused-editor-only dispatch.
 
-use super::{ContextMenuMessage, EditMessage, Message, ShortcutMessage};
 use super::action_bar::{ActionId, shortcut_to_action};
 use super::edit::WordCursorDirection;
+use super::{ContextMenuMessage, EditMessage, Message, ShortcutMessage};
 use crate::store::{BlockId, LinkKind, PointContent};
 use crate::theme;
 use iced::{
     Element, Fill, Length, Point,
+    keyboard::{Key, key::Named},
     widget::{self, button, column, container, mouse_area, row, text, text_editor},
 };
 use lucide_icons::iced as icons;
@@ -35,14 +36,9 @@ use rust_i18n::t;
 /// - text block: renders an interactive `text_editor` with custom key bindings
 ///   and a right-click context menu.
 pub(super) fn view<'a>(
-    block_id: BlockId,
-    is_plain_text: bool,
-    point_text: String,
-    point_content: Option<&'a PointContent>,
-    editor_content: Option<&'a text_editor::Content>,
-    widget_id: Option<&'a widget::Id>,
-    cursor_position: Point,
-    is_link_expanded: bool,
+    block_id: BlockId, is_plain_text: bool, point_text: String,
+    point_content: Option<&'a PointContent>, editor_content: Option<&'a text_editor::Content>,
+    widget_id: Option<&'a widget::Id>, cursor_position: Point, is_link_expanded: bool,
 ) -> Element<'a, Message> {
     if is_plain_text {
         // In friend picker or multiselect mode, render as plain text so the
@@ -52,9 +48,7 @@ pub(super) fn view<'a>(
         // Link point: render as a clickable chip instead of a text editor.
         let kind_icon: Element<'a, Message> = match link.kind {
             | LinkKind::Image => icons::icon_image().size(theme::LINK_CHIP_ICON_SIZE).into(),
-            | LinkKind::Markdown => {
-                icons::icon_file_text().size(theme::LINK_CHIP_ICON_SIZE).into()
-            }
+            | LinkKind::Markdown => icons::icon_file_text().size(theme::LINK_CHIP_ICON_SIZE).into(),
             | LinkKind::Path => icons::icon_link().size(theme::LINK_CHIP_ICON_SIZE).into(),
         };
         let label_text = link.display_text().to_owned();
@@ -100,14 +94,11 @@ pub(super) fn view<'a>(
     } else {
         // Safety: editor_content is always Some for non-link blocks (early
         // return above handles the None case).
-        let editor_content =
-            editor_content.expect("editor_content must be Some for text blocks");
+        let editor_content = editor_content.expect("editor_content must be Some for text blocks");
         let mut editor = text_editor(editor_content)
             .placeholder(t!("doc_placeholder_point").to_string())
             .style(theme::point_editor)
-            .on_action(move |action| {
-                Message::Edit(EditMessage::PointEdited { block_id, action })
-            })
+            .on_action(move |action| Message::Edit(EditMessage::PointEdited { block_id, action }))
             .key_binding(move |key_press| editor_key_binding(block_id, key_press))
             .height(Length::Shrink);
         if let Some(wid) = widget_id {
@@ -190,20 +181,16 @@ fn word_cursor_direction_for_key_press(
     }
 
     match key_press.key {
-        | iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowLeft) => {
-            Some(WordCursorDirection::Left)
-        }
-        | iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowRight) => {
-            Some(WordCursorDirection::Right)
-        }
+        | Key::Named(Named::ArrowLeft) => Some(WordCursorDirection::Left),
+        | Key::Named(Named::ArrowRight) => Some(WordCursorDirection::Right),
         | _ => None,
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::AppState;
+    use super::*;
 
     fn enter_key_press(modifiers: iced::keyboard::Modifiers) -> text_editor::KeyPress {
         text_editor::KeyPress {

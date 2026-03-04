@@ -350,16 +350,28 @@ impl AppState {
                 // Arrow keys for link panel candidate navigation.
                 // Emitted unconditionally; `update()` ignores them when not
                 // in `DocumentMode::LinkInput`.
+                // Note: Exclude command/control/alt so movement shortcuts
+                // (Ctrl+arrows on macOS, Alt+arrows elsewhere) are not consumed.
                 | Event::Keyboard(keyboard::Event::KeyPressed {
                     key: keyboard::Key::Named(keyboard::key::Named::ArrowUp),
+                    modifiers,
                     ..
-                }) if status != event::Status::Captured => {
+                }) if status != event::Status::Captured
+                    && !modifiers.command()
+                    && !modifiers.control()
+                    && !modifiers.alt() =>
+                {
                     Some(Message::LinkMode(LinkModeMessage::SelectPrevious))
                 }
                 | Event::Keyboard(keyboard::Event::KeyPressed {
                     key: keyboard::Key::Named(keyboard::key::Named::ArrowDown),
+                    modifiers,
                     ..
-                }) if status != event::Status::Captured => {
+                }) if status != event::Status::Captured
+                    && !modifiers.command()
+                    && !modifiers.control()
+                    && !modifiers.alt() =>
+                {
                     Some(Message::LinkMode(LinkModeMessage::SelectNext))
                 }
                 | Event::Keyboard(keyboard::Event::KeyPressed {

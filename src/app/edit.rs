@@ -175,7 +175,9 @@ fn is_command_shortcut_editor_insert(
     )
 }
 
-/// Detect editor actions leaked from `Alt/Option + Arrow` key chords.
+/// Detect editor actions leaked from movement shortcut key chords.
+///
+/// On macOS: `Ctrl+Arrow`; on other platforms: `Alt+Arrow`.
 ///
 /// Design decision: movement shortcuts are handled in the global keyboard
 /// subscription path so behavior is consistent across focused widgets. Some
@@ -186,7 +188,14 @@ fn is_command_shortcut_editor_insert(
 fn is_alt_movement_shortcut_editor_action(
     action: &text_editor::Action, modifiers: keyboard::Modifiers,
 ) -> bool {
-    if !modifiers.alt() || modifiers.command() || modifiers.control() {
+    #[cfg(target_os = "macos")]
+    let has_movement_modifier =
+        modifiers.control() && !modifiers.command() && !modifiers.alt();
+    #[cfg(not(target_os = "macos"))]
+    let has_movement_modifier =
+        modifiers.alt() && !modifiers.command() && !modifiers.control();
+
+    if !has_movement_modifier {
         return false;
     }
 
@@ -527,10 +536,10 @@ pub fn handle_point_edited(
     }
 
     if is_alt_movement_shortcut_editor_action(&action, state.ui().keyboard_modifiers) {
-        // Option/Alt arrow shortcuts are handled by the global subscription
-        // path. Ignore editor cursor-motion actions here to avoid handling
-        // the same key chord twice.
-        tracing::debug!("ignored alt-movement editor action leak");
+        // Ctrl+arrow (macOS) / Alt+arrow (other) shortcuts are handled by
+        // the global subscription path. Ignore editor cursor-motion actions
+        // here to avoid handling the same key chord twice.
+        tracing::debug!("ignored movement-shortcut editor action leak");
         return Task::none();
     }
 
@@ -995,6 +1004,7 @@ mod tests {
         assert!(state.ui().multiselect_selected_blocks.is_empty());
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn alt_up_editor_motion_is_ignored_to_prevent_double_navigation() {
         let (mut state, root) = AppState::test_state();
@@ -1004,6 +1014,26 @@ mod tests {
             .expect("append sibling succeeds");
         state.set_focus(sibling);
         state.ui_mut().keyboard_modifiers = keyboard::Modifiers::ALT;
+
+        let _ = handle_point_edited(
+            &mut state,
+            sibling,
+            text_editor::Action::Move(text_editor::Motion::Up),
+        );
+
+        assert_eq!(state.focus().map(|focus| focus.block_id), Some(sibling));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ctrl_up_editor_motion_is_ignored_to_prevent_double_navigation() {
+        let (mut state, root) = AppState::test_state();
+        let sibling = state
+            .store
+            .append_sibling(&root, "sibling".to_string())
+            .expect("append sibling succeeds");
+        state.set_focus(sibling);
+        state.ui_mut().keyboard_modifiers = keyboard::Modifiers::CTRL;
 
         let _ = handle_point_edited(
             &mut state,
