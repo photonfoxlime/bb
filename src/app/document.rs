@@ -440,20 +440,36 @@ impl<'a> DocumentView<'a> {
         ]
         .spacing(theme::SHORTCUT_HELP_ROW_GAP);
 
+        #[cfg(target_os = "macos")]
+        let movement_word_cursor = t!("shortcut_help_movement_word_cursor_macos").to_string();
+        #[cfg(not(target_os = "macos"))]
+        let movement_word_cursor = t!("shortcut_help_movement_word_cursor").to_string();
+        #[cfg(target_os = "macos")]
+        let movement_focus = t!("shortcut_help_movement_focus_macos").to_string();
+        #[cfg(not(target_os = "macos"))]
+        let movement_focus = t!("shortcut_help_movement_focus").to_string();
+        #[cfg(target_os = "macos")]
+        let movement_reorder = t!("shortcut_help_movement_reorder_macos").to_string();
+        #[cfg(not(target_os = "macos"))]
+        let movement_reorder = t!("shortcut_help_movement_reorder").to_string();
+        #[cfg(target_os = "macos")]
+        let movement_outdent = t!("shortcut_help_movement_outdent_macos").to_string();
+        #[cfg(not(target_os = "macos"))]
+        let movement_outdent = t!("shortcut_help_movement_outdent").to_string();
+        #[cfg(target_os = "macos")]
+        let movement_indent = t!("shortcut_help_movement_indent_macos").to_string();
+        #[cfg(not(target_os = "macos"))]
+        let movement_indent = t!("shortcut_help_movement_indent").to_string();
+
         let movement_section = column![
             text(t!("shortcut_help_section_movement").to_string())
                 .font(theme::INTER)
                 .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_movement_word_cursor").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_movement_focus").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_movement_reorder").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_movement_outdent").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_movement_indent").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(movement_word_cursor).size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(movement_focus).size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(movement_reorder).size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(movement_outdent).size(theme::SHORTCUT_HELP_TEXT_SIZE),
+            text(movement_indent).size(theme::SHORTCUT_HELP_TEXT_SIZE),
         ]
         .spacing(theme::SHORTCUT_HELP_ROW_GAP);
 

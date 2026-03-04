@@ -3,13 +3,16 @@ use crate::store::Direction;
 
 /// Keyboard shortcuts for block focus navigation and structural movement.
 ///
-/// Keymap (Option on macOS, Alt on other platforms):
-/// - `Alt+Up` / `Alt+Down`: focus previous/next sibling (wrap at boundaries).
-/// - `Alt+Left`: focus parent.
-/// - `Alt+Right`: focus first child (if any).
-/// - `Alt+Shift+Up` / `Alt+Shift+Down`: move block among siblings (wrap).
-/// - `Alt+Shift+Left`: outdent block to be after its parent.
-/// - `Alt+Shift+Right`: indent block as first child of previous sibling.
+/// Keymap:
+/// - macOS: `Ctrl+Up/Down/Left/Right` / `Ctrl+Shift+Up/Down/Left/Right`
+/// - Other platforms: `Alt+Up/Down/Left/Right` / `Alt+Shift+Up/Down/Left/Right`
+///
+/// - `Up` / `Down`: focus previous/next sibling (wrap at boundaries).
+/// - `Left`: focus parent.
+/// - `Right`: focus first child (if any).
+/// - `Shift+Up` / `Shift+Down`: move block among siblings (wrap).
+/// - `Shift+Left`: outdent block to be after its parent.
+/// - `Shift+Right`: indent block as first child of previous sibling.
 ///
 /// These shortcuts are document-view operations and are ignored in settings
 /// view and pick-friend mode.
@@ -55,6 +58,11 @@ enum SiblingDirection {
 pub fn movement_shortcut_from_key(
     key: &keyboard::Key, modifiers: keyboard::Modifiers,
 ) -> Option<ShortcutMessage> {
+    #[cfg(target_os = "macos")]
+    if !modifiers.control() || modifiers.command() || modifiers.alt() {
+        return None;
+    }
+    #[cfg(not(target_os = "macos"))]
     if !modifiers.alt() || modifiers.command() || modifiers.control() {
         return None;
     }
@@ -419,6 +427,7 @@ mod tests {
         assert!(state.llm_requests.is_amplifying(root));
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn alt_arrow_shortcuts_map_to_movement_commands() {
         let modifiers = keyboard::Modifiers::ALT;
@@ -437,9 +446,48 @@ mod tests {
         assert!(matches!(left, Some(ShortcutMessage::Movement(MovementShortcut::FocusParent))));
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ctrl_arrow_shortcuts_map_to_movement_commands_on_macos() {
+        let modifiers = keyboard::Modifiers::CTRL;
+        let up = movement_shortcut_from_key(
+            &keyboard::Key::Named(keyboard::key::Named::ArrowUp),
+            modifiers,
+        );
+        let left = movement_shortcut_from_key(
+            &keyboard::Key::Named(keyboard::key::Named::ArrowLeft),
+            modifiers,
+        );
+        assert!(matches!(
+            up,
+            Some(ShortcutMessage::Movement(MovementShortcut::FocusSiblingPrevious))
+        ));
+        assert!(matches!(left, Some(ShortcutMessage::Movement(MovementShortcut::FocusParent))));
+    }
+
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn alt_shift_arrow_shortcuts_map_to_move_commands() {
         let modifiers = keyboard::Modifiers::ALT | keyboard::Modifiers::SHIFT;
+        let down = movement_shortcut_from_key(
+            &keyboard::Key::Named(keyboard::key::Named::ArrowDown),
+            modifiers,
+        );
+        let right = movement_shortcut_from_key(
+            &keyboard::Key::Named(keyboard::key::Named::ArrowRight),
+            modifiers,
+        );
+        assert!(matches!(down, Some(ShortcutMessage::Movement(MovementShortcut::MoveSiblingNext))));
+        assert!(matches!(
+            right,
+            Some(ShortcutMessage::Movement(MovementShortcut::MoveToPreviousSiblingFirstChild))
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn ctrl_shift_arrow_shortcuts_map_to_move_commands_on_macos() {
+        let modifiers = keyboard::Modifiers::CTRL | keyboard::Modifiers::SHIFT;
         let down = movement_shortcut_from_key(
             &keyboard::Key::Named(keyboard::key::Named::ArrowDown),
             modifiers,

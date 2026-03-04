@@ -180,6 +180,11 @@ fn word_cursor_direction_for_key_press(
     key_press: &text_editor::KeyPress,
 ) -> Option<WordCursorDirection> {
     let modifiers = key_press.modifiers;
+    #[cfg(target_os = "macos")]
+    if !modifiers.alt() || modifiers.command() || modifiers.control() || modifiers.shift() {
+        return None;
+    }
+    #[cfg(not(target_os = "macos"))]
     if !(modifiers.command() || modifiers.control()) || modifiers.alt() || modifiers.shift() {
         return None;
     }
@@ -288,6 +293,7 @@ mod tests {
         assert!(binding.is_none());
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn command_left_maps_to_word_left_edit_message() {
         let (_, root) = AppState::test_state();
@@ -310,6 +316,30 @@ mod tests {
         ));
     }
 
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn option_left_maps_to_word_left_edit_message_on_macos() {
+        let (_, root) = AppState::test_state();
+
+        let binding = editor_key_binding(
+            root,
+            arrow_key_press(
+                iced::keyboard::key::Named::ArrowLeft,
+                iced::keyboard::key::Code::ArrowLeft,
+                iced::keyboard::Modifiers::ALT,
+            ),
+        );
+
+        assert!(matches!(
+            binding,
+            Some(text_editor::Binding::Custom(Message::Edit(EditMessage::MoveCursorByWord {
+                block_id,
+                direction: WordCursorDirection::Left,
+            }))) if block_id == root
+        ));
+    }
+
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn ctrl_right_maps_to_word_right_edit_message() {
         let (_, root) = AppState::test_state();
@@ -320,6 +350,29 @@ mod tests {
                 iced::keyboard::key::Named::ArrowRight,
                 iced::keyboard::key::Code::ArrowRight,
                 iced::keyboard::Modifiers::CTRL,
+            ),
+        );
+
+        assert!(matches!(
+            binding,
+            Some(text_editor::Binding::Custom(Message::Edit(EditMessage::MoveCursorByWord {
+                block_id,
+                direction: WordCursorDirection::Right,
+            }))) if block_id == root
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn option_right_maps_to_word_right_edit_message_on_macos() {
+        let (_, root) = AppState::test_state();
+
+        let binding = editor_key_binding(
+            root,
+            arrow_key_press(
+                iced::keyboard::key::Named::ArrowRight,
+                iced::keyboard::key::Code::ArrowRight,
+                iced::keyboard::Modifiers::ALT,
             ),
         );
 
