@@ -1,4 +1,5 @@
 use super::*;
+use crate::component::point_text_editor::WordCursorDirection;
 
 /// Messages for point text editing.
 #[derive(Debug, Clone)]
@@ -46,13 +47,6 @@ pub fn handle(state: &mut AppState, message: EditMessage) -> Task<Message> {
 enum VerticalDir {
     Up,
     Down,
-}
-
-/// Horizontal cursor movement direction for word-step shortcuts.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WordCursorDirection {
-    Left,
-    Right,
 }
 
 fn move_cursor_by_word(
