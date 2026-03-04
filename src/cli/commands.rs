@@ -66,12 +66,11 @@ pub use super::query::{FindCommand, RootCommand, ShowCommand};
 pub use super::tree::TreeCommands;
 
 /// Basic Block: CLI for block store manipulation.
-///
-/// Subcommand is required. Use `blooming-blockery` for Blooming Blockery (GUI).
 #[derive(Debug, Parser)]
 #[command(
     name = "bb",
-    about = "Basic Block",
+    version = env!("CARGO_PKG_VERSION"),
+    about = "Basic Block: CLI for block store manipulation.",
     long_about = "Basic Block: CLI for block store manipulation. Use `blooming-blockery` for Blooming Blockery (GUI)."
 )]
 pub struct Cli {
