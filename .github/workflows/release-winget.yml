@@ -2,7 +2,7 @@ name: Winget Update
 
 on:
   workflow_run:
-    workflows: ["Release"] # must match your cargo-dist workflow name exactly
+    workflows: ["Build MSI (cargo-wix) and Upload to Release"]
     types: [completed]
 
 permissions:

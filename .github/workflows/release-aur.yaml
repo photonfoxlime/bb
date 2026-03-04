@@ -121,6 +121,12 @@ jobs:
           sed -i -E "s|^source=\(.*\)|source=(\"${URL}\")|" PKGBUILD
           sed -i -E "s/^sha256sums=\(.*/sha256sums=('${SHA}')/" PKGBUILD
 
+      - name: Pre-create .SRCINFO (host)
+        shell: bash
+        run: |
+          set -euo pipefail
+          : > aur/.SRCINFO
+
       - name: Regenerate .SRCINFO (Arch container, non-root)
         uses: addnab/docker-run-action@v3
         with:
@@ -129,14 +135,19 @@ jobs:
             -v ${{ github.workspace }}/aur:/pkg
           run: |
             set -euo pipefail
-            pacman -Sy --noconfirm --needed base-devel git
+            pacman -Sy --noconfirm --needed base-devel
 
-            # Create a non-root user for makepkg
             useradd -m builder
-            chown -R builder:builder /pkg
 
-            # Run makepkg as non-root
+            # makepkg refuses root; run as builder
             su - builder -c 'cd /pkg && makepkg --printsrcinfo > .SRCINFO'
+
+      - name: Ensure aur/ is writable (safety)
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo chown -R "$(id -u):$(id -g)" aur
+          chmod -R u+rwX aur
 
       - name: Commit & push to AUR (PKGBUILD + .SRCINFO)
         shell: bash

@@ -1,0 +1,93 @@
+name: Build MSI (cargo-wix) and Upload to Release
+
+on:
+  workflow_run:
+    workflows: ["Release"] # must match your cargo-dist workflow name exactly
+    types: [completed]
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: wix-msi
+  cancel-in-progress: false
+
+jobs:
+  wix:
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: windows-latest
+
+    env:
+      REPO: photonfoxlime/bb
+      # if it's a workspace package, fill it here: e.g. blooming-blockery
+      CARGO_PACKAGE: blooming-blockery
+      # you want the MSI file name on the release asset (try to keep it consistent with the winget workflow)
+      MSI_ASSET_NAME: blooming-blockery-x86_64-pc-windows-msvc.msi
+
+    steps:
+      - name: Checkout source repo (exact commit from Release workflow)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REPO }}
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Determine tag that points to this commit
+        id: tag
+        shell: pwsh
+        run: |
+          git fetch --tags --force
+          $tags = git tag --points-at "${{ github.event.workflow_run.head_sha }}"
+          if (-not $tags) {
+            throw "No git tag points to commit ${{ github.event.workflow_run.head_sha }}. Ensure your Release is triggered by pushing a tag."
+          }
+
+          $picked = $tags | Where-Object { $_ -match '^v?\d+\.\d+\.\d+' } | Select-Object -First 1
+          if (-not $picked) { $picked = $tags | Select-Object -First 1 }
+
+          "TAG=$picked" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "Using tag: $picked"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install WiX Toolset (v3)
+        shell: pwsh
+        run: |
+          choco install wixtoolset -y
+
+      - name: Install cargo-wix
+        shell: pwsh
+        run: |
+          cargo install cargo-wix --locked
+
+      - name: Build MSI via cargo-wix
+        shell: pwsh
+        run: |
+          cargo wix -p "${{ env.CARGO_PACKAGE }}" -v
+
+      - name: Locate MSI and rename
+        shell: pwsh
+        run: |
+          $msi = Get-ChildItem -Recurse -Filter *.msi | Where-Object {
+            $_.FullName -match "\\target\\wix\\"
+          } | Select-Object -First 1
+
+          if (-not $msi) { throw "MSI not found under target\\wix" }
+
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $out = Join-Path dist "${{ env.MSI_ASSET_NAME }}"
+          Copy-Item $msi.FullName $out -Force
+          "MSI_PATH=$out" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "Built MSI: $out"
+
+      - name: Upload MSI to GitHub Release (same tag)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "$env:TAG" "$env:MSI_PATH" --clobber
