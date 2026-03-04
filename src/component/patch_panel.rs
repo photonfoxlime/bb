@@ -8,7 +8,7 @@
 //!   in bulk (add new children, or delete existing ones).
 //!
 //! UI text is fully caller-controlled through the button/section structs, so
-//! the same layout can serve expand, atomize, reduce, and inquire operations.
+//! the same layout can serve amplify, atomize, distill, and probe operations.
 
 use crate::app::diff::{WordChange, word_diff};
 use crate::component::text_button::TextButton;

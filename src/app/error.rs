@@ -43,16 +43,16 @@ pub enum AppError {
     Configuration(UiError),
     #[error("persistence error: {0}")]
     Persistence(UiError),
-    #[error("expand error: {0}")]
-    Expand(UiError),
-    #[error("reduce error: {0}")]
-    Reduce(UiError),
+    #[error("amplify error: {0}")]
+    Amplify(UiError),
+    #[error("distill error: {0}")]
+    Distill(UiError),
     #[error("atomize error: {0}")]
     Atomize(UiError),
     #[error("mount error: {0}")]
     Mount(UiError),
-    #[error("inquire error: {0}")]
-    Inquire(UiError),
+    #[error("probe error: {0}")]
+    Probe(UiError),
 }
 
 impl AppError {
@@ -60,11 +60,11 @@ impl AppError {
         match self {
             | Self::Configuration(err)
             | Self::Persistence(err)
-            | Self::Expand(err)
-            | Self::Reduce(err)
+            | Self::Amplify(err)
+            | Self::Distill(err)
             | Self::Atomize(err)
             | Self::Mount(err)
-            | Self::Inquire(err) => err.as_str(),
+            | Self::Probe(err) => err.as_str(),
         }
     }
 }
@@ -122,7 +122,7 @@ mod tests {
 
     #[test]
     fn app_error_reduce_message() {
-        let err = AppError::Reduce(UiError::from_message("sum"));
+        let err = AppError::Distill(UiError::from_message("sum"));
         assert_eq!(err.message(), "sum");
     }
 
@@ -134,7 +134,7 @@ mod tests {
 
     #[test]
     fn app_error_expand_message() {
-        let err = AppError::Expand(UiError::from_message("exp"));
+        let err = AppError::Amplify(UiError::from_message("exp"));
         assert_eq!(err.message(), "exp");
     }
 
@@ -148,8 +148,8 @@ mod tests {
     fn dismiss_error_message_removes_selected_entry() {
         let (mut state, _) = test_state();
         state.errors.push(AppError::Mount(UiError::from_message("m1")));
-        state.errors.push(AppError::Expand(UiError::from_message("e2")));
-        state.errors.push(AppError::Reduce(UiError::from_message("r3")));
+        state.errors.push(AppError::Amplify(UiError::from_message("e2")));
+        state.errors.push(AppError::Distill(UiError::from_message("r3")));
 
         let _ = AppState::update(&mut state, Message::Error(ErrorMessage::DismissAt(1)));
 

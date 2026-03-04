@@ -17,22 +17,22 @@
 //!
 //! The instruction editor is treated as a short-lived draft buffer whose text is
 //! authored before submission through one of three actions:
-//! - `Inquire`: ask a free-form question against visible context and surface a
+//! - `Probe`: ask a free-form question against visible context and surface a
 //!   response draft for user-directed insertion.
-//! - `Expand`: run normal expand semantics with the draft injected as extra
+//! - `Amplify`: run normal amplify semantics with the draft injected as extra
 //!   instruction.
-//! - `Reduce`: run normal reduce semantics with the draft injected as extra
+//! - `Distill`: run normal distill semantics with the draft injected as extra
 //!   instruction.
 //!
-//! # Inquire Result Contract
+//! # Probe Result Contract
 //!
 //! Inquiry returns one response draft scoped to the focused block context at the
 //! time of submission. The product intent is that this draft can be inserted by
 //! the user either into the current point or as a new child point.
 //!
-//! # Expand/Reduce Contract
+//! # Amplify/Distill Contract
 //!
-//! Expand and reduce preserve their canonical semantics from `crate::llm`
+//! Amplify and distill preserve their canonical semantics from `crate::llm`
 //! prompt builders; instruction text only adds additional guidance and does not
 //! redefine the output schema.
 //!
@@ -64,24 +64,24 @@ pub enum InstructionPanelMessage {
     Toggle,
     /// Text edited in the instruction panel.
     TextEdited(iced::widget::text_editor::Action),
-    /// Send inquiry to LLM with the instruction.
-    Inquire,
-    /// One inquiry response chunk arrived.
-    InquireChunk { block_id: BlockId, request_signature: RequestSignature, chunk: String },
-    /// Inquiry stream reported an error.
-    InquireFailed {
+    /// Send probe to LLM with the instruction.
+    Probe,
+    /// One probe response chunk arrived.
+    ProbeChunk { block_id: BlockId, request_signature: RequestSignature, chunk: String },
+    /// Probe stream reported an error.
+    ProbeFailed {
         block_id: BlockId,
         request_signature: RequestSignature,
         reason: crate::app::UiError,
     },
-    /// Inquiry request completed (successfully or with error).
-    InquireFinished { block_id: BlockId, request_signature: RequestSignature },
-    /// Cancel an in-flight inquiry request.
-    CancelInquire,
-    /// Expand with instruction as system prompt.
-    ExpandWithInstruction,
-    /// Reduce with instruction as system prompt.
-    ReduceWithInstruction,
+    /// Probe request completed (successfully or with error).
+    ProbeFinished { block_id: BlockId, request_signature: RequestSignature },
+    /// Cancel an in-flight probe request.
+    CancelProbe,
+    /// Amplify with instruction as system prompt.
+    AmplifyWithInstruction,
+    /// Distill with instruction as system prompt.
+    DistillWithInstruction,
     /// Apply rewrite from inquiry result.
     ApplyInstructionRewrite,
     /// Append inquiry result to the target block point.
@@ -122,7 +122,7 @@ pub fn handle(
             }
             iced::Task::none()
         }
-        | InstructionPanelMessage::Inquire => {
+        | InstructionPanelMessage::Probe => {
             let instruction = state.editor_buffers.instruction_content().text().trim().to_string();
             if instruction.is_empty() {
                 return iced::Task::none();
@@ -131,49 +131,49 @@ pub fn handle(
             let Some(request_signature) = RequestSignature::from_block_context(&context) else {
                 return iced::Task::none();
             };
-            let Some(config) = state.llm_config_for_inquire() else {
+            let Some(config) = state.llm_config_for_probe() else {
                 return iced::Task::none();
             };
-            state.llm_requests.mark_inquiry_loading(target_block_id, request_signature);
+            state.llm_requests.mark_probe_loading(target_block_id, request_signature);
             state.store.set_inquiry(target_block_id, instruction.clone());
             state.store.remove_instruction_draft(&target_block_id);
             state.persist_with_context("after storing inquiry and consuming instruction draft");
             state.editor_buffers.set_instruction_text("");
             tracing::info!(block_id = ?target_block_id, "instruction inquiry started");
-            let inquire_max_tokens = state.config.tasks.inquire.token_limit.as_api_param();
-            let prompt_config = llm::TaskPromptConfig::inquire(
-                &state.config.tasks.inquire.system_prompt,
-                &state.config.tasks.inquire.user_prompt,
+            let probe_max_tokens = state.config.tasks.probe.token_limit.as_api_param();
+            let prompt_config = llm::TaskPromptConfig::probe(
+                &state.config.tasks.probe.system_prompt,
+                &state.config.tasks.probe.user_prompt,
             );
             let client = llm::LlmClient::new(config);
             let request_task = iced::Task::run(
-                client.inquire_stream(
+                client.probe_stream(
                     context,
                     instruction,
                     LLM_REQUEST_TIMEOUT,
-                    inquire_max_tokens,
+                    probe_max_tokens,
                     prompt_config,
                 ),
                 move |event| match event {
-                    | llm::InquireStreamEvent::Chunk(chunk) => Message::InstructionPanel(
+                    | llm::ProbeStreamEvent::Chunk(chunk) => Message::InstructionPanel(
                         target_block_id,
-                        InstructionPanelMessage::InquireChunk {
+                        InstructionPanelMessage::ProbeChunk {
                             block_id: target_block_id,
                             request_signature,
                             chunk,
                         },
                     ),
-                    | llm::InquireStreamEvent::Failed(err) => Message::InstructionPanel(
+                    | llm::ProbeStreamEvent::Failed(err) => Message::InstructionPanel(
                         target_block_id,
-                        InstructionPanelMessage::InquireFailed {
+                        InstructionPanelMessage::ProbeFailed {
                             block_id: target_block_id,
                             request_signature,
                             reason: crate::app::UiError::from_message(err),
                         },
                     ),
-                    | llm::InquireStreamEvent::Finished => Message::InstructionPanel(
+                    | llm::ProbeStreamEvent::Finished => Message::InstructionPanel(
                         target_block_id,
-                        InstructionPanelMessage::InquireFinished {
+                        InstructionPanelMessage::ProbeFinished {
                             block_id: target_block_id,
                             request_signature,
                         },
@@ -181,10 +181,10 @@ pub fn handle(
                 },
             );
             let (request_task, handle) = iced::Task::abortable(request_task);
-            state.llm_requests.replace_inquiry_handle(target_block_id, handle);
+            state.llm_requests.replace_probe_handle(target_block_id, handle);
             request_task
         }
-        | InstructionPanelMessage::InquireChunk { block_id, request_signature, chunk } => {
+        | InstructionPanelMessage::ProbeChunk { block_id, request_signature, chunk } => {
             if state.store.node(&block_id).is_none() {
                 return iced::Task::none();
             }
@@ -198,7 +198,7 @@ pub fn handle(
             state.store.append_inquiry_response_chunk(block_id, &chunk);
             iced::Task::none()
         }
-        | InstructionPanelMessage::InquireFailed { block_id, request_signature, reason } => {
+        | InstructionPanelMessage::ProbeFailed { block_id, request_signature, reason } => {
             if state.store.node(&block_id).is_none() {
                 return iced::Task::none();
             }
@@ -214,12 +214,12 @@ pub fn handle(
                 reason = %reason.as_str(),
                 "instruction inquiry stream failed"
             );
-            state.llm_requests.set_inquiry_error(block_id, reason);
+            state.llm_requests.set_probe_error(block_id, reason);
             iced::Task::none()
         }
-        | InstructionPanelMessage::InquireFinished { block_id, request_signature } => {
+        | InstructionPanelMessage::ProbeFinished { block_id, request_signature } => {
             let (pending_signature, pending_error) =
-                state.llm_requests.finish_inquiry_request(block_id);
+                state.llm_requests.finish_probe_request(block_id);
             if state.store.node(&block_id).is_none() {
                 return iced::Task::none();
             }
@@ -242,19 +242,19 @@ pub fn handle(
             let had_stream_error = pending_error.is_some();
 
             if let Some(reason) = pending_error {
-                state.record_error(crate::app::AppError::Inquire(reason));
+                state.record_error(crate::app::AppError::Probe(reason));
             }
 
             if response_len > 0 {
-                tracing::info!(block_id = ?block_id, chars = response_len, "instruction inquiry completed");
+                tracing::info!(block_id = ?block_id, chars = response_len, "instruction probe completed");
                 if !had_stream_error {
-                    state.errors.retain(|err| !matches!(err, crate::app::AppError::Inquire(_)));
+                    state.errors.retain(|err| !matches!(err, crate::app::AppError::Probe(_)));
                 }
                 state.persist_with_context("after persisting streamed instruction inquiry draft");
             } else if !had_stream_error {
-                state.record_error(crate::app::AppError::Inquire(
-                    crate::app::UiError::from_message("inquire returned no usable text"),
-                ));
+                state.record_error(crate::app::AppError::Probe(crate::app::UiError::from_message(
+                    "probe returned no usable text",
+                )));
                 tracing::error!(
                     block_id = ?block_id,
                     "instruction inquiry finished without usable response"
@@ -267,44 +267,44 @@ pub fn handle(
             }
             iced::Task::none()
         }
-        | InstructionPanelMessage::CancelInquire => {
-            if state.llm_requests.cancel_inquiry(target_block_id) {
+        | InstructionPanelMessage::CancelProbe => {
+            if state.llm_requests.cancel_probe(target_block_id) {
                 tracing::info!(block_id = ?target_block_id, "instruction inquiry cancelled");
             }
             iced::Task::none()
         }
-        | InstructionPanelMessage::ExpandWithInstruction => {
+        | InstructionPanelMessage::AmplifyWithInstruction => {
             let instruction = state.editor_buffers.instruction_content().text().trim().to_string();
             if instruction.is_empty() {
                 return iced::Task::none();
             }
             state.store.set_instruction_draft(target_block_id, instruction.clone());
-            state.persist_with_context("after persisting instruction draft for expand");
+            state.persist_with_context("after persisting instruction draft for amplify");
             state.editor_buffers.set_instruction_text("");
             state.store.set_block_panel_state(&target_block_id, None);
             state.persist_with_context("after closing instruction panel");
             crate::app::AppState::update(
                 state,
                 Message::Patch(PatchMessage::Start {
-                    kind: PatchKind::Expand,
+                    kind: PatchKind::Amplify,
                     block_id: target_block_id,
                 }),
             )
         }
-        | InstructionPanelMessage::ReduceWithInstruction => {
+        | InstructionPanelMessage::DistillWithInstruction => {
             let instruction = state.editor_buffers.instruction_content().text().trim().to_string();
             if instruction.is_empty() {
                 return iced::Task::none();
             }
             state.store.set_instruction_draft(target_block_id, instruction.clone());
-            state.persist_with_context("after persisting instruction draft for reduce");
+            state.persist_with_context("after persisting instruction draft for distill");
             state.editor_buffers.set_instruction_text("");
             state.store.set_block_panel_state(&target_block_id, None);
             state.persist_with_context("after closing instruction panel");
             crate::app::AppState::update(
                 state,
                 Message::Patch(PatchMessage::Start {
-                    kind: PatchKind::Reduce,
+                    kind: PatchKind::Distill,
                     block_id: target_block_id,
                 }),
             )
@@ -416,11 +416,11 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
     let instruction_content = state.editor_buffers.instruction_content();
     let inquiry_result = state.store.inquiry_draft(&block_id);
-    let is_inquiring = state.llm_requests.is_inquiring(block_id);
+    let is_probing = state.llm_requests.is_probing(block_id);
 
     let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
 
-    if is_inquiring || inquiry_result.is_some() {
+    if is_probing || inquiry_result.is_some() {
         let inquiry_text = inquiry_result.as_ref().map(|r| r.inquiry.as_str()).unwrap_or_default();
 
         let inquiry_section = column![].spacing(theme::PANEL_INNER_GAP).push(
@@ -476,7 +476,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
             .on_press(Message::InstructionPanel(
                 block_id,
-                InstructionPanelMessage::ExpandWithInstruction,
+                InstructionPanelMessage::AmplifyWithInstruction,
             )),
         );
 
@@ -488,7 +488,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
             .on_press(Message::InstructionPanel(
                 block_id,
-                InstructionPanelMessage::ReduceWithInstruction,
+                InstructionPanelMessage::DistillWithInstruction,
             )),
         );
 
@@ -498,14 +498,14 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 theme::INSTRUCTION_BUTTON_SIZE,
             )
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Inquire)),
+            .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Probe)),
         );
 
         instruction_section = instruction_section.push(button_row);
         panel = panel.push(instruction_section);
     }
 
-    if is_inquiring {
+    if is_probing {
         let button_row = row![].spacing(theme::PANEL_BUTTON_GAP).push(
             button(
                 row![]
@@ -520,7 +520,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             )
             .style(theme::destructive_button)
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::CancelInquire)),
+            .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::CancelProbe)),
         );
         panel = panel.push(button_row);
     }
@@ -537,7 +537,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             )
             .width(iced::Length::Fill)
             .into();
-            let buttons = if !is_inquiring {
+            let buttons = if !is_probing {
                 vec![
                     PanelButton {
                         label: t!("instruction_apply_rewrite").to_string(),
@@ -648,7 +648,7 @@ mod tests {
         state.store.set_instruction_draft(root, "prompt".to_string());
         state.store.set_inquiry_draft(root, "result".to_string());
         let signature = state.block_context_signature(&root).expect("root has request signature");
-        state.llm_requests.mark_inquiry_loading(root, signature);
+        state.llm_requests.mark_probe_loading(root, signature);
         state.editor_buffers.set_instruction_text("keep me");
 
         let _ = AppState::update(
@@ -662,7 +662,7 @@ mod tests {
             Some("prompt")
         );
         assert_eq!(state.store.inquiry_draft(&root).map(|r| r.response.as_str()), Some("result"));
-        assert!(state.llm_requests.is_inquiring(root));
+        assert!(state.llm_requests.is_probing(root));
         assert_eq!(state.editor_buffers.instruction_content().text(), "keep me");
     }
 
@@ -726,10 +726,10 @@ mod tests {
 
         let _ = AppState::update(
             &mut state,
-            Message::InstructionPanel(root, InstructionPanelMessage::Inquire),
+            Message::InstructionPanel(root, InstructionPanelMessage::Probe),
         );
 
-        assert!(state.llm_requests.is_inquiring(root));
+        assert!(state.llm_requests.is_probing(root));
         assert!(state.editor_buffers.instruction_content().text().is_empty());
         assert!(state.store.instruction_draft(&root).is_none());
     }
@@ -739,12 +739,12 @@ mod tests {
         let (mut state, root) = test_state();
         let request_signature =
             state.block_context_signature(&root).expect("root has request signature");
-        state.llm_requests.mark_inquiry_loading(root, request_signature);
+        state.llm_requests.mark_probe_loading(root, request_signature);
         let _ = AppState::update(
             &mut state,
             Message::InstructionPanel(
                 root,
-                InstructionPanelMessage::InquireChunk {
+                InstructionPanelMessage::ProbeChunk {
                     block_id: root,
                     request_signature,
                     chunk: "persisted ".to_string(),
@@ -755,7 +755,7 @@ mod tests {
             &mut state,
             Message::InstructionPanel(
                 root,
-                InstructionPanelMessage::InquireChunk {
+                InstructionPanelMessage::ProbeChunk {
                     block_id: root,
                     request_signature,
                     chunk: "response".to_string(),
@@ -766,7 +766,7 @@ mod tests {
             &mut state,
             Message::InstructionPanel(
                 root,
-                InstructionPanelMessage::InquireFinished { block_id: root, request_signature },
+                InstructionPanelMessage::ProbeFinished { block_id: root, request_signature },
             ),
         );
 
@@ -788,10 +788,10 @@ mod tests {
 
         let _ = AppState::update(
             &mut state,
-            Message::InstructionPanel(root, InstructionPanelMessage::Inquire),
+            Message::InstructionPanel(root, InstructionPanelMessage::Probe),
         );
 
-        assert!(!state.llm_requests.is_inquiring(root));
+        assert!(!state.llm_requests.is_probing(root));
         assert!(
             state.errors.iter().any(|err| matches!(err, crate::app::AppError::Configuration(_)))
         );
@@ -804,7 +804,7 @@ mod tests {
         let (mut state, root) = test_state();
         let request_signature =
             state.block_context_signature(&root).expect("root has request signature");
-        state.llm_requests.mark_inquiry_loading(root, request_signature);
+        state.llm_requests.mark_probe_loading(root, request_signature);
         state.store.set_inquiry(root, "original inquiry".to_string());
         state.store.update_point(&root, "changed context".to_string());
 
@@ -812,7 +812,7 @@ mod tests {
             &mut state,
             Message::InstructionPanel(
                 root,
-                InstructionPanelMessage::InquireChunk {
+                InstructionPanelMessage::ProbeChunk {
                     block_id: root,
                     request_signature,
                     chunk: "stale response".to_string(),
@@ -823,7 +823,7 @@ mod tests {
             &mut state,
             Message::InstructionPanel(
                 root,
-                InstructionPanelMessage::InquireFinished { block_id: root, request_signature },
+                InstructionPanelMessage::ProbeFinished { block_id: root, request_signature },
             ),
         );
 
@@ -835,14 +835,14 @@ mod tests {
         let (mut state, root) = test_state();
         let request_signature =
             state.block_context_signature(&root).expect("root has request signature");
-        state.llm_requests.mark_inquiry_loading(root, request_signature);
+        state.llm_requests.mark_probe_loading(root, request_signature);
         state.store.set_inquiry(root, "question".to_string());
 
         let _ = AppState::update(
             &mut state,
             Message::InstructionPanel(
                 root,
-                InstructionPanelMessage::InquireFailed {
+                InstructionPanelMessage::ProbeFailed {
                     block_id: root,
                     request_signature,
                     reason: crate::app::UiError::from_message("network failed"),
@@ -853,11 +853,11 @@ mod tests {
             &mut state,
             Message::InstructionPanel(
                 root,
-                InstructionPanelMessage::InquireFinished { block_id: root, request_signature },
+                InstructionPanelMessage::ProbeFinished { block_id: root, request_signature },
             ),
         );
 
-        assert!(state.errors.iter().any(|err| matches!(err, crate::app::AppError::Inquire(_))));
+        assert!(state.errors.iter().any(|err| matches!(err, crate::app::AppError::Probe(_))));
     }
 
     #[test]
@@ -869,7 +869,7 @@ mod tests {
 
         let _ = AppState::update(
             &mut state,
-            Message::InstructionPanel(root, InstructionPanelMessage::ExpandWithInstruction),
+            Message::InstructionPanel(root, InstructionPanelMessage::AmplifyWithInstruction),
         );
 
         assert!(state.store.instruction_draft(&root).is_none());

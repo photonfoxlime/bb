@@ -1,4 +1,4 @@
-//! Application-local runtime state for LLM reduce/expand requests.
+//! Application-local runtime state for LLM distill/amplify requests.
 //!
 //! Please use or create constants in `theme.rs` for all UI numeric values
 //! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
@@ -19,19 +19,19 @@ use std::hash::{Hash, Hasher};
 /// This struct owns transient request state only; persisted drafts remain in
 /// `BlockStore` so request orchestration and persisted content stay decoupled.
 pub struct LlmRequests {
-    expand_states: SparseSecondaryMap<BlockId, ExpandState>,
-    reduce_states: SparseSecondaryMap<BlockId, ReduceState>,
+    amplify_states: SparseSecondaryMap<BlockId, AmplifyState>,
+    distill_states: SparseSecondaryMap<BlockId, DistillState>,
     atomize_states: SparseSecondaryMap<BlockId, AtomizeState>,
-    inquiry_states: SparseSecondaryMap<BlockId, InquiryState>,
-    expand_handles: SparseSecondaryMap<BlockId, task::Handle>,
-    reduce_handles: SparseSecondaryMap<BlockId, task::Handle>,
+    probe_states: SparseSecondaryMap<BlockId, ProbeState>,
+    amplify_handles: SparseSecondaryMap<BlockId, task::Handle>,
+    distill_handles: SparseSecondaryMap<BlockId, task::Handle>,
     atomize_handles: SparseSecondaryMap<BlockId, task::Handle>,
-    inquiry_handles: SparseSecondaryMap<BlockId, task::Handle>,
-    pending_expand_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
-    pending_reduce_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
+    probe_handles: SparseSecondaryMap<BlockId, task::Handle>,
+    pending_amplify_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
+    pending_distill_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
     pending_atomize_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
-    pending_inquiry_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
-    inquiry_errors: SparseSecondaryMap<BlockId, UiError>,
+    pending_probe_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
+    probe_errors: SparseSecondaryMap<BlockId, UiError>,
 }
 
 impl LlmRequests {
@@ -40,23 +40,25 @@ impl LlmRequests {
     }
 
     pub fn clear(&mut self) {
-        self.expand_states.clear();
-        self.reduce_states.clear();
+        self.amplify_states.clear();
+        self.distill_states.clear();
         self.atomize_states.clear();
-        self.inquiry_states.clear();
-        self.expand_handles.clear();
-        self.reduce_handles.clear();
+        self.probe_states.clear();
+        self.amplify_handles.clear();
+        self.distill_handles.clear();
         self.atomize_handles.clear();
-        self.inquiry_handles.clear();
-        self.pending_expand_signatures.clear();
-        self.pending_reduce_signatures.clear();
+        self.probe_handles.clear();
+        self.pending_amplify_signatures.clear();
+        self.pending_distill_signatures.clear();
         self.pending_atomize_signatures.clear();
-        self.pending_inquiry_signatures.clear();
-        self.inquiry_errors.clear();
+        self.pending_probe_signatures.clear();
+        self.probe_errors.clear();
     }
 
-    pub fn is_reducing(&self, block_id: BlockId) -> bool {
-        self.reduce_states.get(block_id).is_some_and(|state| matches!(state, ReduceState::Loading))
+    pub fn is_distilling(&self, block_id: BlockId) -> bool {
+        self.distill_states
+            .get(block_id)
+            .is_some_and(|state| matches!(state, DistillState::Loading))
     }
 
     pub fn is_atomizing(&self, block_id: BlockId) -> bool {
@@ -65,20 +67,20 @@ impl LlmRequests {
             .is_some_and(|state| matches!(state, AtomizeState::Loading))
     }
 
-    pub fn is_expanding(&self, block_id: BlockId) -> bool {
-        self.expand_states.get(block_id).is_some_and(|state| matches!(state, ExpandState::Loading))
+    pub fn is_amplifying(&self, block_id: BlockId) -> bool {
+        self.amplify_states
+            .get(block_id)
+            .is_some_and(|state| matches!(state, AmplifyState::Loading))
     }
 
-    pub fn is_inquiring(&self, block_id: BlockId) -> bool {
-        self.inquiry_states
-            .get(block_id)
-            .is_some_and(|state| matches!(state, InquiryState::Loading))
+    pub fn is_probing(&self, block_id: BlockId) -> bool {
+        self.probe_states.get(block_id).is_some_and(|state| matches!(state, ProbeState::Loading))
     }
 
-    pub fn has_reduce_error(&self, block_id: BlockId) -> bool {
-        self.reduce_states
+    pub fn has_distill_error(&self, block_id: BlockId) -> bool {
+        self.distill_states
             .get(block_id)
-            .is_some_and(|state| matches!(state, ReduceState::Error { .. }))
+            .is_some_and(|state| matches!(state, DistillState::Error { .. }))
     }
 
     pub fn has_atomize_error(&self, block_id: BlockId) -> bool {
@@ -87,15 +89,15 @@ impl LlmRequests {
             .is_some_and(|state| matches!(state, AtomizeState::Error { .. }))
     }
 
-    pub fn has_expand_error(&self, block_id: BlockId) -> bool {
-        self.expand_states
+    pub fn has_amplify_error(&self, block_id: BlockId) -> bool {
+        self.amplify_states
             .get(block_id)
-            .is_some_and(|state| matches!(state, ExpandState::Error { .. }))
+            .is_some_and(|state| matches!(state, AmplifyState::Error { .. }))
     }
 
-    pub fn mark_reduce_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
-        self.reduce_states.insert(block_id, ReduceState::Loading);
-        self.pending_reduce_signatures.insert(block_id, request_signature);
+    pub fn mark_distill_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
+        self.distill_states.insert(block_id, DistillState::Loading);
+        self.pending_distill_signatures.insert(block_id, request_signature);
     }
 
     pub fn mark_atomize_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
@@ -103,22 +105,22 @@ impl LlmRequests {
         self.pending_atomize_signatures.insert(block_id, request_signature);
     }
 
-    pub fn mark_expand_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
-        self.expand_states.insert(block_id, ExpandState::Loading);
-        self.pending_expand_signatures.insert(block_id, request_signature);
+    pub fn mark_amplify_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
+        self.amplify_states.insert(block_id, AmplifyState::Loading);
+        self.pending_amplify_signatures.insert(block_id, request_signature);
     }
 
-    pub fn mark_inquiry_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
-        self.inquiry_states.insert(block_id, InquiryState::Loading);
-        self.pending_inquiry_signatures.insert(block_id, request_signature);
-        self.inquiry_errors.remove(block_id);
+    pub fn mark_probe_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
+        self.probe_states.insert(block_id, ProbeState::Loading);
+        self.pending_probe_signatures.insert(block_id, request_signature);
+        self.probe_errors.remove(block_id);
     }
 
-    pub fn replace_reduce_handle(&mut self, block_id: BlockId, handle: task::Handle) {
-        if let Some(previous) = self.reduce_handles.remove(block_id) {
+    pub fn replace_distill_handle(&mut self, block_id: BlockId, handle: task::Handle) {
+        if let Some(previous) = self.distill_handles.remove(block_id) {
             previous.abort();
         }
-        self.reduce_handles.insert(block_id, handle.abort_on_drop());
+        self.distill_handles.insert(block_id, handle.abort_on_drop());
     }
 
     pub fn replace_atomize_handle(&mut self, block_id: BlockId, handle: task::Handle) {
@@ -128,28 +130,28 @@ impl LlmRequests {
         self.atomize_handles.insert(block_id, handle.abort_on_drop());
     }
 
-    pub fn replace_expand_handle(&mut self, block_id: BlockId, handle: task::Handle) {
-        if let Some(previous) = self.expand_handles.remove(block_id) {
+    pub fn replace_amplify_handle(&mut self, block_id: BlockId, handle: task::Handle) {
+        if let Some(previous) = self.amplify_handles.remove(block_id) {
             previous.abort();
         }
-        self.expand_handles.insert(block_id, handle.abort_on_drop());
+        self.amplify_handles.insert(block_id, handle.abort_on_drop());
     }
 
-    pub fn replace_inquiry_handle(&mut self, block_id: BlockId, handle: task::Handle) {
-        if let Some(previous) = self.inquiry_handles.remove(block_id) {
+    pub fn replace_probe_handle(&mut self, block_id: BlockId, handle: task::Handle) {
+        if let Some(previous) = self.probe_handles.remove(block_id) {
             previous.abort();
         }
-        self.inquiry_handles.insert(block_id, handle.abort_on_drop());
+        self.probe_handles.insert(block_id, handle.abort_on_drop());
     }
 
     /// Finalize a reduce request and return its captured lineage signature.
     ///
     /// Finalization is atomic per block: loading marker, handle, and pending
     /// signature are cleared together.
-    pub fn finish_reduce_request(&mut self, block_id: BlockId) -> Option<RequestSignature> {
-        self.reduce_handles.remove(block_id);
-        self.reduce_states.remove(block_id);
-        self.pending_reduce_signatures.remove(block_id)
+    pub fn finish_distill_request(&mut self, block_id: BlockId) -> Option<RequestSignature> {
+        self.distill_handles.remove(block_id);
+        self.distill_states.remove(block_id);
+        self.pending_distill_signatures.remove(block_id)
     }
 
     /// Finalize an atomize request and return its captured lineage signature.
@@ -163,50 +165,50 @@ impl LlmRequests {
     ///
     /// Finalization is atomic per block: loading marker, handle, and pending
     /// signature are cleared together.
-    pub fn finish_expand_request(&mut self, block_id: BlockId) -> Option<RequestSignature> {
-        self.expand_handles.remove(block_id);
-        self.expand_states.remove(block_id);
-        self.pending_expand_signatures.remove(block_id)
+    pub fn finish_amplify_request(&mut self, block_id: BlockId) -> Option<RequestSignature> {
+        self.amplify_handles.remove(block_id);
+        self.amplify_states.remove(block_id);
+        self.pending_amplify_signatures.remove(block_id)
     }
 
     /// Finalize an inquiry request and return signature + deferred error.
     ///
     /// Finalization is atomic per block: loading marker, handle, pending
     /// signature, and deferred stream error are cleared together.
-    pub fn finish_inquiry_request(
+    pub fn finish_probe_request(
         &mut self, block_id: BlockId,
     ) -> (Option<RequestSignature>, Option<UiError>) {
-        self.inquiry_handles.remove(block_id);
-        self.inquiry_states.remove(block_id);
-        (self.pending_inquiry_signatures.remove(block_id), self.inquiry_errors.remove(block_id))
+        self.probe_handles.remove(block_id);
+        self.probe_states.remove(block_id);
+        (self.pending_probe_signatures.remove(block_id), self.probe_errors.remove(block_id))
     }
 
     /// Record a deferred inquiry stream error for later finalization.
-    pub fn set_inquiry_error(&mut self, block_id: BlockId, reason: UiError) {
-        self.inquiry_errors.insert(block_id, reason);
+    pub fn set_probe_error(&mut self, block_id: BlockId, reason: UiError) {
+        self.probe_errors.insert(block_id, reason);
     }
 
-    pub fn set_reduce_error(&mut self, block_id: BlockId, reason: UiError) {
-        self.reduce_states.insert(block_id, ReduceState::Error { reason });
+    pub fn set_distill_error(&mut self, block_id: BlockId, reason: UiError) {
+        self.distill_states.insert(block_id, DistillState::Error { reason });
     }
 
     pub fn set_atomize_error(&mut self, block_id: BlockId, reason: UiError) {
         self.atomize_states.insert(block_id, AtomizeState::Error { reason });
     }
 
-    pub fn set_expand_error(&mut self, block_id: BlockId, reason: UiError) {
-        self.expand_states.insert(block_id, ExpandState::Error { reason });
+    pub fn set_amplify_error(&mut self, block_id: BlockId, reason: UiError) {
+        self.amplify_states.insert(block_id, AmplifyState::Error { reason });
     }
 
-    pub fn cancel_reduce(&mut self, block_id: BlockId) -> bool {
-        if !self.is_reducing(block_id) {
+    pub fn cancel_distill(&mut self, block_id: BlockId) -> bool {
+        if !self.is_distilling(block_id) {
             return false;
         }
-        if let Some(handle) = self.reduce_handles.remove(block_id) {
+        if let Some(handle) = self.distill_handles.remove(block_id) {
             handle.abort();
         }
-        self.reduce_states.remove(block_id);
-        self.pending_reduce_signatures.remove(block_id);
+        self.distill_states.remove(block_id);
+        self.pending_distill_signatures.remove(block_id);
         true
     }
 
@@ -222,81 +224,61 @@ impl LlmRequests {
         true
     }
 
-    pub fn cancel_expand(&mut self, block_id: BlockId) -> bool {
-        if !self.is_expanding(block_id) {
+    pub fn cancel_amplify(&mut self, block_id: BlockId) -> bool {
+        if !self.is_amplifying(block_id) {
             return false;
         }
-        if let Some(handle) = self.expand_handles.remove(block_id) {
+        if let Some(handle) = self.amplify_handles.remove(block_id) {
             handle.abort();
         }
-        self.expand_states.remove(block_id);
-        self.pending_expand_signatures.remove(block_id);
+        self.amplify_states.remove(block_id);
+        self.pending_amplify_signatures.remove(block_id);
         true
     }
 
-    pub fn cancel_inquiry(&mut self, block_id: BlockId) -> bool {
-        if !self.is_inquiring(block_id) {
+    pub fn cancel_probe(&mut self, block_id: BlockId) -> bool {
+        if !self.is_probing(block_id) {
             return false;
         }
-        if let Some(handle) = self.inquiry_handles.remove(block_id) {
+        if let Some(handle) = self.probe_handles.remove(block_id) {
             handle.abort();
         }
-        self.inquiry_states.remove(block_id);
-        self.pending_inquiry_signatures.remove(block_id);
-        self.inquiry_errors.remove(block_id);
+        self.probe_states.remove(block_id);
+        self.pending_probe_signatures.remove(block_id);
+        self.probe_errors.remove(block_id);
         true
     }
 
     pub fn remove_block(&mut self, block_id: BlockId) {
-        if let Some(handle) = self.reduce_handles.remove(block_id) {
+        if let Some(handle) = self.distill_handles.remove(block_id) {
             handle.abort();
         }
         if let Some(handle) = self.atomize_handles.remove(block_id) {
             handle.abort();
         }
-        if let Some(handle) = self.expand_handles.remove(block_id) {
+        if let Some(handle) = self.amplify_handles.remove(block_id) {
             handle.abort();
         }
-        if let Some(handle) = self.inquiry_handles.remove(block_id) {
+        if let Some(handle) = self.probe_handles.remove(block_id) {
             handle.abort();
         }
-        self.pending_reduce_signatures.remove(block_id);
+        self.pending_distill_signatures.remove(block_id);
         self.pending_atomize_signatures.remove(block_id);
-        self.pending_expand_signatures.remove(block_id);
-        self.pending_inquiry_signatures.remove(block_id);
-        self.inquiry_errors.remove(block_id);
-        self.reduce_states.remove(block_id);
+        self.pending_amplify_signatures.remove(block_id);
+        self.pending_probe_signatures.remove(block_id);
+        self.probe_errors.remove(block_id);
+        self.distill_states.remove(block_id);
         self.atomize_states.remove(block_id);
-        self.expand_states.remove(block_id);
-        self.inquiry_states.remove(block_id);
-    }
-
-    #[cfg(test)]
-    pub fn has_pending_reduce_signature(&self, block_id: BlockId) -> bool {
-        self.pending_reduce_signatures.get(block_id).is_some()
-    }
-
-    #[cfg(test)]
-    pub fn has_pending_expand_signature(&self, block_id: BlockId) -> bool {
-        self.pending_expand_signatures.get(block_id).is_some()
-    }
-
-    #[cfg(test)]
-    pub fn has_reduce_handle(&self, block_id: BlockId) -> bool {
-        self.reduce_handles.get(block_id).is_some()
-    }
-
-    #[cfg(test)]
-    pub fn has_expand_handle(&self, block_id: BlockId) -> bool {
-        self.expand_handles.get(block_id).is_some()
+        self.amplify_states.remove(block_id);
+        self.probe_states.remove(block_id);
     }
 }
 
-/// Per-block expand operation state: Idle → Loading → Idle/Error.
+/// Per-block amplify operation state: Idle → Loading → Idle/Error.
 ///
 /// Stored in a map keyed by `BlockId`; missing entry means Idle.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum ExpandState {
+pub enum AmplifyState {
     #[default]
     Idle,
     Loading,
@@ -305,11 +287,11 @@ pub enum ExpandState {
     },
 }
 
-/// Per-block reduce operation state: Idle → Loading → Idle/Error.
+/// Per-block distill operation state: Idle → Loading → Idle/Error.
 ///
 /// Stored in a map keyed by `BlockId`; missing entry means Idle.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum ReduceState {
+pub enum DistillState {
     #[default]
     Idle,
     Loading,
@@ -331,15 +313,15 @@ pub enum AtomizeState {
     },
 }
 
-/// Per-block inquiry operation state: Idle → Loading → Idle.
+/// Per-block probe operation state: Idle → Loading → Idle.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
-pub enum InquiryState {
+pub enum ProbeState {
     #[default]
     Idle,
     Loading,
 }
 
-/// Captured request-context fingerprint for async expand/reduce.
+/// Captured request-context fingerprint for async amplify/distill.
 ///
 /// Built from full lineage (root-to-target points). Responses are applied only
 /// when the current lineage fingerprint matches this value.
@@ -368,7 +350,7 @@ impl RequestSignature {
     ///
     /// This includes lineage points, existing children points, and friend block
     /// points so async
-    /// expand/reduce responses are invalidated when either input changes.
+    /// amplify/distill responses are invalidated when either input changes.
     pub fn from_block_context(context: &llm::BlockContext) -> Option<Self> {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         let mut item_count = 0usize;
@@ -414,13 +396,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reduce_state_default_is_idle() {
-        assert_eq!(ReduceState::default(), ReduceState::Idle);
+    fn distill_state_default_is_idle() {
+        assert_eq!(DistillState::default(), DistillState::Idle);
     }
 
     #[test]
-    fn expand_state_default_is_idle() {
-        assert_eq!(ExpandState::default(), ExpandState::Idle);
+    fn amplify_state_default_is_idle() {
+        assert_eq!(AmplifyState::default(), AmplifyState::Idle);
     }
 
     #[test]

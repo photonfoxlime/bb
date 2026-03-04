@@ -15,13 +15,13 @@ pub mod context;
 pub mod error;
 pub mod prompt;
 
-pub use client::{InquireStreamEvent, LlmClient};
+pub use client::{LlmClient, ProbeStreamEvent};
 pub use config::{
     ApiStyle, CustomProvider, DEFAULT_PROVIDER, LlmConfig, LlmProviders, PresetConfig,
     PresetProvider, TaskKind,
 };
 pub use context::{
-    AtomizeResult, BlockContext, ChildrenContext, ContextFormatter, ExpandResult, ExpandSuggestion,
-    FriendContext, LineageContext, ReduceResult,
+    AmplifyResult, AmplifySuggestion, AtomizeResult, BlockContext, ChildrenContext,
+    ContextFormatter, DistillResult, FriendContext, LineageContext,
 };
 pub use prompt::{TaskPromptConfig, default_system_prompt_hint, default_user_prompt_hint};

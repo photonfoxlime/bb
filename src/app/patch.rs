@@ -1,4 +1,4 @@
-//! LLM-powered patch workflows: expand, atomize, and reduce.
+//! LLM-powered patch workflows: amplify, atomize, and distill.
 //!
 //! A single patch view with different UI texts. All three share the same
 //! lifecycle: Start (abortable LLM request) → Done (stale-check, stage draft) →
@@ -18,9 +18,9 @@ use rust_i18n::t;
 /// Patch operation kind; determines LLM call, draft storage, and UI labels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PatchKind {
-    Expand,
+    Amplify,
     Atomize,
-    Reduce,
+    Distill,
 }
 
 /// Unified patch message; carries [`PatchKind`] where branching is required.
@@ -58,9 +58,9 @@ pub enum PatchMessage {
 
 #[derive(Debug, Clone)]
 pub enum PatchDoneResult {
-    Expand(Result<llm::ExpandResult, UiError>),
+    Amplify(Result<llm::AmplifyResult, UiError>),
     Atomize(Result<llm::AtomizeResult, UiError>),
-    Reduce(Result<llm::ReduceResult, UiError>, Vec<BlockId>),
+    Distill(Result<llm::DistillResult, UiError>, Vec<BlockId>),
 }
 
 /// Process one patch message and return a follow-up task (if any).
@@ -89,9 +89,9 @@ pub fn handle(state: &mut AppState, message: PatchMessage) -> Task<Message> {
 fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Task<Message> {
     state.set_overflow_open(false);
     let is_busy = match kind {
-        | PatchKind::Expand => state.llm_requests.is_expanding(block_id),
+        | PatchKind::Amplify => state.llm_requests.is_amplifying(block_id),
         | PatchKind::Atomize => state.llm_requests.is_atomizing(block_id),
-        | PatchKind::Reduce => state.llm_requests.is_reducing(block_id),
+        | PatchKind::Distill => state.llm_requests.is_distilling(block_id),
     };
     if is_busy {
         return Task::none();
@@ -106,12 +106,12 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
     state.snapshot_for_undo();
     let context = state.store.block_context_for_id(&block_id);
     let (config, request_signature) = match kind {
-        | PatchKind::Expand => {
-            let Some(config) = state.llm_config_for_expand(block_id) else { return Task::none() };
+        | PatchKind::Amplify => {
+            let Some(config) = state.llm_config_for_amplify(block_id) else { return Task::none() };
             let Some(sig) = RequestSignature::from_block_context(&context) else {
                 return Task::none();
             };
-            state.llm_requests.mark_expand_loading(block_id, sig);
+            state.llm_requests.mark_amplify_loading(block_id, sig);
             (config, sig)
         }
         | PatchKind::Atomize => {
@@ -122,31 +122,31 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
             state.llm_requests.mark_atomize_loading(block_id, sig);
             (config, sig)
         }
-        | PatchKind::Reduce => {
-            let Some(config) = state.llm_config_for_reduce(block_id) else { return Task::none() };
+        | PatchKind::Distill => {
+            let Some(config) = state.llm_config_for_distill(block_id) else { return Task::none() };
             let Some(sig) = RequestSignature::from_block_context(&context) else {
                 return Task::none();
             };
-            state.llm_requests.mark_reduce_loading(block_id, sig);
+            state.llm_requests.mark_distill_loading(block_id, sig);
             (config, sig)
         }
     };
 
     let kind_name = match kind {
-        | PatchKind::Expand => "expand",
+        | PatchKind::Amplify => "amplify",
         | PatchKind::Atomize => "atomize",
-        | PatchKind::Reduce => "reduce",
+        | PatchKind::Distill => "distill",
     };
     tracing::info!(block_id = ?block_id, "{} request started", kind_name);
 
     let instruction = state.store.remove_instruction_draft(&block_id).map(|d| d.instruction);
 
     let request_task = match kind {
-        | PatchKind::Expand => {
-            let max_tokens = state.config.tasks.expand.token_limit.as_api_param();
-            let prompt = llm::TaskPromptConfig::expand(
-                &state.config.tasks.expand.system_prompt,
-                &state.config.tasks.expand.user_prompt,
+        | PatchKind::Amplify => {
+            let max_tokens = state.config.tasks.amplify.token_limit.as_api_param();
+            let prompt = llm::TaskPromptConfig::amplify(
+                &state.config.tasks.amplify.system_prompt,
+                &state.config.tasks.amplify.user_prompt,
             );
             let task = Task::perform(
                 async move {
@@ -154,7 +154,7 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
                     AppState::resolve_llm_request(
                         tokio::time::timeout(
                             LLM_REQUEST_TIMEOUT,
-                            client.expand_block(
+                            client.amplify_block(
                                 &context,
                                 instruction.as_deref(),
                                 max_tokens,
@@ -163,22 +163,22 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
                         )
                         .await,
                         format!(
-                            "expand request timed out after {} seconds",
+                            "amplify request timed out after {} seconds",
                             LLM_REQUEST_TIMEOUT.as_secs()
                         ),
                     )
                 },
                 move |r| {
                     Message::Patch(PatchMessage::Done {
-                        kind: PatchKind::Expand,
+                        kind: PatchKind::Amplify,
                         block_id,
                         request_signature,
-                        result: PatchDoneResult::Expand(r),
+                        result: PatchDoneResult::Amplify(r),
                     })
                 },
             );
             let (task, handle) = Task::abortable(task);
-            state.llm_requests.replace_expand_handle(block_id, handle);
+            state.llm_requests.replace_amplify_handle(block_id, handle);
             task
         }
         | PatchKind::Atomize => {
@@ -220,12 +220,12 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
             state.llm_requests.replace_atomize_handle(block_id, handle);
             task
         }
-        | PatchKind::Reduce => {
+        | PatchKind::Distill => {
             let children_snapshot = state.store.children(&block_id).to_vec();
-            let max_tokens = state.config.tasks.reduce.token_limit.as_api_param();
-            let prompt = llm::TaskPromptConfig::reduce(
-                &state.config.tasks.reduce.system_prompt,
-                &state.config.tasks.reduce.user_prompt,
+            let max_tokens = state.config.tasks.distill.token_limit.as_api_param();
+            let prompt = llm::TaskPromptConfig::distill(
+                &state.config.tasks.distill.system_prompt,
+                &state.config.tasks.distill.user_prompt,
             );
             let task = Task::perform(
                 async move {
@@ -233,7 +233,7 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
                     AppState::resolve_llm_request(
                         tokio::time::timeout(
                             LLM_REQUEST_TIMEOUT,
-                            client.reduce_block(
+                            client.distill_block(
                                 &context,
                                 instruction.as_deref(),
                                 max_tokens,
@@ -241,20 +241,20 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
                             ),
                         )
                         .await,
-                        "reduce request timed out after 30 seconds",
+                        "distill request timed out after 30 seconds",
                     )
                 },
                 move |r| {
                     Message::Patch(PatchMessage::Done {
-                        kind: PatchKind::Reduce,
+                        kind: PatchKind::Distill,
                         block_id,
                         request_signature,
-                        result: PatchDoneResult::Reduce(r, children_snapshot),
+                        result: PatchDoneResult::Distill(r, children_snapshot),
                     })
                 },
             );
             let (task, handle) = Task::abortable(task);
-            state.llm_requests.replace_reduce_handle(block_id, handle);
+            state.llm_requests.replace_distill_handle(block_id, handle);
             task
         }
     };
@@ -264,15 +264,15 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
 
 fn handle_cancel(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Task<Message> {
     let cancelled = match kind {
-        | PatchKind::Expand => state.llm_requests.cancel_expand(block_id),
+        | PatchKind::Amplify => state.llm_requests.cancel_amplify(block_id),
         | PatchKind::Atomize => state.llm_requests.cancel_atomize(block_id),
-        | PatchKind::Reduce => state.llm_requests.cancel_reduce(block_id),
+        | PatchKind::Distill => state.llm_requests.cancel_distill(block_id),
     };
     if cancelled {
         let name = match kind {
-            | PatchKind::Expand => "expand",
+            | PatchKind::Amplify => "amplify",
             | PatchKind::Atomize => "atomize",
-            | PatchKind::Reduce => "reduce",
+            | PatchKind::Distill => "distill",
         };
         tracing::info!(block_id = ?block_id, "{} request cancelled", name);
     }
@@ -284,15 +284,15 @@ fn handle_done(
     result: PatchDoneResult,
 ) -> Task<Message> {
     let pending_signature = match kind {
-        | PatchKind::Expand => state.llm_requests.finish_expand_request(block_id),
+        | PatchKind::Amplify => state.llm_requests.finish_amplify_request(block_id),
         | PatchKind::Atomize => state.llm_requests.finish_atomize_request(block_id),
-        | PatchKind::Reduce => state.llm_requests.finish_reduce_request(block_id),
+        | PatchKind::Distill => state.llm_requests.finish_distill_request(block_id),
     };
     if state.store.node(&block_id).is_none() {
         return Task::none();
     }
     let should_discard = pending_signature != Some(request_signature)
-        || (matches!(kind, PatchKind::Expand | PatchKind::Reduce)
+        || (matches!(kind, PatchKind::Amplify | PatchKind::Distill)
             && state.is_stale_response(&block_id, request_signature));
     if should_discard {
         tracing::info!(block_id = ?block_id, "discarded stale response");
@@ -300,32 +300,32 @@ fn handle_done(
     }
 
     match (kind, result) {
-        | (PatchKind::Expand, PatchDoneResult::Expand(Ok(raw))) => {
+        | (PatchKind::Amplify, PatchDoneResult::Amplify(Ok(raw))) => {
             let (rewrite, children) = raw.into_parts();
             let rewrite = rewrite.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
             let children = children
                 .into_iter()
-                .map(llm::ExpandSuggestion::into_point)
+                .map(llm::AmplifySuggestion::into_point)
                 .map(|v| v.trim().to_string())
                 .filter(|v| !v.is_empty())
                 .collect::<Vec<_>>();
-            tracing::info!(block_id = ?block_id, has_rewrite = rewrite.is_some(), child_count = children.len(), "expand succeeded");
+            tracing::info!(block_id = ?block_id, has_rewrite = rewrite.is_some(), child_count = children.len(), "amplify succeeded");
             if rewrite.is_none() && children.is_empty() {
-                let reason = UiError::from_message("expand returned no usable suggestions");
-                state.llm_requests.set_expand_error(block_id, reason.clone());
-                state.record_error(AppError::Expand(reason));
+                let reason = UiError::from_message("amplify returned no usable suggestions");
+                state.llm_requests.set_amplify_error(block_id, reason.clone());
+                state.record_error(AppError::Amplify(reason));
                 return Task::none();
             }
             state.mutate_with_undo_and_persist("after creating expansion draft", |s| {
                 s.store
                     .insert_expansion_draft(block_id, ExpansionDraftRecord { rewrite, children });
-                s.errors.retain(|e| !matches!(e, AppError::Expand(_)));
+                s.errors.retain(|e| !matches!(e, AppError::Amplify(_)));
                 true
             });
         }
-        | (PatchKind::Expand, PatchDoneResult::Expand(Err(reason))) => {
-            state.llm_requests.set_expand_error(block_id, reason.clone());
-            state.record_error(AppError::Expand(reason));
+        | (PatchKind::Amplify, PatchDoneResult::Amplify(Err(reason))) => {
+            state.llm_requests.set_amplify_error(block_id, reason.clone());
+            state.record_error(AppError::Amplify(reason));
         }
         | (PatchKind::Atomize, PatchDoneResult::Atomize(Ok(raw))) => {
             let (rewrite, points) = raw.into_parts();
@@ -338,11 +338,11 @@ fn handle_done(
         | (PatchKind::Atomize, PatchDoneResult::Atomize(Err(reason))) => {
             state.record_error(AppError::Atomize(reason));
         }
-        | (PatchKind::Reduce, PatchDoneResult::Reduce(Ok(raw), ref children_snapshot)) => {
+        | (PatchKind::Distill, PatchDoneResult::Distill(Ok(raw), ref children_snapshot)) => {
             let (reduction, indices) = raw.into_parts();
             let redundant: Vec<BlockId> =
                 indices.iter().filter_map(|&i| children_snapshot.get(i).copied()).collect();
-            tracing::info!(block_id = ?block_id, chars = reduction.len(), redundant = redundant.len(), "reduce succeeded");
+            tracing::info!(block_id = ?block_id, chars = reduction.len(), redundant = redundant.len(), "distill succeeded");
             state.mutate_with_undo_and_persist("after creating reduction draft", |s| {
                 s.store.insert_reduction_draft(
                     block_id,
@@ -351,13 +351,13 @@ fn handle_done(
                         redundant_children: redundant,
                     },
                 );
-                s.errors.retain(|e| !matches!(e, AppError::Reduce(_)));
+                s.errors.retain(|e| !matches!(e, AppError::Distill(_)));
                 true
             });
         }
-        | (PatchKind::Reduce, PatchDoneResult::Reduce(Err(reason), _)) => {
-            state.llm_requests.set_reduce_error(block_id, reason.clone());
-            state.record_error(AppError::Reduce(reason));
+        | (PatchKind::Distill, PatchDoneResult::Distill(Err(reason), _)) => {
+            state.llm_requests.set_distill_error(block_id, reason.clone());
+            state.record_error(AppError::Distill(reason));
         }
         | _ => {}
     }
@@ -691,23 +691,24 @@ pub fn render_patch_panel<'a>(
         | PatchDraft::Reduction(d) => {
             let current_point = state.store.point(block_id).unwrap_or_default();
             let point_applied = d.reduction.as_ref().map_or(false, |r| current_point == *r);
-            let rewrite = d.reduction.as_deref().filter(|_| !point_applied).map(|r| RewriteSection::Diff {
-                title: t!("doc_reduce").to_string(),
-                old_text: current_point,
-                new_text: r.to_string(),
-                buttons: vec![
-                    PanelButton {
-                        label: t!("doc_apply_reduction").to_string(),
-                        style: PanelButtonStyle::Action,
-                        on_press: Message::Patch(PatchMessage::ApplyRewrite(*block_id)),
-                    },
-                    PanelButton {
-                        label: t!("doc_dismiss_reduction").to_string(),
-                        style: PanelButtonStyle::Destructive,
-                        on_press: Message::Patch(PatchMessage::RejectRewrite(*block_id)),
-                    },
-                ],
-            });
+            let rewrite =
+                d.reduction.as_deref().filter(|_| !point_applied).map(|r| RewriteSection::Diff {
+                    title: t!("doc_reduce").to_string(),
+                    old_text: current_point,
+                    new_text: r.to_string(),
+                    buttons: vec![
+                        PanelButton {
+                            label: t!("doc_apply_reduction").to_string(),
+                            style: PanelButtonStyle::Action,
+                            on_press: Message::Patch(PatchMessage::ApplyRewrite(*block_id)),
+                        },
+                        PanelButton {
+                            label: t!("doc_dismiss_reduction").to_string(),
+                            style: PanelButtonStyle::Destructive,
+                            on_press: Message::Patch(PatchMessage::RejectRewrite(*block_id)),
+                        },
+                    ],
+                });
             let children = build_delete_children_section(
                 block_id,
                 t!("doc_redundant_children").to_string(),
@@ -833,16 +834,16 @@ mod tests {
     fn expand_done_success_persists_draft() {
         let (mut state, root) = test_state();
         let sig = state.block_context_signature(&root).expect("root has lineage");
-        state.llm_requests.mark_expand_loading(root, sig);
+        state.llm_requests.mark_amplify_loading(root, sig);
         let _ = AppState::update(
             &mut state,
             Message::Patch(PatchMessage::Done {
-                kind: PatchKind::Expand,
+                kind: PatchKind::Amplify,
                 block_id: root,
                 request_signature: sig,
-                result: PatchDoneResult::Expand(Ok(llm::ExpandResult::new(
+                result: PatchDoneResult::Amplify(Ok(llm::AmplifyResult::new(
                     Some("rewrite".to_string()),
-                    vec![llm::ExpandSuggestion::new("child".to_string())],
+                    vec![llm::AmplifySuggestion::new("child".to_string())],
                 ))),
             }),
         );
@@ -855,17 +856,17 @@ mod tests {
     fn expand_done_stale_response_ignored() {
         let (mut state, root) = test_state();
         let sig = state.block_context_signature(&root).expect("root has lineage");
-        state.llm_requests.mark_expand_loading(root, sig);
+        state.llm_requests.mark_amplify_loading(root, sig);
         state.store.update_point(&root, "edited".to_string());
         let _ = AppState::update(
             &mut state,
             Message::Patch(PatchMessage::Done {
-                kind: PatchKind::Expand,
+                kind: PatchKind::Amplify,
                 block_id: root,
                 request_signature: sig,
-                result: PatchDoneResult::Expand(Ok(llm::ExpandResult::new(
+                result: PatchDoneResult::Amplify(Ok(llm::AmplifyResult::new(
                     Some("stale".to_string()),
-                    vec![llm::ExpandSuggestion::new("x".to_string())],
+                    vec![llm::AmplifySuggestion::new("x".to_string())],
                 ))),
             }),
         );
@@ -877,14 +878,14 @@ mod tests {
         let (mut state, root) = test_state();
         let _ = AppState::update(
             &mut state,
-            Message::Patch(PatchMessage::Start { kind: PatchKind::Expand, block_id: root }),
+            Message::Patch(PatchMessage::Start { kind: PatchKind::Amplify, block_id: root }),
         );
-        assert!(state.llm_requests.is_expanding(root));
+        assert!(state.llm_requests.is_amplifying(root));
         let _ = AppState::update(
             &mut state,
-            Message::Patch(PatchMessage::Cancel { kind: PatchKind::Expand, block_id: root }),
+            Message::Patch(PatchMessage::Cancel { kind: PatchKind::Amplify, block_id: root }),
         );
-        assert!(!state.llm_requests.is_expanding(root));
+        assert!(!state.llm_requests.is_amplifying(root));
     }
 
     #[test]
@@ -924,15 +925,15 @@ mod tests {
     fn reduce_done_success_persists_draft() {
         let (mut state, root) = test_state();
         let sig = state.block_context_signature(&root).expect("root has lineage");
-        state.llm_requests.mark_reduce_loading(root, sig);
+        state.llm_requests.mark_distill_loading(root, sig);
         let _ = AppState::update(
             &mut state,
             Message::Patch(PatchMessage::Done {
-                kind: PatchKind::Reduce,
+                kind: PatchKind::Distill,
                 block_id: root,
                 request_signature: sig,
-                result: PatchDoneResult::Reduce(
-                    Ok(llm::ReduceResult::new("reduced".to_string(), vec![])),
+                result: PatchDoneResult::Distill(
+                    Ok(llm::DistillResult::new("reduced".to_string(), vec![])),
                     vec![],
                 ),
             }),

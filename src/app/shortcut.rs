@@ -377,11 +377,11 @@ fn run_shortcut_for_block(
         draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0)
             + atomization_draft.map(|d| d.points.len()).unwrap_or(0)
             + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
-        has_expand_error: state.llm_requests.has_expand_error(block_id),
-        has_reduce_error: state.llm_requests.has_reduce_error(block_id),
+        has_amplify_error: state.llm_requests.has_amplify_error(block_id),
+        has_distill_error: state.llm_requests.has_distill_error(block_id),
         has_atomize_error: state.llm_requests.has_atomize_error(block_id),
-        is_expanding: state.llm_requests.is_expanding(block_id),
-        is_reducing: state.llm_requests.is_reducing(block_id),
+        is_amplifying: state.llm_requests.is_amplifying(block_id),
+        is_distilling: state.llm_requests.is_distilling(block_id),
         is_atomizing: state.llm_requests.is_atomizing(block_id),
         is_mounted: state.store.mount_table().entry(block_id).is_some(),
         has_children: !state.store.children(&block_id).is_empty(),
@@ -414,9 +414,9 @@ mod tests {
         assert!(state.focus().is_none());
         state.edit_session = Some(root);
 
-        let _ = handle(&mut state, ShortcutMessage::Trigger(ActionId::Expand));
+        let _ = handle(&mut state, ShortcutMessage::Trigger(ActionId::Amplify));
 
-        assert!(state.llm_requests.is_expanding(root));
+        assert!(state.llm_requests.is_amplifying(root));
     }
 
     #[test]

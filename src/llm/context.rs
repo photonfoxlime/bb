@@ -243,11 +243,11 @@ impl FriendContext {
 
 /// One candidate child point returned from an expand request.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExpandSuggestion {
+pub struct AmplifySuggestion {
     point: String,
 }
 
-impl ExpandSuggestion {
+impl AmplifySuggestion {
     /// Construct one suggestion with raw point text.
     pub fn new(point: String) -> Self {
         Self { point }
@@ -261,19 +261,19 @@ impl ExpandSuggestion {
 
 /// Structured result returned by one expand request.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ExpandResult {
+pub struct AmplifyResult {
     rewrite: Option<String>,
-    children: Vec<ExpandSuggestion>,
+    children: Vec<AmplifySuggestion>,
 }
 
-impl ExpandResult {
-    /// Build an expand result from optional rewrite and children.
-    pub fn new(rewrite: Option<String>, children: Vec<ExpandSuggestion>) -> Self {
+impl AmplifyResult {
+    /// Build an amplify result from optional rewrite and children.
+    pub fn new(rewrite: Option<String>, children: Vec<AmplifySuggestion>) -> Self {
         Self { rewrite, children }
     }
 
     /// Consume the result and return owned parts.
-    pub fn into_parts(self) -> (Option<String>, Vec<ExpandSuggestion>) {
+    pub fn into_parts(self) -> (Option<String>, Vec<AmplifySuggestion>) {
         (self.rewrite, self.children)
     }
 }
@@ -308,13 +308,13 @@ impl AtomizeResult {
 /// The caller maps these indices to `BlockId`s using the children snapshot
 /// that was active at request time.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ReduceResult {
+pub struct DistillResult {
     reduction: String,
     /// 0-based indices into the `existing_children` that were sent in the prompt.
     redundant_children: Vec<usize>,
 }
 
-impl ReduceResult {
+impl DistillResult {
     pub fn new(reduction: String, redundant_children: Vec<usize>) -> Self {
         Self { reduction, redundant_children }
     }
@@ -516,34 +516,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn expand_suggestion_into_point() {
-        let suggestion = ExpandSuggestion::new("text".into());
+    fn amplify_suggestion_into_point() {
+        let suggestion = AmplifySuggestion::new("text".into());
         assert_eq!(suggestion.into_point(), "text");
     }
 
     #[test]
-    fn expand_result_into_parts_with_both() {
-        let suggestion = ExpandSuggestion::new("child".into());
-        let result = ExpandResult::new(Some("rewrite".into()), vec![suggestion]);
+    fn amplify_result_into_parts_with_both() {
+        let suggestion = AmplifySuggestion::new("child".into());
+        let result = AmplifyResult::new(Some("rewrite".into()), vec![suggestion]);
         let (rewrite, children) = result.into_parts();
         assert_eq!(rewrite, Some("rewrite".to_string()));
         assert_eq!(children.len(), 1);
-        assert_eq!(children[0], ExpandSuggestion::new("child".into()));
+        assert_eq!(children[0], AmplifySuggestion::new("child".into()));
     }
 
     #[test]
-    fn expand_result_into_parts_rewrite_only() {
-        let result = ExpandResult::new(Some("rewrite".into()), vec![]);
+    fn amplify_result_into_parts_rewrite_only() {
+        let result = AmplifyResult::new(Some("rewrite".into()), vec![]);
         let (rewrite, children) = result.into_parts();
         assert_eq!(rewrite, Some("rewrite".to_string()));
         assert!(children.is_empty());
     }
 
     #[test]
-    fn expand_result_into_parts_children_only() {
-        let suggestion1 = ExpandSuggestion::new("child1".into());
-        let suggestion2 = ExpandSuggestion::new("child2".into());
-        let result = ExpandResult::new(None, vec![suggestion1, suggestion2]);
+    fn amplify_result_into_parts_children_only() {
+        let suggestion1 = AmplifySuggestion::new("child1".into());
+        let suggestion2 = AmplifySuggestion::new("child2".into());
+        let result = AmplifyResult::new(None, vec![suggestion1, suggestion2]);
         let (rewrite, children) = result.into_parts();
         assert_eq!(rewrite, None);
         assert_eq!(children.len(), 2);
@@ -574,16 +574,16 @@ mod tests {
     }
 
     #[test]
-    fn reduce_result_into_parts() {
-        let result = ReduceResult::new("condensed".into(), vec![0, 2]);
+    fn distill_result_into_parts() {
+        let result = DistillResult::new("condensed".into(), vec![0, 2]);
         let (reduction, redundant) = result.into_parts();
         assert_eq!(reduction, "condensed");
         assert_eq!(redundant, vec![0, 2]);
     }
 
     #[test]
-    fn reduce_result_empty_redundant() {
-        let result = ReduceResult::new("text".into(), vec![]);
+    fn distill_result_empty_redundant() {
+        let result = DistillResult::new("text".into(), vec![]);
         let (_, redundant) = result.into_parts();
         assert!(redundant.is_empty());
     }

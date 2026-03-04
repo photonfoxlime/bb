@@ -99,14 +99,14 @@ mod tests {
     fn uses_latest_error_and_total_count() {
         rust_i18n::set_locale("en-US");
         let mut state = test_state();
-        state.errors.push(AppError::Reduce(UiError::from_message("reduce failed")));
-        state.errors.push(AppError::Expand(UiError::from_message("expand failed")));
+        state.errors.push(AppError::Distill(UiError::from_message("distill failed")));
+        state.errors.push(AppError::Amplify(UiError::from_message("amplify failed")));
 
         let banner = ErrorBanner::from_state(&state).expect("banner should exist");
-        assert_eq!(banner.title(), "Error (2 total): expand failed");
+        assert_eq!(banner.title(), "Error (2 total): amplify failed");
         assert_eq!(
             banner.previous_entries,
-            vec![ErrorBannerEntry { index: 0, message: "reduce failed".to_string() }]
+            vec![ErrorBannerEntry { index: 0, message: "distill failed".to_string() }]
         );
         assert_eq!(banner.hidden_previous_count, 0);
     }

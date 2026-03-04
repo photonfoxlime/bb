@@ -412,7 +412,7 @@ impl AppState {
                         // subscription path so `Cmd/Ctrl+.` and `Cmd/Ctrl+,` remain reliable.
                         return action_shortcut
                             .filter(|action_id| {
-                                matches!(action_id, ActionId::Expand | ActionId::Reduce)
+                                matches!(action_id, ActionId::Amplify | ActionId::Distill)
                             })
                             .map(ShortcutMessage::Trigger)
                             .map(Message::Shortcut);
@@ -465,10 +465,10 @@ impl AppState {
         let mut errors = vec![];
         // Validate each task's configured provider at startup.
         for task_cfg in [
-            &config.tasks.expand,
-            &config.tasks.reduce,
+            &config.tasks.amplify,
+            &config.tasks.distill,
             &config.tasks.atomize,
-            &config.tasks.inquire,
+            &config.tasks.probe,
         ] {
             if let Err(err) = providers.resolve(&task_cfg.provider, &task_cfg.model) {
                 errors.push(AppError::Configuration(UiError::from_message(err)));
@@ -604,14 +604,14 @@ impl AppState {
         }
     }
 
-    fn llm_config_for_reduce(&mut self, block_id: BlockId) -> Option<llm::LlmConfig> {
-        let task = &self.config.tasks.reduce;
+    fn llm_config_for_distill(&mut self, block_id: BlockId) -> Option<llm::LlmConfig> {
+        let task = &self.config.tasks.distill;
         match self.providers.resolve(&task.provider, &task.model) {
             | Ok(config) => Some(config),
             | Err(err) => {
                 let ui_err = UiError::from_message(err);
                 self.record_error(AppError::Configuration(ui_err.clone()));
-                self.llm_requests.set_reduce_error(block_id, ui_err);
+                self.llm_requests.set_distill_error(block_id, ui_err);
                 None
             }
         }
@@ -630,21 +630,21 @@ impl AppState {
         }
     }
 
-    fn llm_config_for_expand(&mut self, block_id: BlockId) -> Option<llm::LlmConfig> {
-        let task = &self.config.tasks.expand;
+    fn llm_config_for_amplify(&mut self, block_id: BlockId) -> Option<llm::LlmConfig> {
+        let task = &self.config.tasks.amplify;
         match self.providers.resolve(&task.provider, &task.model) {
             | Ok(config) => Some(config),
             | Err(err) => {
                 let ui_err = UiError::from_message(err);
                 self.record_error(AppError::Configuration(ui_err.clone()));
-                self.llm_requests.set_expand_error(block_id, ui_err);
+                self.llm_requests.set_amplify_error(block_id, ui_err);
                 None
             }
         }
     }
 
-    fn llm_config_for_inquire(&mut self) -> Option<llm::LlmConfig> {
-        let task = &self.config.tasks.inquire;
+    fn llm_config_for_probe(&mut self) -> Option<llm::LlmConfig> {
+        let task = &self.config.tasks.probe;
         match self.providers.resolve(&task.provider, &task.model) {
             | Ok(config) => Some(config),
             | Err(err) => {
@@ -1113,7 +1113,7 @@ mod tests {
     fn global_shortcut_filter_ignores_enter_structural_actions() {
         assert!(!AppState::allow_global_action_shortcut(ActionId::AddChild));
         assert!(!AppState::allow_global_action_shortcut(ActionId::AddSibling));
-        assert!(AppState::allow_global_action_shortcut(ActionId::Expand));
+        assert!(AppState::allow_global_action_shortcut(ActionId::Amplify));
     }
 
     #[test]

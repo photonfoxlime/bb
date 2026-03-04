@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use crate::llm::config::{ApiStyle, LlmConfig};
 use crate::llm::context::{
-    AtomizeResult, BlockContext, ExpandResult, ExpandSuggestion, ReduceResult,
+    AmplifyResult, AmplifySuggestion, AtomizeResult, BlockContext, DistillResult,
 };
 use crate::llm::error::{ApiError, LlmError};
 use crate::llm::prompt::{Prompt, TaskPromptConfig};
@@ -18,9 +18,9 @@ use iced::futures::SinkExt;
 use iced::futures::Stream;
 use iced::futures::StreamExt;
 
-/// Incremental inquiry stream event emitted by [`LlmClient::inquire_stream`].
+/// Incremental probe stream event emitted by [`LlmClient::probe_stream`].
 #[derive(Debug)]
-pub enum InquireStreamEvent {
+pub enum ProbeStreamEvent {
     /// One response delta chunk from the model.
     Chunk(String),
     /// Non-recoverable error while producing inquiry chunks.
@@ -48,7 +48,7 @@ impl LlmClient {
         Self { config, http: reqwest::Client::new() }
     }
 
-    /// Reduce a block's point using ancestor lineage and existing children as context.
+    /// Distill a block's point using ancestor lineage and existing children as context.
     ///
     /// When existing children are present, the LLM may identify some as
     /// redundant (their content is subsumed by the reduction).
@@ -60,12 +60,12 @@ impl LlmClient {
     /// - `context` must not be empty (must have a lineage).
     ///
     /// # Ensures
-    /// - Returns `Ok(ReduceResult)` with the condensed text and indices of redundant children.
+    /// - Returns `Ok(DistillResult)` with the condensed text and indices of redundant children.
     /// - If response parsing fails, falls back to plain-text reduction with no redundant children.
-    pub async fn reduce_block(
+    pub async fn distill_block(
         &self, context: &BlockContext, instruction: Option<&str>, max_tokens: Option<u32>,
         config: &TaskPromptConfig,
-    ) -> Result<ReduceResult, LlmError> {
+    ) -> Result<DistillResult, LlmError> {
         if context.is_empty() {
             return Err(LlmError::InvalidRequest);
         }
@@ -73,14 +73,14 @@ impl LlmClient {
         let has_children =
             !context.existing_children.is_empty() || !context.friend_blocks.is_empty();
         let prompt = Prompt::from_context(config, context, instruction);
-        let content = self.request_completion("reduce", &prompt, 0.2, max_tokens).await?;
+        let content = self.request_completion("distill", &prompt, 0.2, max_tokens).await?;
 
         if has_children {
-            // Try structured JSON first; fall back to plain-text reduction.
-            if let Ok(payload) = serde_json::from_str::<ReduceResponsePayload>(&content) {
+            // Try structured JSON first; fall back to plain-text distillation.
+            if let Ok(payload) = serde_json::from_str::<DistillResponsePayload>(&content) {
                 let reduction = payload.reduction.trim().to_string();
                 if reduction.is_empty() {
-                    return Err(LlmError::InvalidReduceResponse);
+                    return Err(LlmError::InvalidDistillResponse);
                 }
                 let child_count = context.existing_children.len();
                 let redundant_children: Vec<usize> = payload
@@ -95,20 +95,20 @@ impl LlmClient {
                     redundant = redundant_children.len(),
                     "llm reduce response (structured)"
                 );
-                return Ok(ReduceResult::new(reduction, redundant_children));
+                return Ok(DistillResult::new(reduction, redundant_children));
             }
         }
 
         // Plain-text fallback (no children or JSON parse failed).
         let reduction = content.trim().to_string();
         if reduction.is_empty() {
-            return Err(LlmError::InvalidReduceResponse);
+            return Err(LlmError::InvalidDistillResponse);
         }
-        tracing::info!(chars = reduction.len(), "llm reduce response (plain)");
-        Ok(ReduceResult::new(reduction, vec![]))
+        tracing::info!(chars = reduction.len(), "llm distill response (plain)");
+        Ok(DistillResult::new(reduction, vec![]))
     }
 
-    /// Expand one target point into rewrite and concise child point candidates.
+    /// Amplify one target point into rewrite and concise child point candidates.
     ///
     /// When existing children are present, the prompt instructs the LLM to
     /// avoid suggesting children that overlap with them.
@@ -120,20 +120,20 @@ impl LlmClient {
     /// - `context` must not be empty (must have a lineage).
     ///
     /// # Ensures
-    /// - Returns `Ok(ExpandResult)` with optional rewrite and child suggestions.
-    /// - Returns `Err(LlmError::InvalidExpandResponse)` if the response cannot be parsed.
-    pub async fn expand_block(
+    /// - Returns `Ok(AmplifyResult)` with optional rewrite and child suggestions.
+    /// - Returns `Err(LlmError::InvalidAmplifyResponse)` if the response cannot be parsed.
+    pub async fn amplify_block(
         &self, context: &BlockContext, instruction: Option<&str>, max_tokens: Option<u32>,
         config: &TaskPromptConfig,
-    ) -> Result<ExpandResult, LlmError> {
+    ) -> Result<AmplifyResult, LlmError> {
         if context.is_empty() {
             return Err(LlmError::InvalidRequest);
         }
 
         let prompt = Prompt::from_context(config, context, instruction);
-        let content = self.request_completion("expand", &prompt, 0.7, max_tokens).await?;
-        let payload: ExpandResponsePayload =
-            serde_json::from_str(&content).map_err(|_| LlmError::InvalidExpandResponse)?;
+        let content = self.request_completion("amplify", &prompt, 0.7, max_tokens).await?;
+        let payload: AmplifyResponsePayload =
+            serde_json::from_str(&content).map_err(|_| LlmError::InvalidAmplifyResponse)?;
 
         let rewrite =
             payload.rewrite.map(|value| value.trim().to_string()).filter(|value| !value.is_empty());
@@ -142,19 +142,19 @@ impl LlmClient {
             .into_iter()
             .map(|value| value.trim().to_string())
             .filter(|value| !value.is_empty())
-            .map(ExpandSuggestion::new)
+            .map(AmplifySuggestion::new)
             .collect::<Vec<_>>();
 
         if rewrite.is_none() && children.is_empty() {
-            return Err(LlmError::InvalidExpandResponse);
+            return Err(LlmError::InvalidAmplifyResponse);
         }
 
         tracing::info!(
             rewrite = rewrite.is_some(),
             children = children.len(),
-            "llm expand response"
+            "llm amplify response"
         );
-        Ok(ExpandResult::new(rewrite, children))
+        Ok(AmplifyResult::new(rewrite, children))
     }
 
     /// Atomize one target point into distinct information points.
@@ -243,7 +243,7 @@ impl LlmClient {
     /// The method prefers true server-sent-event streaming (`stream: true`). If
     /// the provider does not support streaming and no chunks were emitted, it
     /// falls back to a one-shot inquiry request and emits that full response as
-    /// one [`InquireStreamEvent::Chunk`].
+    /// one [`ProbeStreamEvent::Chunk`].
     ///
     /// `max_tokens` caps the completion length (`None` = unlimited, omits the
     /// field from the API request).
@@ -253,13 +253,13 @@ impl LlmClient {
     /// - `instruction` must not be empty.
     ///
     /// # Ensures
-    /// - Emits zero or more [`InquireStreamEvent::Chunk`] events.
-    /// - Emits exactly one terminal [`InquireStreamEvent::Finished`] event.
-    /// - Emits [`InquireStreamEvent::Failed`] before `Finished` on failure.
-    pub fn inquire_stream(
+    /// - Emits zero or more [`ProbeStreamEvent::Chunk`] events.
+    /// - Emits exactly one terminal [`ProbeStreamEvent::Finished`] event.
+    /// - Emits [`ProbeStreamEvent::Failed`] before `Finished` on failure.
+    pub fn probe_stream(
         self, context: BlockContext, instruction: String, timeout: Duration,
         max_tokens: Option<u32>, config: TaskPromptConfig,
-    ) -> impl Stream<Item = InquireStreamEvent> {
+    ) -> impl Stream<Item = ProbeStreamEvent> {
         iced::stream::channel(64, async move |mut output| {
             let request = async {
                 if context.is_empty() || instruction.is_empty() {
@@ -314,10 +314,10 @@ impl LlmClient {
             };
 
             if let Err(err) = result {
-                let _ = output.send(InquireStreamEvent::Failed(err)).await;
+                let _ = output.send(ProbeStreamEvent::Failed(err)).await;
             }
 
-            let _ = output.send(InquireStreamEvent::Finished).await;
+            let _ = output.send(ProbeStreamEvent::Finished).await;
         })
     }
 
@@ -385,18 +385,18 @@ impl LlmClient {
 
     async fn emit_inquiry_fallback(
         &self, context: &BlockContext, instruction: &str,
-        output: &mut iced::futures::channel::mpsc::Sender<InquireStreamEvent>,
+        output: &mut iced::futures::channel::mpsc::Sender<ProbeStreamEvent>,
         max_tokens: Option<u32>, config: &TaskPromptConfig,
     ) -> Result<(), LlmError> {
         let content = self.inquire(context, instruction, max_tokens, config).await?;
-        let _ = output.send(InquireStreamEvent::Chunk(content.clone())).await;
+        let _ = output.send(ProbeStreamEvent::Chunk(content.clone())).await;
         tracing::info!(chars = content.len(), "llm inquire fallback response");
         Ok(())
     }
 
     async fn stream_inquiry_chunks(
         &self, prompt: &Prompt,
-        output: &mut iced::futures::channel::mpsc::Sender<InquireStreamEvent>,
+        output: &mut iced::futures::channel::mpsc::Sender<ProbeStreamEvent>,
         max_tokens: Option<u32>,
     ) -> Result<StreamStats, LlmError> {
         let url = self.endpoint_url();
@@ -418,7 +418,7 @@ impl LlmClient {
                     }
                     | ParsedStreamEvent::Delta(delta) => {
                         stats.record_chunk(&delta);
-                        if output.send(InquireStreamEvent::Chunk(delta)).await.is_err() {
+                        if output.send(ProbeStreamEvent::Chunk(delta)).await.is_err() {
                             return Ok(stats);
                         }
                     }
@@ -436,7 +436,7 @@ impl LlmClient {
                     | ParsedStreamEvent::Done => break,
                     | ParsedStreamEvent::Delta(delta) => {
                         stats.record_chunk(&delta);
-                        if output.send(InquireStreamEvent::Chunk(delta)).await.is_err() {
+                        if output.send(ProbeStreamEvent::Chunk(delta)).await.is_err() {
                             return Ok(stats);
                         }
                     }
@@ -709,14 +709,14 @@ pub struct AtomizeResponsePayload {
 }
 
 #[derive(Deserialize)]
-pub struct ExpandResponsePayload {
+pub struct AmplifyResponsePayload {
     rewrite: Option<String>,
     #[serde(default)]
     children: Vec<String>,
 }
 
 #[derive(Deserialize)]
-pub struct ReduceResponsePayload {
+pub struct DistillResponsePayload {
     reduction: String,
     #[serde(default)]
     redundant_children: Vec<usize>,
@@ -1133,52 +1133,52 @@ fn extract_anthropic_stream_delta(value: &Value) -> Option<String> {
 mod tests {
     use super::*;
 
-    // ExpandResponsePayload deserialization tests
+    // AmplifyResponsePayload deserialization tests
     #[test]
-    fn expand_payload_full() {
+    fn amplify_payload_full() {
         let json = r#"{"rewrite": "new text", "children": ["a", "b"]}"#;
-        let payload: ExpandResponsePayload = serde_json::from_str(json).unwrap();
+        let payload: AmplifyResponsePayload = serde_json::from_str(json).unwrap();
         assert_eq!(payload.rewrite, Some("new text".to_string()));
         assert_eq!(payload.children, vec!["a".to_string(), "b".to_string()]);
     }
 
     #[test]
-    fn expand_payload_no_rewrite() {
+    fn amplify_payload_no_rewrite() {
         let json = r#"{"rewrite": null, "children": ["a"]}"#;
-        let payload: ExpandResponsePayload = serde_json::from_str(json).unwrap();
+        let payload: AmplifyResponsePayload = serde_json::from_str(json).unwrap();
         assert_eq!(payload.rewrite, None);
         assert_eq!(payload.children, vec!["a".to_string()]);
     }
 
     #[test]
-    fn expand_payload_missing_children() {
+    fn amplify_payload_missing_children() {
         let json = r#"{"rewrite": "r"}"#;
-        let payload: ExpandResponsePayload = serde_json::from_str(json).unwrap();
+        let payload: AmplifyResponsePayload = serde_json::from_str(json).unwrap();
         assert_eq!(payload.rewrite, Some("r".to_string()));
         assert!(payload.children.is_empty());
     }
 
     #[test]
-    fn expand_payload_empty() {
+    fn amplify_payload_empty() {
         let json = r#"{}"#;
-        let payload: ExpandResponsePayload = serde_json::from_str(json).unwrap();
+        let payload: AmplifyResponsePayload = serde_json::from_str(json).unwrap();
         assert_eq!(payload.rewrite, None);
         assert!(payload.children.is_empty());
     }
 
-    // ReduceResponsePayload deserialization tests
+    // DistillResponsePayload deserialization tests
     #[test]
-    fn reduce_payload_full() {
+    fn distill_payload_full() {
         let json = r#"{"reduction": "condensed text", "redundant_children": [0, 2]}"#;
-        let payload: ReduceResponsePayload = serde_json::from_str(json).unwrap();
+        let payload: DistillResponsePayload = serde_json::from_str(json).unwrap();
         assert_eq!(payload.reduction, "condensed text");
         assert_eq!(payload.redundant_children, vec![0, 2]);
     }
 
     #[test]
-    fn reduce_payload_no_redundant() {
+    fn distill_payload_no_redundant() {
         let json = r#"{"reduction": "text"}"#;
-        let payload: ReduceResponsePayload = serde_json::from_str(json).unwrap();
+        let payload: DistillResponsePayload = serde_json::from_str(json).unwrap();
         assert_eq!(payload.reduction, "text");
         assert!(payload.redundant_children.is_empty());
     }

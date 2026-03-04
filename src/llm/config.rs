@@ -14,7 +14,7 @@
 //! - [`ApiStyle::Anthropic`] for the Anthropic Messages API.
 //!
 //! Note: model selection is **not** part of the provider config. Each LLM task
-//! (expand, reduce, atomize, inquire) independently selects its own provider + model via
+//! (amplify, distill, atomize, probe) independently selects its own provider + model via
 //! [`crate::app::config::TaskSettings`].
 //!
 //! [`LlmProviders`] stores both sets. The on-disk format is a single TOML file
@@ -81,14 +81,14 @@ impl fmt::Display for ApiStyle {
 /// and UI discriminants.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TaskKind {
-    /// Expansion / child-suggestion requests.
-    Expand,
-    /// Condensation / summary requests.
-    Reduce,
+    /// Amplification / child-suggestion requests.
+    Amplify,
+    /// Distillation / condensation requests.
+    Distill,
     /// Break text into distinct information points without dropping details.
     Atomize,
-    /// Free-form instruction / inquiry requests.
-    Inquire,
+    /// Free-form instruction / probe requests.
+    Probe,
 }
 
 /// Validated LLM endpoint configuration.

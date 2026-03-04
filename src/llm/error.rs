@@ -19,11 +19,11 @@ pub enum LlmError {
     #[error("invalid response")]
     InvalidResponse,
     #[error("invalid expand response")]
-    InvalidExpandResponse,
+    InvalidAmplifyResponse,
     #[error("invalid atomize response")]
     InvalidAtomizeResponse,
     #[error("invalid reduce response")]
-    InvalidReduceResponse,
+    InvalidDistillResponse,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]

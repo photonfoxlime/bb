@@ -586,11 +586,11 @@ impl<'a> DocumentView<'a> {
             draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0)
                 + atomization_draft.map(|d| d.points.len()).unwrap_or(0)
                 + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
-            has_expand_error: self.state.llm_requests.has_expand_error(block_id),
-            has_reduce_error: self.state.llm_requests.has_reduce_error(block_id),
+            has_amplify_error: self.state.llm_requests.has_amplify_error(block_id),
+            has_distill_error: self.state.llm_requests.has_distill_error(block_id),
             has_atomize_error: self.state.llm_requests.has_atomize_error(block_id),
-            is_expanding: self.state.llm_requests.is_expanding(block_id),
-            is_reducing: self.state.llm_requests.is_reducing(block_id),
+            is_amplifying: self.state.llm_requests.is_amplifying(block_id),
+            is_distilling: self.state.llm_requests.is_distilling(block_id),
             is_atomizing: self.state.llm_requests.is_atomizing(block_id),
             is_mounted: self.state.store.mount_table().entry(block_id).is_some(),
             is_unexpanded_mount: node.is_some_and(|n| n.mount_path().is_some()),
@@ -1066,11 +1066,11 @@ impl<'a> TreeView<'a> {
             draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0)
                 + atomization_draft.map(|d| d.points.len()).unwrap_or(0)
                 + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
-            has_expand_error: self.state.llm_requests.has_expand_error(*block_id),
-            has_reduce_error: self.state.llm_requests.has_reduce_error(*block_id),
+            has_amplify_error: self.state.llm_requests.has_amplify_error(*block_id),
+            has_distill_error: self.state.llm_requests.has_distill_error(*block_id),
             has_atomize_error: self.state.llm_requests.has_atomize_error(*block_id),
-            is_expanding: self.state.llm_requests.is_expanding(*block_id),
-            is_reducing: self.state.llm_requests.is_reducing(*block_id),
+            is_amplifying: self.state.llm_requests.is_amplifying(*block_id),
+            is_distilling: self.state.llm_requests.is_distilling(*block_id),
             is_atomizing: self.state.llm_requests.is_atomizing(*block_id),
             is_mounted: self.state.store.mount_table().entry(*block_id).is_some(),
             is_unexpanded_mount: node.is_some_and(|n| n.mount_path().is_some()),
@@ -1096,13 +1096,13 @@ impl<'a> TreeView<'a> {
 
     fn render_status_chip(&self, vm: &ActionBarVm) -> Element<'a, Message> {
         let label = match &vm.status_chip {
-            | Some(StatusChipVm::Loading { op: ActionId::Expand }) => {
+            | Some(StatusChipVm::Loading { op: ActionId::Amplify }) => {
                 t!("doc_status_expanding").to_string()
             }
             | Some(StatusChipVm::Loading { op: ActionId::Atomize }) => {
                 t!("doc_status_atomizing").to_string()
             }
-            | Some(StatusChipVm::Loading { op: ActionId::Reduce }) => {
+            | Some(StatusChipVm::Loading { op: ActionId::Distill }) => {
                 t!("doc_status_reducing").to_string()
             }
             | Some(StatusChipVm::Loading { .. }) => t!("doc_status_working").to_string(),

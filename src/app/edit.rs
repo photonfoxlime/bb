@@ -154,9 +154,9 @@ fn command_shortcut_action_from_editor_insert(
     }
 
     match action {
-        | text_editor::Action::Edit(text_editor::Edit::Insert('.')) => Some(ActionId::Expand),
+        | text_editor::Action::Edit(text_editor::Edit::Insert('.')) => Some(ActionId::Amplify),
         | text_editor::Action::Edit(text_editor::Edit::Insert('/')) => Some(ActionId::Atomize),
-        | text_editor::Action::Edit(text_editor::Edit::Insert(',')) => Some(ActionId::Reduce),
+        | text_editor::Action::Edit(text_editor::Edit::Insert(',')) => Some(ActionId::Distill),
         | _ => None,
     }
 }
@@ -663,7 +663,7 @@ mod tests {
             text_editor::Action::Edit(text_editor::Edit::Insert('.')),
         );
 
-        assert!(state.llm_requests.is_expanding(root));
+        assert!(state.llm_requests.is_amplifying(root));
     }
 
     #[test]
@@ -679,7 +679,7 @@ mod tests {
             text_editor::Action::Edit(text_editor::Edit::Insert(',')),
         );
 
-        assert!(state.llm_requests.is_reducing(root));
+        assert!(state.llm_requests.is_distilling(root));
     }
 
     #[test]
@@ -709,7 +709,7 @@ mod tests {
             text_editor::Action::Edit(text_editor::Edit::Insert('.')),
         );
 
-        assert!(state.llm_requests.is_expanding(root));
+        assert!(state.llm_requests.is_amplifying(root));
     }
 
     #[test]

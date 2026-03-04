@@ -28,8 +28,8 @@ use lucide_icons::iced as icons;
 /// and availability (enabled, disabled-busy, disabled-empty-point).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActionId {
-    Expand,
-    Reduce,
+    Amplify,
+    Distill,
     Atomize,
     Cancel,
     AddChild,
@@ -106,8 +106,8 @@ impl ActionDescriptor {
 /// Get the i18n translation key for an action.
 pub fn action_i18n_key(id: ActionId) -> &'static str {
     match id {
-        | ActionId::Expand => "action_expand",
-        | ActionId::Reduce => "action_reduce",
+        | ActionId::Amplify => "action_amplify",
+        | ActionId::Distill => "action_distill",
         | ActionId::Atomize => "action_atomize",
         | ActionId::AddChild => "action_add_child",
         | ActionId::AddParent => "action_add_parent",
@@ -115,8 +115,8 @@ pub fn action_i18n_key(id: ActionId) -> &'static str {
         | ActionId::Retry => "action_retry",
         | ActionId::DismissDraft => "action_dismiss",
         | ActionId::Cancel => "action_cancel",
-        | ActionId::CollapseBranch => "action_expand",
-        | ActionId::ExpandBranch => "action_expand",
+        | ActionId::CollapseBranch => "action_expand_branch",
+        | ActionId::ExpandBranch => "action_expand_branch",
         | ActionId::AddSibling => "action_add_sibling",
         | ActionId::DuplicateBlock => "action_duplicate",
         | ActionId::ArchiveBlock => "action_archive",
@@ -129,10 +129,10 @@ pub fn action_i18n_key(id: ActionId) -> &'static str {
 /// Get the i18n translation key for a status error message based on the action that failed.
 pub fn status_error_i18n_key(op: ActionId) -> &'static str {
     match op {
-        | ActionId::Expand => "status_expand_failed",
-        | ActionId::Reduce => "status_reduce_failed",
+        | ActionId::Amplify => "status_amplify_failed",
+        | ActionId::Distill => "status_distill_failed",
         | ActionId::Atomize => "status_atomize_failed",
-        | _ => "status_expand_failed",
+        | _ => "status_amplify_failed",
     }
 }
 
@@ -180,11 +180,11 @@ pub struct RowContext {
     pub point_text: String,
     pub has_draft: bool,
     pub draft_suggestion_count: usize,
-    pub has_expand_error: bool,
-    pub has_reduce_error: bool,
+    pub has_amplify_error: bool,
+    pub has_distill_error: bool,
     pub has_atomize_error: bool,
-    pub is_expanding: bool,
-    pub is_reducing: bool,
+    pub is_amplifying: bool,
+    pub is_distilling: bool,
     pub is_atomizing: bool,
     /// Whether this block is already part of a mounted file.
     /// When true, "Save to file" is disabled (one node = one file).
@@ -203,31 +203,31 @@ pub struct RowContext {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowUiState {
     Idle,
-    BusyExpand,
-    BusyReduce,
+    BusyAmplify,
+    BusyDistill,
     BusyAtomize,
     DraftActive,
-    ErrorExpand,
-    ErrorReduce,
+    ErrorAmplify,
+    ErrorDistill,
     ErrorAtomize,
 }
 
 impl RowContext {
     pub fn ui_state(&self) -> RowUiState {
-        if self.is_expanding {
-            return RowUiState::BusyExpand;
+        if self.is_amplifying {
+            return RowUiState::BusyAmplify;
         }
-        if self.is_reducing {
-            return RowUiState::BusyReduce;
+        if self.is_distilling {
+            return RowUiState::BusyDistill;
         }
         if self.is_atomizing {
             return RowUiState::BusyAtomize;
         }
-        if self.has_expand_error {
-            return RowUiState::ErrorExpand;
+        if self.has_amplify_error {
+            return RowUiState::ErrorAmplify;
         }
-        if self.has_reduce_error {
-            return RowUiState::ErrorReduce;
+        if self.has_distill_error {
+            return RowUiState::ErrorDistill;
         }
         if self.has_atomize_error {
             return RowUiState::ErrorAtomize;
@@ -260,7 +260,7 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
         ActionAvailability::DisabledEmptyPoint
     } else if matches!(
         row_state,
-        RowUiState::BusyExpand | RowUiState::BusyAtomize | RowUiState::BusyReduce
+        RowUiState::BusyAmplify | RowUiState::BusyAtomize | RowUiState::BusyDistill
     ) {
         ActionAvailability::DisabledBusy
     } else {
@@ -269,7 +269,7 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
 
     let expand_availability = if matches!(
         row_state,
-        RowUiState::BusyExpand | RowUiState::BusyAtomize | RowUiState::BusyReduce
+        RowUiState::BusyAmplify | RowUiState::BusyAtomize | RowUiState::BusyDistill
     ) {
         ActionAvailability::DisabledBusy
     } else {
@@ -280,7 +280,7 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
         ActionAvailability::DisabledEmptyPoint
     } else if matches!(
         row_state,
-        RowUiState::BusyExpand | RowUiState::BusyAtomize | RowUiState::BusyReduce
+        RowUiState::BusyAmplify | RowUiState::BusyAtomize | RowUiState::BusyDistill
     ) {
         ActionAvailability::DisabledBusy
     } else {
@@ -288,19 +288,19 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     };
 
     let add_child_availability =
-        if matches!(row_state, RowUiState::BusyExpand | RowUiState::BusyAtomize) {
+        if matches!(row_state, RowUiState::BusyAmplify | RowUiState::BusyAtomize) {
             ActionAvailability::DisabledBusy
         } else {
             ActionAvailability::Enabled
         };
 
     vm.primary.push(ActionDescriptor::new(
-        ActionId::Expand,
+        ActionId::Amplify,
         expand_availability,
         ActionPriority::Pinned,
     ));
     vm.primary.push(ActionDescriptor::new(
-        ActionId::Reduce,
+        ActionId::Distill,
         reduce_availability,
         ActionPriority::Pinned,
     ));
@@ -325,7 +325,7 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
 
     if matches!(
         row_state,
-        RowUiState::ErrorExpand | RowUiState::ErrorAtomize | RowUiState::ErrorReduce
+        RowUiState::ErrorAmplify | RowUiState::ErrorAtomize | RowUiState::ErrorDistill
     ) {
         vm.contextual.push(ActionDescriptor::new(
             ActionId::Retry,
@@ -336,7 +336,7 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
 
     if matches!(
         row_state,
-        RowUiState::BusyExpand | RowUiState::BusyAtomize | RowUiState::BusyReduce
+        RowUiState::BusyAmplify | RowUiState::BusyAtomize | RowUiState::BusyDistill
     ) && !ctx.has_draft
     {
         vm.contextual.push(ActionDescriptor::new(
@@ -402,17 +402,17 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     );
 
     vm.status_chip = match row_state {
-        | RowUiState::BusyExpand => Some(StatusChipVm::Loading { op: ActionId::Expand }),
+        | RowUiState::BusyAmplify => Some(StatusChipVm::Loading { op: ActionId::Amplify }),
         | RowUiState::BusyAtomize => Some(StatusChipVm::Loading { op: ActionId::Atomize }),
-        | RowUiState::BusyReduce => Some(StatusChipVm::Loading { op: ActionId::Reduce }),
-        | RowUiState::ErrorExpand => {
-            Some(StatusChipVm::Error { op: ActionId::Expand, retry_action: ActionId::Retry })
+        | RowUiState::BusyDistill => Some(StatusChipVm::Loading { op: ActionId::Distill }),
+        | RowUiState::ErrorAmplify => {
+            Some(StatusChipVm::Error { op: ActionId::Amplify, retry_action: ActionId::Retry })
         }
         | RowUiState::ErrorAtomize => {
             Some(StatusChipVm::Error { op: ActionId::Atomize, retry_action: ActionId::Retry })
         }
-        | RowUiState::ErrorReduce => {
-            Some(StatusChipVm::Error { op: ActionId::Reduce, retry_action: ActionId::Retry })
+        | RowUiState::ErrorDistill => {
+            Some(StatusChipVm::Error { op: ActionId::Distill, retry_action: ActionId::Retry })
         }
         | RowUiState::DraftActive => {
             Some(StatusChipVm::DraftActive { suggestion_count: ctx.draft_suggestion_count })
@@ -449,7 +449,7 @@ pub fn project_for_viewport(mut vm: ActionBarVm, bucket: ViewportBucket) -> Acti
         }
         | ViewportBucket::Compact => {
             vm.overflow.append(&mut vm.contextual);
-            if let Some(index) = vm.primary.iter().position(|action| action.id == ActionId::Reduce)
+            if let Some(index) = vm.primary.iter().position(|action| action.id == ActionId::Distill)
             {
                 vm.overflow.push(vm.primary.remove(index));
             }
@@ -493,9 +493,9 @@ pub fn shortcut_to_action(key: Key, modifiers: Modifiers) -> Option<ActionId> {
     }
 
     match key {
-        | Key::Character(value) if value == "." => Some(ActionId::Expand),
+        | Key::Character(value) if value == "." => Some(ActionId::Amplify),
         | Key::Character(value) if value == "/" => Some(ActionId::Atomize),
-        | Key::Character(value) if value == "," => Some(ActionId::Reduce),
+        | Key::Character(value) if value == "," => Some(ActionId::Distill),
         | Key::Named(Named::Enter) => Some(ActionId::AddChild),
         | _ => None,
     }
@@ -520,16 +520,16 @@ pub fn action_to_message_by_id(
     state: &AppState, block_id: &BlockId, action_id: ActionId,
 ) -> Option<Message> {
     match action_id {
-        | ActionId::Expand => Some(Message::Patch(PatchMessage::Start {
-            kind: PatchKind::Expand,
+        | ActionId::Amplify => Some(Message::Patch(PatchMessage::Start {
+            kind: PatchKind::Amplify,
             block_id: *block_id,
         })),
         | ActionId::Atomize => Some(Message::Patch(PatchMessage::Start {
             kind: PatchKind::Atomize,
             block_id: *block_id,
         })),
-        | ActionId::Reduce => Some(Message::Patch(PatchMessage::Start {
-            kind: PatchKind::Reduce,
+        | ActionId::Distill => Some(Message::Patch(PatchMessage::Start {
+            kind: PatchKind::Distill,
             block_id: *block_id,
         })),
         | ActionId::AddChild => Some(Message::Structure(StructureMessage::AddChild(*block_id))),
@@ -584,15 +584,15 @@ fn accept_all_message_for_block(state: &AppState, block_id: &BlockId) -> Option<
 }
 
 fn cancel_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
-    if state.llm_requests.is_expanding(*block_id) {
+    if state.llm_requests.is_amplifying(*block_id) {
         return Some(Message::Patch(PatchMessage::Cancel {
-            kind: PatchKind::Expand,
+            kind: PatchKind::Amplify,
             block_id: *block_id,
         }));
     }
-    if state.llm_requests.is_reducing(*block_id) {
+    if state.llm_requests.is_distilling(*block_id) {
         return Some(Message::Patch(PatchMessage::Cancel {
-            kind: PatchKind::Reduce,
+            kind: PatchKind::Distill,
             block_id: *block_id,
         }));
     }
@@ -606,15 +606,15 @@ fn cancel_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Mess
 }
 
 fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
-    if state.llm_requests.has_expand_error(*block_id) {
+    if state.llm_requests.has_amplify_error(*block_id) {
         return Some(Message::Patch(PatchMessage::Start {
-            kind: PatchKind::Expand,
+            kind: PatchKind::Amplify,
             block_id: *block_id,
         }));
     }
-    if state.llm_requests.has_reduce_error(*block_id) {
+    if state.llm_requests.has_distill_error(*block_id) {
         return Some(Message::Patch(PatchMessage::Start {
-            kind: PatchKind::Reduce,
+            kind: PatchKind::Distill,
             block_id: *block_id,
         }));
     }
@@ -630,8 +630,8 @@ fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Messa
 /// Icon element for a toolbar action.
 pub fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
     let icon = match id {
-        | ActionId::Expand => icons::icon_maximize_2(),
-        | ActionId::Reduce => icons::icon_minimize_2(),
+        | ActionId::Amplify => icons::icon_maximize_2(),
+        | ActionId::Distill => icons::icon_minimize_2(),
         | ActionId::Atomize => icons::icon_maximize(),
         | ActionId::Cancel => icons::icon_circle_x(),
         | ActionId::AddChild => icons::icon_corner_down_right(),
@@ -663,11 +663,11 @@ mod tests {
             point_text: "hello".to_string(),
             has_draft: false,
             draft_suggestion_count: 0,
-            has_expand_error: false,
-            has_reduce_error: false,
+            has_amplify_error: false,
+            has_distill_error: false,
             has_atomize_error: false,
-            is_expanding: false,
-            is_reducing: false,
+            is_amplifying: false,
+            is_distilling: false,
             is_atomizing: false,
             is_mounted: false,
             has_children: true,
@@ -681,7 +681,7 @@ mod tests {
         let ids = vm.primary.into_iter().map(|action| action.id).collect::<Vec<_>>();
         assert_eq!(
             ids,
-            vec![ActionId::Expand, ActionId::Reduce, ActionId::Atomize, ActionId::AddChild]
+            vec![ActionId::Amplify, ActionId::Distill, ActionId::Atomize, ActionId::AddChild]
         );
     }
 
@@ -689,8 +689,8 @@ mod tests {
     fn compact_moves_reduce_to_overflow() {
         let vm = build_action_bar_vm(&row_context());
         let projected = project_for_viewport(vm, ViewportBucket::Compact);
-        assert!(projected.primary.iter().all(|action| action.id != ActionId::Reduce));
-        assert!(projected.overflow.iter().any(|action| action.id == ActionId::Reduce));
+        assert!(projected.primary.iter().all(|action| action.id != ActionId::Distill));
+        assert!(projected.overflow.iter().any(|action| action.id == ActionId::Distill));
     }
 
     #[test]
@@ -705,7 +705,7 @@ mod tests {
     #[test]
     fn shows_cancel_when_busy_expand() {
         let mut ctx = row_context();
-        ctx.is_expanding = true;
+        ctx.is_amplifying = true;
         let vm = build_action_bar_vm(&ctx);
         assert!(vm.contextual.iter().any(|action| action.id == ActionId::Cancel));
     }
@@ -713,7 +713,7 @@ mod tests {
     #[test]
     fn shows_cancel_when_busy_reduce() {
         let mut ctx = row_context();
-        ctx.is_reducing = true;
+        ctx.is_distilling = true;
         let vm = build_action_bar_vm(&ctx);
         assert!(vm.contextual.iter().any(|action| action.id == ActionId::Cancel));
     }
@@ -722,7 +722,7 @@ mod tests {
     fn hides_cancel_when_draft_active_after_apply() {
         let mut ctx = row_context();
         ctx.has_draft = true;
-        ctx.is_reducing = false;
+        ctx.is_distilling = false;
         let vm = build_action_bar_vm(&ctx);
         assert!(!vm.contextual.iter().any(|action| action.id == ActionId::Cancel));
     }
@@ -730,33 +730,33 @@ mod tests {
     #[test]
     fn ui_state_expanding_takes_priority() {
         let mut ctx = row_context();
-        ctx.is_expanding = true;
-        ctx.has_expand_error = true;
-        assert_eq!(ctx.ui_state(), RowUiState::BusyExpand);
+        ctx.is_amplifying = true;
+        ctx.has_amplify_error = true;
+        assert_eq!(ctx.ui_state(), RowUiState::BusyAmplify);
     }
 
     #[test]
     fn ui_state_reducing_takes_priority_over_draft() {
         let mut ctx = row_context();
-        ctx.is_reducing = true;
+        ctx.is_distilling = true;
         ctx.has_draft = true;
-        assert_eq!(ctx.ui_state(), RowUiState::BusyReduce);
+        assert_eq!(ctx.ui_state(), RowUiState::BusyDistill);
     }
 
     #[test]
     fn ui_state_error_expand_over_draft() {
         let mut ctx = row_context();
-        ctx.has_expand_error = true;
+        ctx.has_amplify_error = true;
         ctx.has_draft = true;
-        assert_eq!(ctx.ui_state(), RowUiState::ErrorExpand);
+        assert_eq!(ctx.ui_state(), RowUiState::ErrorAmplify);
     }
 
     #[test]
     fn ui_state_error_reduce_over_draft() {
         let mut ctx = row_context();
-        ctx.has_reduce_error = true;
+        ctx.has_distill_error = true;
         ctx.has_draft = true;
-        assert_eq!(ctx.ui_state(), RowUiState::ErrorReduce);
+        assert_eq!(ctx.ui_state(), RowUiState::ErrorDistill);
     }
 
     #[test]
@@ -811,9 +811,9 @@ mod tests {
         let vm = build_action_bar_vm(&ctx);
         let visible = vm.visible_actions();
 
-        assert!(visible.iter().any(|action| action.id == ActionId::Expand));
+        assert!(visible.iter().any(|action| action.id == ActionId::Amplify));
         assert!(visible.iter().any(|action| action.id == ActionId::Atomize));
-        assert!(visible.iter().any(|action| action.id == ActionId::Reduce));
+        assert!(visible.iter().any(|action| action.id == ActionId::Distill));
         assert!(visible.iter().any(|action| action.id == ActionId::AddChild));
         assert!(visible.iter().any(|action| action.id == ActionId::DismissDraft));
         assert!(visible.iter().all(|action| action.priority != ActionPriority::OverflowOnly));
@@ -852,9 +852,9 @@ mod tests {
 
         assert!(projected.primary.is_empty());
         assert!(projected.contextual.is_empty());
-        assert!(projected.overflow.iter().any(|action| action.id == ActionId::Expand));
+        assert!(projected.overflow.iter().any(|action| action.id == ActionId::Amplify));
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::Atomize));
-        assert!(projected.overflow.iter().any(|action| action.id == ActionId::Reduce));
+        assert!(projected.overflow.iter().any(|action| action.id == ActionId::Distill));
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::AddChild));
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::AddParent));
     }
@@ -882,7 +882,7 @@ mod tests {
         let key = Key::Character(".".into());
         let modifiers = Modifiers::COMMAND;
         let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, Some(ActionId::Expand));
+        assert_eq!(action, Some(ActionId::Amplify));
     }
 
     #[test]
@@ -898,7 +898,7 @@ mod tests {
         let key = Key::Character(",".into());
         let modifiers = Modifiers::COMMAND;
         let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, Some(ActionId::Reduce));
+        assert_eq!(action, Some(ActionId::Distill));
     }
 
     #[test]
@@ -954,7 +954,7 @@ mod tests {
         let key = Key::Character(".".into());
         let modifiers = Modifiers::CTRL;
         let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, Some(ActionId::Expand));
+        assert_eq!(action, Some(ActionId::Amplify));
     }
 
     #[test]
