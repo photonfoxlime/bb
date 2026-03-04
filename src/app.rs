@@ -30,9 +30,7 @@ mod instruction_panel;
 // Actions and LLM Requests
 mod action_bar;
 mod llm_requests;
-mod atomize;
-mod expand;
-mod reduce;
+mod patch;
 // Structural Operations
 mod structure;
 mod multiselect;
@@ -44,12 +42,11 @@ use self::{
         ActionAvailability, ActionId, RowContext, ViewportBucket, action_to_message_by_id,
         build_action_bar_vm, project_for_viewport,
     },
-    atomize::AtomizeMessage,
+    patch::PatchMessage,
     edit::EditMessage,
     editor_buffers::EditorBuffers,
     error::{AppError, ErrorMessage, UiError},
     error_banner::ErrorBanner,
-    expand::ExpandMessage,
     find_panel::{FindMessage, FindUiState},
     friends_panel::FriendPanelMessage,
     instruction_panel::InstructionPanelMessage,
@@ -57,7 +54,6 @@ use self::{
     mount_file::MountFileMessage,
     navigation::{NavigationMessage, NavigationStack},
     overlay::OverlayMessage,
-    reduce::ReduceMessage,
     settings::{SettingsMessage, SettingsState},
     shortcut::ShortcutMessage,
     structure::StructureMessage,
@@ -174,9 +170,7 @@ pub enum Message {
     Edit(EditMessage),
     Shortcut(ShortcutMessage),
     Error(ErrorMessage),
-    Expand(ExpandMessage),
-    Reduce(ReduceMessage),
-    Atomize(AtomizeMessage),
+    Patch(PatchMessage),
     Structure(StructureMessage),
     Find(FindMessage),
     Overlay(OverlayMessage),
@@ -222,9 +216,7 @@ impl AppState {
             | Message::Shortcut(message) => shortcut::handle(self, message),
             | Message::Error(message) => error::handle(self, message),
             | Message::Edit(message) => edit::handle(self, message),
-            | Message::Expand(message) => expand::handle(self, message),
-            | Message::Reduce(message) => reduce::handle(self, message),
-            | Message::Atomize(message) => atomize::handle(self, message),
+            | Message::Patch(message) => patch::handle(self, message),
             | Message::Find(message) => find_panel::handle(self, message),
             | Message::Overlay(message) => overlay::handle(self, message),
             | Message::FriendPanel(message) => friends_panel::handle(self, message),

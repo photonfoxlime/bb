@@ -71,16 +71,15 @@
 //! while preserving discoverability of less obvious chords.
 
 use super::{
-    AppState, AtomizeMessage, ContextMenuAction, ContextMenuMessage, DocumentMode, EditMessage,
-    ErrorBanner, ErrorMessage, ExpandMessage, FindMessage, LinkModeMessage, Message,
-    MountFileMessage, NavigationMessage, OverlayMessage, ReduceMessage, ShortcutMessage,
+    AppState, ContextMenuAction, ContextMenuMessage, DocumentMode, EditMessage,
+    ErrorBanner, ErrorMessage, FindMessage, LinkModeMessage, Message,
+    MountFileMessage, NavigationMessage, OverlayMessage, ShortcutMessage,
     StructureMessage, UndoRedoMessage,
     action_bar::{
         ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
         ViewportBucket, action_i18n_key, action_icon, action_to_message, build_action_bar_vm,
         project_for_viewport, shortcut_to_action, status_error_i18n_key,
     },
-    diff::{WordChange, word_diff},
     find_panel,
     friends_panel::{self, FriendPanelMessage},
     instruction_panel::{self, InstructionPanelMessage},
@@ -91,16 +90,15 @@ use crate::{
     component::icon_button::IconButton,
     component::text_button::TextButton,
     store::{
-        AtomizationDraftRecord, BlockId, BlockPanelBarState, ExpansionDraftRecord, LinkKind,
-        PointContent, ReductionDraftRecord,
+        BlockId, BlockPanelBarState, LinkKind, PointContent,
     },
     text::truncate_for_display,
     theme,
 };
 use iced::{
-    Color, Element, Fill, Length, Padding, Point,
+    Element, Fill, Length, Padding, Point,
     widget::{
-        button, column, container, mouse_area, rich_text, row, rule, scrollable, space, span,
+        button, column, container, mouse_area, row, rule, scrollable, space,
         stack, text, text_editor, tooltip,
     },
 };
@@ -974,13 +972,25 @@ impl<'a> TreeView<'a> {
             );
         }
         if let Some(draft) = self.state.store.atomization_draft(block_id) {
-            block = block.push(self.render_atomization_panel(block_id, draft));
+            block = block.push(super::patch::render_patch_panel(
+                self.state,
+                block_id,
+                super::patch::PatchDraft::Atomize(draft),
+            ));
         }
         if let Some(draft) = self.state.store.expansion_draft(block_id) {
-            block = block.push(self.render_expansion_panel(block_id, draft));
+            block = block.push(super::patch::render_patch_panel(
+                self.state,
+                block_id,
+                super::patch::PatchDraft::Expand(draft),
+            ));
         }
         if let Some(draft) = self.state.store.reduction_draft(block_id) {
-            block = block.push(self.render_reduction_panel(block_id, draft));
+            block = block.push(super::patch::render_patch_panel(
+                self.state,
+                block_id,
+                super::patch::PatchDraft::Reduction(draft),
+            ));
         }
 
         // Render children only when not folded.
@@ -1045,280 +1055,6 @@ impl<'a> TreeView<'a> {
         }
     }
 
-    fn render_atomization_panel(
-        &self, block_id: &BlockId, draft: &'a AtomizationDraftRecord,
-    ) -> Element<'a, Message> {
-        let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
-
-        if let Some(rewrite) = &draft.rewrite {
-            let old_text = self.state.store.point(block_id).unwrap_or_default();
-            let diff_content = self.render_diff_content(&old_text, rewrite);
-
-            panel = panel.push(
-                column![]
-                    .spacing(theme::PANEL_INNER_GAP)
-                    .push(container(text(t!("doc_rewrite").to_string())).width(Length::Fill))
-                    .push(container(diff_content).width(Length::Fill))
-                    .push(
-                        row![]
-                            .width(Length::Fill)
-                            .spacing(theme::PANEL_BUTTON_GAP)
-                            .push(space::horizontal())
-                            .push(
-                                TextButton::action(t!("doc_apply_rewrite").to_string(), 13.0)
-                                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                    .on_press(Message::Atomize(AtomizeMessage::ApplyRewrite(
-                                        *block_id,
-                                    ))),
-                            )
-                            .push(
-                                TextButton::destructive(
-                                    t!("doc_dismiss_rewrite").to_string(),
-                                    13.0,
-                                )
-                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                .on_press(Message::Atomize(
-                                    AtomizeMessage::RejectRewrite(*block_id),
-                                )),
-                            ),
-                    ),
-            );
-        }
-
-        if !draft.points.is_empty() {
-            panel = panel.push(
-                row![]
-                    .spacing(theme::PANEL_BUTTON_GAP)
-                    .push(container(text(t!("doc_atomize_points").to_string())).width(Length::Fill))
-                    .push(
-                        TextButton::action(t!("doc_accept_all").to_string(), 13.0)
-                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                            .on_press(Message::Atomize(AtomizeMessage::AcceptAllChildren(
-                                *block_id,
-                            ))),
-                    )
-                    .push(
-                        TextButton::destructive(t!("doc_discard_all").to_string(), 13.0)
-                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                            .on_press(Message::Atomize(AtomizeMessage::DiscardAllChildren(
-                                *block_id,
-                            ))),
-                    ),
-            );
-
-            for (index, point) in draft.points.iter().enumerate() {
-                panel = panel.push(
-                    row![]
-                        .spacing(theme::PANEL_BUTTON_GAP)
-                        .push(container(text(point.as_str())).width(Length::Fill))
-                        .push(
-                            TextButton::action(t!("doc_keep").to_string(), 13.0)
-                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                .on_press(Message::Atomize(AtomizeMessage::AcceptChild {
-                                    block_id: *block_id,
-                                    child_index: index,
-                                })),
-                        )
-                        .push(
-                            TextButton::destructive(t!("doc_drop").to_string(), 13.0)
-                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                .on_press(Message::Atomize(AtomizeMessage::RejectChild {
-                                    block_id: *block_id,
-                                    child_index: index,
-                                })),
-                        ),
-                );
-            }
-        }
-
-        container(panel)
-            .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
-            .style(theme::draft_panel)
-            .into()
-    }
-
-    fn render_expansion_panel(
-        &self, block_id: &BlockId, draft: &'a ExpansionDraftRecord,
-    ) -> Element<'a, Message> {
-        let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
-
-        if let Some(rewrite) = &draft.rewrite {
-            let old_text = self.state.store.point(block_id).unwrap_or_default();
-            let diff_content = self.render_diff_content(&old_text, rewrite);
-
-            panel = panel.push(
-                column![]
-                    .spacing(theme::PANEL_INNER_GAP)
-                    .push(container(text(t!("doc_rewrite").to_string())).width(Length::Fill))
-                    .push(container(diff_content).width(Length::Fill))
-                    .push(
-                        row![]
-                            .width(Length::Fill)
-                            .spacing(theme::PANEL_BUTTON_GAP)
-                            .push(space::horizontal())
-                            .push(
-                                TextButton::action(t!("doc_apply_rewrite").to_string(), 13.0)
-                                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                    .on_press(Message::Expand(ExpandMessage::ApplyRewrite(
-                                        *block_id,
-                                    ))),
-                            )
-                            .push(
-                                TextButton::destructive(
-                                    t!("doc_dismiss_rewrite").to_string(),
-                                    13.0,
-                                )
-                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                .on_press(Message::Expand(ExpandMessage::RejectRewrite(*block_id))),
-                            ),
-                    ),
-            );
-        }
-
-        if !draft.children.is_empty() {
-            panel = panel.push(
-                row![]
-                    .spacing(theme::PANEL_BUTTON_GAP)
-                    .push(
-                        container(text(t!("doc_child_suggestions").to_string()))
-                            .width(Length::Fill),
-                    )
-                    .push(
-                        TextButton::action(t!("doc_accept_all").to_string(), 13.0)
-                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                            .on_press(Message::Expand(ExpandMessage::AcceptAllChildren(*block_id))),
-                    )
-                    .push(
-                        TextButton::destructive(t!("doc_discard_all").to_string(), 13.0)
-                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                            .on_press(Message::Expand(ExpandMessage::DiscardAllChildren(
-                                *block_id,
-                            ))),
-                    ),
-            );
-
-            for (index, child) in draft.children.iter().enumerate() {
-                panel = panel.push(
-                    row![]
-                        .spacing(theme::PANEL_BUTTON_GAP)
-                        .push(container(text(child.as_str())).width(Length::Fill))
-                        .push(
-                            TextButton::action(t!("doc_keep").to_string(), 13.0)
-                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                .on_press(Message::Expand(ExpandMessage::AcceptChild {
-                                    block_id: *block_id,
-                                    child_index: index,
-                                })),
-                        )
-                        .push(
-                            TextButton::destructive(t!("doc_drop").to_string(), 13.0)
-                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                .on_press(Message::Expand(ExpandMessage::RejectChild {
-                                    block_id: *block_id,
-                                    child_index: index,
-                                })),
-                        ),
-                );
-            }
-        }
-
-        container(panel)
-            .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
-            .style(theme::draft_panel)
-            .into()
-    }
-
-    fn render_reduction_panel(
-        &self, block_id: &BlockId, draft: &'a ReductionDraftRecord,
-    ) -> Element<'a, Message> {
-        let old_text = self.state.store.point(block_id).unwrap_or_default();
-        let diff_content = self.render_diff_content(&old_text, &draft.reduction);
-
-        let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
-
-        panel = panel
-            .push(container(text(t!("doc_reduce").to_string())).width(Length::Fill))
-            .push(container(diff_content).width(Length::Fill))
-            .push(
-                row![]
-                    .width(Length::Fill)
-                    .spacing(theme::PANEL_BUTTON_GAP)
-                    .push(space::horizontal())
-                    .push(
-                        TextButton::action(t!("doc_apply_reduction").to_string(), 13.0)
-                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                            .on_press(Message::Reduce(ReduceMessage::Apply(*block_id))),
-                    )
-                    .push(
-                        TextButton::destructive(t!("doc_dismiss_reduction").to_string(), 13.0)
-                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                            .on_press(Message::Reduce(ReduceMessage::Reject(*block_id))),
-                    ),
-            );
-
-        let valid_children: Vec<(usize, &BlockId)> = draft
-            .redundant_children
-            .iter()
-            .enumerate()
-            .filter(|(_, id)| self.state.store.node(id).is_some())
-            .collect();
-
-        if !valid_children.is_empty() {
-            panel = panel.push(
-                row![]
-                    .spacing(theme::PANEL_BUTTON_GAP)
-                    .push(
-                        container(text(t!("doc_redundant_children").to_string()))
-                            .width(Length::Fill),
-                    )
-                    .push(
-                        TextButton::destructive(t!("doc_delete_all").to_string(), 13.0)
-                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                            .on_press(Message::Reduce(ReduceMessage::AcceptAllDeletions(
-                                *block_id,
-                            ))),
-                    )
-                    .push(
-                        TextButton::action(t!("doc_keep_all").to_string(), 13.0)
-                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                            .on_press(Message::Reduce(ReduceMessage::RejectAllDeletions(
-                                *block_id,
-                            ))),
-                    ),
-            );
-
-            for (index, child_id) in &valid_children {
-                let child_text = self.state.store.point(child_id).unwrap_or_default();
-                panel = panel.push(
-                    row![]
-                        .spacing(theme::PANEL_BUTTON_GAP)
-                        .push(container(text(child_text)).width(Length::Fill))
-                        .push(
-                            TextButton::destructive(t!("doc_delete").to_string(), 13.0)
-                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                .on_press(Message::Reduce(ReduceMessage::AcceptChildDeletion {
-                                    block_id: *block_id,
-                                    child_index: *index,
-                                })),
-                        )
-                        .push(
-                            TextButton::action(t!("doc_keep").to_string(), 13.0)
-                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                .on_press(Message::Reduce(ReduceMessage::RejectChildDeletion {
-                                    block_id: *block_id,
-                                    child_index: *index,
-                                })),
-                        ),
-                );
-            }
-        }
-
-        container(panel)
-            .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
-            .style(theme::draft_panel)
-            .into()
-    }
-
     fn action_row_context(&self, block_id: &BlockId, point_text: String) -> RowContext {
         let expansion_draft = self.state.store.expansion_draft(block_id);
         let atomization_draft = self.state.store.atomization_draft(block_id);
@@ -1343,60 +1079,6 @@ impl<'a> TreeView<'a> {
             is_unexpanded_mount: node.is_some_and(|n| n.mount_path().is_some()),
             has_children: !self.state.store.children(block_id).is_empty(),
         }
-    }
-
-    /// Render an inline diff between old and new text as two `rich_text` lines.
-    ///
-    /// Uses `rich_text` + `span` instead of `row` + `text` so that long text
-    /// wraps naturally within the panel width. Deletions and additions are
-    /// highlighted with colored background spans.
-    fn render_diff_content(&self, old_text: &str, new_text: &str) -> Element<'a, Message> {
-        use iced::widget::text::Span as RichSpan;
-
-        let changes = word_diff(old_text, new_text);
-        let pal = theme::palette_for_mode(self.state.is_dark_mode());
-
-        let del_bg: Color = Color { a: 0.08, ..pal.danger };
-        let add_bg: Color = Color { a: 0.08, ..pal.success };
-        let ctx_color: Color = pal.ink;
-
-        // Old line: unchanged + deleted spans (skip added).
-        let old_spans: Vec<RichSpan<'_>> = changes
-            .iter()
-            .filter_map(|change| match change {
-                | WordChange::Unchanged(s) => Some(span(s.clone()).color(ctx_color)),
-                | WordChange::Deleted(s) => Some(
-                    span(s.clone())
-                        .color(ctx_color)
-                        .background(del_bg)
-                        .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
-                ),
-                | WordChange::Added(_) => None,
-            })
-            .collect();
-
-        // New line: unchanged + added spans (skip deleted).
-        let new_spans: Vec<RichSpan<'_>> = changes
-            .iter()
-            .filter_map(|change| match change {
-                | WordChange::Unchanged(s) => Some(span(s.clone()).color(ctx_color)),
-                | WordChange::Added(s) => Some(
-                    span(s.clone())
-                        .color(ctx_color)
-                        .background(add_bg)
-                        .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
-                ),
-                | WordChange::Deleted(_) => None,
-            })
-            .collect();
-
-        let diff_content = column![
-            rich_text(old_spans).width(Length::Fill),
-            rich_text(new_spans).width(Length::Fill),
-        ]
-        .spacing(theme::DIFF_LINE_GAP);
-
-        container(diff_content).width(Length::Fill).into()
     }
 
     fn viewport_bucket(&self) -> ViewportBucket {

@@ -97,7 +97,7 @@ pub enum InstructionPanelMessage {
 pub fn handle(
     state: &mut AppState, target_block_id: BlockId, msg: InstructionPanelMessage,
 ) -> iced::Task<Message> {
-    use crate::app::{ExpandMessage, ReduceMessage};
+    use super::patch::{PatchKind, PatchMessage};
 
     match msg {
         | InstructionPanelMessage::Toggle => {
@@ -285,7 +285,10 @@ pub fn handle(
             state.persist_with_context("after closing instruction panel");
             crate::app::AppState::update(
                 state,
-                Message::Expand(ExpandMessage::Start(target_block_id)),
+                Message::Patch(PatchMessage::Start {
+                    kind: PatchKind::Expand,
+                    block_id: target_block_id,
+                }),
             )
         }
         | InstructionPanelMessage::ReduceWithInstruction => {
@@ -300,7 +303,10 @@ pub fn handle(
             state.persist_with_context("after closing instruction panel");
             crate::app::AppState::update(
                 state,
-                Message::Reduce(ReduceMessage::Start(target_block_id)),
+                Message::Patch(PatchMessage::Start {
+                    kind: PatchKind::Reduce,
+                    block_id: target_block_id,
+                }),
             )
         }
         | InstructionPanelMessage::ApplyInstructionRewrite => {

@@ -11,7 +11,8 @@
 //! owning VM types and builder/projection functions below.
 
 use super::{
-    AppState, AtomizeMessage, ExpandMessage, Message, MountFileMessage, ReduceMessage,
+    AppState, Message, MountFileMessage,
+    patch::{PatchKind, PatchMessage},
     StructureMessage,
 };
 use crate::{store::BlockId, theme};
@@ -519,9 +520,18 @@ pub fn action_to_message_by_id(
     state: &AppState, block_id: &BlockId, action_id: ActionId,
 ) -> Option<Message> {
     match action_id {
-        | ActionId::Expand => Some(Message::Expand(ExpandMessage::Start(*block_id))),
-        | ActionId::Atomize => Some(Message::Atomize(AtomizeMessage::Start(*block_id))),
-        | ActionId::Reduce => Some(Message::Reduce(ReduceMessage::Start(*block_id))),
+        | ActionId::Expand => Some(Message::Patch(PatchMessage::Start {
+            kind: PatchKind::Expand,
+            block_id: *block_id,
+        })),
+        | ActionId::Atomize => Some(Message::Patch(PatchMessage::Start {
+            kind: PatchKind::Atomize,
+            block_id: *block_id,
+        })),
+        | ActionId::Reduce => Some(Message::Patch(PatchMessage::Start {
+            kind: PatchKind::Reduce,
+            block_id: *block_id,
+        })),
         | ActionId::AddChild => Some(Message::Structure(StructureMessage::AddChild(*block_id))),
         | ActionId::AddParent => Some(Message::Structure(StructureMessage::AddParent(*block_id))),
         | ActionId::AcceptAll => accept_all_message_for_block(state, block_id),
@@ -529,18 +539,18 @@ pub fn action_to_message_by_id(
         | ActionId::Retry => retry_message_for_block(state, block_id),
         | ActionId::DismissDraft => {
             if state.store.reduction_draft(block_id).is_some() {
-                Some(Message::Reduce(ReduceMessage::Reject(*block_id)))
+                Some(Message::Patch(PatchMessage::Reject(*block_id)))
             } else if let Some(atomization_draft) = state.store.atomization_draft(block_id) {
                 if atomization_draft.rewrite.is_some() && atomization_draft.points.is_empty() {
-                    Some(Message::Atomize(AtomizeMessage::RejectRewrite(*block_id)))
+                    Some(Message::Patch(PatchMessage::RejectRewrite(*block_id)))
                 } else {
-                    Some(Message::Atomize(AtomizeMessage::DiscardAllChildren(*block_id)))
+                    Some(Message::Patch(PatchMessage::DiscardAllChildren(*block_id)))
                 }
             } else if let Some(expansion_draft) = state.store.expansion_draft(block_id) {
                 if !expansion_draft.children.is_empty() {
-                    Some(Message::Expand(ExpandMessage::DiscardAllChildren(*block_id)))
+                    Some(Message::Patch(PatchMessage::DiscardAllChildren(*block_id)))
                 } else if expansion_draft.rewrite.is_some() {
-                    Some(Message::Expand(ExpandMessage::RejectRewrite(*block_id)))
+                    Some(Message::Patch(PatchMessage::RejectRewrite(*block_id)))
                 } else {
                     None
                 }
@@ -568,33 +578,51 @@ pub fn action_to_message_by_id(
 
 fn accept_all_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
     if state.store.atomization_draft(block_id).is_some() {
-        return Some(Message::Atomize(AtomizeMessage::AcceptAllChildren(*block_id)));
+        return Some(Message::Patch(PatchMessage::AcceptAllChildren(*block_id)));
     }
-    Some(Message::Expand(ExpandMessage::AcceptAllChildren(*block_id)))
+    Some(Message::Patch(PatchMessage::AcceptAllChildren(*block_id)))
 }
 
 fn cancel_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
     if state.llm_requests.is_expanding(*block_id) {
-        return Some(Message::Expand(ExpandMessage::Cancel(*block_id)));
+        return Some(Message::Patch(PatchMessage::Cancel {
+            kind: PatchKind::Expand,
+            block_id: *block_id,
+        }));
     }
     if state.llm_requests.is_reducing(*block_id) {
-        return Some(Message::Reduce(ReduceMessage::Cancel(*block_id)));
+        return Some(Message::Patch(PatchMessage::Cancel {
+            kind: PatchKind::Reduce,
+            block_id: *block_id,
+        }));
     }
     if state.llm_requests.is_atomizing(*block_id) {
-        return Some(Message::Atomize(AtomizeMessage::Cancel(*block_id)));
+        return Some(Message::Patch(PatchMessage::Cancel {
+            kind: PatchKind::Atomize,
+            block_id: *block_id,
+        }));
     }
     None
 }
 
 fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
     if state.llm_requests.has_expand_error(*block_id) {
-        return Some(Message::Expand(ExpandMessage::Start(*block_id)));
+        return Some(Message::Patch(PatchMessage::Start {
+            kind: PatchKind::Expand,
+            block_id: *block_id,
+        }));
     }
     if state.llm_requests.has_reduce_error(*block_id) {
-        return Some(Message::Reduce(ReduceMessage::Start(*block_id)));
+        return Some(Message::Patch(PatchMessage::Start {
+            kind: PatchKind::Reduce,
+            block_id: *block_id,
+        }));
     }
     if state.llm_requests.has_atomize_error(*block_id) {
-        return Some(Message::Atomize(AtomizeMessage::Start(*block_id)));
+        return Some(Message::Patch(PatchMessage::Start {
+            kind: PatchKind::Atomize,
+            block_id: *block_id,
+        }));
     }
     None
 }
