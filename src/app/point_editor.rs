@@ -15,7 +15,10 @@ use crate::component::point_text_editor::PointTextEditor;
 #[cfg(test)]
 use crate::component::point_text_editor::WordCursorDirection;
 use crate::store::{BlockId, PointContent};
-use iced::{Element, Point, widget::{self, text_editor}};
+use iced::{
+    Element, Point,
+    widget::{self, text_editor},
+};
 use rust_i18n::t;
 
 /// Render the point editor element for a block row.
@@ -41,7 +44,9 @@ pub(super) fn view<'a>(
         on_context_menu: |bid, position| {
             Message::ContextMenu(ContextMenuMessage::Show { block_id: bid, position })
         },
-        on_edit_action: |bid, action| Message::Edit(EditMessage::PointEdited { block_id: bid, action }),
+        on_edit_action: |bid, action| {
+            Message::Edit(EditMessage::PointEdited { block_id: bid, action })
+        },
         on_word_move: |bid, direction| {
             Message::Edit(EditMessage::MoveCursorByWord { block_id: bid, direction })
         },
@@ -55,14 +60,12 @@ pub(super) fn view<'a>(
 /// Returns `Some(msg)` when the key chord matches a known action, `None`
 /// otherwise. Plugged into the component as the `on_shortcut_key` callback.
 fn shortcut_key(block_id: BlockId, key_press: &text_editor::KeyPress) -> Option<Message> {
-    shortcut_to_action(key_press.key.clone(), key_press.modifiers).map(|action_id| {
-        match action_id {
-            | ActionId::AddChild => {
-                Message::Edit(EditMessage::AddEmptyFirstChild { block_id })
-            }
+    shortcut_to_action(key_press.key.clone(), key_press.modifiers).map(
+        |action_id| match action_id {
+            | ActionId::AddChild => Message::Edit(EditMessage::AddEmptyFirstChild { block_id }),
             | _ => Message::Shortcut(ShortcutMessage::ForBlock { block_id, action_id }),
-        }
-    })
+        },
+    )
 }
 
 #[cfg(test)]

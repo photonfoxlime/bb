@@ -115,19 +115,17 @@ impl<'a, Message: Clone + 'a> PointTextEditor<'a, Message> {
             .padding(theme::LINK_CHIP_PAD)
             .on_press(on_link_chip_toggle(block_id));
 
-            let mut chip_col = column![mouse_area(chip).on_right_press(on_context_menu(
-                block_id,
-                cursor_position
-            ))];
+            let mut chip_col = column![
+                mouse_area(chip).on_right_press(on_context_menu(block_id, cursor_position))
+            ];
 
             // Inline preview when expanded.
             if is_link_expanded {
                 match link.kind {
                     | LinkKind::Image => {
-                        let img = iced::widget::image(
-                            iced::widget::image::Handle::from_path(&link.href),
-                        )
-                        .width(Fill);
+                        let img =
+                            iced::widget::image(iced::widget::image::Handle::from_path(&link.href))
+                                .width(Fill);
                         chip_col = chip_col.push(img);
                     }
                     | LinkKind::Markdown => {
@@ -160,9 +158,7 @@ impl<'a, Message: Clone + 'a> PointTextEditor<'a, Message> {
             if let Some(wid) = widget_id {
                 editor = editor.id(wid.clone());
             }
-            mouse_area(editor)
-                .on_right_press(on_context_menu(block_id, cursor_position))
-                .into()
+            mouse_area(editor).on_right_press(on_context_menu(block_id, cursor_position)).into()
         }
     }
 }
@@ -174,8 +170,7 @@ impl<'a, Message: Clone + 'a> PointTextEditor<'a, Message> {
 /// Exposed so the application-layer adapter can reproduce the same pipeline
 /// in unit tests without duplicating the focus-gate and word-cursor logic.
 pub fn build_key_binding<Message: Clone>(
-    block_id: BlockId,
-    on_word_move: fn(BlockId, WordCursorDirection) -> Message,
+    block_id: BlockId, on_word_move: fn(BlockId, WordCursorDirection) -> Message,
     on_shortcut_key: fn(BlockId, &text_editor::KeyPress) -> Option<Message>,
 ) -> impl Fn(text_editor::KeyPress) -> Option<text_editor::Binding<Message>> {
     move |key_press| {

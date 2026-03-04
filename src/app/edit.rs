@@ -183,11 +183,9 @@ fn is_alt_movement_shortcut_editor_action(
     action: &text_editor::Action, modifiers: keyboard::Modifiers,
 ) -> bool {
     #[cfg(target_os = "macos")]
-    let has_movement_modifier =
-        modifiers.control() && !modifiers.command() && !modifiers.alt();
+    let has_movement_modifier = modifiers.control() && !modifiers.command() && !modifiers.alt();
     #[cfg(not(target_os = "macos"))]
-    let has_movement_modifier =
-        modifiers.alt() && !modifiers.command() && !modifiers.control();
+    let has_movement_modifier = modifiers.alt() && !modifiers.command() && !modifiers.control();
 
     if !has_movement_modifier {
         return false;

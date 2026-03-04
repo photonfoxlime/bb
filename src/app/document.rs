@@ -71,9 +71,9 @@
 //! while preserving discoverability of less obvious chords.
 
 use super::{
-    AppState, ContextMenuAction, ContextMenuMessage, DocumentMode, ErrorBanner,
-    ErrorMessage, FindMessage, LinkModeMessage, Message, MountFileMessage, NavigationMessage,
-    OverlayMessage, StructureMessage, UndoRedoMessage,
+    AppState, ContextMenuAction, ContextMenuMessage, DocumentMode, ErrorBanner, ErrorMessage,
+    FindMessage, LinkModeMessage, Message, MountFileMessage, NavigationMessage, OverlayMessage,
+    StructureMessage, UndoRedoMessage,
     action_bar::{
         ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
         ViewportBucket, action_i18n_key, action_icon, action_to_message, build_action_bar_vm,
@@ -82,8 +82,7 @@ use super::{
     find_panel,
     friends_panel::{self, FriendPanelMessage},
     instruction_panel::{self, InstructionPanelMessage},
-    link_panel,
-    point_editor,
+    link_panel, point_editor,
     settings::SettingsMessage,
 };
 use crate::{
@@ -96,8 +95,7 @@ use crate::{
 use iced::{
     Element, Fill, Length, Padding, Point,
     widget::{
-        button, column, container, mouse_area, row, rule, scrollable, space, stack, text,
-        tooltip,
+        button, column, container, mouse_area, row, rule, scrollable, space, stack, text, tooltip,
     },
 };
 use lucide_icons::iced as icons;

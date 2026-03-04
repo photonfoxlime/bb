@@ -469,10 +469,7 @@ fn handle_accept_child(
         .store
         .amplification_draft(&block_id)
         .is_some_and(|d| child_index < d.children.len())
-        || state
-            .store
-            .atomization_draft(&block_id)
-            .is_some_and(|d| child_index < d.points.len());
+        || state.store.atomization_draft(&block_id).is_some_and(|d| child_index < d.points.len());
     if has_add_child {
         // Note: Point extraction must run inside the mutate closure so the
         // undo snapshot captures the draft before it is modified.
@@ -552,10 +549,7 @@ fn handle_reject_child(
         .store
         .amplification_draft(&block_id)
         .is_some_and(|d| child_index < d.children.len())
-        || state
-            .store
-            .atomization_draft(&block_id)
-            .is_some_and(|d| child_index < d.points.len())
+        || state.store.atomization_draft(&block_id).is_some_and(|d| child_index < d.points.len())
         || state
             .store
             .distillation_draft(&block_id)
@@ -645,15 +639,13 @@ fn handle_accept_all_children(state: &mut AppState, block_id: BlockId) -> Task<M
 }
 
 fn handle_discard_all_children(state: &mut AppState, block_id: BlockId) -> Task<Message> {
-    let has_discardable = state
-        .store
-        .amplification_draft(&block_id)
-        .is_some_and(|d| !d.children.is_empty())
-        || state.store.atomization_draft(&block_id).is_some()
-        || state
-            .store
-            .distillation_draft(&block_id)
-            .is_some_and(|d| !d.redundant_children.is_empty());
+    let has_discardable =
+        state.store.amplification_draft(&block_id).is_some_and(|d| !d.children.is_empty())
+            || state.store.atomization_draft(&block_id).is_some()
+            || state
+                .store
+                .distillation_draft(&block_id)
+                .is_some_and(|d| !d.redundant_children.is_empty());
     if !has_discardable {
         return Task::none();
     }
