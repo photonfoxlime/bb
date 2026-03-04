@@ -15,6 +15,7 @@ mod error;
 // Main Views
 mod context_menu;
 mod document;
+mod point_editor;
 mod settings;
 mod find_panel;
 mod link_panel;
