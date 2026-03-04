@@ -621,15 +621,14 @@ fn handle_apply_reduction(state: &mut AppState, block_id: BlockId) -> Task<Messa
         if let Some(draft) = s.store.remove_reduction_draft(&block_id) {
             s.store.update_point(&block_id, draft.reduction.clone());
             s.editor_buffers.set_text(&block_id, &draft.reduction);
-            for cid in &draft.redundant_children {
-                if s.store.node(cid).is_some() {
-                    if let Some(removed) = s.store.remove_block_subtree(cid) {
-                        s.editor_buffers.remove_blocks(&removed);
-                        for id in &removed {
-                            s.llm_requests.remove_block(*id);
-                        }
-                    }
-                }
+            if !draft.redundant_children.is_empty() {
+                s.store.insert_reduction_draft(
+                    block_id,
+                    ReductionDraftRecord {
+                        reduction: draft.reduction,
+                        redundant_children: draft.redundant_children,
+                    },
+                );
             }
             return true;
         }
@@ -869,29 +868,44 @@ fn render_reduction_panel<'a>(
     labels: &PatchLabels,
     draft: &'a ReductionDraftRecord,
 ) -> Element<'a, Message> {
-    let old = state.store.point(block_id).unwrap_or_default();
-    let diff = render_diff_content(state.is_dark_mode(), &old, &draft.reduction);
+    let current_point = state.store.point(block_id).unwrap_or_default();
+    let point_applied = current_point == draft.reduction;
 
-    let mut panel = column![]
-        .spacing(theme::PANEL_INNER_GAP)
-        .push(container(text(labels.section_title.clone())).width(Length::Fill))
-        .push(container(diff).width(Length::Fill))
-        .push(
+    let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
+
+    if !point_applied {
+        let diff = render_diff_content(state.is_dark_mode(), &current_point, &draft.reduction);
+        panel = panel
+            .push(container(text(labels.section_title.clone())).width(Length::Fill))
+            .push(container(diff).width(Length::Fill))
+            .push(
+                row![]
+                    .width(Length::Fill)
+                    .spacing(theme::PANEL_BUTTON_GAP)
+                    .push(space::horizontal())
+                    .push(
+                        TextButton::action(labels.apply_primary.clone(), 13.0)
+                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                            .on_press(Message::Patch(PatchMessage::Apply(*block_id))),
+                    )
+                    .push(
+                        TextButton::destructive(labels.dismiss_primary.clone(), 13.0)
+                            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                            .on_press(Message::Patch(PatchMessage::Reject(*block_id))),
+                    ),
+            );
+    } else if !draft.redundant_children.is_empty() {
+        panel = panel.push(
             row![]
-                .width(Length::Fill)
                 .spacing(theme::PANEL_BUTTON_GAP)
-                .push(space::horizontal())
-                .push(
-                    TextButton::action(labels.apply_primary.clone(), 13.0)
-                        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                        .on_press(Message::Patch(PatchMessage::Apply(*block_id))),
-                )
+                .push(container(text(labels.section_title.clone())).width(Length::Fill))
                 .push(
                     TextButton::destructive(labels.dismiss_primary.clone(), 13.0)
                         .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                         .on_press(Message::Patch(PatchMessage::Reject(*block_id))),
                 ),
         );
+    }
 
     let valid: Vec<(usize, String)> = draft
         .redundant_children
