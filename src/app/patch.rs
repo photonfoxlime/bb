@@ -7,15 +7,12 @@
 use super::error::{AppError, UiError};
 use super::llm_requests::RequestSignature;
 use super::{AppState, LLM_REQUEST_TIMEOUT, Message};
-use crate::component::text_button::TextButton;
-use crate::llm;
-use crate::store::{
-    AtomizationDraftRecord, BlockId, ExpansionDraftRecord, ReductionDraftRecord,
+use crate::component::patch_panel::{
+    ChildItem, ChildrenSection, PanelButton, PanelButtonStyle, RewriteSection,
 };
-use crate::theme;
-use super::diff::{word_diff, WordChange};
-use iced::{Color, Element, Length, Padding, Task};
-use iced::widget::{column, container, rich_text, row, span, space, text};
+use crate::llm;
+use crate::store::{AtomizationDraftRecord, BlockId, ExpansionDraftRecord, ReductionDraftRecord};
+use iced::{Element, Task};
 use rust_i18n::t;
 
 /// Patch operation kind; determines LLM call, draft storage, and UI labels.
@@ -29,8 +26,14 @@ pub enum PatchKind {
 /// Unified patch message; carries [`PatchKind`] where branching is required.
 #[derive(Debug, Clone)]
 pub enum PatchMessage {
-    Start { kind: PatchKind, block_id: BlockId },
-    Cancel { kind: PatchKind, block_id: BlockId },
+    Start {
+        kind: PatchKind,
+        block_id: BlockId,
+    },
+    Cancel {
+        kind: PatchKind,
+        block_id: BlockId,
+    },
     Done {
         kind: PatchKind,
         block_id: BlockId,
@@ -41,8 +44,14 @@ pub enum PatchMessage {
     ApplyRewrite(BlockId),
     RejectRewrite(BlockId),
     /// Accept suggested child (expand/atomize: add; reduce: delete). Reject inverts.
-    AcceptChild { block_id: BlockId, child_index: usize },
-    RejectChild { block_id: BlockId, child_index: usize },
+    AcceptChild {
+        block_id: BlockId,
+        child_index: usize,
+    },
+    RejectChild {
+        block_id: BlockId,
+        child_index: usize,
+    },
     AcceptAllChildren(BlockId),
     DiscardAllChildren(BlockId),
 }
@@ -54,86 +63,35 @@ pub enum PatchDoneResult {
     Reduce(Result<llm::ReduceResult, UiError>, Vec<BlockId>),
 }
 
-/// Labels for patch panel UI; varies by [`PatchKind`].
-/// Note: When `inverted_buttons` is true (reduce), bulk/per-item primary uses destructive style.
-struct PatchLabels {
-    section_title: String,
-    apply_primary: String,
-    dismiss_primary: String,
-    children_header: String,
-    bulk_primary: String,
-    bulk_secondary: String,
-    per_item_primary: String,
-    per_item_secondary: String,
-    inverted_buttons: bool,
-}
-
-
-fn labels_for(kind: PatchKind) -> PatchLabels {
-    match kind {
-        PatchKind::Expand => PatchLabels {
-            section_title: t!("doc_rewrite").to_string(),
-            apply_primary: t!("doc_apply_rewrite").to_string(),
-            dismiss_primary: t!("doc_dismiss_rewrite").to_string(),
-            children_header: t!("doc_child_suggestions").to_string(),
-            bulk_primary: t!("doc_accept_all").to_string(),
-            bulk_secondary: t!("doc_discard_all").to_string(),
-            per_item_primary: t!("doc_keep").to_string(),
-            per_item_secondary: t!("doc_drop").to_string(),
-            inverted_buttons: false,
-        },
-        PatchKind::Atomize => PatchLabels {
-            section_title: t!("doc_rewrite").to_string(),
-            apply_primary: t!("doc_apply_rewrite").to_string(),
-            dismiss_primary: t!("doc_dismiss_rewrite").to_string(),
-            children_header: t!("doc_atomize_points").to_string(),
-            bulk_primary: t!("doc_accept_all").to_string(),
-            bulk_secondary: t!("doc_discard_all").to_string(),
-            per_item_primary: t!("doc_keep").to_string(),
-            per_item_secondary: t!("doc_drop").to_string(),
-            inverted_buttons: false,
-        },
-        PatchKind::Reduce => PatchLabels {
-            section_title: t!("doc_reduce").to_string(),
-            apply_primary: t!("doc_apply_reduction").to_string(),
-            dismiss_primary: t!("doc_dismiss_reduction").to_string(),
-            children_header: t!("doc_redundant_children").to_string(),
-            bulk_primary: t!("doc_delete_all").to_string(),
-            bulk_secondary: t!("doc_keep_all").to_string(),
-            per_item_primary: t!("doc_delete").to_string(),
-            per_item_secondary: t!("doc_keep").to_string(),
-            inverted_buttons: true,
-        },
-    }
-}
-
 /// Process one patch message and return a follow-up task (if any).
 pub fn handle(state: &mut AppState, message: PatchMessage) -> Task<Message> {
     match message {
-        PatchMessage::Start { kind, block_id } => handle_start(state, kind, block_id),
-        PatchMessage::Cancel { kind, block_id } => handle_cancel(state, kind, block_id),
-        PatchMessage::Done { kind, block_id, request_signature, result } => {
+        | PatchMessage::Start { kind, block_id } => handle_start(state, kind, block_id),
+        | PatchMessage::Cancel { kind, block_id } => handle_cancel(state, kind, block_id),
+        | PatchMessage::Done { kind, block_id, request_signature, result } => {
             handle_done(state, kind, block_id, request_signature, result)
         }
-        PatchMessage::ApplyRewrite(block_id) => handle_apply_rewrite(state, block_id),
-        PatchMessage::RejectRewrite(block_id) => handle_reject_rewrite(state, block_id),
-        PatchMessage::AcceptChild { block_id, child_index } => {
+        | PatchMessage::ApplyRewrite(block_id) => handle_apply_rewrite(state, block_id),
+        | PatchMessage::RejectRewrite(block_id) => handle_reject_rewrite(state, block_id),
+        | PatchMessage::AcceptChild { block_id, child_index } => {
             handle_accept_child(state, block_id, child_index)
         }
-        PatchMessage::RejectChild { block_id, child_index } => {
+        | PatchMessage::RejectChild { block_id, child_index } => {
             handle_reject_child(state, block_id, child_index)
         }
-        PatchMessage::AcceptAllChildren(block_id) => handle_accept_all_children(state, block_id),
-        PatchMessage::DiscardAllChildren(block_id) => handle_discard_all_children(state, block_id),
+        | PatchMessage::AcceptAllChildren(block_id) => handle_accept_all_children(state, block_id),
+        | PatchMessage::DiscardAllChildren(block_id) => {
+            handle_discard_all_children(state, block_id)
+        }
     }
 }
 
 fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Task<Message> {
     state.set_overflow_open(false);
     let is_busy = match kind {
-        PatchKind::Expand => state.llm_requests.is_expanding(block_id),
-        PatchKind::Atomize => state.llm_requests.is_atomizing(block_id),
-        PatchKind::Reduce => state.llm_requests.is_reducing(block_id),
+        | PatchKind::Expand => state.llm_requests.is_expanding(block_id),
+        | PatchKind::Atomize => state.llm_requests.is_atomizing(block_id),
+        | PatchKind::Reduce => state.llm_requests.is_reducing(block_id),
     };
     if is_busy {
         return Task::none();
@@ -148,43 +106,48 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
     state.snapshot_for_undo();
     let context = state.store.block_context_for_id(&block_id);
     let (config, request_signature) = match kind {
-        PatchKind::Expand => {
+        | PatchKind::Expand => {
             let Some(config) = state.llm_config_for_expand(block_id) else { return Task::none() };
-            let Some(sig) = RequestSignature::from_block_context(&context) else { return Task::none() };
+            let Some(sig) = RequestSignature::from_block_context(&context) else {
+                return Task::none();
+            };
             state.llm_requests.mark_expand_loading(block_id, sig);
             (config, sig)
         }
-        PatchKind::Atomize => {
+        | PatchKind::Atomize => {
             let Some(config) = state.llm_config_for_atomize(block_id) else { return Task::none() };
-            let Some(sig) = RequestSignature::from_block_context(&context) else { return Task::none() };
+            let Some(sig) = RequestSignature::from_block_context(&context) else {
+                return Task::none();
+            };
             state.llm_requests.mark_atomize_loading(block_id, sig);
             (config, sig)
         }
-        PatchKind::Reduce => {
+        | PatchKind::Reduce => {
             let Some(config) = state.llm_config_for_reduce(block_id) else { return Task::none() };
-            let Some(sig) = RequestSignature::from_block_context(&context) else { return Task::none() };
+            let Some(sig) = RequestSignature::from_block_context(&context) else {
+                return Task::none();
+            };
             state.llm_requests.mark_reduce_loading(block_id, sig);
             (config, sig)
         }
     };
 
     let kind_name = match kind {
-        PatchKind::Expand => "expand",
-        PatchKind::Atomize => "atomize",
-        PatchKind::Reduce => "reduce",
+        | PatchKind::Expand => "expand",
+        | PatchKind::Atomize => "atomize",
+        | PatchKind::Reduce => "reduce",
     };
     tracing::info!(block_id = ?block_id, "{} request started", kind_name);
 
     let instruction = state.store.remove_instruction_draft(&block_id).map(|d| d.instruction);
 
     let request_task = match kind {
-        PatchKind::Expand => {
+        | PatchKind::Expand => {
             let max_tokens = state.config.tasks.expand.token_limit.as_api_param();
-            let prompt =
-                llm::TaskPromptConfig::expand(
-                    &state.config.tasks.expand.system_prompt,
-                    &state.config.tasks.expand.user_prompt,
-                );
+            let prompt = llm::TaskPromptConfig::expand(
+                &state.config.tasks.expand.system_prompt,
+                &state.config.tasks.expand.user_prompt,
+            );
             let task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
@@ -218,13 +181,12 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
             state.llm_requests.replace_expand_handle(block_id, handle);
             task
         }
-        PatchKind::Atomize => {
+        | PatchKind::Atomize => {
             let max_tokens = state.config.tasks.atomize.token_limit.as_api_param();
-            let prompt =
-                llm::TaskPromptConfig::atomize(
-                    &state.config.tasks.atomize.system_prompt,
-                    &state.config.tasks.atomize.user_prompt,
-                );
+            let prompt = llm::TaskPromptConfig::atomize(
+                &state.config.tasks.atomize.system_prompt,
+                &state.config.tasks.atomize.user_prompt,
+            );
             let task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
@@ -258,14 +220,13 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
             state.llm_requests.replace_atomize_handle(block_id, handle);
             task
         }
-        PatchKind::Reduce => {
+        | PatchKind::Reduce => {
             let children_snapshot = state.store.children(&block_id).to_vec();
             let max_tokens = state.config.tasks.reduce.token_limit.as_api_param();
-            let prompt =
-                llm::TaskPromptConfig::reduce(
-                    &state.config.tasks.reduce.system_prompt,
-                    &state.config.tasks.reduce.user_prompt,
-                );
+            let prompt = llm::TaskPromptConfig::reduce(
+                &state.config.tasks.reduce.system_prompt,
+                &state.config.tasks.reduce.user_prompt,
+            );
             let task = Task::perform(
                 async move {
                     let client = llm::LlmClient::new(config);
@@ -303,15 +264,15 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
 
 fn handle_cancel(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Task<Message> {
     let cancelled = match kind {
-        PatchKind::Expand => state.llm_requests.cancel_expand(block_id),
-        PatchKind::Atomize => state.llm_requests.cancel_atomize(block_id),
-        PatchKind::Reduce => state.llm_requests.cancel_reduce(block_id),
+        | PatchKind::Expand => state.llm_requests.cancel_expand(block_id),
+        | PatchKind::Atomize => state.llm_requests.cancel_atomize(block_id),
+        | PatchKind::Reduce => state.llm_requests.cancel_reduce(block_id),
     };
     if cancelled {
         let name = match kind {
-            PatchKind::Expand => "expand",
-            PatchKind::Atomize => "atomize",
-            PatchKind::Reduce => "reduce",
+            | PatchKind::Expand => "expand",
+            | PatchKind::Atomize => "atomize",
+            | PatchKind::Reduce => "reduce",
         };
         tracing::info!(block_id = ?block_id, "{} request cancelled", name);
     }
@@ -319,16 +280,13 @@ fn handle_cancel(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Ta
 }
 
 fn handle_done(
-    state: &mut AppState,
-    kind: PatchKind,
-    block_id: BlockId,
-    request_signature: RequestSignature,
+    state: &mut AppState, kind: PatchKind, block_id: BlockId, request_signature: RequestSignature,
     result: PatchDoneResult,
 ) -> Task<Message> {
     let pending_signature = match kind {
-        PatchKind::Expand => state.llm_requests.finish_expand_request(block_id),
-        PatchKind::Atomize => state.llm_requests.finish_atomize_request(block_id),
-        PatchKind::Reduce => state.llm_requests.finish_reduce_request(block_id),
+        | PatchKind::Expand => state.llm_requests.finish_expand_request(block_id),
+        | PatchKind::Atomize => state.llm_requests.finish_atomize_request(block_id),
+        | PatchKind::Reduce => state.llm_requests.finish_reduce_request(block_id),
     };
     if state.store.node(&block_id).is_none() {
         return Task::none();
@@ -342,10 +300,9 @@ fn handle_done(
     }
 
     match (kind, result) {
-        (PatchKind::Expand, PatchDoneResult::Expand(Ok(raw))) => {
+        | (PatchKind::Expand, PatchDoneResult::Expand(Ok(raw))) => {
             let (rewrite, children) = raw.into_parts();
-            let rewrite =
-                rewrite.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
+            let rewrite = rewrite.map(|v| v.trim().to_string()).filter(|v| !v.is_empty());
             let children = children
                 .into_iter()
                 .map(llm::ExpandSuggestion::into_point)
@@ -360,31 +317,28 @@ fn handle_done(
                 return Task::none();
             }
             state.mutate_with_undo_and_persist("after creating expansion draft", |s| {
-                s.store.insert_expansion_draft(
-                    block_id,
-                    ExpansionDraftRecord { rewrite, children },
-                );
+                s.store
+                    .insert_expansion_draft(block_id, ExpansionDraftRecord { rewrite, children });
                 s.errors.retain(|e| !matches!(e, AppError::Expand(_)));
                 true
             });
         }
-        (PatchKind::Expand, PatchDoneResult::Expand(Err(reason))) => {
+        | (PatchKind::Expand, PatchDoneResult::Expand(Err(reason))) => {
             state.llm_requests.set_expand_error(block_id, reason.clone());
             state.record_error(AppError::Expand(reason));
         }
-        (PatchKind::Atomize, PatchDoneResult::Atomize(Ok(raw))) => {
+        | (PatchKind::Atomize, PatchDoneResult::Atomize(Ok(raw))) => {
             let (rewrite, points) = raw.into_parts();
-            state.store.insert_atomization_draft(
-                block_id,
-                AtomizationDraftRecord { rewrite, points },
-            );
+            state
+                .store
+                .insert_atomization_draft(block_id, AtomizationDraftRecord { rewrite, points });
             state.errors.retain(|e| !matches!(e, AppError::Atomize(_)));
             tracing::info!(block_id = ?block_id, "atomize done");
         }
-        (PatchKind::Atomize, PatchDoneResult::Atomize(Err(reason))) => {
+        | (PatchKind::Atomize, PatchDoneResult::Atomize(Err(reason))) => {
             state.record_error(AppError::Atomize(reason));
         }
-        (PatchKind::Reduce, PatchDoneResult::Reduce(Ok(raw), ref children_snapshot)) => {
+        | (PatchKind::Reduce, PatchDoneResult::Reduce(Ok(raw), ref children_snapshot)) => {
             let (reduction, indices) = raw.into_parts();
             let redundant: Vec<BlockId> =
                 indices.iter().filter_map(|&i| children_snapshot.get(i).copied()).collect();
@@ -401,11 +355,11 @@ fn handle_done(
                 true
             });
         }
-        (PatchKind::Reduce, PatchDoneResult::Reduce(Err(reason), _)) => {
+        | (PatchKind::Reduce, PatchDoneResult::Reduce(Err(reason), _)) => {
             state.llm_requests.set_reduce_error(block_id, reason.clone());
             state.record_error(AppError::Reduce(reason));
         }
-        _ => {}
+        | _ => {}
     }
     state.store.remove_instruction_draft(&block_id);
     Task::none()
@@ -416,15 +370,8 @@ fn handle_apply_rewrite(state: &mut AppState, block_id: BlockId) -> Task<Message
         .store
         .expansion_draft_mut(&block_id)
         .and_then(|d| d.rewrite.take())
-        .or_else(|| {
-            state
-                .store
-                .atomization_draft_mut(&block_id)
-                .and_then(|d| d.rewrite.take())
-        })
-        .or_else(|| {
-            state.store.reduction_draft(&block_id).and_then(|d| d.reduction.clone())
-        });
+        .or_else(|| state.store.atomization_draft_mut(&block_id).and_then(|d| d.rewrite.take()))
+        .or_else(|| state.store.reduction_draft(&block_id).and_then(|d| d.reduction.clone()));
     if let Some(rewrite) = rewrite_opt {
         state.mutate_with_undo_and_persist("after applying rewrite", |s| {
             s.store.update_point(&block_id, rewrite.clone());
@@ -467,12 +414,10 @@ fn handle_reject_rewrite(state: &mut AppState, block_id: BlockId) -> Task<Messag
         }
         changed = true;
     }
-    let reduction_action = state.store.reduction_draft(&block_id).map(|d| {
-        (
-            d.reduction.is_some(),
-            d.redundant_children.is_empty(),
-        )
-    });
+    let reduction_action = state
+        .store
+        .reduction_draft(&block_id)
+        .map(|d| (d.reduction.is_some(), d.redundant_children.is_empty()));
     if let Some((had_reduction, children_empty)) = reduction_action {
         if had_reduction {
             if let Some(d) = state.store.reduction_draft_mut(&block_id) {
@@ -493,27 +438,17 @@ fn handle_reject_rewrite(state: &mut AppState, block_id: BlockId) -> Task<Messag
 }
 
 fn handle_accept_child(
-    state: &mut AppState,
-    block_id: BlockId,
-    child_index: usize,
+    state: &mut AppState, block_id: BlockId, child_index: usize,
 ) -> Task<Message> {
     let point_opt = state
         .store
         .expansion_draft_mut(&block_id)
         .and_then(|d| {
-            if child_index < d.children.len() {
-                Some(d.children.remove(child_index))
-            } else {
-                None
-            }
+            if child_index < d.children.len() { Some(d.children.remove(child_index)) } else { None }
         })
         .or_else(|| {
             state.store.atomization_draft_mut(&block_id).and_then(|d| {
-                if child_index < d.points.len() {
-                    Some(d.points.remove(child_index))
-                } else {
-                    None
-                }
+                if child_index < d.points.len() { Some(d.points.remove(child_index)) } else { None }
             })
         });
     if let Some(point) = point_opt {
@@ -538,9 +473,10 @@ fn handle_accept_child(
         return Task::none();
     }
     // Reduction: accept = delete child (inverse of expand).
-    let cid_opt = state.store.reduction_draft(&block_id).and_then(|d| {
-        d.redundant_children.get(child_index).copied()
-    });
+    let cid_opt = state
+        .store
+        .reduction_draft(&block_id)
+        .and_then(|d| d.redundant_children.get(child_index).copied());
     if let Some(cid) = cid_opt {
         state.mutate_with_undo_and_persist("after accepting child deletion", |s| {
             if s.store.node(&cid).is_some() {
@@ -565,9 +501,7 @@ fn handle_accept_child(
 }
 
 fn handle_reject_child(
-    state: &mut AppState,
-    block_id: BlockId,
-    child_index: usize,
+    state: &mut AppState, block_id: BlockId, child_index: usize,
 ) -> Task<Message> {
     let mut changed = false;
     if let Some(d) = state.store.expansion_draft_mut(&block_id) {
@@ -641,10 +575,7 @@ fn handle_accept_all_children(state: &mut AppState, block_id: BlockId) -> Task<M
             }
             s.store.insert_reduction_draft(
                 block_id,
-                ReductionDraftRecord {
-                    reduction: draft.reduction,
-                    redundant_children: vec![],
-                },
+                ReductionDraftRecord { reduction: draft.reduction, redundant_children: vec![] },
             );
             did_work = true;
         }
@@ -668,14 +599,10 @@ fn handle_discard_all_children(state: &mut AppState, block_id: BlockId) -> Task<
         state.store.remove_atomization_draft(&block_id);
         changed = true;
     }
-    let reduction_clear_children = state
-        .store
-        .reduction_draft(&block_id)
-        .filter(|d| !d.redundant_children.is_empty())
-        .map(|d| ReductionDraftRecord {
-            reduction: d.reduction.clone(),
-            redundant_children: vec![],
-        });
+    let reduction_clear_children =
+        state.store.reduction_draft(&block_id).filter(|d| !d.redundant_children.is_empty()).map(
+            |d| ReductionDraftRecord { reduction: d.reduction.clone(), redundant_children: vec![] },
+        );
     if let Some(draft) = reduction_clear_children {
         state.store.insert_reduction_draft(block_id, draft);
         changed = true;
@@ -697,245 +624,207 @@ pub enum PatchDraft<'a> {
 
 /// Render a single patch panel based on draft kind and content.
 pub fn render_patch_panel<'a>(
-    state: &'a AppState,
-    block_id: &BlockId,
-    draft: PatchDraft<'a>,
+    state: &'a AppState, block_id: &BlockId, draft: PatchDraft<'a>,
 ) -> Element<'a, Message> {
-    let labels = match &draft {
-        PatchDraft::Expand(_) => labels_for(PatchKind::Expand),
-        PatchDraft::Atomize(_) => labels_for(PatchKind::Atomize),
-        PatchDraft::Reduction(_) => labels_for(PatchKind::Reduce),
-    };
-
+    let is_dark = state.is_dark_mode();
     match draft {
-        PatchDraft::Expand(d) => {
-            let children: Vec<(usize, String)> =
-                d.children.iter().enumerate().map(|(i, s)| (i, s.clone())).collect();
-            render_add_children_panel(
-                state,
-                block_id,
-                &labels,
-                d.rewrite.as_deref(),
-                None,
-                &children,
-            )
-        }
-        PatchDraft::Atomize(d) => {
-            let children: Vec<(usize, String)> =
-                d.points.iter().enumerate().map(|(i, s)| (i, s.clone())).collect();
-            render_add_children_panel(
-                state,
-                block_id,
-                &labels,
-                d.rewrite.as_deref(),
-                None,
-                &children,
-            )
-        }
-        PatchDraft::Reduction(d) => {
+        | PatchDraft::Expand(d) => {
             let current_point = state.store.point(block_id).unwrap_or_default();
-            let point_applied =
-                d.reduction.as_ref().map_or(false, |r| current_point == *r);
-            let (rewrite, dismiss_only) = if point_applied {
-                (None, Some(Message::Patch(PatchMessage::RejectRewrite(*block_id))))
+            let rewrite = d.rewrite.as_deref().map(|rw| RewriteSection::Diff {
+                title: t!("doc_rewrite").to_string(),
+                old_text: current_point,
+                new_text: rw.to_string(),
+                buttons: vec![
+                    PanelButton {
+                        label: t!("doc_apply_rewrite").to_string(),
+                        style: PanelButtonStyle::Action,
+                        on_press: Message::Patch(PatchMessage::ApplyRewrite(*block_id)),
+                    },
+                    PanelButton {
+                        label: t!("doc_dismiss_rewrite").to_string(),
+                        style: PanelButtonStyle::Destructive,
+                        on_press: Message::Patch(PatchMessage::RejectRewrite(*block_id)),
+                    },
+                ],
+            });
+            let children = build_add_children_section(
+                block_id,
+                t!("doc_child_suggestions").to_string(),
+                t!("doc_accept_all").to_string(),
+                t!("doc_discard_all").to_string(),
+                t!("doc_keep").to_string(),
+                t!("doc_drop").to_string(),
+                d.children.iter().enumerate().map(|(i, s)| (i, s.clone())).collect(),
+            );
+            crate::component::patch_panel::view(is_dark, rewrite, children)
+        }
+        | PatchDraft::Atomize(d) => {
+            let current_point = state.store.point(block_id).unwrap_or_default();
+            let rewrite = d.rewrite.as_deref().map(|rw| RewriteSection::Diff {
+                title: t!("doc_rewrite").to_string(),
+                old_text: current_point,
+                new_text: rw.to_string(),
+                buttons: vec![
+                    PanelButton {
+                        label: t!("doc_apply_rewrite").to_string(),
+                        style: PanelButtonStyle::Action,
+                        on_press: Message::Patch(PatchMessage::ApplyRewrite(*block_id)),
+                    },
+                    PanelButton {
+                        label: t!("doc_dismiss_rewrite").to_string(),
+                        style: PanelButtonStyle::Destructive,
+                        on_press: Message::Patch(PatchMessage::RejectRewrite(*block_id)),
+                    },
+                ],
+            });
+            let children = build_add_children_section(
+                block_id,
+                t!("doc_atomize_points").to_string(),
+                t!("doc_accept_all").to_string(),
+                t!("doc_discard_all").to_string(),
+                t!("doc_keep").to_string(),
+                t!("doc_drop").to_string(),
+                d.points.iter().enumerate().map(|(i, s)| (i, s.clone())).collect(),
+            );
+            crate::component::patch_panel::view(is_dark, rewrite, children)
+        }
+        | PatchDraft::Reduction(d) => {
+            let current_point = state.store.point(block_id).unwrap_or_default();
+            let point_applied = d.reduction.as_ref().map_or(false, |r| current_point == *r);
+            let rewrite = if point_applied {
+                Some(RewriteSection::DismissOnly {
+                    title: t!("doc_reduce").to_string(),
+                    button: PanelButton {
+                        label: t!("doc_dismiss_reduction").to_string(),
+                        style: PanelButtonStyle::Destructive,
+                        on_press: Message::Patch(PatchMessage::RejectRewrite(*block_id)),
+                    },
+                })
             } else if let Some(ref r) = d.reduction {
-                (Some(r.as_str()), None)
+                Some(RewriteSection::Diff {
+                    title: t!("doc_reduce").to_string(),
+                    old_text: current_point,
+                    new_text: r.to_string(),
+                    buttons: vec![
+                        PanelButton {
+                            label: t!("doc_apply_reduction").to_string(),
+                            style: PanelButtonStyle::Action,
+                            on_press: Message::Patch(PatchMessage::ApplyRewrite(*block_id)),
+                        },
+                        PanelButton {
+                            label: t!("doc_dismiss_reduction").to_string(),
+                            style: PanelButtonStyle::Destructive,
+                            on_press: Message::Patch(PatchMessage::RejectRewrite(*block_id)),
+                        },
+                    ],
+                })
             } else {
-                (None, Some(Message::Patch(PatchMessage::RejectRewrite(*block_id))))
+                Some(RewriteSection::DismissOnly {
+                    title: t!("doc_reduce").to_string(),
+                    button: PanelButton {
+                        label: t!("doc_dismiss_reduction").to_string(),
+                        style: PanelButtonStyle::Destructive,
+                        on_press: Message::Patch(PatchMessage::RejectRewrite(*block_id)),
+                    },
+                })
             };
-            let children: Vec<(usize, String)> = d
+            // Delete-children section: primary = delete (destructive), secondary = keep (action).
+            let child_items: Vec<(usize, String)> = d
                 .redundant_children
                 .iter()
                 .enumerate()
                 .filter(|(_, id)| state.store.node(id).is_some())
                 .map(|(idx, id)| (idx, state.store.point(id).unwrap_or_default()))
                 .collect();
-            render_add_children_panel(
-                state,
-                block_id,
-                &labels,
-                rewrite,
-                dismiss_only,
-                &children,
-            )
-        }
-    }
-}
-
-fn render_add_children_panel<'a>(
-    state: &'a AppState,
-    block_id: &BlockId,
-    labels: &PatchLabels,
-    rewrite: Option<&str>,
-    dismiss_only: Option<Message>,
-    children: &[(usize, String)],
-) -> Element<'a, Message> {
-    let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
-
-    if let Some(rw) = rewrite {
-        let old = state.store.point(block_id).unwrap_or_default();
-        let diff = render_diff_content(state.is_dark_mode(), &old, rw);
-        panel = panel.push(
-            column![]
-                .spacing(theme::PANEL_INNER_GAP)
-                .push(container(text(labels.section_title.clone())).width(Length::Fill))
-                .push(container(diff).width(Length::Fill))
-                .push(
-                    row![]
-                        .width(Length::Fill)
-                        .spacing(theme::PANEL_BUTTON_GAP)
-                        .push(space::horizontal())
-                        .push(
-                            TextButton::action(labels.apply_primary.clone(), 13.0)
-                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                .on_press(Message::Patch(PatchMessage::ApplyRewrite(*block_id))),
-                        )
-                        .push(
-                            TextButton::destructive(labels.dismiss_primary.clone(), 13.0)
-                                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                                .on_press(Message::Patch(PatchMessage::RejectRewrite(*block_id))),
-                        ),
-                ),
-        );
-    } else if let Some(dismiss_msg) = dismiss_only {
-        panel = panel.push(
-            row![]
-                .spacing(theme::PANEL_BUTTON_GAP)
-                .push(container(text(labels.section_title.clone())).width(Length::Fill))
-                .push(
-                    TextButton::destructive(labels.dismiss_primary.clone(), 13.0)
-                        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                        .on_press(dismiss_msg),
-                ),
-        );
-    }
-
-    if !children.is_empty() {
-        let (bulk_primary_btn, bulk_secondary_btn) = if labels.inverted_buttons {
-            (
-                TextButton::destructive(labels.bulk_primary.clone(), 13.0)
-                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                    .on_press(Message::Patch(PatchMessage::AcceptAllChildren(*block_id))),
-                TextButton::action(labels.bulk_secondary.clone(), 13.0)
-                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                    .on_press(Message::Patch(PatchMessage::DiscardAllChildren(*block_id))),
-            )
-        } else {
-            (
-                TextButton::action(labels.bulk_primary.clone(), 13.0)
-                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                    .on_press(Message::Patch(PatchMessage::AcceptAllChildren(*block_id))),
-                TextButton::destructive(labels.bulk_secondary.clone(), 13.0)
-                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                    .on_press(Message::Patch(PatchMessage::DiscardAllChildren(*block_id))),
-            )
-        };
-        panel = panel.push(
-            row![]
-                .spacing(theme::PANEL_BUTTON_GAP)
-                .push(container(text(labels.children_header.clone())).width(Length::Fill))
-                .push(bulk_primary_btn)
-                .push(bulk_secondary_btn),
-        );
-        for (idx, label) in children {
-            let child_index = *idx;
-            let label_owned = label.clone();
-            let (primary_btn, secondary_btn) = if labels.inverted_buttons {
-                (
-                    TextButton::destructive(labels.per_item_primary.clone(), 13.0)
-                        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                        .on_press(Message::Patch(PatchMessage::AcceptChild {
-                            block_id: *block_id,
-                            child_index,
-                        })),
-                    TextButton::action(labels.per_item_secondary.clone(), 13.0)
-                        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                        .on_press(Message::Patch(PatchMessage::RejectChild {
-                            block_id: *block_id,
-                            child_index,
-                        })),
-                )
+            let children = if child_items.is_empty() {
+                None
             } else {
-                (
-                    TextButton::action(labels.per_item_primary.clone(), 13.0)
-                        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                        .on_press(Message::Patch(PatchMessage::AcceptChild {
-                            block_id: *block_id,
-                            child_index,
-                        })),
-                    TextButton::destructive(labels.per_item_secondary.clone(), 13.0)
-                        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                        .on_press(Message::Patch(PatchMessage::RejectChild {
-                            block_id: *block_id,
-                            child_index,
-                        })),
-                )
+                Some(ChildrenSection {
+                    header: t!("doc_redundant_children").to_string(),
+                    bulk_primary: PanelButton {
+                        label: t!("doc_delete_all").to_string(),
+                        style: PanelButtonStyle::Destructive,
+                        on_press: Message::Patch(PatchMessage::AcceptAllChildren(*block_id)),
+                    },
+                    bulk_secondary: PanelButton {
+                        label: t!("doc_keep_all").to_string(),
+                        style: PanelButtonStyle::Action,
+                        on_press: Message::Patch(PatchMessage::DiscardAllChildren(*block_id)),
+                    },
+                    items: child_items
+                        .into_iter()
+                        .map(|(idx, point)| ChildItem {
+                            text: point,
+                            primary: PanelButton {
+                                label: t!("doc_delete").to_string(),
+                                style: PanelButtonStyle::Destructive,
+                                on_press: Message::Patch(PatchMessage::AcceptChild {
+                                    block_id: *block_id,
+                                    child_index: idx,
+                                }),
+                            },
+                            secondary: PanelButton {
+                                label: t!("doc_keep").to_string(),
+                                style: PanelButtonStyle::Action,
+                                on_press: Message::Patch(PatchMessage::RejectChild {
+                                    block_id: *block_id,
+                                    child_index: idx,
+                                }),
+                            },
+                        })
+                        .collect(),
+                })
             };
-            panel = panel.push(
-                row![]
-                    .spacing(theme::PANEL_BUTTON_GAP)
-                    .push(container(text(label_owned)).width(Length::Fill))
-                    .push(primary_btn)
-                    .push(secondary_btn),
-            );
+            crate::component::patch_panel::view(is_dark, rewrite, children)
         }
     }
-
-    container(panel)
-        .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
-        .style(theme::draft_panel)
-        .into()
 }
 
-fn render_diff_content(
-    is_dark: bool,
-    old_text: &str,
-    new_text: &str,
-) -> Element<'static, Message> {
-    use iced::widget::text::Span as RichSpan;
-
-    let changes = word_diff(old_text, new_text);
-    let pal = theme::palette_for_mode(is_dark);
-    let del_bg = Color { a: 0.08, ..pal.danger };
-    let add_bg = Color { a: 0.08, ..pal.success };
-    let ctx = pal.ink;
-
-    let old_spans: Vec<RichSpan<'_>> = changes
-        .iter()
-        .filter_map(|c| match c {
-            WordChange::Unchanged(s) => Some(span(s.clone()).color(ctx)),
-            WordChange::Deleted(s) => Some(
-                span(s.clone())
-                    .color(ctx)
-                    .background(del_bg)
-                    .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
-            ),
-            WordChange::Added(_) => None,
-        })
-        .collect();
-    let new_spans: Vec<RichSpan<'_>> = changes
-        .iter()
-        .filter_map(|c| match c {
-            WordChange::Unchanged(s) => Some(span(s.clone()).color(ctx)),
-            WordChange::Added(s) => Some(
-                span(s.clone())
-                    .color(ctx)
-                    .background(add_bg)
-                    .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
-            ),
-            WordChange::Deleted(_) => None,
-        })
-        .collect();
-
-    container(
-        column![
-            rich_text(old_spans).width(Length::Fill),
-            rich_text(new_spans).width(Length::Fill),
-        ]
-        .spacing(theme::DIFF_LINE_GAP),
-    )
-    .width(Length::Fill)
-    .into()
+/// Build a `ChildrenSection` for add-children operations (expand, atomize).
+///
+/// Primary = keep (action style), secondary = drop (destructive style).
+fn build_add_children_section(
+    block_id: &BlockId, header: String, bulk_primary_label: String, bulk_secondary_label: String,
+    per_item_primary_label: String, per_item_secondary_label: String, items: Vec<(usize, String)>,
+) -> Option<ChildrenSection<Message>> {
+    if items.is_empty() {
+        return None;
+    }
+    Some(ChildrenSection {
+        header,
+        bulk_primary: PanelButton {
+            label: bulk_primary_label,
+            style: PanelButtonStyle::Action,
+            on_press: Message::Patch(PatchMessage::AcceptAllChildren(*block_id)),
+        },
+        bulk_secondary: PanelButton {
+            label: bulk_secondary_label,
+            style: PanelButtonStyle::Destructive,
+            on_press: Message::Patch(PatchMessage::DiscardAllChildren(*block_id)),
+        },
+        items: items
+            .into_iter()
+            .map(|(idx, point)| ChildItem {
+                text: point,
+                primary: PanelButton {
+                    label: per_item_primary_label.clone(),
+                    style: PanelButtonStyle::Action,
+                    on_press: Message::Patch(PatchMessage::AcceptChild {
+                        block_id: *block_id,
+                        child_index: idx,
+                    }),
+                },
+                secondary: PanelButton {
+                    label: per_item_secondary_label.clone(),
+                    style: PanelButtonStyle::Destructive,
+                    on_press: Message::Patch(PatchMessage::RejectChild {
+                        block_id: *block_id,
+                        child_index: idx,
+                    }),
+                },
+            })
+            .collect(),
+    })
 }
 
 #[cfg(test)]
@@ -994,18 +883,12 @@ mod tests {
         let (mut state, root) = test_state();
         let _ = AppState::update(
             &mut state,
-            Message::Patch(PatchMessage::Start {
-                kind: PatchKind::Expand,
-                block_id: root,
-            }),
+            Message::Patch(PatchMessage::Start { kind: PatchKind::Expand, block_id: root }),
         );
         assert!(state.llm_requests.is_expanding(root));
         let _ = AppState::update(
             &mut state,
-            Message::Patch(PatchMessage::Cancel {
-                kind: PatchKind::Expand,
-                block_id: root,
-            }),
+            Message::Patch(PatchMessage::Cancel { kind: PatchKind::Expand, block_id: root }),
         );
         assert!(!state.llm_requests.is_expanding(root));
     }
@@ -1017,10 +900,7 @@ mod tests {
             root,
             ExpansionDraftRecord { rewrite: Some("new".to_string()), children: vec![] },
         );
-        let _ = AppState::update(
-            &mut state,
-            Message::Patch(PatchMessage::ApplyRewrite(root)),
-        );
+        let _ = AppState::update(&mut state, Message::Patch(PatchMessage::ApplyRewrite(root)));
         assert_eq!(state.store.point(&root).as_deref(), Some("new"));
         assert!(state.store.expansion_draft(&root).is_none());
     }

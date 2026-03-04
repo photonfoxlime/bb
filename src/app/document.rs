@@ -71,10 +71,9 @@
 //! while preserving discoverability of less obvious chords.
 
 use super::{
-    AppState, ContextMenuAction, ContextMenuMessage, DocumentMode, EditMessage,
-    ErrorBanner, ErrorMessage, FindMessage, LinkModeMessage, Message,
-    MountFileMessage, NavigationMessage, OverlayMessage, ShortcutMessage,
-    StructureMessage, UndoRedoMessage,
+    AppState, ContextMenuAction, ContextMenuMessage, DocumentMode, EditMessage, ErrorBanner,
+    ErrorMessage, FindMessage, LinkModeMessage, Message, MountFileMessage, NavigationMessage,
+    OverlayMessage, ShortcutMessage, StructureMessage, UndoRedoMessage,
     action_bar::{
         ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
         ViewportBucket, action_i18n_key, action_icon, action_to_message, build_action_bar_vm,
@@ -89,17 +88,15 @@ use super::{
 use crate::{
     component::icon_button::IconButton,
     component::text_button::TextButton,
-    store::{
-        BlockId, BlockPanelBarState, LinkKind, PointContent,
-    },
+    store::{BlockId, BlockPanelBarState, LinkKind, PointContent},
     text::truncate_for_display,
     theme,
 };
 use iced::{
     Element, Fill, Length, Padding, Point,
     widget::{
-        button, column, container, mouse_area, row, rule, scrollable, space,
-        stack, text, text_editor, tooltip,
+        button, column, container, mouse_area, row, rule, scrollable, space, stack, text,
+        text_editor, tooltip,
     },
 };
 use lucide_icons::iced as icons;

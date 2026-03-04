@@ -22,7 +22,7 @@ mod error_banner;
 // Block Editor
 mod edit;
 mod editor_buffers;
-mod diff;
+pub(crate) mod diff;
 mod overlay;
 // Panel Views
 mod friends_panel;
@@ -42,7 +42,6 @@ use self::{
         ActionAvailability, ActionId, RowContext, ViewportBucket, action_to_message_by_id,
         build_action_bar_vm, project_for_viewport,
     },
-    patch::PatchMessage,
     edit::EditMessage,
     editor_buffers::EditorBuffers,
     error::{AppError, ErrorMessage, UiError},
@@ -54,6 +53,7 @@ use self::{
     mount_file::MountFileMessage,
     navigation::{NavigationMessage, NavigationStack},
     overlay::OverlayMessage,
+    patch::PatchMessage,
     settings::{SettingsMessage, SettingsState},
     shortcut::ShortcutMessage,
     structure::StructureMessage,

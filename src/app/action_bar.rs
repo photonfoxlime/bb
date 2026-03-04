@@ -11,9 +11,8 @@
 //! owning VM types and builder/projection functions below.
 
 use super::{
-    AppState, Message, MountFileMessage,
+    AppState, Message, MountFileMessage, StructureMessage,
     patch::{PatchKind, PatchMessage},
-    StructureMessage,
 };
 use crate::{store::BlockId, theme};
 use iced::{

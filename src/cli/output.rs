@@ -308,8 +308,8 @@ fn print_draft_list(
             if let Some(r) = reduction {
                 println!("Reduction draft:");
                 match &r.reduction {
-                    Some(text) => println!("  Reduction: {}", text),
-                    None => println!("  Reduction: (rejected)"),
+                    | Some(text) => println!("  Reduction: {}", text),
+                    | None => println!("  Reduction: (rejected)"),
                 }
                 if !r.redundant_children.is_empty() {
                     println!("  Redundant children: {}", r.redundant_children.join(", "));
