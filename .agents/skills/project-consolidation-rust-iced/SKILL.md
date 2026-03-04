@@ -11,6 +11,76 @@ Use when given Rust source files from an iced project and asked to consolidate k
 
 ---
 
+## INVESTIGATIVE PROTOCOL — READ THIS FIRST
+
+Before writing any output, Claude must actively interrogate the codebase by working through every question below. Do not skip questions because the answer seems absent — absence is itself informative and must be noted. For each question, cite the specific file, line, or pattern that provides the answer.
+
+### Architecture & State
+- What is the top-level type that implements `Application` or `Sandbox`? What fields does it have and what does each represent?
+- How is the application state split across the model? Are there nested sub-states? What owns what?
+- Are there multiple "pages" or "screens" modeled? How is the active screen tracked (enum variant, bool flags, index)?
+- Is there any state that lives outside the main model (globals, `lazy_static`, `once_cell`, thread-locals)? Why?
+- What is initialized at startup vs lazily? What can fail at startup?
+
+### Message Hierarchy
+- What are ALL variants of the top-level `Message` enum? List every one.
+- Which variants carry payloads? What are those types?
+- Are there nested message enums (e.g. `Message::Screen(ScreenMsg)`)? Enumerate the full tree.
+- Which messages are produced by user interaction vs async results vs subscriptions vs timers?
+- Are there any messages that feel redundant, overly coarse, or overly fine-grained? Note these — they reveal design tension.
+- Which `update` arms have the most complex logic? What do they do?
+
+### UI/UX — Exhaustive Screen Analysis
+For EVERY screen, panel, modal, overlay, and popover — no matter how minor:
+- What is the exact widget hierarchy? Trace every `row!`, `column!`, `container`, `scrollable` from outermost to innermost.
+- What are all interactive elements (buttons, text inputs, sliders, checkboxes, pick lists, etc.)? What message does each produce?
+- What state is reflected visually (enabled/disabled, selected, loading, error)? How is that state stored?
+- Are any widgets conditionally shown or hidden? Under what conditions?
+- What text is displayed? Is it static, dynamic, or formatted? Where does it come from?
+- Are there any custom-drawn elements (Canvas, custom widget)? What do they render?
+- What are the exact spacing, padding, and sizing values used? Are they constants or hardcoded?
+- What fonts are used? Are any loaded from files?
+- What colors appear? Map every color to its hex/RGB value and where it's used.
+- Are there icons or images? How are they loaded and rendered?
+- What happens on window resize? Is layout responsive or fixed?
+- Are there any animations or transitions?
+- What keyboard shortcuts or focus behaviors exist?
+
+### Design Decisions
+- Why was this screen/component structure chosen over alternatives? Look for comments, TODOs, or structural clues.
+- Are there any `// TODO`, `// FIXME`, `// HACK`, or `// NOTE` comments? Quote them — they are explicit design signals.
+- Are there any commented-out blocks of code? What do they suggest about abandoned approaches?
+- Are there any unusually complex `update` arms that suggest a difficult design problem was solved here?
+- Are there any surprising type choices (e.g. `String` where `&str` might work, `Vec` where a `HashMap` might be expected)?
+
+### Engineering
+- What are ALL structs and enums defined in the project? For each: purpose, fields/variants, derives, invariants.
+- Which functions are longest or most complex? What do they do?
+- Where is `clone()` called? Is each clone intentional (shared ownership) or a borrow checker workaround?
+- Where is `unwrap()` or `expect()` called? Is each one justified?
+- Are there lifetime parameters? What do they represent?
+- Are there any custom traits? What do they abstract?
+- Are there generic functions? What do the bounds express?
+
+### Concurrency & Async
+- What `Command`s or `Task`s are constructed? What async work do they perform?
+- What `Subscription`s are active? What events do they listen for?
+- Is `Arc<Mutex<>>` or `Arc<RwLock<>>` used anywhere? What shared state does it protect and why?
+- Are there any channels (`mpsc`, `oneshot`)? What communicates over them?
+- Is there any `unsafe`? What invariant justifies it?
+- What async runtime is used? How is it configured?
+
+### iced-Specific
+- Which version of iced is used? Which feature flags are enabled in `Cargo.toml`?
+- Are there any custom widgets (types implementing `Widget`)? Describe each fully.
+- Are there any `Canvas` programs (types implementing `Program`)? What do they draw?
+- Is a custom `Theme` type defined? What does it contain?
+- Are there custom `StyleSheet` implementations? What do they override?
+- Are there any workarounds for iced limitations? (Look for unusual patterns, wrapper types, or comments.)
+- Are `view` functions split into helpers? How is the view layer organized?
+
+---
+
 ## PHASE 1 — DESIGN KNOWLEDGE
 
 ### 1.1 Application Architecture
@@ -92,61 +162,54 @@ Design intent: [why a trait vs enum dispatch vs generics]
 ```
 
 ### 2.4 Concurrency & Async Design
-Document all non-trivial concurrency:
 - `Command` / `Task` usage — what async work is dispatched and how results feed back as Messages
-- `Subscription` sources — what external events are subscribed to (timers, sockets, file watchers)
-- Any `Arc<Mutex<>>`, `Arc<RwLock<>>`, channels (`mpsc`, `oneshot`) — document *why* shared state was needed
+- `Subscription` sources — what external events are subscribed to
+- Any `Arc<Mutex<>>`, `Arc<RwLock<>>`, channels — document *why* shared state was needed
 - `unsafe` blocks — document invariants that justify them
-- Threading model: is work offloaded to `tokio`, `rayon`, `std::thread`?
+- Threading model: `tokio`, `rayon`, `std::thread`?
 
 ---
 
 ## PHASE 3 — ICED PATTERNS & TRICKS
 
 ### 3.1 Elm Architecture Wiring
-- How `update` is structured (single match, delegating to sub-update functions, etc.)
-- How `view` is composed (single function, per-screen view functions, component functions)
-- How `Model` is split across screens/modules
+- How `update` is structured and composed
+- How `view` is split into helper functions
+- How `Model` is divided across modules
 
 ### 3.2 Layout Patterns
-Document the idioms used:
 - `row!` / `column!` / `container` composition style
-- Spacing/padding conventions
+- Spacing/padding conventions (named constants vs magic numbers)
 - Scrollable usage
-- Responsive or dynamic layout tricks
+- Responsive or conditional layout tricks
 
 ### 3.3 Custom Widgets & Canvas
-For each custom widget or `Canvas` program:
 ```
 Name:
 Purpose:
 State: [widget-local state if any]
 Draw logic: [what it renders and how]
 Events handled: [mouse, keyboard, etc.]
-⚠️ Non-obvious: [any tricky geometry, cache invalidation, event propagation]
+⚠️ Non-obvious: [tricky geometry, cache invalidation, event propagation]
 ```
 
 ### 3.4 Theming & Styling
-- Is a custom `Theme` type used? Document its structure.
-- Any custom `StyleSheet` implementations — document what they override and why
-- Color palette — extract and name all colors used
+- Custom `Theme` type structure
+- Custom `StyleSheet` implementations — what they override and why
+- Full color palette with names and hex values
 - Font loading and usage
 
 ### 3.5 iced Version-Specific Notes
-- Which version of iced is used (0.12, 0.13, etc.) — note any version-specific APIs
-- Any workarounds for known iced limitations (mark ⚠️)
-- Feature flags enabled in Cargo.toml and why
+- iced version and feature flags
+- Workarounds for iced limitations (⚠️)
 
 ---
 
 ## OUTPUT
 
-Produce two Markdown documents:
-
 **`DESIGN_KNOWLEDGE.md`**
 ```
 # [Project] — Design Knowledge
-
 ## Application Architecture
 ## Message Hierarchy
 ## UI/UX Screen Inventory
@@ -158,31 +221,20 @@ Produce two Markdown documents:
 **`ENGINEERING_KNOWLEDGE.md`**
 ```
 # [Project] — Engineering Knowledge
-
 ## Data Structures
-### [TypeName]
-
 ## Function Contracts
-### [fn_name]
-
 ## Trait Architecture
-### [TraitName]
-
 ## Concurrency & Async Design
-
 ## iced Patterns
-### Layout Conventions
-### Custom Widgets
-### Theming
-### Version Notes
 ```
 
 ---
 
-## NOTES FOR CLAUDE
-- The `Message` enum is the single most important artifact — spend extra care on it
-- Reconstruct visual layout from `row!`/`column!` nesting into human-readable descriptions
-- Infer invariants from `assert!`, `debug_assert!`, `expect()` messages, and type constraints
-- Every `Arc<Mutex<>>` and `unsafe` block deserves a documented justification
-- Flag anything that fights the borrow checker in a non-obvious way with ⚠️
-- Prioritize what a developer needs to *rewrite* this — not just understand it
+## FINAL NOTES FOR CLAUDE
+- Work through EVERY question in the Investigative Protocol before writing output
+- Cite file and line references for non-obvious findings
+- Quote TODO/FIXME/HACK comments verbatim — they are design documentation
+- Reconstruct visual layout from widget hierarchy into human-readable prose
+- Flag anything surprising, non-idiomatic, or that fights the borrow checker with ⚠️
+- If a question has no answer in the codebase, write "not found" — do not skip it
+- The goal is: a developer with zero prior context can recreate this project from these docs alone
