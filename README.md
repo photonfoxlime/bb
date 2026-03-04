@@ -10,7 +10,7 @@ Alternatively, here's one-liner to run:
 
 Npx
 ```shell
-npx @miorin.blooming-blockery
+npx @miorin/blooming-blockery
 ```
 
 Alternatively, using package managers:
@@ -36,7 +36,7 @@ winget install --id Miorin.BloomingBlockery
 
 Npm
 ```shell
-npm install -g @miorin.blooming-blockery
+npm install -g @miorin/blooming-blockery
 ```
 </details>
 
