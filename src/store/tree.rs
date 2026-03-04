@@ -145,11 +145,11 @@ impl BlockStore {
         for id in &removed_ids {
             self.nodes.remove(*id);
             self.points.remove(*id);
-            self.expansion_drafts.remove(*id);
+            self.amplification_drafts.remove(*id);
             self.atomization_drafts.remove(*id);
-            self.reduction_drafts.remove(*id);
+            self.distillation_drafts.remove(*id);
             self.instruction_drafts.remove(*id);
-            self.inquiry_drafts.remove(*id);
+            self.probe_drafts.remove(*id);
             self.view_collapsed.remove(*id);
             self.friend_blocks.remove(*id);
             self.block_panel_state.remove(*id);

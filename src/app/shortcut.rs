@@ -365,18 +365,18 @@ fn run_shortcut_for_block(
 ) -> Task<Message> {
     let point_text =
         state.editor_buffers.get(&block_id).map(text_editor::Content::text).unwrap_or_default();
-    let expansion_draft = state.store.expansion_draft(&block_id);
+    let amplification_draft = state.store.amplification_draft(&block_id);
     let atomization_draft = state.store.atomization_draft(&block_id);
-    let reduction_draft = state.store.reduction_draft(&block_id);
+    let distillation_draft = state.store.distillation_draft(&block_id);
     let row_context = RowContext {
         block_id,
         point_text,
-        has_draft: expansion_draft.is_some()
+        has_draft: amplification_draft.is_some()
             || atomization_draft.is_some()
-            || reduction_draft.is_some(),
-        draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0)
+            || distillation_draft.is_some(),
+        draft_suggestion_count: amplification_draft.map(|d| d.children.len()).unwrap_or(0)
             + atomization_draft.map(|d| d.points.len()).unwrap_or(0)
-            + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
+            + distillation_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
         has_amplify_error: state.llm_requests.has_amplify_error(block_id),
         has_distill_error: state.llm_requests.has_distill_error(block_id),
         has_atomize_error: state.llm_requests.has_atomize_error(block_id),

@@ -201,10 +201,11 @@ impl LlmClient {
         Ok(AtomizeResult::new(rewrite, points))
     }
 
-    /// Send an instruction as a one-time inquiry to the LLM.
+    /// Probe: send a targeted question to clarify meaning, fill gaps, or challenge
+    /// assumptions. One-shot (non-streaming) variant.
     ///
     /// The instruction is sent as a user message with the block context.
-    /// Returns a one-time response that can be applied as a rewrite.
+    /// Returns a free-form response that can be applied as rewrite, append, or child.
     ///
     /// `max_tokens` caps the completion length (`None` = unlimited, omits the
     /// field from the API request).
@@ -238,19 +239,19 @@ impl LlmClient {
         Ok(trimmed.to_string())
     }
 
-    /// Stream inquiry response chunks as they are produced by the model.
+    /// Stream probe response chunks as they are produced by the model.
     ///
-    /// The method prefers true server-sent-event streaming (`stream: true`). If
-    /// the provider does not support streaming and no chunks were emitted, it
-    /// falls back to a one-shot inquiry request and emits that full response as
-    /// one [`ProbeStreamEvent::Chunk`].
+    /// Probe: ask targeted questions to clarify meaning, fill gaps, or challenge
+    /// assumptions. Prefers true server-sent-event streaming (`stream: true`). If
+    /// the provider does not support streaming and no chunks were emitted, falls
+    /// back to a one-shot probe request and emits that full response as one chunk.
     ///
     /// `max_tokens` caps the completion length (`None` = unlimited, omits the
     /// field from the API request).
     ///
     /// # Requires
     /// - `context` must not be empty (must have a lineage).
-    /// - `instruction` must not be empty.
+    /// - `instruction` must not be empty (the question to probe with).
     ///
     /// # Ensures
     /// - Emits zero or more [`ProbeStreamEvent::Chunk`] events.

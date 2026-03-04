@@ -38,7 +38,7 @@
 //! bb tree move 1v1 2v1 --after
 //!
 //! # Draft management
-//! bb draft expand 1v1 --rewrite "Refined text" --children "Child 1" "Child 2"
+//! bb draft amplify 1v1 --rewrite "Refined text" --children "Child 1" "Child 2"
 //!
 //! # Mount external files
 //! bb mount set 1v1 /path/to/file.md --format markdown
@@ -110,7 +110,7 @@ pub enum Commands {
     /// Navigation operations (next, previous, lineage).
     #[command(subcommand)]
     Nav(NavCommands),
-    /// LLM draft management (expand, reduce, instruction, inquiry).
+    /// LLM draft management (amplify, distill, instruction, probe).
     #[command(subcommand)]
     Draft(DraftCommands),
     /// Fold/collapse block visibility.

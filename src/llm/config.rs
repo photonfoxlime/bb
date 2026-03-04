@@ -79,15 +79,26 @@ impl fmt::Display for ApiStyle {
 ///
 /// Used for per-task settings (provider, model, prompts), prompt construction,
 /// and UI discriminants.
+///
+/// # Action semantics
+///
+/// - **Amplify**: Add detail, examples, and context while keeping the original
+///   intent. Produces an optional rewrite and child point suggestions.
+/// - **Distill**: Summarize into a clearer, shorter version, keeping essential
+///   information. May mark existing children as redundant for removal.
+/// - **Atomize**: Break the text into a list of distinct information points
+///   without dropping details. Produces an optional parent rewrite and point list.
+/// - **Probe**: Ask targeted questions to clarify meaning, fill gaps, or
+///   challenge assumptions. Requires user instruction; returns a free-form response.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TaskKind {
-    /// Amplification / child-suggestion requests.
+    /// Add detail, examples, context; produces rewrite + child suggestions.
     Amplify,
-    /// Distillation / condensation requests.
+    /// Summarize into a shorter version; may mark children as redundant.
     Distill,
     /// Break text into distinct information points without dropping details.
     Atomize,
-    /// Free-form instruction / probe requests.
+    /// Ask targeted questions; requires instruction, returns free-form response.
     Probe,
 }
 
@@ -313,8 +324,8 @@ impl Default for CustomProvider {
 /// Invariants:
 /// - Every [`PresetProvider`] variant has an entry in `presets`.
 ///
-/// Note: there is no global "active" provider. Each LLM task (expand, reduce,
-/// atomize, inquire) independently selects a provider + model via
+/// Note: there is no global "active" provider. Each LLM task (amplify, distill,
+/// atomize, probe) independently selects a provider + model via
 /// [`crate::app::config::TaskConfig`]. Legacy `active` fields in TOML are
 /// silently ignored on load.
 ///

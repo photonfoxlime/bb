@@ -382,7 +382,7 @@ impl ContextFormatter {
     /// Full block context: lineage, existing children, and friend blocks.
     ///
     /// Same structure for all LLM tasks. Use when building user prompts so
-    /// reduce, expand, and inquire all receive identical context.
+    /// amplify, distill, atomize, and probe all receive identical context.
     pub fn format_context_block(&self) -> String {
         let mut s = self.fmt_lineage();
         if self.presence().has_children {

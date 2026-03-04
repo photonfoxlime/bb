@@ -53,8 +53,8 @@ pub(crate) struct ChildItem<Msg> {
 
 /// A section listing child items with bulk and per-item action buttons.
 ///
-/// Used both for *add-children* (expand, atomize) and *delete-children*
-/// (reduce) by passing the appropriate button labels and messages.
+/// Used both for *add-children* (amplify, atomize) and *delete-children*
+/// (distill) by passing the appropriate button labels and messages.
 pub(crate) struct ChildrenSection<Msg> {
     pub(crate) header: String,
     pub(crate) bulk_primary: PanelButton<Msg>,

@@ -9,13 +9,13 @@
 //! Rendering semantics:
 //! - mount and fold state are represented through disclosure marker behavior,
 //! - action bars are projected per-row via `action_bar` view-model pipeline,
-//! - rewrite/reduce drafts render inline word-level diff panels.
+//! - rewrite/distill drafts render inline word-level diff panels.
 //!
 //! # Friend blocks UI
 //!
 //! Friend blocks are shown per block that has at least one friend:
 //! - A "Friends" panel is rendered below the block row (same pattern as
-//!   expansion/reduction draft panels), listing each friend's point text and
+//!   amplify/distill draft panels), listing each friend's point text and
 //!   optional perspective, with a remove button per friend.
 //!
 //! ## Inline Perspective Editor
@@ -424,9 +424,9 @@ impl<'a> DocumentView<'a> {
             text(t!("shortcut_help_section_structure").to_string())
                 .font(theme::INTER)
                 .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_expand").to_string())
+            text(t!("shortcut_help_structure_amplify").to_string())
                 .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_reduce").to_string())
+            text(t!("shortcut_help_structure_distill").to_string())
                 .size(theme::SHORTCUT_HELP_TEXT_SIZE),
             text(t!("shortcut_help_structure_atomize").to_string())
                 .size(theme::SHORTCUT_HELP_TEXT_SIZE),
@@ -573,19 +573,19 @@ impl<'a> DocumentView<'a> {
 
         // Build action bar for this block
         let point_text = self.state.store.point(&block_id).unwrap_or_default().to_string();
-        let expansion_draft = self.state.store.expansion_draft(&block_id);
+        let amplification_draft = self.state.store.amplification_draft(&block_id);
         let atomization_draft = self.state.store.atomization_draft(&block_id);
-        let reduction_draft = self.state.store.reduction_draft(&block_id);
+        let distillation_draft = self.state.store.distillation_draft(&block_id);
         let node = self.state.store.node(&block_id);
         let row_context = RowContext {
             block_id,
             point_text,
-            has_draft: expansion_draft.is_some()
+            has_draft: amplification_draft.is_some()
                 || atomization_draft.is_some()
-                || reduction_draft.is_some(),
-            draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0)
+                || distillation_draft.is_some(),
+            draft_suggestion_count: amplification_draft.map(|d| d.children.len()).unwrap_or(0)
                 + atomization_draft.map(|d| d.points.len()).unwrap_or(0)
-                + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
+                + distillation_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
             has_amplify_error: self.state.llm_requests.has_amplify_error(block_id),
             has_distill_error: self.state.llm_requests.has_distill_error(block_id),
             has_atomize_error: self.state.llm_requests.has_atomize_error(block_id),
@@ -975,18 +975,18 @@ impl<'a> TreeView<'a> {
                 super::patch::PatchDraft::Atomize(draft),
             ));
         }
-        if let Some(draft) = self.state.store.expansion_draft(block_id) {
+        if let Some(draft) = self.state.store.amplification_draft(block_id) {
             block = block.push(super::patch::render_patch_panel(
                 self.state,
                 block_id,
-                super::patch::PatchDraft::Expand(draft),
+                super::patch::PatchDraft::Amplify(draft),
             ));
         }
-        if let Some(draft) = self.state.store.reduction_draft(block_id) {
+        if let Some(draft) = self.state.store.distillation_draft(block_id) {
             block = block.push(super::patch::render_patch_panel(
                 self.state,
                 block_id,
-                super::patch::PatchDraft::Reduction(draft),
+                super::patch::PatchDraft::Distill(draft),
             ));
         }
 
@@ -1053,19 +1053,19 @@ impl<'a> TreeView<'a> {
     }
 
     fn action_row_context(&self, block_id: &BlockId, point_text: String) -> RowContext {
-        let expansion_draft = self.state.store.expansion_draft(block_id);
+        let amplification_draft = self.state.store.amplification_draft(block_id);
         let atomization_draft = self.state.store.atomization_draft(block_id);
-        let reduction_draft = self.state.store.reduction_draft(block_id);
+        let distillation_draft = self.state.store.distillation_draft(block_id);
         let node = self.state.store.node(block_id);
         RowContext {
             block_id: *block_id,
             point_text,
-            has_draft: expansion_draft.is_some()
+            has_draft: amplification_draft.is_some()
                 || atomization_draft.is_some()
-                || reduction_draft.is_some(),
-            draft_suggestion_count: expansion_draft.map(|d| d.children.len()).unwrap_or(0)
+                || distillation_draft.is_some(),
+            draft_suggestion_count: amplification_draft.map(|d| d.children.len()).unwrap_or(0)
                 + atomization_draft.map(|d| d.points.len()).unwrap_or(0)
-                + reduction_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
+                + distillation_draft.map(|d| d.redundant_children.len()).unwrap_or(0),
             has_amplify_error: self.state.llm_requests.has_amplify_error(*block_id),
             has_distill_error: self.state.llm_requests.has_distill_error(*block_id),
             has_atomize_error: self.state.llm_requests.has_atomize_error(*block_id),
@@ -1097,13 +1097,13 @@ impl<'a> TreeView<'a> {
     fn render_status_chip(&self, vm: &ActionBarVm) -> Element<'a, Message> {
         let label = match &vm.status_chip {
             | Some(StatusChipVm::Loading { op: ActionId::Amplify }) => {
-                t!("doc_status_expanding").to_string()
+                t!("doc_status_amplifying").to_string()
             }
             | Some(StatusChipVm::Loading { op: ActionId::Atomize }) => {
                 t!("doc_status_atomizing").to_string()
             }
             | Some(StatusChipVm::Loading { op: ActionId::Distill }) => {
-                t!("doc_status_reducing").to_string()
+                t!("doc_status_distilling").to_string()
             }
             | Some(StatusChipVm::Loading { .. }) => t!("doc_status_working").to_string(),
             | Some(StatusChipVm::Error { op, .. }) => t!(status_error_i18n_key(*op)).to_string(),

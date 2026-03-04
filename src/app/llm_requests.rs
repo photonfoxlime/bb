@@ -1,4 +1,4 @@
-//! Application-local runtime state for LLM distill/amplify requests.
+//! Application-local runtime state for LLM requests (amplify, distill, atomize, probe).
 //!
 //! Please use or create constants in `theme.rs` for all UI numeric values
 //! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.

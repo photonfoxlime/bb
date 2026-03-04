@@ -7,12 +7,12 @@
 use super::{BlockId, BlockPanelBarState, BlockStore, FriendBlock};
 use serde::{Deserialize, Serialize};
 
-/// Persisted expansion draft payload keyed by [`BlockId`].
+/// Persisted amplification draft payload keyed by [`BlockId`].
 ///
 /// Stored in [`BlockStore`] so in-progress rewrite/child suggestions survive
 /// reloads and mount save/load round-trips.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ExpansionDraftRecord {
+pub struct AmplificationDraftRecord {
     pub rewrite: Option<String>,
     pub children: Vec<String>,
 }
@@ -29,9 +29,9 @@ pub struct AtomizationDraftRecord {
     pub points: Vec<String>,
 }
 
-/// Persisted reduction draft payload keyed by [`BlockId`].
+/// Persisted distillation draft payload keyed by [`BlockId`].
 ///
-/// When `redundant_children` is non-empty, the reduction draft suggests that
+/// When `redundant_children` is non-empty, the distillation draft suggests that
 /// those children are captured by the condensed text and can be deleted.
 /// The [`BlockId`]s are resolved at response time from the LLM's returned
 /// indices into the children snapshot that was sent with the request.
@@ -39,7 +39,7 @@ pub struct AtomizationDraftRecord {
 /// Note: `reduction` is `None` when the user rejected the replacement but
 /// chose to continue reviewing children; point and children are independent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReductionDraftRecord {
+pub struct DistillationDraftRecord {
     /// Proposed replacement text; `None` if user rejected it (children review only).
     pub reduction: Option<String>,
     /// Children whose information is captured by the reduction.
@@ -59,42 +59,42 @@ pub struct InstructionDraftRecord {
     pub instruction: String,
 }
 
-/// Persisted inquiry draft payload keyed by target [`BlockId`].
+/// Persisted probe draft payload keyed by target [`BlockId`].
 ///
-/// This captures the inquiry question and response for a target block until the user
+/// This captures the probe question and response for a target block until the user
 /// applies or dismisses it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InquiryDraftRecord {
+pub struct ProbeDraftRecord {
     pub inquiry: String,
     pub response: String,
 }
 
 impl BlockStore {
-    /// Get the expansion draft for a block, if any.
+    /// Get the amplification draft for a block, if any.
     ///
     /// # Returns
-    /// - `Some(&ExpansionDraftRecord)` if the block has a pending expansion draft.
-    /// - `None` if no expansion draft exists for this block.
-    pub fn expansion_draft(&self, id: &BlockId) -> Option<&ExpansionDraftRecord> {
-        self.expansion_drafts.get(*id)
+    /// - `Some(&AmplificationDraftRecord)` if the block has a pending amplification draft.
+    /// - `None` if no amplification draft exists for this block.
+    pub fn amplification_draft(&self, id: &BlockId) -> Option<&AmplificationDraftRecord> {
+        self.amplification_drafts.get(*id)
     }
 
-    /// Get a mutable reference to the expansion draft for a block, if any.
-    pub fn expansion_draft_mut(&mut self, id: &BlockId) -> Option<&mut ExpansionDraftRecord> {
-        self.expansion_drafts.get_mut(*id)
+    /// Get a mutable reference to the amplification draft for a block, if any.
+    pub fn amplification_draft_mut(&mut self, id: &BlockId) -> Option<&mut AmplificationDraftRecord> {
+        self.amplification_drafts.get_mut(*id)
     }
 
-    /// Insert or replace the expansion draft for a block.
+    /// Insert or replace the amplification draft for a block.
     ///
     /// # Ensures
     /// - The draft is stored in the sparse map keyed by the block id.
-    pub fn insert_expansion_draft(&mut self, id: BlockId, draft: ExpansionDraftRecord) {
-        self.expansion_drafts.insert(id, draft);
+    pub fn insert_amplification_draft(&mut self, id: BlockId, draft: AmplificationDraftRecord) {
+        self.amplification_drafts.insert(id, draft);
     }
 
-    /// Remove the expansion draft for a block, returning the removed draft if any.
-    pub fn remove_expansion_draft(&mut self, id: &BlockId) -> Option<ExpansionDraftRecord> {
-        self.expansion_drafts.remove(*id)
+    /// Remove the amplification draft for a block, returning the removed draft if any.
+    pub fn remove_amplification_draft(&mut self, id: &BlockId) -> Option<AmplificationDraftRecord> {
+        self.amplification_drafts.remove(*id)
     }
 
     /// Get the atomization draft for a block, if any.
@@ -117,28 +117,28 @@ impl BlockStore {
         self.atomization_drafts.remove(*id)
     }
 
-    /// Get the reduction draft for a block, if any.
+    /// Get the distillation draft for a block, if any.
     ///
     /// # Returns
-    /// - `Some(&ReductionDraftRecord)` if the block has a pending reduction draft.
-    /// - `None` if no reduction draft exists for this block.
-    pub fn reduction_draft(&self, id: &BlockId) -> Option<&ReductionDraftRecord> {
-        self.reduction_drafts.get(*id)
+    /// - `Some(&DistillationDraftRecord)` if the block has a pending distillation draft.
+    /// - `None` if no distillation draft exists for this block.
+    pub fn distillation_draft(&self, id: &BlockId) -> Option<&DistillationDraftRecord> {
+        self.distillation_drafts.get(*id)
     }
 
-    /// Get a mutable reference to the reduction draft for a block, if any.
-    pub fn reduction_draft_mut(&mut self, id: &BlockId) -> Option<&mut ReductionDraftRecord> {
-        self.reduction_drafts.get_mut(*id)
+    /// Get a mutable reference to the distillation draft for a block, if any.
+    pub fn distillation_draft_mut(&mut self, id: &BlockId) -> Option<&mut DistillationDraftRecord> {
+        self.distillation_drafts.get_mut(*id)
     }
 
-    /// Insert or replace the reduction draft for a block.
-    pub fn insert_reduction_draft(&mut self, id: BlockId, draft: ReductionDraftRecord) {
-        self.reduction_drafts.insert(id, draft);
+    /// Insert or replace the distillation draft for a block.
+    pub fn insert_distillation_draft(&mut self, id: BlockId, draft: DistillationDraftRecord) {
+        self.distillation_drafts.insert(id, draft);
     }
 
-    /// Remove the reduction draft for a block, returning the removed draft if any.
-    pub fn remove_reduction_draft(&mut self, id: &BlockId) -> Option<ReductionDraftRecord> {
-        self.reduction_drafts.remove(*id)
+    /// Remove the distillation draft for a block, returning the removed draft if any.
+    pub fn remove_distillation_draft(&mut self, id: &BlockId) -> Option<DistillationDraftRecord> {
+        self.distillation_drafts.remove(*id)
     }
 
     pub fn instruction_draft(&self, id: &BlockId) -> Option<&InstructionDraftRecord> {
@@ -162,46 +162,46 @@ impl BlockStore {
         self.instruction_drafts.remove(*id)
     }
 
-    /// Get the inquiry draft for a block, if any.
+    /// Get the probe draft for a block, if any.
     ///
     /// # Returns
-    /// - `Some(&InquiryDraftRecord)` if the block has a pending inquiry draft.
-    /// - `None` if no inquiry draft exists for this block.
-    pub fn inquiry_draft(&self, id: &BlockId) -> Option<&InquiryDraftRecord> {
-        self.inquiry_drafts.get(*id)
+    /// - `Some(&ProbeDraftRecord)` if the block has a pending probe draft.
+    /// - `None` if no probe draft exists for this block.
+    pub fn probe_draft(&self, id: &BlockId) -> Option<&ProbeDraftRecord> {
+        self.probe_drafts.get(*id)
     }
 
-    /// Set the inquiry question for a block.
+    /// Set the probe question for a block.
     ///
     /// # Ensures
     /// - If `inquiry` is empty after trimming, removes any existing draft.
     /// - Otherwise stores the trimmed inquiry text and clears any old response.
-    pub fn set_inquiry(&mut self, id: BlockId, inquiry: String) {
+    pub fn set_probe_question(&mut self, id: BlockId, inquiry: String) {
         let trimmed = inquiry.trim().to_string();
         if trimmed.is_empty() {
-            self.inquiry_drafts.remove(id);
+            self.probe_drafts.remove(id);
             return;
         }
-        self.inquiry_drafts
-            .insert(id, InquiryDraftRecord { inquiry: trimmed, response: String::new() });
+        self.probe_drafts
+            .insert(id, ProbeDraftRecord { inquiry: trimmed, response: String::new() });
     }
 
-    /// Set the inquiry response for a block.
+    /// Set the probe response for a block.
     ///
     /// # Ensures
     /// - If `response` is empty (after trimming), removes any existing draft.
     /// - Otherwise, stores the trimmed response text.
-    /// - Preserves the inquiry question if it exists.
-    pub fn set_inquiry_draft(&mut self, id: BlockId, response: String) {
+    /// - Preserves the probe question if it exists.
+    pub fn set_probe_response(&mut self, id: BlockId, response: String) {
         let trimmed = response.trim();
         if trimmed.is_empty() {
-            self.inquiry_drafts.remove(id);
+            self.probe_drafts.remove(id);
         } else {
             let existing_inquiry =
-                self.inquiry_drafts.get(id).map(|r| r.inquiry.clone()).unwrap_or_default();
-            self.inquiry_drafts.insert(
+                self.probe_drafts.get(id).map(|r| r.inquiry.clone()).unwrap_or_default();
+            self.probe_drafts.insert(
                 id,
-                InquiryDraftRecord { inquiry: existing_inquiry, response: trimmed.to_string() },
+                ProbeDraftRecord { inquiry: existing_inquiry, response: trimmed.to_string() },
             );
         }
     }
@@ -217,18 +217,18 @@ impl BlockStore {
             return;
         }
 
-        if let Some(record) = self.inquiry_drafts.get_mut(id) {
+        if let Some(record) = self.probe_drafts.get_mut(id) {
             record.response.push_str(chunk);
             return;
         }
 
-        self.inquiry_drafts
-            .insert(id, InquiryDraftRecord { inquiry: String::new(), response: chunk.to_string() });
+        self.probe_drafts
+            .insert(id, ProbeDraftRecord { inquiry: String::new(), response: chunk.to_string() });
     }
 
-    /// Remove the inquiry draft for a block, returning the removed draft if any.
-    pub fn remove_inquiry_draft(&mut self, id: &BlockId) -> Option<InquiryDraftRecord> {
-        self.inquiry_drafts.remove(*id)
+    /// Remove the probe draft for a block, returning the removed draft if any.
+    pub fn remove_probe_draft(&mut self, id: &BlockId) -> Option<ProbeDraftRecord> {
+        self.probe_drafts.remove(*id)
     }
 
     /// Whether the given block's children are folded (hidden) in the UI.

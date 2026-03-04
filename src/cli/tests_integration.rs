@@ -6,8 +6,8 @@
 use crate::cli::{
     BlockId, Commands,
     draft::{
-        ClearDraftCommand, DraftCommands, ExpandDraftCommand, InstructionDraftCommand,
-        ListDraftCommand, ReduceDraftCommand,
+        ClearDraftCommand, DraftCommands, AmplifyDraftCommand, InstructionDraftCommand,
+        ListDraftCommand, DistillDraftCommand,
     },
     fold::{FoldCommands, StatusFoldCommand, ToggleFoldCommand},
     friend::{AddFriendCommand, FriendCommands, ListFriendCommand, RemoveFriendCommand},
@@ -373,7 +373,7 @@ fn draft_persists_after_tree_mod() {
     let root_id = store.roots()[0];
 
     // Set draft
-    let cmd = Commands::Draft(DraftCommands::Expand(ExpandDraftCommand {
+    let cmd = Commands::Draft(DraftCommands::Amplify(AmplifyDraftCommand {
         block_id: BlockId(fmt(root_id)),
         rewrite: Some("rewrite".to_string()),
         children: vec!["child".to_string()],
@@ -408,7 +408,7 @@ fn draft_clear_selective() {
     let root_id = store.roots()[0];
 
     // Set multiple drafts
-    let cmd = Commands::Draft(DraftCommands::Expand(ExpandDraftCommand {
+    let cmd = Commands::Draft(DraftCommands::Amplify(AmplifyDraftCommand {
         block_id: BlockId(fmt(root_id)),
         rewrite: Some("rewrite".to_string()),
         children: vec![],
@@ -426,10 +426,10 @@ fn draft_clear_selective() {
     let cmd = Commands::Draft(DraftCommands::Clear(ClearDraftCommand {
         block_id: BlockId(fmt(root_id)),
         all: false,
-        expand: true,
-        reduce: false,
+        amplify: true,
+        distill: false,
         instruction: false,
-        inquiry: false,
+        probe: false,
     }));
     let (store, _) = cmd.execute(store, &PathBuf::from("."));
 
@@ -763,7 +763,7 @@ fn draft_workflow_expand_then_reduce_then_clear() {
     let root_id = store.roots()[0];
 
     // Set expansion draft
-    let cmd = Commands::Draft(DraftCommands::Expand(ExpandDraftCommand {
+    let cmd = Commands::Draft(DraftCommands::Amplify(AmplifyDraftCommand {
         block_id: BlockId(fmt(root_id)),
         rewrite: Some("expanded version".to_string()),
         children: vec!["child1".to_string(), "child2".to_string()],
@@ -773,7 +773,7 @@ fn draft_workflow_expand_then_reduce_then_clear() {
     assert!(matches!(result, CliResult::Success));
 
     // Set reduction draft
-    let cmd = Commands::Draft(DraftCommands::Reduce(ReduceDraftCommand {
+    let cmd = Commands::Draft(DraftCommands::Distill(DistillDraftCommand {
         block_id: BlockId(fmt(root_id)),
         reduction: "summary of everything".to_string(),
         redundant_children: vec![],
@@ -810,10 +810,10 @@ fn draft_workflow_expand_then_reduce_then_clear() {
     let cmd = Commands::Draft(DraftCommands::Clear(ClearDraftCommand {
         block_id: BlockId(fmt(root_id)),
         all: false,
-        expand: true,
-        reduce: false,
+        amplify: true,
+        distill: false,
         instruction: false,
-        inquiry: false,
+        probe: false,
     }));
     let (s, result) = cmd.execute(store, &PathBuf::from("."));
     store = s;
@@ -838,10 +838,10 @@ fn draft_workflow_expand_then_reduce_then_clear() {
     let cmd = Commands::Draft(DraftCommands::Clear(ClearDraftCommand {
         block_id: BlockId(fmt(root_id)),
         all: true,
-        expand: false,
-        reduce: false,
+        amplify: false,
+        distill: false,
         instruction: false,
-        inquiry: false,
+        probe: false,
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Success));

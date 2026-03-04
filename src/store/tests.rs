@@ -456,47 +456,47 @@ fn serde_round_trip_preserves_store() {
 #[test]
 fn serde_round_trip_preserves_persisted_drafts() {
     let (mut store, root, child_a, _) = simple_store();
-    store.expansion_drafts.insert(
+    store.amplification_drafts.insert(
         root,
-        ExpansionDraftRecord {
+        AmplificationDraftRecord {
             rewrite: Some("rewrite".to_string()),
             children: vec!["child suggestion".to_string()],
         },
     );
-    store.reduction_drafts.insert(
+    store.distillation_drafts.insert(
         child_a,
-        ReductionDraftRecord {
+        DistillationDraftRecord {
             reduction: Some("reduction".to_string()),
             redundant_children: vec![],
         },
     );
     store.set_instruction_draft(root, "instruction".to_string());
-    store.set_inquiry_draft(child_a, "inquiry".to_string());
+    store.set_probe_response(child_a, "inquiry".to_string());
 
     let json = serde_json::to_string(&store).unwrap();
     let restored: BlockStore = serde_json::from_str(&json).unwrap();
 
     assert_eq!(store, restored);
-    assert!(restored.expansion_draft(&root).is_some());
-    assert!(restored.reduction_draft(&child_a).is_some());
+    assert!(restored.amplification_draft(&root).is_some());
+    assert!(restored.distillation_draft(&child_a).is_some());
     assert_eq!(
         restored.instruction_draft(&root).map(|draft| draft.instruction.as_str()),
         Some("instruction")
     );
     assert_eq!(
-        restored.inquiry_draft(&child_a).map(|draft| draft.response.as_str()),
+        restored.probe_draft(&child_a).map(|draft| draft.response.as_str()),
         Some("inquiry")
     );
 }
 
 #[test]
-fn set_inquiry_replaces_question_and_clears_old_response() {
+fn set_probe_question_replaces_question_and_clears_old_response() {
     let (mut store, root, _child_a, _child_b) = simple_store();
-    store.set_inquiry_draft(root, "old response".to_string());
+    store.set_probe_response(root, "old response".to_string());
 
-    store.set_inquiry(root, "new question".to_string());
+    store.set_probe_question(root, "new question".to_string());
 
-    let draft = store.inquiry_draft(&root).expect("inquiry draft exists");
+    let draft = store.probe_draft(&root).expect("inquiry draft exists");
     assert_eq!(draft.inquiry, "new question");
     assert!(draft.response.is_empty());
 }
@@ -504,12 +504,12 @@ fn set_inquiry_replaces_question_and_clears_old_response() {
 #[test]
 fn append_inquiry_response_chunk_builds_incremental_response() {
     let (mut store, root, _child_a, _child_b) = simple_store();
-    store.set_inquiry(root, "question".to_string());
+    store.set_probe_question(root, "question".to_string());
 
     store.append_inquiry_response_chunk(root, "hello ");
     store.append_inquiry_response_chunk(root, "world");
 
-    let draft = store.inquiry_draft(&root).expect("inquiry draft exists");
+    let draft = store.probe_draft(&root).expect("inquiry draft exists");
     assert_eq!(draft.inquiry, "question");
     assert_eq!(draft.response, "hello world");
 }
@@ -517,40 +517,40 @@ fn append_inquiry_response_chunk_builds_incremental_response() {
 #[test]
 fn remove_subtree_cleans_persisted_drafts() {
     let (mut store, _root, child_a, child_b) = simple_store();
-    store.expansion_drafts.insert(
+    store.amplification_drafts.insert(
         child_a,
-        ExpansionDraftRecord { rewrite: None, children: vec!["draft".to_string()] },
+        AmplificationDraftRecord { rewrite: None, children: vec!["draft".to_string()] },
     );
-    store.reduction_drafts.insert(
+    store.distillation_drafts.insert(
         child_b,
-        ReductionDraftRecord { reduction: Some("draft".to_string()), redundant_children: vec![] },
+        DistillationDraftRecord { reduction: Some("draft".to_string()), redundant_children: vec![] },
     );
     store.set_instruction_draft(child_a, "instruction draft".to_string());
-    store.set_inquiry_draft(child_b, "inquiry draft".to_string());
+    store.set_probe_response(child_b, "inquiry draft".to_string());
 
     store.remove_block_subtree(&child_a).unwrap();
     store.remove_block_subtree(&child_b).unwrap();
 
-    assert!(store.expansion_draft(&child_a).is_none());
-    assert!(store.reduction_draft(&child_b).is_none());
+    assert!(store.amplification_draft(&child_a).is_none());
+    assert!(store.distillation_draft(&child_b).is_none());
     assert!(store.instruction_draft(&child_a).is_none());
-    assert!(store.inquiry_draft(&child_b).is_none());
+    assert!(store.probe_draft(&child_b).is_none());
 }
 
 #[test]
 fn backward_compat_missing_draft_fields_defaults_empty() {
     let (store, _, _, _) = simple_store();
     let mut value = serde_json::to_value(&store).unwrap();
-    value.as_object_mut().unwrap().remove("expansion_drafts");
+    value.as_object_mut().unwrap().remove("amplification_drafts");
     value.as_object_mut().unwrap().remove("reduction_drafts");
     value.as_object_mut().unwrap().remove("instruction_drafts");
     value.as_object_mut().unwrap().remove("inquiry_drafts");
 
     let restored: BlockStore = serde_json::from_value(value).unwrap();
-    assert_eq!(restored.expansion_drafts.len(), 0);
-    assert_eq!(restored.reduction_drafts.len(), 0);
+    assert_eq!(restored.amplification_drafts.len(), 0);
+    assert_eq!(restored.distillation_drafts.len(), 0);
     assert_eq!(restored.instruction_drafts.len(), 0);
-    assert_eq!(restored.inquiry_drafts.len(), 0);
+    assert_eq!(restored.probe_drafts.len(), 0);
 }
 
 #[test]

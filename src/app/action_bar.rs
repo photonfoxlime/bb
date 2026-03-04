@@ -26,10 +26,21 @@ use lucide_icons::iced as icons;
 /// Each variant corresponds to one button in the per-block toolbar.
 /// Actions are categorized by priority (pinned, contextual, overflow-only)
 /// and availability (enabled, disabled-busy, disabled-empty-point).
+///
+/// # LLM structure actions (Cmd+. , Cmd+, , Cmd+/)
+///
+/// - **Amplify**: Add detail, examples, context; produces rewrite + children.
+/// - **Distill**: Summarize; may mark children redundant.
+/// - **Atomize**: Break into distinct information points.
+///
+/// Probe (instruction-based questions) is in the instruction panel, not the bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActionId {
+    /// Amplify: add detail, examples, context; rewrite + child suggestions.
     Amplify,
+    /// Distill: summarize; may mark children redundant for removal.
     Distill,
+    /// Atomize: break text into distinct information points.
     Atomize,
     Cancel,
     AddChild,
@@ -256,7 +267,7 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     let row_state = ctx.ui_state();
     let mut vm = ActionBarVm::empty();
 
-    let reduce_availability = if ctx.is_empty_point() {
+    let distill_availability = if ctx.is_empty_point() {
         ActionAvailability::DisabledEmptyPoint
     } else if matches!(
         row_state,
@@ -267,7 +278,7 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
         ActionAvailability::Enabled
     };
 
-    let expand_availability = if matches!(
+    let amplify_availability = if matches!(
         row_state,
         RowUiState::BusyAmplify | RowUiState::BusyAtomize | RowUiState::BusyDistill
     ) {
@@ -296,12 +307,12 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
 
     vm.primary.push(ActionDescriptor::new(
         ActionId::Amplify,
-        expand_availability,
+        amplify_availability,
         ActionPriority::Pinned,
     ));
     vm.primary.push(ActionDescriptor::new(
         ActionId::Distill,
-        reduce_availability,
+        distill_availability,
         ActionPriority::Pinned,
     ));
     vm.primary.push(ActionDescriptor::new(
@@ -538,7 +549,7 @@ pub fn action_to_message_by_id(
         | ActionId::Cancel => cancel_message_for_block(state, block_id),
         | ActionId::Retry => retry_message_for_block(state, block_id),
         | ActionId::DismissDraft => {
-            if state.store.reduction_draft(block_id).is_some() {
+            if state.store.distillation_draft(block_id).is_some() {
                 Some(Message::Patch(PatchMessage::RejectRewrite(*block_id)))
             } else if let Some(atomization_draft) = state.store.atomization_draft(block_id) {
                 if atomization_draft.rewrite.is_some() && atomization_draft.points.is_empty() {
@@ -546,10 +557,10 @@ pub fn action_to_message_by_id(
                 } else {
                     Some(Message::Patch(PatchMessage::DiscardAllChildren(*block_id)))
                 }
-            } else if let Some(expansion_draft) = state.store.expansion_draft(block_id) {
-                if !expansion_draft.children.is_empty() {
+            } else if let Some(amplification_draft) = state.store.amplification_draft(block_id) {
+                if !amplification_draft.children.is_empty() {
                     Some(Message::Patch(PatchMessage::DiscardAllChildren(*block_id)))
-                } else if expansion_draft.rewrite.is_some() {
+                } else if amplification_draft.rewrite.is_some() {
                     Some(Message::Patch(PatchMessage::RejectRewrite(*block_id)))
                 } else {
                     None

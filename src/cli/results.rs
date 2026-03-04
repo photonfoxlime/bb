@@ -173,7 +173,7 @@ pub enum BatchOutput {
 /// Expansion draft data for CLI output.
 ///
 /// Contains the planned rewrite text and child blocks for an
-/// expansion draft created by `draft expand`.
+/// Amplify draft created by `draft amplify`.
 #[derive(Debug, serde::Serialize)]
 pub struct ExpansionDraftInfo {
     /// The rewritten text for the block (if changed).
@@ -185,7 +185,7 @@ pub struct ExpansionDraftInfo {
 /// Reduction draft data for CLI output.
 ///
 /// Contains the reduction summary and marked redundant children
-/// created by `draft reduce`.
+/// created by `draft distill`.
 #[derive(Debug, serde::Serialize)]
 pub struct ReductionDraftInfo {
     /// Summary text; `None` if user rejected it (children review only).

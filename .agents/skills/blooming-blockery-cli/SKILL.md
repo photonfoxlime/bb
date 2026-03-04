@@ -231,26 +231,26 @@ bb nav find-prev <BLOCK_ID> "query" --no-wrap
 ### Draft Commands (LLM suggestions)
 
 ```bash
-# Set expansion draft (rewrite + proposed children)
-bb draft expand <BLOCK_ID> --rewrite "Refined text" --children "Child 1" "Child 2"
-bb draft expand 1v1 --children "Just kids"
+# Set amplification draft (rewrite + proposed children)
+bb draft amplify <BLOCK_ID> --rewrite "Refined text" --children "Child 1" "Child 2"
+bb draft amplify 1v1 --children "Just kids"
 
-# Set reduction draft (condensed version)
-bb draft reduce <BLOCK_ID> --reduction "Condensed text" --redundant-children 2v1 3v1
+# Set distillation draft (condensed version)
+bb draft distill <BLOCK_ID> --reduction "Condensed text" --redundant-children 2v1 3v1
 
 # Set instruction draft (user-authored LLM instructions)
 bb draft instruction <BLOCK_ID> --text "Make this more concise"
 
-# Set inquiry draft (LLM response to ask query)
-bb draft inquiry <BLOCK_ID> --response "The key insight is..."
+# Set probe draft (LLM response to ask query)
+bb draft probe <BLOCK_ID> --response "The key insight is..."
 
 # List all drafts for a block
 bb draft list <BLOCK_ID>
 
 # Clear drafts (use --all or specific flags)
 bb draft clear <BLOCK_ID> --all
-bb draft clear <BLOCK_ID> --expand
-bb draft clear <BLOCK_ID> --reduce --instruction
+bb draft clear <BLOCK_ID> --amplify
+bb draft clear <BLOCK_ID> --distill --instruction
 ```
 
 ### Fold (Collapse) Commands
@@ -369,7 +369,7 @@ When helping users author specs/docs, prefer these decisions:
    - `nav next|prev|lineage`
    - `friend add|remove`
    - `fold toggle|status`
-   - `draft instruction|inquiry|list|clear`
+   - `draft instruction|probe|list|clear`
    - `mount set|expand|collapse|move|extract|inline|inline-recursive|info`
    - `context`
    - For `mount set|move|extract` batch mode, pass a directory-like path

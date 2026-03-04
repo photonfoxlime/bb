@@ -10,22 +10,22 @@ use clap::Parser;
 /// Draft operations (LLM in-progress suggestions).
 #[derive(Debug, Parser)]
 pub enum DraftCommands {
-    /// Set or update an expansion draft.
+    /// Set or update an amplification draft.
     ///
-    /// Expansion drafts store LLM-generated rewrite suggestions and proposed
-    /// children. Used by the expand operation to present suggestions to the user.
+    /// Amplification drafts store LLM-generated rewrite suggestions and proposed
+    /// children. Used by the amplify operation to present suggestions to the user.
     /// Provide `--rewrite` and/or one or more `--children` values.
-    /// Example: `bb draft expand 1v1 --rewrite "Refined version" --children "Proposed child 1" "Proposed child 2"`.
-    Expand(ExpandDraftCommand),
+    /// Example: `bb draft amplify 1v1 --rewrite "Refined version" --children "Proposed child 1" "Proposed child 2"`.
+    Amplify(AmplifyDraftCommand),
 
-    /// Set or update a reduction draft.
+    /// Set or update a distillation draft.
     ///
-    /// Reduction drafts store a condensed version of a block's content along
-    /// with references to children whose info is now captured in the reduction.
+    /// Distillation drafts store a condensed version of a block's content along
+    /// with references to children whose info is now captured in the distillation.
     /// Use `--reduction` for the condensed text and optionally add
     /// `--redundant-children` IDs.
-    /// Example: `bb draft reduce 1v1 --reduction "All the things"`.
-    Reduce(ReduceDraftCommand),
+    /// Example: `bb draft distill 1v1 --reduction "All the things"`.
+    Distill(DistillDraftCommand),
 
     /// Set or update an instruction draft.
     ///
@@ -34,16 +34,16 @@ pub enum DraftCommands {
     /// Example: `bb draft instruction 1v1 --text "Make this more concise"`.
     Instruction(InstructionDraftCommand),
 
-    /// Set or update an inquiry draft.
+    /// Set or update a probe draft.
     ///
-    /// Inquiry drafts store the most recent LLM response to an "ask about this"
+    /// Probe drafts store the most recent LLM response to an "ask about this"
     /// query. The user can then apply or dismiss the response.
-    /// Example: `bb draft inquiry 1v1 --response "The key insight is..."`.
-    Inquiry(InquiryDraftCommand),
+    /// Example: `bb draft probe 1v1 --response "The key insight is..."`.
+    Probe(ProbeDraftCommand),
 
     /// List all drafts for a block.
     ///
-    /// Shows expansion, reduction, instruction, and inquiry drafts if present.
+    /// Shows amplification, distillation, instruction, and probe drafts if present.
     /// Example: `bb draft list 1v1 --output json`.
     List(ListDraftCommand),
 
@@ -51,13 +51,13 @@ pub enum DraftCommands {
     ///
     /// Use specific flags to clear selected draft kinds, or rely on `--all`
     /// (the default) to clear everything.
-    /// Example: `bb draft clear 1v1 --expand`.
+    /// Example: `bb draft clear 1v1 --amplify`.
     Clear(ClearDraftCommand),
 }
 
-/// Set expansion draft.
+/// Set amplification draft.
 #[derive(Debug, Parser)]
-pub struct ExpandDraftCommand {
+pub struct AmplifyDraftCommand {
     /// Target block ID.
     #[arg(value_name = "BLOCK_ID")]
     pub block_id: BlockId,
@@ -76,9 +76,9 @@ pub struct ExpandDraftCommand {
     pub children: Vec<String>,
 }
 
-/// Set reduction draft.
+/// Set distillation draft.
 #[derive(Debug, Parser)]
-pub struct ReduceDraftCommand {
+pub struct DistillDraftCommand {
     /// Target block ID.
     #[arg(value_name = "BLOCK_ID")]
     pub block_id: BlockId,
@@ -108,9 +108,9 @@ pub struct InstructionDraftCommand {
     pub text: String,
 }
 
-/// Set inquiry draft.
+/// Set probe draft.
 #[derive(Debug, Parser)]
-pub struct InquiryDraftCommand {
+pub struct ProbeDraftCommand {
     /// Target block ID.
     #[arg(value_name = "BLOCK_ID")]
     pub block_id: BlockId,
@@ -138,21 +138,21 @@ pub struct ClearDraftCommand {
     #[arg(value_name = "BLOCK_ID")]
     pub block_id: BlockId,
 
-    /// Clear expansion draft.
+    /// Clear amplification draft.
     #[arg(long)]
-    pub expand: bool,
+    pub amplify: bool,
 
-    /// Clear reduction draft.
+    /// Clear distillation draft.
     #[arg(long)]
-    pub reduce: bool,
+    pub distill: bool,
 
     /// Clear instruction draft.
     #[arg(long)]
     pub instruction: bool,
 
-    /// Clear inquiry draft.
+    /// Clear probe draft.
     #[arg(long)]
-    pub inquiry: bool,
+    pub probe: bool,
 
     /// Clear all drafts.
     ///
@@ -168,31 +168,31 @@ pub struct ClearDraftCommand {
 /// Execute a draft command.
 pub fn execute(store: BlockStore, cmd: DraftCommands) -> (BlockStore, CliResult) {
     match cmd {
-        | DraftCommands::Expand(c) => execute_expand(store, &c),
-        | DraftCommands::Reduce(c) => execute_reduce(store, &c),
+        | DraftCommands::Amplify(c) => execute_amplify(store, &c),
+        | DraftCommands::Distill(c) => execute_distill(store, &c),
         | DraftCommands::Instruction(c) => execute_instruction(store, &c),
-        | DraftCommands::Inquiry(c) => execute_inquiry(store, &c),
+        | DraftCommands::Probe(c) => execute_probe(store, &c),
         | DraftCommands::List(c) => execute_list(store, &c),
         | DraftCommands::Clear(c) => execute_clear(store, &c),
     }
 }
 
-fn execute_expand(mut store: BlockStore, cmd: &ExpandDraftCommand) -> (BlockStore, CliResult) {
+fn execute_amplify(mut store: BlockStore, cmd: &AmplifyDraftCommand) -> (BlockStore, CliResult) {
     let id = execute::resolve_block_id(&store, &cmd.block_id);
     match id {
         | None => (store, CliResult::Error("Unknown block ID".to_string())),
         | Some(block_id) => {
-            let draft = crate::store::ExpansionDraftRecord {
+            let draft = crate::store::AmplificationDraftRecord {
                 rewrite: cmd.rewrite.clone(),
                 children: cmd.children.clone(),
             };
-            store.insert_expansion_draft(block_id, draft);
+            store.insert_amplification_draft(block_id, draft);
             (store, CliResult::Success)
         }
     }
 }
 
-fn execute_reduce(mut store: BlockStore, cmd: &ReduceDraftCommand) -> (BlockStore, CliResult) {
+fn execute_distill(mut store: BlockStore, cmd: &DistillDraftCommand) -> (BlockStore, CliResult) {
     let id = execute::resolve_block_id(&store, &cmd.block_id);
     match id {
         | None => (store, CliResult::Error("Unknown block ID".to_string())),
@@ -202,11 +202,11 @@ fn execute_reduce(mut store: BlockStore, cmd: &ReduceDraftCommand) -> (BlockStor
                 .iter()
                 .filter_map(|c| execute::resolve_block_id(&store, c))
                 .collect();
-            let draft = crate::store::ReductionDraftRecord {
+            let draft = crate::store::DistillationDraftRecord {
                 reduction: Some(cmd.reduction.clone()),
                 redundant_children: redundant,
             };
-            store.insert_reduction_draft(block_id, draft);
+            store.insert_distillation_draft(block_id, draft);
             (store, CliResult::Success)
         }
     }
@@ -242,14 +242,14 @@ fn execute_instruction(
     }
 }
 
-fn execute_inquiry(mut store: BlockStore, cmd: &InquiryDraftCommand) -> (BlockStore, CliResult) {
+fn execute_probe(mut store: BlockStore, cmd: &ProbeDraftCommand) -> (BlockStore, CliResult) {
     let targets = execute::expand_cli_targets(&cmd.block_id);
     if targets.len() == 1 {
         let id = execute::resolve_block_id(&store, &targets[0]);
         match id {
             | None => (store, CliResult::Error("Unknown block ID".to_string())),
             | Some(block_id) => {
-                store.set_inquiry_draft(block_id, cmd.response.clone());
+                store.set_probe_response(block_id, cmd.response.clone());
                 (store, CliResult::Success)
             }
         }
@@ -261,7 +261,7 @@ fn execute_inquiry(mut store: BlockStore, cmd: &InquiryDraftCommand) -> (BlockSt
             match execute::resolve_block_id(&store, &target) {
                 | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
                 | Some(block_id) => {
-                    store.set_inquiry_draft(block_id, cmd.response.clone());
+                    store.set_probe_response(block_id, cmd.response.clone());
                     outputs.push(BatchOutput::Success { input });
                 }
             }
@@ -277,11 +277,11 @@ fn execute_list(store: BlockStore, cmd: &ListDraftCommand) -> (BlockStore, CliRe
         match id {
             | None => (store, CliResult::Error("Unknown block ID".to_string())),
             | Some(block_id) => {
-                let expansion = store.expansion_draft(&block_id).map(|d| ExpansionDraftInfo {
+                let expansion = store.amplification_draft(&block_id).map(|d| ExpansionDraftInfo {
                     rewrite: d.rewrite.clone(),
                     children: d.children.clone(),
                 });
-                let reduction = store.reduction_draft(&block_id).map(|d| ReductionDraftInfo {
+                let reduction = store.distillation_draft(&block_id).map(|d| ReductionDraftInfo {
                     reduction: d.reduction.clone(),
                     redundant_children: d
                         .redundant_children
@@ -290,7 +290,7 @@ fn execute_list(store: BlockStore, cmd: &ListDraftCommand) -> (BlockStore, CliRe
                         .collect(),
                 });
                 let instruction = store.instruction_draft(&block_id).map(|d| d.instruction.clone());
-                let inquiry = store.inquiry_draft(&block_id).map(|d| d.response.clone());
+                let inquiry = store.probe_draft(&block_id).map(|d| d.response.clone());
                 (store, CliResult::DraftList { expansion, reduction, instruction, inquiry })
             }
         }
@@ -302,11 +302,11 @@ fn execute_list(store: BlockStore, cmd: &ListDraftCommand) -> (BlockStore, CliRe
             match execute::resolve_block_id(&store, &target) {
                 | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
                 | Some(block_id) => {
-                    let expansion = store.expansion_draft(&block_id).map(|d| ExpansionDraftInfo {
+                    let expansion = store.amplification_draft(&block_id).map(|d| ExpansionDraftInfo {
                         rewrite: d.rewrite.clone(),
                         children: d.children.clone(),
                     });
-                    let reduction = store.reduction_draft(&block_id).map(|d| ReductionDraftInfo {
+                    let reduction = store.distillation_draft(&block_id).map(|d| ReductionDraftInfo {
                         reduction: d.reduction.clone(),
                         redundant_children: d
                             .redundant_children
@@ -316,7 +316,7 @@ fn execute_list(store: BlockStore, cmd: &ListDraftCommand) -> (BlockStore, CliRe
                     });
                     let instruction =
                         store.instruction_draft(&block_id).map(|d| d.instruction.clone());
-                    let inquiry = store.inquiry_draft(&block_id).map(|d| d.response.clone());
+                    let inquiry = store.probe_draft(&block_id).map(|d| d.response.clone());
                     outputs.push(BatchOutput::DraftList {
                         input,
                         expansion,
@@ -338,17 +338,17 @@ fn execute_clear(mut store: BlockStore, cmd: &ClearDraftCommand) -> (BlockStore,
         match id {
             | None => (store, CliResult::Error("Unknown block ID".to_string())),
             | Some(block_id) => {
-                if cmd.all || cmd.expand {
-                    store.remove_expansion_draft(&block_id);
+                if cmd.all || cmd.amplify {
+                    store.remove_amplification_draft(&block_id);
                 }
-                if cmd.all || cmd.reduce {
-                    store.remove_reduction_draft(&block_id);
+                if cmd.all || cmd.distill {
+                    store.remove_distillation_draft(&block_id);
                 }
                 if cmd.all || cmd.instruction {
                     store.remove_instruction_draft(&block_id);
                 }
-                if cmd.all || cmd.inquiry {
-                    store.remove_inquiry_draft(&block_id);
+                if cmd.all || cmd.probe {
+                    store.remove_probe_draft(&block_id);
                 }
                 (store, CliResult::Success)
             }
@@ -361,17 +361,17 @@ fn execute_clear(mut store: BlockStore, cmd: &ClearDraftCommand) -> (BlockStore,
             match execute::resolve_block_id(&store, &target) {
                 | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
                 | Some(block_id) => {
-                    if cmd.all || cmd.expand {
-                        store.remove_expansion_draft(&block_id);
+                    if cmd.all || cmd.amplify {
+                        store.remove_amplification_draft(&block_id);
                     }
-                    if cmd.all || cmd.reduce {
-                        store.remove_reduction_draft(&block_id);
+                    if cmd.all || cmd.distill {
+                        store.remove_distillation_draft(&block_id);
                     }
                     if cmd.all || cmd.instruction {
                         store.remove_instruction_draft(&block_id);
                     }
-                    if cmd.all || cmd.inquiry {
-                        store.remove_inquiry_draft(&block_id);
+                    if cmd.all || cmd.probe {
+                        store.remove_probe_draft(&block_id);
                     }
                     outputs.push(BatchOutput::Success { input });
                 }

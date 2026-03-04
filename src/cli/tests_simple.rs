@@ -11,8 +11,8 @@ use crate::cli::{
     BlockId, Commands, MountFormatCli, OutputFormat,
     commands::RootCommand,
     draft::{
-        ClearDraftCommand, DraftCommands, ExpandDraftCommand, InquiryDraftCommand,
-        InstructionDraftCommand, ListDraftCommand, ReduceDraftCommand,
+        ClearDraftCommand, DraftCommands, AmplifyDraftCommand, InstructionDraftCommand, ListDraftCommand,
+        ProbeDraftCommand, DistillDraftCommand,
     },
     fold::{FoldCommands, StatusFoldCommand, ToggleFoldCommand},
     friend::{AddFriendCommand, FriendCommands, ListFriendCommand, RemoveFriendCommand},
@@ -269,13 +269,13 @@ fn nav_find_prev_no_wrap_returns_none_without_earlier_match() {
 fn draft_expand_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
-    let cmd = Commands::Draft(DraftCommands::Expand(ExpandDraftCommand {
+    let cmd = Commands::Draft(DraftCommands::Amplify(AmplifyDraftCommand {
         block_id: BlockId(format_block_id(root_id)),
         rewrite: Some("rewritten".to_string()),
         children: vec!["child a".to_string(), "child b".to_string()],
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
-    assert!(matches!(result, CliResult::Success) && store.expansion_draft(&root_id).is_some());
+    assert!(matches!(result, CliResult::Success) && store.amplification_draft(&root_id).is_some());
 }
 
 #[test]
@@ -283,13 +283,13 @@ fn draft_reduce_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
     let child_id = store.children(&root_id)[0];
-    let cmd = Commands::Draft(DraftCommands::Reduce(ReduceDraftCommand {
+    let cmd = Commands::Draft(DraftCommands::Distill(DistillDraftCommand {
         block_id: BlockId(format_block_id(root_id)),
         reduction: "summary".to_string(),
         redundant_children: vec![BlockId(format_block_id(child_id))],
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
-    assert!(matches!(result, CliResult::Success) && store.reduction_draft(&root_id).is_some());
+    assert!(matches!(result, CliResult::Success) && store.distillation_draft(&root_id).is_some());
 }
 
 #[test]
@@ -308,21 +308,21 @@ fn draft_instruction_command() {
 fn draft_inquiry_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
-    let cmd = Commands::Draft(DraftCommands::Inquiry(InquiryDraftCommand {
+    let cmd = Commands::Draft(DraftCommands::Probe(ProbeDraftCommand {
         block_id: BlockId(format_block_id(root_id)),
         response: "test response".to_string(),
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
-    assert!(matches!(result, CliResult::Success) && store.inquiry_draft(&root_id).is_some());
+    assert!(matches!(result, CliResult::Success) && store.probe_draft(&root_id).is_some());
 }
 
 #[test]
 fn draft_list_command() {
     let mut store = create_test_store();
     let root_id = store.roots()[0];
-    store.insert_expansion_draft(
+    store.insert_amplification_draft(
         root_id,
-        crate::store::ExpansionDraftRecord { rewrite: Some("test".to_string()), children: vec![] },
+        crate::store::AmplificationDraftRecord { rewrite: Some("test".to_string()), children: vec![] },
     );
     let cmd = Commands::Draft(DraftCommands::List(ListDraftCommand {
         block_id: BlockId(format_block_id(root_id)),
@@ -335,20 +335,20 @@ fn draft_list_command() {
 fn draft_clear_command() {
     let mut store = create_test_store();
     let root_id = store.roots()[0];
-    store.insert_expansion_draft(
+    store.insert_amplification_draft(
         root_id,
-        crate::store::ExpansionDraftRecord { rewrite: None, children: vec![] },
+        crate::store::AmplificationDraftRecord { rewrite: None, children: vec![] },
     );
     let cmd = Commands::Draft(DraftCommands::Clear(ClearDraftCommand {
         block_id: BlockId(format_block_id(root_id)),
         all: true,
-        expand: false,
-        reduce: false,
+        amplify: false,
+        distill: false,
         instruction: false,
-        inquiry: false,
+        probe: false,
     }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
-    assert!(matches!(result, CliResult::Success) && store.expansion_draft(&root_id).is_none());
+    assert!(matches!(result, CliResult::Success) && store.amplification_draft(&root_id).is_none());
 }
 
 #[test]

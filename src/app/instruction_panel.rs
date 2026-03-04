@@ -17,16 +17,14 @@
 //!
 //! The instruction editor is treated as a short-lived draft buffer whose text is
 //! authored before submission through one of three actions:
-//! - `Probe`: ask a free-form question against visible context and surface a
-//!   response draft for user-directed insertion.
-//! - `Amplify`: run normal amplify semantics with the draft injected as extra
-//!   instruction.
-//! - `Distill`: run normal distill semantics with the draft injected as extra
-//!   instruction.
+//! - **Probe**: Ask targeted questions to clarify meaning, fill gaps, or challenge
+//!   assumptions. Returns a free-form response draft for user-directed insertion.
+//! - **Amplify**: Add detail, examples, and context; draft injected as extra guidance.
+//! - **Distill**: Summarize into a shorter version; draft injected as extra guidance.
 //!
 //! # Probe Result Contract
 //!
-//! Inquiry returns one response draft scoped to the focused block context at the
+//! Probe returns one response draft scoped to the focused block context at the
 //! time of submission. The product intent is that this draft can be inserted by
 //! the user either into the current point or as a new child point.
 //!
@@ -36,9 +34,9 @@
 //! prompt builders; instruction text only adds additional guidance and does not
 //! redefine the output schema.
 //!
-//! # Inquiry Apply Operations
+//! # Probe Apply Operations
 //!
-//! Inquiry drafts currently support three explicit apply actions:
+//! Probe response drafts support three explicit apply actions:
 //! - replace target point with response,
 //! - append response to target point,
 //! - add response as a new child under the target.
@@ -135,7 +133,7 @@ pub fn handle(
                 return iced::Task::none();
             };
             state.llm_requests.mark_probe_loading(target_block_id, request_signature);
-            state.store.set_inquiry(target_block_id, instruction.clone());
+            state.store.set_probe_question(target_block_id, instruction.clone());
             state.store.remove_instruction_draft(&target_block_id);
             state.persist_with_context("after storing inquiry and consuming instruction draft");
             state.editor_buffers.set_instruction_text("");
@@ -234,7 +232,7 @@ pub fn handle(
             }
             let response_len = state
                 .store
-                .inquiry_draft(&block_id)
+                .probe_draft(&block_id)
                 .map(|record| record.response.trim())
                 .filter(|response| !response.is_empty())
                 .map(str::len)
@@ -310,31 +308,31 @@ pub fn handle(
             )
         }
         | InstructionPanelMessage::ApplyInstructionRewrite => {
-            if state.store.inquiry_draft(&target_block_id).is_none() {
+            if state.store.probe_draft(&target_block_id).is_none() {
                 tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
                 return iced::Task::none();
             }
             let block_id = target_block_id;
-            if let Some(inquiry_draft) = state.store.inquiry_draft(&block_id) {
-                let rewrite = inquiry_draft.response.clone();
+            if let Some(probe_draft) = state.store.probe_draft(&block_id) {
+                let rewrite = probe_draft.response.clone();
                 state.mutate_with_undo_and_persist("after applying instruction rewrite", |state| {
                     state.store.update_point(&block_id, rewrite.clone());
                     state.editor_buffers.set_text(&block_id, &rewrite);
                     true
                 });
-                state.store.remove_inquiry_draft(&block_id);
+                state.store.remove_probe_draft(&block_id);
                 state.persist_with_context("after clearing inquiry draft by rewrite apply");
             }
             iced::Task::none()
         }
         | InstructionPanelMessage::AppendInstructionResponse => {
-            if state.store.inquiry_draft(&target_block_id).is_none() {
+            if state.store.probe_draft(&target_block_id).is_none() {
                 tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
                 return iced::Task::none();
             }
             let block_id = target_block_id;
-            if let Some(inquiry_draft) = state.store.inquiry_draft(&block_id) {
-                let response = inquiry_draft.response.clone();
+            if let Some(probe_draft) = state.store.probe_draft(&block_id) {
+                let response = probe_draft.response.clone();
                 state.mutate_with_undo_and_persist(
                     "after appending instruction inquiry response",
                     |state| {
@@ -349,19 +347,19 @@ pub fn handle(
                         true
                     },
                 );
-                state.store.remove_inquiry_draft(&block_id);
+                state.store.remove_probe_draft(&block_id);
                 state.persist_with_context("after clearing inquiry draft by append apply");
             }
             iced::Task::none()
         }
         | InstructionPanelMessage::AddInstructionResponseAsChild => {
-            if state.store.inquiry_draft(&target_block_id).is_none() {
+            if state.store.probe_draft(&target_block_id).is_none() {
                 tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
                 return iced::Task::none();
             }
             let block_id = target_block_id;
-            if let Some(inquiry_draft) = state.store.inquiry_draft(&block_id) {
-                let response = inquiry_draft.response.clone();
+            if let Some(probe_draft) = state.store.probe_draft(&block_id) {
+                let response = probe_draft.response.clone();
                 state.mutate_with_undo_and_persist(
                     "after adding instruction inquiry response as child",
                     |state| {
@@ -374,13 +372,13 @@ pub fn handle(
                         false
                     },
                 );
-                state.store.remove_inquiry_draft(&block_id);
+                state.store.remove_probe_draft(&block_id);
                 state.persist_with_context("after clearing inquiry draft by add-child apply");
             }
             iced::Task::none()
         }
         | InstructionPanelMessage::Dismiss => {
-            state.store.remove_inquiry_draft(&target_block_id);
+            state.store.remove_probe_draft(&target_block_id);
             state.persist_with_context("after dismissing inquiry draft");
             iced::Task::none()
         }
@@ -415,7 +413,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
     };
 
     let instruction_content = state.editor_buffers.instruction_content();
-    let inquiry_result = state.store.inquiry_draft(&block_id);
+    let inquiry_result = state.store.probe_draft(&block_id);
     let is_probing = state.llm_requests.is_probing(block_id);
 
     let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
@@ -425,7 +423,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
         let inquiry_section = column![].spacing(theme::PANEL_INNER_GAP).push(
             container(
-                text(t!("instruction_inquiry_label").to_string())
+                text(t!("instruction_probe_label").to_string())
                     .font(theme::INTER)
                     .size(theme::INSTRUCTION_BUTTON_SIZE),
             )
@@ -470,7 +468,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
         button_row = button_row.push(
             TextButton::action(
-                t!("instruction_expand").to_string(),
+                t!("instruction_amplify").to_string(),
                 theme::INSTRUCTION_BUTTON_SIZE,
             )
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
@@ -482,7 +480,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
         button_row = button_row.push(
             TextButton::action(
-                t!("instruction_reduce").to_string(),
+                t!("instruction_distill").to_string(),
                 theme::INSTRUCTION_BUTTON_SIZE,
             )
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
@@ -494,7 +492,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
         button_row = button_row.push(
             TextButton::action(
-                t!("instruction_inquire").to_string(),
+                t!("instruction_probe").to_string(),
                 theme::INSTRUCTION_BUTTON_SIZE,
             )
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
@@ -513,7 +511,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     .align_y(iced::Alignment::Center)
                     .push(icons::icon_loader().size(theme::INSTRUCTION_BUTTON_SIZE).center())
                     .push(
-                        text(t!("instruction_inquiring").to_string())
+                        text(t!("instruction_probing").to_string())
                             .font(theme::INTER)
                             .size(theme::INSTRUCTION_BUTTON_SIZE),
                     ),
@@ -626,7 +624,7 @@ mod tests {
         let (mut state, root) = test_state();
         state.set_focus(root);
         state.store.set_instruction_draft(root, "persisted instruction".to_string());
-        state.store.set_inquiry_draft(root, "persisted inquiry".to_string());
+        state.store.set_probe_response(root, "persisted inquiry".to_string());
 
         let _ = AppState::update(
             &mut state,
@@ -635,7 +633,7 @@ mod tests {
 
         assert_eq!(state.editor_buffers.instruction_content().text(), "persisted instruction");
         assert_eq!(
-            state.store.inquiry_draft(&root).map(|r| r.response.as_str()),
+            state.store.probe_draft(&root).map(|r| r.response.as_str()),
             Some("persisted inquiry")
         );
     }
@@ -646,7 +644,7 @@ mod tests {
         state.set_focus(root);
         state.store.set_block_panel_state(&root, Some(BlockPanelBarState::Instruction));
         state.store.set_instruction_draft(root, "prompt".to_string());
-        state.store.set_inquiry_draft(root, "result".to_string());
+        state.store.set_probe_response(root, "result".to_string());
         let signature = state.block_context_signature(&root).expect("root has request signature");
         state.llm_requests.mark_probe_loading(root, signature);
         state.editor_buffers.set_instruction_text("keep me");
@@ -661,7 +659,7 @@ mod tests {
             state.store.instruction_draft(&root).map(|d| d.instruction.as_str()),
             Some("prompt")
         );
-        assert_eq!(state.store.inquiry_draft(&root).map(|r| r.response.as_str()), Some("result"));
+        assert_eq!(state.store.probe_draft(&root).map(|r| r.response.as_str()), Some("result"));
         assert!(state.llm_requests.is_probing(root));
         assert_eq!(state.editor_buffers.instruction_content().text(), "keep me");
     }
@@ -676,7 +674,7 @@ mod tests {
         state.store.update_point(&root, "root text".to_string());
         state.editor_buffers.set_text(&root, "root text");
         state.set_focus(sibling);
-        state.store.set_inquiry_draft(sibling, "inquiry response".to_string());
+        state.store.set_probe_response(sibling, "inquiry response".to_string());
 
         let _ = AppState::update(
             &mut state,
@@ -688,7 +686,7 @@ mod tests {
             Some("sibling text\n\ninquiry response")
         );
         assert_eq!(state.store.point(&root).as_deref(), Some("root text"));
-        assert!(state.store.inquiry_draft(&root).is_none());
+        assert!(state.store.probe_draft(&root).is_none());
     }
 
     #[test]
@@ -700,7 +698,7 @@ mod tests {
             .expect("append sibling succeeds");
         let before_len = state.store.children(&sibling).len();
         state.set_focus(sibling);
-        state.store.set_inquiry_draft(sibling, "child from inquiry".to_string());
+        state.store.set_probe_response(sibling, "child from inquiry".to_string());
 
         let _ = AppState::update(
             &mut state,
@@ -714,7 +712,7 @@ mod tests {
         assert_eq!(children.len(), before_len + 1);
         let child_id = *children.last().expect("new child added under sibling");
         assert_eq!(state.store.point(&child_id).as_deref(), Some("child from inquiry"));
-        assert!(state.store.inquiry_draft(&sibling).is_none());
+        assert!(state.store.probe_draft(&sibling).is_none());
     }
 
     #[test]
@@ -735,7 +733,7 @@ mod tests {
     }
 
     #[test]
-    fn inquire_finished_persists_streamed_inquiry_draft() {
+    fn inquire_finished_persists_streamed_probe_draft() {
         let (mut state, root) = test_state();
         let request_signature =
             state.block_context_signature(&root).expect("root has request signature");
@@ -771,7 +769,7 @@ mod tests {
         );
 
         assert_eq!(
-            state.store.inquiry_draft(&root).map(|draft| draft.response.as_str()),
+            state.store.probe_draft(&root).map(|draft| draft.response.as_str()),
             Some("persisted response")
         );
     }
@@ -796,7 +794,7 @@ mod tests {
             state.errors.iter().any(|err| matches!(err, crate::app::AppError::Configuration(_)))
         );
         assert_eq!(state.editor_buffers.instruction_content().text(), "ask this");
-        assert!(state.store.inquiry_draft(&root).is_none());
+        assert!(state.store.probe_draft(&root).is_none());
     }
 
     #[test]
@@ -805,7 +803,7 @@ mod tests {
         let request_signature =
             state.block_context_signature(&root).expect("root has request signature");
         state.llm_requests.mark_probe_loading(root, request_signature);
-        state.store.set_inquiry(root, "original inquiry".to_string());
+        state.store.set_probe_question(root, "original inquiry".to_string());
         state.store.update_point(&root, "changed context".to_string());
 
         let _ = AppState::update(
@@ -827,7 +825,7 @@ mod tests {
             ),
         );
 
-        assert_eq!(state.store.inquiry_draft(&root).map(|draft| draft.response.as_str()), Some(""));
+        assert_eq!(state.store.probe_draft(&root).map(|draft| draft.response.as_str()), Some(""));
     }
 
     #[test]
@@ -836,7 +834,7 @@ mod tests {
         let request_signature =
             state.block_context_signature(&root).expect("root has request signature");
         state.llm_requests.mark_probe_loading(root, request_signature);
-        state.store.set_inquiry(root, "question".to_string());
+        state.store.set_probe_question(root, "question".to_string());
 
         let _ = AppState::update(
             &mut state,
@@ -876,16 +874,16 @@ mod tests {
     }
 
     #[test]
-    fn dismiss_clears_persisted_inquiry_draft() {
+    fn dismiss_clears_persisted_probe_draft() {
         let (mut state, root) = test_state();
         state.set_focus(root);
-        state.store.set_inquiry_draft(root, "draft".to_string());
+        state.store.set_probe_response(root, "draft".to_string());
 
         let _ = AppState::update(
             &mut state,
             Message::InstructionPanel(root, InstructionPanelMessage::Dismiss),
         );
 
-        assert!(state.store.inquiry_draft(&root).is_none());
+        assert!(state.store.probe_draft(&root).is_none());
     }
 }

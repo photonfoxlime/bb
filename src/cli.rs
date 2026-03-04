@@ -21,8 +21,8 @@
 //! # Move a block after another
 //! bb tree move 0xsource 0xtarget --after
 //!
-//! # Set expansion draft
-//! bb draft expand 0xblock --rewrite "Refined text" --children "Child 1" "Child 2"
+//! # Set amplification draft
+//! bb draft amplify 0xblock --rewrite "Refined text" --children "Child 1" "Child 2"
 //!
 //! # Mount a file
 //! bb mount set 0xblock /path/to/file.md --format markdown

@@ -10,8 +10,8 @@
 //! and [`BlockStore`] with its fundamental accessors. Then read the submodules in
 //! dependency order:
 //!
-//! 1. [`drafts`] -- per-block draft records (expand, reduce, instruct,
-//!    inquire) and friend-block relations. These are the "optional metadata"
+//! 1. [`drafts`] -- per-block draft records (amplify, distill, instruct,
+//!    probe) and friend-block relations. These are the "optional metadata"
 //!    that ride along with each block.
 //! 2. [`tree`] -- structural mutations (append child/sibling, insert parent,
 //!    duplicate, remove) and tree-traversal helpers (subtree collection, lineage).
@@ -29,8 +29,8 @@
 //! The store uses [`SparseSecondaryMap<BlockId, T>`] for optional per-block
 //! metadata that must survive save/load cycles. Two categories exist:
 //!
-//! 1. Per-block data (user-authored content): `expansion_drafts`,
-//!    `reduction_drafts`, `view_collapsed`, `friend_blocks`, `instruction_drafts`.
+//! 1. Per-block data (user-authored content): `amplification_drafts`,
+//!    `distillation_drafts`, `view_collapsed`, `friend_blocks`, `instruction_drafts`.
 //!
 //! 2. Per-block UI state (ephemeral but worth persisting): `block_panel_state`.
 //!    This is not user-authored content but persists because it's useful to
@@ -69,8 +69,8 @@ mod point;
 mod tree;
 
 pub use drafts::{
-    AtomizationDraftRecord, ExpansionDraftRecord, InquiryDraftRecord, InstructionDraftRecord,
-    ReductionDraftRecord,
+    AmplificationDraftRecord, AtomizationDraftRecord, DistillationDraftRecord,
+    InstructionDraftRecord, ProbeDraftRecord,
 };
 pub use mount::MountFormat;
 pub use persist::StoreLoadError;
@@ -91,7 +91,7 @@ pub(crate) struct MountProjection {
 ///
 /// Friend blocks are user-selected related context for a block: they are not
 /// children but extra blocks whose text (and optional perspective) is included
-/// when building LLM context for reduce/expand. The block that "has" the
+/// when building LLM context for distill/amplify. The block that "has" the
 /// friends is the *source* (key in `BlockStore::friend_blocks`); each
 /// [`FriendBlock`] points to another block in the graph and an optional
 /// framing string (perspective) for how the source should interpret that friend.
@@ -255,27 +255,27 @@ pub struct BlockStore {
     /// re-expanding [`BlockNode::Mount`] nodes after deserialization.
     #[serde(skip)]
     pub mount_table: MountTable,
-    /// Persisted per-block expansion drafts (rewrite + suggested children).
+    /// Persisted per-block amplification drafts (rewrite + suggested children).
     ///
     /// Invariant: keys should reference existing blocks in [`Self::nodes`].
-    /// Sparse by design: only blocks with pending expansion drafts are stored.
-    #[serde(default)]
-    pub expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord>,
+    /// Sparse by design: only blocks with pending amplification drafts are stored.
+    #[serde(default, rename = "expansion_drafts")]
+    pub amplification_drafts: SparseSecondaryMap<BlockId, AmplificationDraftRecord>,
     /// Persisted per-block atomization drafts.
     #[serde(default)]
     pub atomization_drafts: SparseSecondaryMap<BlockId, AtomizationDraftRecord>,
-    /// Persisted per-block reduction drafts.
+    /// Persisted per-block distillation drafts.
     ///
     /// Invariant: keys should reference existing blocks in [`Self::nodes`].
-    /// Sparse by design: only blocks with pending reduction drafts are stored.
-    #[serde(default)]
-    pub reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord>,
+    /// Sparse by design: only blocks with pending distillation drafts are stored.
+    #[serde(default, rename = "reduction_drafts")]
+    pub distillation_drafts: SparseSecondaryMap<BlockId, DistillationDraftRecord>,
     /// Persisted per-block instruction drafts.
     #[serde(default)]
     pub instruction_drafts: SparseSecondaryMap<BlockId, InstructionDraftRecord>,
-    /// Persisted per-block inquiry drafts.
-    #[serde(default)]
-    pub inquiry_drafts: SparseSecondaryMap<BlockId, InquiryDraftRecord>,
+    /// Persisted per-block probe drafts.
+    #[serde(default, rename = "inquiry_drafts")]
+    pub probe_drafts: SparseSecondaryMap<BlockId, ProbeDraftRecord>,
     /// Persisted per-block fold (collapse) state.
     ///
     /// Presence of a key means the block's children are hidden in the UI.
@@ -333,11 +333,11 @@ impl BlockStore {
     pub(crate) fn new_with_drafts(
         roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
         points: SecondaryMap<BlockId, PointContent>,
-        expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord>,
+        amplification_drafts: SparseSecondaryMap<BlockId, AmplificationDraftRecord>,
         atomization_drafts: SparseSecondaryMap<BlockId, AtomizationDraftRecord>,
-        reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord>,
+        distillation_drafts: SparseSecondaryMap<BlockId, DistillationDraftRecord>,
         instruction_drafts: SparseSecondaryMap<BlockId, InstructionDraftRecord>,
-        inquiry_drafts: SparseSecondaryMap<BlockId, InquiryDraftRecord>,
+        probe_drafts: SparseSecondaryMap<BlockId, ProbeDraftRecord>,
         view_collapsed: SparseSecondaryMap<BlockId, bool>,
         friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>>,
         block_panel_state: SparseSecondaryMap<BlockId, BlockPanelBarState>, hint: Option<String>,
@@ -347,11 +347,11 @@ impl BlockStore {
             nodes,
             points,
             mount_table: MountTable::new(),
-            expansion_drafts,
+            amplification_drafts,
             atomization_drafts,
-            reduction_drafts,
+            distillation_drafts,
             instruction_drafts,
-            inquiry_drafts,
+            probe_drafts,
             view_collapsed,
             friend_blocks,
             block_panel_state,
@@ -527,31 +527,31 @@ impl PartialEq for BlockStore {
             && self.nodes.iter().all(|(id, node)| other.nodes.get(id) == Some(node))
             && self.points.len() == other.points.len()
             && self.points.iter().all(|(id, pt)| other.points.get(id) == Some(pt))
-            && self.expansion_drafts.len() == other.expansion_drafts.len()
+            && self.amplification_drafts.len() == other.amplification_drafts.len()
             && self
-                .expansion_drafts
+                .amplification_drafts
                 .iter()
-                .all(|(id, draft)| other.expansion_drafts.get(id) == Some(draft))
+                .all(|(id, draft)| other.amplification_drafts.get(id) == Some(draft))
             && self.atomization_drafts.len() == other.atomization_drafts.len()
             && self
                 .atomization_drafts
                 .iter()
                 .all(|(id, draft)| other.atomization_drafts.get(id) == Some(draft))
-            && self.reduction_drafts.len() == other.reduction_drafts.len()
+            && self.distillation_drafts.len() == other.distillation_drafts.len()
             && self
-                .reduction_drafts
+                .distillation_drafts
                 .iter()
-                .all(|(id, draft)| other.reduction_drafts.get(id) == Some(draft))
+                .all(|(id, draft)| other.distillation_drafts.get(id) == Some(draft))
             && self.instruction_drafts.len() == other.instruction_drafts.len()
             && self
                 .instruction_drafts
                 .iter()
                 .all(|(id, draft)| other.instruction_drafts.get(id) == Some(draft))
-            && self.inquiry_drafts.len() == other.inquiry_drafts.len()
+            && self.probe_drafts.len() == other.probe_drafts.len()
             && self
-                .inquiry_drafts
+                .probe_drafts
                 .iter()
-                .all(|(id, draft)| other.inquiry_drafts.get(id) == Some(draft))
+                .all(|(id, draft)| other.probe_drafts.get(id) == Some(draft))
             && self.view_collapsed.len() == other.view_collapsed.len()
             && self.view_collapsed.iter().all(|(id, _)| other.view_collapsed.contains_key(id))
             && self.friend_blocks.len() == other.friend_blocks.len()

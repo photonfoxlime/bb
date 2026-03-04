@@ -1095,7 +1095,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     .width(Fill);
 
     // ── Per-task LLM settings ────────────────────────────────────────
-    let task_section_expand = task_settings_section(
+    let task_section_amplify = task_settings_section(
         t!("settings_task_amplify").to_string(),
         TaskKind::Amplify,
         &settings.task_drafts.amplify,
@@ -1103,7 +1103,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         settings.system_prompt_hints_expanded.contains(&TaskKind::Amplify),
         settings.user_prompt_hints_expanded.contains(&TaskKind::Amplify),
     );
-    let task_section_reduce = task_settings_section(
+    let task_section_distill = task_settings_section(
         t!("settings_task_distill").to_string(),
         TaskKind::Distill,
         &settings.task_drafts.distill,
@@ -1119,7 +1119,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         settings.system_prompt_hints_expanded.contains(&TaskKind::Atomize),
         settings.user_prompt_hints_expanded.contains(&TaskKind::Atomize),
     );
-    let task_section_inquire = task_settings_section(
+    let task_section_probe = task_settings_section(
         t!("settings_task_probe").to_string(),
         TaskKind::Probe,
         &settings.task_drafts.probe,
@@ -1166,10 +1166,10 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         system_settings_section,
         provider_section,
         config_section,
-        task_section_expand,
-        task_section_reduce,
+        task_section_amplify,
+        task_section_distill,
         task_section_atomize,
-        task_section_inquire,
+        task_section_probe,
         paths_section
     ]
     .spacing(theme::PAGE_SECTION_GAP)

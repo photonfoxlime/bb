@@ -30,8 +30,8 @@
 //! [`extract_mount_store`](BlockStore::extract_mount_store).
 
 use super::drafts::{
-    AtomizationDraftRecord, ExpansionDraftRecord, InquiryDraftRecord, InstructionDraftRecord,
-    ReductionDraftRecord,
+    AmplificationDraftRecord, AtomizationDraftRecord, DistillationDraftRecord,
+    InstructionDraftRecord, ProbeDraftRecord,
 };
 use super::{
     BlockId, BlockNode, BlockPanelBarState, BlockStore, FriendBlock, MountProjection, PointContent,
@@ -318,11 +318,11 @@ impl BlockStore {
         for id in &removed_ids {
             self.nodes.remove(*id);
             self.points.remove(*id);
-            self.expansion_drafts.remove(*id);
+            self.amplification_drafts.remove(*id);
             self.atomization_drafts.remove(*id);
-            self.reduction_drafts.remove(*id);
+            self.distillation_drafts.remove(*id);
             self.instruction_drafts.remove(*id);
-            self.inquiry_drafts.remove(*id);
+            self.probe_drafts.remove(*id);
             self.view_collapsed.remove(*id);
             self.friend_blocks.remove(*id);
             self.block_panel_state.remove(*id);
@@ -556,11 +556,11 @@ impl BlockStore {
                 for &id in &entry.block_ids {
                     self.nodes.remove(id);
                     self.points.remove(id);
-                    self.expansion_drafts.remove(id);
+                    self.amplification_drafts.remove(id);
                     self.atomization_drafts.remove(id);
-                    self.reduction_drafts.remove(id);
+                    self.distillation_drafts.remove(id);
                     self.instruction_drafts.remove(id);
-                    self.inquiry_drafts.remove(id);
+                    self.probe_drafts.remove(id);
                     self.view_collapsed.remove(id);
                     self.friend_blocks.remove(id);
                     self.block_panel_state.remove(id);
@@ -572,11 +572,11 @@ impl BlockStore {
         for &id in &own_ids {
             self.nodes.remove(id);
             self.points.remove(id);
-            self.expansion_drafts.remove(id);
+            self.amplification_drafts.remove(id);
             self.atomization_drafts.remove(id);
-            self.reduction_drafts.remove(id);
+            self.distillation_drafts.remove(id);
             self.instruction_drafts.remove(id);
-            self.inquiry_drafts.remove(id);
+            self.probe_drafts.remove(id);
             self.view_collapsed.remove(id);
             self.friend_blocks.remove(id);
             self.block_panel_state.remove(id);
@@ -605,15 +605,15 @@ impl BlockStore {
     ) -> BlockStore {
         let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
         let mut sub_points: SecondaryMap<BlockId, PointContent> = SecondaryMap::new();
-        let mut sub_expansion_drafts: SparseSecondaryMap<BlockId, ExpansionDraftRecord> =
+        let mut sub_amplification_drafts: SparseSecondaryMap<BlockId, AmplificationDraftRecord> =
             SparseSecondaryMap::new();
         let mut sub_atomization_drafts: SparseSecondaryMap<BlockId, AtomizationDraftRecord> =
             SparseSecondaryMap::new();
-        let mut sub_reduction_drafts: SparseSecondaryMap<BlockId, ReductionDraftRecord> =
+        let mut sub_distillation_drafts: SparseSecondaryMap<BlockId, DistillationDraftRecord> =
             SparseSecondaryMap::new();
         let mut sub_instruction_drafts: SparseSecondaryMap<BlockId, InstructionDraftRecord> =
             SparseSecondaryMap::new();
-        let mut sub_inquiry_drafts: SparseSecondaryMap<BlockId, InquiryDraftRecord> =
+        let mut sub_probe_drafts: SparseSecondaryMap<BlockId, ProbeDraftRecord> =
             SparseSecondaryMap::new();
         let mut sub_friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>> =
             SparseSecondaryMap::new();
@@ -663,9 +663,9 @@ impl BlockStore {
 
         let sub_roots: Vec<BlockId> = roots.iter().filter_map(|r| id_map.get(r).copied()).collect();
 
-        for (old_id, draft) in &self.expansion_drafts {
+        for (old_id, draft) in &self.amplification_drafts {
             if let Some(&new_id) = id_map.get(&old_id) {
-                sub_expansion_drafts.insert(new_id, draft.clone());
+                sub_amplification_drafts.insert(new_id, draft.clone());
             }
         }
         for (old_id, draft) in &self.atomization_drafts {
@@ -673,9 +673,9 @@ impl BlockStore {
                 sub_atomization_drafts.insert(new_id, draft.clone());
             }
         }
-        for (old_id, draft) in &self.reduction_drafts {
+        for (old_id, draft) in &self.distillation_drafts {
             if let Some(&new_id) = id_map.get(&old_id) {
-                sub_reduction_drafts.insert(new_id, draft.clone());
+                sub_distillation_drafts.insert(new_id, draft.clone());
             }
         }
         for (old_id, draft) in &self.instruction_drafts {
@@ -683,9 +683,9 @@ impl BlockStore {
                 sub_instruction_drafts.insert(new_id, draft.clone());
             }
         }
-        for (old_id, draft) in &self.inquiry_drafts {
+        for (old_id, draft) in &self.probe_drafts {
             if let Some(&new_id) = id_map.get(&old_id) {
-                sub_inquiry_drafts.insert(new_id, draft.clone());
+                sub_probe_drafts.insert(new_id, draft.clone());
             }
         }
         let mut sub_view_collapsed: SparseSecondaryMap<BlockId, bool> = SparseSecondaryMap::new();
@@ -722,11 +722,11 @@ impl BlockStore {
             sub_roots,
             sub_nodes,
             sub_points,
-            sub_expansion_drafts,
+            sub_amplification_drafts,
             sub_atomization_drafts,
-            sub_reduction_drafts,
+            sub_distillation_drafts,
             sub_instruction_drafts,
-            sub_inquiry_drafts,
+            sub_probe_drafts,
             sub_view_collapsed,
             sub_friend_blocks,
             sub_block_panel_state,
@@ -782,9 +782,9 @@ impl BlockStore {
         let new_roots: Vec<BlockId> =
             sub_store.roots.iter().filter_map(|r| id_map.get(r).copied()).collect();
 
-        for (old_id, draft) in &sub_store.expansion_drafts {
+        for (old_id, draft) in &sub_store.amplification_drafts {
             if let Some(&new_id) = id_map.get(&old_id) {
-                self.expansion_drafts.insert(new_id, draft.clone());
+                self.amplification_drafts.insert(new_id, draft.clone());
             }
         }
         for (old_id, draft) in &sub_store.atomization_drafts {
@@ -792,9 +792,9 @@ impl BlockStore {
                 self.atomization_drafts.insert(new_id, draft.clone());
             }
         }
-        for (old_id, draft) in &sub_store.reduction_drafts {
+        for (old_id, draft) in &sub_store.distillation_drafts {
             if let Some(&new_id) = id_map.get(&old_id) {
-                self.reduction_drafts.insert(new_id, draft.clone());
+                self.distillation_drafts.insert(new_id, draft.clone());
             }
         }
         for (old_id, draft) in &sub_store.instruction_drafts {
@@ -802,9 +802,9 @@ impl BlockStore {
                 self.instruction_drafts.insert(new_id, draft.clone());
             }
         }
-        for (old_id, draft) in &sub_store.inquiry_drafts {
+        for (old_id, draft) in &sub_store.probe_drafts {
             if let Some(&new_id) = id_map.get(&old_id) {
-                self.inquiry_drafts.insert(new_id, draft.clone());
+                self.probe_drafts.insert(new_id, draft.clone());
             }
         }
 
