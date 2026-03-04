@@ -127,7 +127,7 @@ jobs:
           set -euo pipefail
           : > aur/.SRCINFO
 
-      - name: Regenerate .SRCINFO (Arch container, non-root)
+      - name: Regenerate .SRCINFO (Arch container, non-root, chown only .SRCINFO)
         uses: addnab/docker-run-action@v3
         with:
           image: archlinux:latest
@@ -139,7 +139,11 @@ jobs:
 
             useradd -m builder
 
-            # makepkg refuses root; run as builder
+            # Ensure .SRCINFO exists and is writable by builder (ONLY this file)
+            touch /pkg/.SRCINFO
+            chown builder:builder /pkg/.SRCINFO
+
+            # Now generate as non-root
             su - builder -c 'cd /pkg && makepkg --printsrcinfo > .SRCINFO'
 
       - name: Ensure aur/ is writable (safety)

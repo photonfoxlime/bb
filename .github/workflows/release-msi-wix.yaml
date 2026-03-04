@@ -68,7 +68,7 @@ jobs:
       - name: Build MSI via cargo-wix
         shell: pwsh
         run: |
-          cargo wix -p "${{ env.CARGO_PACKAGE }}" -v
+          cargo wix -p "${{ env.CARGO_PACKAGE }}" -v --nocapture
 
       - name: Locate MSI and rename
         shell: pwsh
