@@ -63,3 +63,4 @@ This software is licensed under the Apache License 2.0. See [LICENSE](./LICENSE)
 ## Credits
 
 Logo by [@laurentowel](https://github.com/laurentowel).
+Extensive testing by [17-qxm](https://github.com/17-qxm).
