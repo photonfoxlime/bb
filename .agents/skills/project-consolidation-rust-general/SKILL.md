@@ -252,7 +252,7 @@ Purpose:
 
 ---
 
-## FINAL NOTES FOR CLAUDE
+## FINAL NOTES
 - Produce `FUNCTIONALITY.md` first — it frames everything else
 - Work through EVERY question in the Investigative Protocol before writing
 - Cite file and line references for non-obvious findings

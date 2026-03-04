@@ -21,6 +21,10 @@ use self::{
 use clap::{CommandFactory, Parser};
 use std::path::PathBuf;
 
+/// Entry-point namespace for the Blooming Blockery CLI and GUI binaries.
+///
+/// The type itself carries no state; it groups the two runtime entry points so
+/// both binaries can share startup, tracing, and application bootstrap logic.
 pub struct BloomingBlockery;
 
 impl BloomingBlockery {
@@ -73,6 +77,9 @@ impl BloomingBlockery {
         Self::gui()
     }
 
+    /// Initialize process-wide tracing subscribers when the `log` feature is enabled.
+    ///
+    /// Falls back to `blooming_blockery=info` when `RUST_LOG` is not set.
     #[cfg(feature = "log")]
     pub fn init_tracing() -> anyhow::Result<()> {
         let env_filter = tracing_subscriber::EnvFilter::try_from_default_env()
@@ -85,6 +92,7 @@ impl BloomingBlockery {
         Ok(())
     }
 
+    /// Launch the iced GUI application with fonts, icon, theme, and subscriptions configured.
     pub fn gui() -> anyhow::Result<()> {
         let window_settings = {
             let mut window_settings = iced::window::Settings::default();
