@@ -1,4 +1,29 @@
 #![doc = include_str!("../DESIGN.md")]
+//!
+//! # Runtime surfaces
+//!
+//! Blooming Blockery ships two entry points over the same block-store core:
+//!
+//! - `blooming-blockery` launches the iced document editor from [`BloomingBlockery::run_gui`].
+//! - `bb` launches the clap-based automation CLI from [`BloomingBlockery::run_cli`].
+//!
+//! Both runtimes operate on the same persisted document model:
+//! - `blocks.json` stores the main block forest.
+//! - `app.toml` stores UI and per-task LLM preferences.
+//! - `llm.toml` stores provider credentials and endpoint definitions.
+//! - mounted `.json` / `.md` files project subtrees into external documents.
+//!
+//! # Investigation summary
+//!
+//! The crate centers on a typed [`store::BlockStore`] forest whose nodes can be
+//! plain text points or typed links, and whose optional per-block metadata
+//! stores LLM drafts, instruction/probe state, friend links, fold state, and
+//! panel visibility. The iced app layers transient editing state, global
+//! shortcuts, per-block LLM request tracking, and responsive document/settings
+//! screens over that store. The CLI exposes the same structure and metadata
+//! through domain-grouped subcommands (`tree`, `point`, `draft`, `mount`,
+//! `friend`, `panel`, `context`), which makes the repository effectively one
+//! core model with two operator surfaces instead of two separate products.
 rust_i18n::i18n!("locales", fallback = "en-US");
 
 mod app;

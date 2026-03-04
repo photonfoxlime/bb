@@ -7,6 +7,43 @@
 //! hardcode UI strings; add keys to the locale files instead.
 //!
 //! Domain semantics are documented next to the owning handlers and state types.
+//!
+//! # Screen and workflow inventory
+//!
+//! The iced runtime is organized around two top-level screens:
+//!
+//! - `Document` renders the tree editor, action bar, breadcrumbs, mount
+//!   controls, friend/instruction panels, and floating find/link/help overlays.
+//! - `Settings` renders provider management, per-task LLM settings, locale and
+//!   appearance preferences, and resolved data/config paths.
+//!
+//! Core document workflows supported by this layer:
+//!
+//! - direct block editing with undo/redo and structural shortcuts,
+//! - LLM-assisted amplify, distill, atomize, and probe requests,
+//! - friend-block context curation and instruction drafting,
+//! - mount expansion/collapse/save/load/move/inline for external subtree files,
+//! - drill-down navigation, multiselect deletion, point-to-link conversion, and
+//!   global phrase-aware find.
+//!
+//! # Architecture summary
+//!
+//! This module is the Elm boundary for the GUI:
+//!
+//! - [`AppState`] owns durable document/config state plus transient session UI.
+//! - [`Message`] is the single top-level event enum routed into focused handler
+//!   modules such as `edit`, `patch`, `settings`, `find_panel`, and
+//!   `mount_file`.
+//! - [`DocumentView`](document::DocumentView) is a pure renderer over borrowed
+//!   state, while `update` centralizes mutation and `subscription` wires global
+//!   keyboard/window/theme events.
+//!
+//! Persistence is intentionally split. [`BlockStore`] holds user-authored data
+//! and persisted per-block UI hints, while [`TransientUiState`] carries
+//! disposable interaction state such as focus, overlays, multiselect, and link
+//! panel search results. Undo snapshots include navigation but rebuild editor
+//! buffers on restore so the app preserves semantic state without serializing
+//! widget internals.
 
 // Global
 mod config;
