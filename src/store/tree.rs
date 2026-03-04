@@ -166,6 +166,47 @@ impl BlockStore {
         Some(removed_ids)
     }
 
+    /// Detach a block from its parent (or roots) and append its id to `archive`.
+    ///
+    /// The block and its entire subtree remain in the store (`nodes`, `points`,
+    /// and all draft maps are untouched). Only the topmost detached id is pushed
+    /// to `self.archive`.
+    ///
+    /// # Requires
+    /// - `block_id` must exist in the store.
+    ///
+    /// # Ensures
+    /// - Returns `Some(Vec<BlockId>)` containing the detached root id followed by
+    ///   all descendant ids, so callers can clean up ancillary state (editor
+    ///   buffers, LLM requests, focus). The block data itself is **not** removed.
+    /// - `block_id` is appended to `self.archive`.
+    /// - If detachment empties the root list, a fresh empty root is inserted.
+    /// - Returns `None` if `block_id` is not found.
+    pub fn archive_block(&mut self, block_id: &BlockId) -> Option<Vec<BlockId>> {
+        let (parent_id, index) = self.parent_and_index_of(block_id)?;
+        if let Some(parent_id) = parent_id {
+            if let Some(parent) = self.nodes.get_mut(parent_id)
+                && let Some(children) = parent.children_mut()
+            {
+                children.remove(index);
+            }
+        } else {
+            self.roots.remove(index);
+        }
+
+        self.archive.push(*block_id);
+
+        if self.roots.is_empty() {
+            let root_id = self.nodes.insert(BlockNode::with_children(vec![]));
+            self.points.insert(root_id, PointContent::Text(String::new()));
+            self.roots.push(root_id);
+        }
+
+        let mut subtree_ids = Vec::new();
+        self.collect_subtree_ids(block_id, &mut subtree_ids);
+        Some(subtree_ids)
+    }
+
     /// Move a block to before, after, or under a target block.
     ///
     /// # Requires

@@ -111,13 +111,13 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
         }
         | StructureMessage::ArchiveBlock(block_id) => {
             state.snapshot_for_undo();
-            if let Some(removed_ids) = state.store.remove_block_subtree(&block_id) {
-                tracing::info!(block_id = ?block_id, removed = removed_ids.len(), "archived block subtree");
-                state.editor_buffers.remove_blocks(&removed_ids);
-                for id in &removed_ids {
+            if let Some(subtree_ids) = state.store.archive_block(&block_id) {
+                tracing::info!(block_id = ?block_id, subtree = subtree_ids.len(), "moved block subtree to archive");
+                state.editor_buffers.remove_blocks(&subtree_ids);
+                for id in &subtree_ids {
                     state.llm_requests.remove_block(*id);
                 }
-                if removed_ids.iter().any(|id| state.focus().is_some_and(|s| s.block_id == *id)) {
+                if subtree_ids.iter().any(|id| state.focus().is_some_and(|s| s.block_id == *id)) {
                     state.clear_focus();
                 }
                 for root_id in state.store.roots() {

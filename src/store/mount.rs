@@ -525,7 +525,7 @@ impl BlockStore {
             }
         }
         let sub_store =
-            self.build_projected_store(&own_ids, hint, &children, &mount_path_overrides);
+            self.build_projected_store(&own_ids, hint, &children, &[], &mount_path_overrides);
 
         let format = format_override.unwrap_or_else(|| Self::format_from_path(path));
 
@@ -601,6 +601,7 @@ impl BlockStore {
 
     fn build_projected_store(
         &self, kept_ids: &[BlockId], hint: Option<String>, roots: &[BlockId],
+        archive: &[BlockId],
         mount_path_overrides: &std::collections::HashMap<BlockId, MountProjection>,
     ) -> BlockStore {
         let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
@@ -662,6 +663,8 @@ impl BlockStore {
         }
 
         let sub_roots: Vec<BlockId> = roots.iter().filter_map(|r| id_map.get(r).copied()).collect();
+        let sub_archive: Vec<BlockId> =
+            archive.iter().filter_map(|r| id_map.get(r).copied()).collect();
 
         for (old_id, draft) in &self.amplification_drafts {
             if let Some(&new_id) = id_map.get(&old_id) {
@@ -720,6 +723,7 @@ impl BlockStore {
         }
         BlockStore::new_with_drafts(
             sub_roots,
+            sub_archive,
             sub_nodes,
             sub_points,
             sub_amplification_drafts,
@@ -871,7 +875,7 @@ impl BlockStore {
             );
         }
 
-        self.build_projected_store(&kept_ids, None, &self.roots, &mount_path_overrides)
+        self.build_projected_store(&kept_ids, None, &self.roots, &self.archive, &mount_path_overrides)
     }
 
     /// Extract blocks belonging to a mount entry into a standalone store.
@@ -913,7 +917,7 @@ impl BlockStore {
             .map(|pc| pc.display_text().to_owned())
             .and_then(|p| if p.is_empty() { None } else { Some(p) });
 
-        self.build_projected_store(&own_ids, hint, &root_ids, &mount_path_overrides)
+        self.build_projected_store(&own_ids, hint, &root_ids, &[], &mount_path_overrides)
     }
 
     /// Derive the effective base directory for mount path resolution.

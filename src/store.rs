@@ -52,7 +52,7 @@
 //! 5. Import in [`BlockStore::rekey_sub_store`] with same key translation
 //!    but inserting into `self` rather than a fresh store.
 //! 6. Clean up on removal. Add `.remove(id)` calls in:
-//!    - [`BlockStore::remove_block_subtree`]
+//!    - [`BlockStore::remove_block_subtree`] and [`BlockStore::archive_block`]
 //!    - [`BlockStore::collapse_mount`] (two sites: own ids and nested mount ids)
 //!    - [`BlockStore::save_subtree_to_file`] (two sites: nested mount cleanup
 //!      and own-ids cleanup)
@@ -228,9 +228,9 @@ impl BlockNode {
     }
 }
 
-/// Forest of blocks: root ids, a structural map, and a content map.
+/// Forest of blocks: root ids, an archive list, a structural map, and a content map.
 ///
-/// Invariant: every id in `roots` and in any node's `children` must exist as
+/// Invariant: every id in `roots`, `archive`, and in any node's `children` must exist as
 /// a key in `nodes` **and** in `points`. The store always has at least one root.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlockStore {
@@ -243,6 +243,13 @@ pub struct BlockStore {
     pub hint: Option<String>,
     /// The ordered root block ids.
     pub roots: Vec<BlockId>,
+    /// The ordered archived block ids (roots of archived subtrees).
+    ///
+    /// Each id here is the topmost block of a subtree that has been removed
+    /// from the main document tree. The block and its entire subtree remain
+    /// in `nodes` and `points`; only the detached root is tracked here.
+    #[serde(default)]
+    pub archive: Vec<BlockId>,
     /// The structural map of blocks, keyed by [`BlockId`].
     pub nodes: SlotMap<BlockId, BlockNode>,
     /// Typed content for each block, keyed by [`BlockId`].
@@ -313,6 +320,7 @@ impl BlockStore {
         let typed_points = Self::convert_string_points(&nodes, points);
         Self::new_with_drafts(
             roots,
+            vec![],
             nodes,
             typed_points,
             SparseSecondaryMap::new(),
@@ -331,7 +339,7 @@ impl BlockStore {
     ///
     /// Used by projection/rekey paths that already operate on `PointContent`.
     pub(crate) fn new_with_drafts(
-        roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
+        roots: Vec<BlockId>, archive: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
         points: SecondaryMap<BlockId, PointContent>,
         amplification_drafts: SparseSecondaryMap<BlockId, AmplificationDraftRecord>,
         atomization_drafts: SparseSecondaryMap<BlockId, AtomizationDraftRecord>,
@@ -344,6 +352,7 @@ impl BlockStore {
     ) -> Self {
         Self {
             roots,
+            archive,
             nodes,
             points,
             mount_table: MountTable::new(),
@@ -380,6 +389,11 @@ impl BlockStore {
     /// - The returned slice is non-empty.
     pub fn roots(&self) -> &[BlockId] {
         &self.roots
+    }
+
+    /// The ordered archived block ids (roots of archived subtrees).
+    pub fn archive(&self) -> &[BlockId] {
+        &self.archive
     }
 
     /// Look up a node by id.
@@ -523,6 +537,7 @@ impl Default for BlockStore {
 impl PartialEq for BlockStore {
     fn eq(&self, other: &Self) -> bool {
         self.roots == other.roots
+            && self.archive == other.archive
             && self.nodes.len() == other.nodes.len()
             && self.nodes.iter().all(|(id, node)| other.nodes.get(id) == Some(node))
             && self.points.len() == other.points.len()
