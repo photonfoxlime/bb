@@ -692,14 +692,7 @@ pub fn render_patch_panel<'a>(
             let current_point = state.store.point(block_id).unwrap_or_default();
             let point_applied = d.reduction.as_ref().map_or(false, |r| current_point == *r);
             let rewrite = if point_applied {
-                Some(RewriteSection::DismissOnly {
-                    title: t!("doc_reduce").to_string(),
-                    button: PanelButton {
-                        label: t!("doc_dismiss_reduction").to_string(),
-                        style: PanelButtonStyle::Destructive,
-                        on_press: Message::Patch(PatchMessage::RejectRewrite(*block_id)),
-                    },
-                })
+                None
             } else if let Some(ref r) = d.reduction {
                 Some(RewriteSection::Diff {
                     title: t!("doc_reduce").to_string(),
@@ -719,14 +712,7 @@ pub fn render_patch_panel<'a>(
                     ],
                 })
             } else {
-                Some(RewriteSection::DismissOnly {
-                    title: t!("doc_reduce").to_string(),
-                    button: PanelButton {
-                        label: t!("doc_dismiss_reduction").to_string(),
-                        style: PanelButtonStyle::Destructive,
-                        on_press: Message::Patch(PatchMessage::RejectRewrite(*block_id)),
-                    },
-                })
+                None
             };
             // Delete-children section: primary = delete (destructive), secondary = keep (action).
             let child_items: Vec<(usize, String)> = d
