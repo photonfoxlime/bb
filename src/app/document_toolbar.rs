@@ -3,11 +3,9 @@
 //! Renders top-left mode buttons (Normal, Find, Link, Multiselect, Archive)
 //! and multiselect count badge. Uses theme constants; delegates to IconButton.
 
-use super::LinkModeMessage;
 use super::archive_panel::ArchivePanelMessage;
 use super::{DocumentMode, FindMessage, Message};
 use crate::component::icon_button::IconButton;
-use crate::store::BlockId;
 use crate::theme;
 use iced::widget::{container, row, text};
 use iced::{Element, Fill, Padding};
@@ -18,16 +16,14 @@ use rust_i18n::t;
 pub struct DocumentToolbarVm {
     pub document_mode: DocumentMode,
     pub multiselect_count: usize,
-    pub focused_block_id: Option<BlockId>,
 }
 
 /// Renders the document mode bar (top-left).
 pub fn view<'a>(vm: DocumentToolbarVm) -> Element<'a, Message> {
     let is_normal_mode = vm.document_mode == DocumentMode::Normal;
     let is_find_mode = vm.document_mode == DocumentMode::Find;
-    let is_link_mode = vm.document_mode == DocumentMode::LinkInput;
-    let is_multiselect_mode = vm.document_mode == DocumentMode::Multiselect;
     let is_archive_mode = vm.document_mode == DocumentMode::Archive;
+    let is_multiselect_mode = vm.document_mode == DocumentMode::Multiselect;
 
     let normal_mode_btn = IconButton::mode(
         icons::icon_mouse_pointer_2()
@@ -47,18 +43,14 @@ pub fn view<'a>(vm: DocumentToolbarVm) -> Element<'a, Message> {
     )
     .on_press(Message::Find(if is_find_mode { FindMessage::Close } else { FindMessage::Open }));
 
-    let mut link_mode_btn = IconButton::mode(
-        icons::icon_link()
+    let archive_mode_btn = IconButton::mode(
+        icons::icon_archive()
             .size(theme::TOOLBAR_ICON_SIZE)
             .line_height(iced::widget::text::LineHeight::Relative(1.0))
             .into(),
-        is_link_mode,
-    );
-    if is_link_mode {
-        link_mode_btn = link_mode_btn.on_press(Message::LinkMode(LinkModeMessage::Cancel));
-    } else if let Some(bid) = vm.focused_block_id {
-        link_mode_btn = link_mode_btn.on_press(Message::LinkMode(LinkModeMessage::Enter(bid)));
-    }
+        is_archive_mode,
+    )
+    .on_press(Message::Archive(ArchivePanelMessage::Toggle));
 
     let multiselect_mode_btn = IconButton::mode(
         icons::icon_square_check()
@@ -72,15 +64,6 @@ pub fn view<'a>(vm: DocumentToolbarVm) -> Element<'a, Message> {
     } else {
         DocumentMode::Multiselect
     }));
-
-    let archive_mode_btn = IconButton::mode(
-        icons::icon_archive()
-            .size(theme::TOOLBAR_ICON_SIZE)
-            .line_height(iced::widget::text::LineHeight::Relative(1.0))
-            .into(),
-        is_archive_mode,
-    )
-    .on_press(Message::Archive(ArchivePanelMessage::Toggle));
 
     let multiselect_badge: Element<'a, Message> = if is_multiselect_mode && vm.multiselect_count > 0
     {
@@ -98,9 +81,8 @@ pub fn view<'a>(vm: DocumentToolbarVm) -> Element<'a, Message> {
     let toolbar = row![
         normal_mode_btn,
         find_mode_btn,
-        link_mode_btn,
-        multiselect_mode_btn,
         archive_mode_btn,
+        multiselect_mode_btn,
         multiselect_badge,
     ]
     .spacing(theme::ACTION_GAP)

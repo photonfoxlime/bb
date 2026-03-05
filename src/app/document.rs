@@ -122,7 +122,6 @@ impl<'a> DocumentView<'a> {
             super::document_toolbar::view(super::document_toolbar::DocumentToolbarVm {
                 document_mode: state.ui().document_mode,
                 multiselect_count: state.ui().multiselect_selected_blocks.len(),
-                focused_block_id: state.focus().map(|f| f.block_id),
             });
 
         // Document tree
