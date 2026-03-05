@@ -44,6 +44,8 @@ pub enum LinkModeMessage {
     QueryChanged(String),
     /// The user selected the current candidate (confirm).
     Confirm,
+    /// The user clicked a specific candidate in the list.
+    ConfirmCandidate(usize),
     /// The user pressed Up arrow.
     SelectPrevious,
     /// The user pressed Down arrow.

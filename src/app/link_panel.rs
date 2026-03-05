@@ -3,9 +3,11 @@
 //!
 //! Entered by typing `@` in an empty point editor, or by pressing the
 //! "Add Link" button in the action bar / context menu. Shows a floating panel
-//! with fuzzy filesystem search starting from `$HOME`. Selecting a candidate
-//! appends a new link chip via [`PointLink::infer`]; the block's text is
-//! unchanged.
+//! with fuzzy filesystem search starting from `$HOME`.
+//!
+//! Confirming a directory drills into that directory (file-explorer style).
+//! Confirming a file appends a new link chip via [`PointLink::infer`]; the
+//! block's text is unchanged.
 //!
 //! # User interaction flow
 //!
@@ -14,18 +16,20 @@
 //! 2. The `@` is detected in [`crate::app::edit`] (PointEdited handler),
 //!    which clears the editor and emits [`LinkModeMessage::Enter`].
 //! 3. The panel opens, showing `$HOME` entries. The search input is focused.
-//! 4. Typing narrows the candidates via [`search_filesystem`].
-//! 5. **Confirm** (Enter or click): the selected path is appended to the
-//!    block's `links` vec as a new chip. The text editor is unaffected.
+//! 4. Typing narrows the candidates via filesystem-backed path completion.
+//! 5. **Confirm** (Enter or click):
+//!    - directories open in-place and refresh candidates,
+//!    - files are appended to the block's `links` vec as a new chip.
+//!    The text editor is unaffected.
 //! 6. **Cancel** (Escape): exits link mode with no changes.
 //! 7. **Double-`@`**: typing `@` as the first character in the search input
 //!    exits link mode and inserts a literal `@` into the block's point editor.
 //!
 //! # Design rationale
 //!
-//! - **Filesystem only**: URL link sources may be added later. The search
+//! - **Filesystem only**: URL link sources may be added later. The panel
 //!   currently enumerates local directories synchronously. This is acceptable
-//!   for `$HOME`-level browsing but may need async I/O for deep trees.
+//!   for interactive directory browsing but may need async I/O for deep trees.
 //! - **Absolute paths**: selected paths are stored as absolute strings. This
 //!   simplifies display and image loading but makes documents non-portable.
 //!   May be revisited with relative-path support later.
@@ -58,11 +62,12 @@ fn link_query_input_id() -> Id {
 pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
     match message {
         | LinkModeMessage::Enter(block_id) => {
+            let filesystem = LinkFilesystem::new();
             state.ui_mut().document_mode = DocumentMode::LinkInput;
             state.ui_mut().link_panel = crate::app::LinkPanelState {
                 block_id: Some(block_id),
                 query: String::new(),
-                candidates: list_home_entries(),
+                candidates: filesystem.list_home_entries(),
                 selected_index: 0,
             };
             // Auto-focus the search input.
@@ -82,7 +87,8 @@ pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
                 return Task::none();
             }
 
-            let candidates = search_filesystem(&query);
+            let filesystem = LinkFilesystem::new();
+            let candidates = filesystem.search(&query);
             state.ui_mut().link_panel.selected_index = 0;
             state.ui_mut().link_panel.candidates = candidates;
             state.ui_mut().link_panel.query = query;
@@ -103,18 +109,11 @@ pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
             Task::none()
         }
         | LinkModeMessage::Confirm => {
-            let panel = &state.ui().link_panel;
-            let selected = panel.candidates.get(panel.selected_index).cloned();
-
-            if let (Some(block_id), Some(path)) = (panel.block_id, selected) {
-                let href = path.to_string_lossy().to_string();
-                let link = PointLink::infer(href);
-                state.store.add_link_to_point(&block_id, link);
-                state.persist_with_context("add link");
-                // Editor buffer is kept: the text editor is always present
-                // alongside link chips.
-            }
-            exit_link_mode(state);
+            confirm_selection(state, None);
+            Task::none()
+        }
+        | LinkModeMessage::ConfirmCandidate(index) => {
+            confirm_selection(state, Some(index));
             Task::none()
         }
         | LinkModeMessage::Cancel => {
@@ -130,6 +129,86 @@ fn exit_link_mode(state: &mut AppState) {
     state.ui_mut().link_panel = crate::app::LinkPanelState::default();
 }
 
+/// Confirm the current selection. Directories are opened in-place, files are
+/// added as links.
+fn confirm_selection(state: &mut AppState, requested_index: Option<usize>) {
+    let (block_id, query, candidates, selected_index) = {
+        let panel = &state.ui().link_panel;
+        (panel.block_id, panel.query.clone(), panel.candidates.clone(), panel.selected_index)
+    };
+
+    let Some(block_id) = block_id else {
+        exit_link_mode(state);
+        return;
+    };
+
+    let filesystem = LinkFilesystem::new();
+    let Some(path) = resolve_confirmation_target(
+        &query,
+        &candidates,
+        selected_index,
+        requested_index,
+        &filesystem,
+    ) else {
+        exit_link_mode(state);
+        return;
+    };
+
+    if path.is_dir() {
+        open_directory(state, &filesystem, &path);
+    } else {
+        append_file_link(state, block_id, &path);
+    }
+}
+
+/// Pick the filesystem path that should be confirmed.
+///
+/// Priority:
+/// 1. Explicit clicked candidate (`requested_index`),
+/// 2. keyboard-selected candidate (`selected_index`),
+/// 3. exact typed path, if it exists.
+///
+/// Note: selecting candidates before exact query path keeps Enter behavior
+/// explorer-like when the current query already points to an open directory.
+fn resolve_confirmation_target(
+    query: &str,
+    candidates: &[PathBuf],
+    selected_index: usize,
+    requested_index: Option<usize>,
+    filesystem: &LinkFilesystem,
+) -> Option<PathBuf> {
+    if let Some(index) = requested_index {
+        return candidates.get(index).cloned().or_else(|| filesystem.resolve_existing_path(query));
+    }
+
+    candidates
+        .get(selected_index)
+        .cloned()
+        .or_else(|| filesystem.resolve_existing_path(query))
+}
+
+/// Open a directory in the panel and refresh candidates without leaving link mode.
+fn open_directory(state: &mut AppState, filesystem: &LinkFilesystem, directory: &Path) {
+    let query = filesystem.directory_query(directory);
+    let candidates = filesystem.search(&query);
+    let panel = &mut state.ui_mut().link_panel;
+    panel.query = query;
+    panel.candidates = candidates;
+    panel.selected_index = 0;
+    tracing::info!(path = %directory.display(), "link panel opened directory");
+}
+
+/// Append a file link to the selected block and close link mode.
+fn append_file_link(state: &mut AppState, block_id: crate::store::BlockId, path: &Path) {
+    let href = path.to_string_lossy().to_string();
+    let link = PointLink::infer(href);
+    state.store.add_link_to_point(&block_id, link);
+    state.persist_with_context("add link");
+    tracing::info!(block_id = ?block_id, path = %path.display(), "link panel added file link");
+    // Editor buffer is kept: the text editor is always present alongside link chips.
+    exit_link_mode(state);
+}
+
 /// Render the link-input floating overlay. Returns an invisible spacer when
 /// the mode is not [`DocumentMode::LinkInput`].
 pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
@@ -141,6 +220,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     }
 
     let panel = &state.ui().link_panel;
+    let filesystem = LinkFilesystem::new();
     let viewport_width = state.ui().window_size.width;
     let viewport_height = state.ui().window_size.height;
 
@@ -165,7 +245,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     let mut rows = column![].width(Length::Fill);
 
     for (i, path) in panel.candidates.iter().enumerate() {
-        let display = abbreviate_path(path);
+        let display = filesystem.abbreviate_path(path);
         let is_selected = i == panel.selected_index;
 
         let label = text(display).size(theme::FIND_RESULT_POINT_SIZE);
@@ -183,7 +263,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
                 .style(theme::action_button)
                 .padding(Padding::ZERO)
                 .width(Length::Fill)
-                .on_press(Message::LinkMode(LinkModeMessage::Confirm)),
+                .on_press(Message::LinkMode(LinkModeMessage::ConfirmCandidate(i))),
         );
     }
 
@@ -203,78 +283,162 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
 // Filesystem helpers
 // ---------------------------------------------------------------------------
 
-/// List entries in `$HOME` (non-recursive, sorted).
-fn list_home_entries() -> Vec<PathBuf> {
-    let Some(home) = home_dir() else {
-        return Vec::new();
-    };
-    read_dir_sorted(&home)
+/// Filesystem access helper for link-panel path browsing and completion.
+#[derive(Debug, Clone)]
+struct LinkFilesystem {
+    home_dir: Option<PathBuf>,
+    working_dir: PathBuf,
 }
 
-/// Resolve the user's home directory via the `directories` crate.
-fn home_dir() -> Option<PathBuf> {
-    directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf())
-}
-
-/// Search the filesystem based on the query string.
-///
-/// The search strategy has three tiers:
-///
-/// 1. **Empty query**: return all entries in `$HOME`.
-/// 2. **Path prefix** (query ends with `/` or contains a valid parent dir):
-///    list the matching directory and filter by the filename fragment.
-///    For example, `/Users/foo/Do` shows entries in `/Users/foo/` whose
-///    names contain `"do"` (case-insensitive).
-/// 3. **Fallback**: fuzzy-filter `$HOME` entries by the query.
-///
-/// Note: all I/O is synchronous. This is acceptable for shallow directory
-/// listings but would need async for deep recursive searches.
-fn search_filesystem(query: &str) -> Vec<PathBuf> {
-    if query.is_empty() {
-        return list_home_entries();
+impl LinkFilesystem {
+    /// Construct from process environment (`$HOME` and current working directory).
+    fn new() -> Self {
+        let home_dir = directories::BaseDirs::new().map(|b| b.home_dir().to_path_buf());
+        let working_dir = std::env::current_dir()
+            .ok()
+            .or_else(|| home_dir.clone())
+            .unwrap_or_else(|| PathBuf::from(std::path::MAIN_SEPARATOR.to_string()));
+        Self { home_dir, working_dir }
     }
 
-    let query_path = PathBuf::from(query);
+    /// Build deterministic roots for tests.
+    #[cfg(test)]
+    fn with_roots(home_dir: Option<PathBuf>, working_dir: PathBuf) -> Self {
+        Self { home_dir, working_dir }
+    }
 
-    // If query ends with '/', treat it as a directory to list.
-    if query.ends_with('/') || query.ends_with(std::path::MAIN_SEPARATOR) {
-        if query_path.is_dir() {
-            return read_dir_sorted(&query_path);
+    /// List entries in `$HOME` (non-recursive, sorted).
+    fn list_home_entries(&self) -> Vec<PathBuf> {
+        let Some(home) = self.home_dir.as_ref() else {
+            return Vec::new();
+        };
+        read_dir_sorted(home)
+    }
+
+    /// Search candidate entries for the query.
+    ///
+    /// Query behavior:
+    /// - empty query lists `$HOME`,
+    /// - `~` and `~/...` resolve against `$HOME`,
+    /// - relative paths resolve against current working directory,
+    /// - plain words (no separators) filter `$HOME` entries.
+    ///
+    /// Matching ranks `starts_with` first, then `contains`, then subsequence.
+    ///
+    /// Note: synchronous listing keeps the implementation simple and
+    /// deterministic inside iced update handlers.
+    fn search(&self, query: &str) -> Vec<PathBuf> {
+        let normalized_query = query.trim();
+        if normalized_query.is_empty() {
+            return self.list_home_entries();
         }
+
+        let Some(query_path) = self.query_to_path(normalized_query) else {
+            return Vec::new();
+        };
+        let Some(request) = self.resolve_listing_request(normalized_query, &query_path) else {
+            return rank_entries(self.list_home_entries(), normalized_query);
+        };
+
+        let entries = read_dir_sorted(&request.directory);
+        rank_entries(entries, &request.fragment)
     }
 
-    // If the parent directory exists, list it and filter by the file stem.
-    if let Some(parent) = query_path.parent() {
-        if parent.is_dir() {
-            let prefix = query_path
-                .file_name()
-                .map(|n| n.to_string_lossy().to_lowercase())
-                .unwrap_or_default();
-            let entries = read_dir_sorted(parent);
-            if prefix.is_empty() {
-                return entries;
+    /// Resolve the query to an existing filesystem path (if any).
+    fn resolve_existing_path(&self, query: &str) -> Option<PathBuf> {
+        let query = query.trim();
+        if query.is_empty() {
+            return None;
+        }
+        let path = self.query_to_path(query)?;
+        path.exists().then_some(path)
+    }
+
+    /// Format a directory path as a query string with trailing separator.
+    fn directory_query(&self, directory: &Path) -> String {
+        let mut query = self.path_to_query(directory);
+        if !query_ends_with_separator(&query) {
+            query.push(std::path::MAIN_SEPARATOR);
+        }
+        query
+    }
+
+    /// Abbreviate a path for display, replacing `$HOME` with `~`.
+    fn abbreviate_path(&self, path: &Path) -> String {
+        let mut display = self.path_to_query(path);
+        if path.is_dir() && !query_ends_with_separator(&display) {
+            display.push(std::path::MAIN_SEPARATOR);
+        }
+        display
+    }
+
+    /// Expand a typed query into an absolute path candidate.
+    fn query_to_path(&self, query: &str) -> Option<PathBuf> {
+        if query == "~" {
+            return self.home_dir.clone();
+        }
+
+        if let Some(suffix) = query.strip_prefix("~/").or_else(|| query.strip_prefix("~\\")) {
+            return self.home_dir.as_ref().map(|home| home.join(suffix));
+        }
+
+        if query.starts_with('~') {
+            // Unsupported shell forms such as `~other`.
+            return None;
+        }
+
+        let path = PathBuf::from(query);
+        if path.is_absolute() {
+            return Some(path);
+        }
+
+        let has_separator = query.contains('/') || query.contains('\\');
+        if has_separator || query.starts_with('.') {
+            return Some(self.working_dir.join(path));
+        }
+
+        Some(self.home_dir.clone().unwrap_or_else(|| self.working_dir.clone()).join(path))
+    }
+
+    /// Convert an absolute path into display/query form, abbreviating `$HOME`.
+    fn path_to_query(&self, path: &Path) -> String {
+        if let Some(home) = self.home_dir.as_ref() {
+            if let Ok(relative) = path.strip_prefix(home) {
+                if relative.as_os_str().is_empty() {
+                    return "~".to_string();
+                }
+                return format!("~{}{}", std::path::MAIN_SEPARATOR, relative.display());
             }
-            return entries
-                .into_iter()
-                .filter(|p| {
-                    p.file_name()
-                        .map(|n| n.to_string_lossy().to_lowercase().contains(&prefix))
-                        .unwrap_or(false)
-                })
-                .collect();
         }
+        path.display().to_string()
     }
 
-    // Fallback: fuzzy-filter home entries.
-    let lower_query = query.to_lowercase();
-    list_home_entries()
-        .into_iter()
-        .filter(|p| {
-            p.file_name()
-                .map(|n| n.to_string_lossy().to_lowercase().contains(&lower_query))
-                .unwrap_or(false)
-        })
-        .collect()
+    /// Resolve which directory should be listed and which fragment should be filtered.
+    fn resolve_listing_request(&self, query: &str, query_path: &Path) -> Option<ListingRequest> {
+        if query_ends_with_separator(query) || query_path.is_dir() {
+            return query_path.is_dir().then(|| ListingRequest {
+                directory: query_path.to_path_buf(),
+                fragment: String::new(),
+            });
+        }
+
+        let parent = query_path.parent()?;
+        if !parent.is_dir() {
+            return None;
+        }
+        let fragment = query_path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        Some(ListingRequest { directory: parent.to_path_buf(), fragment })
+    }
+}
+
+/// Directory listing context: where to list and what fragment to match.
+#[derive(Debug)]
+struct ListingRequest {
+    directory: PathBuf,
+    fragment: String,
 }
 
 /// Read a directory and return sorted entries, with directories listed first.
@@ -295,14 +459,138 @@ fn read_dir_sorted(dir: &Path) -> Vec<PathBuf> {
     entries
 }
 
-/// Abbreviate a path for display, replacing `$HOME` with `~`.
-fn abbreviate_path(path: &Path) -> String {
-    if let Some(home) = home_dir() {
-        if let Ok(relative) = path.strip_prefix(&home) {
-            let suffix = if path.is_dir() { "/" } else { "" };
-            return format!("~/{}{}", relative.display(), suffix);
+/// Rank directory entries by match quality against a user-typed fragment.
+fn rank_entries(entries: Vec<PathBuf>, fragment: &str) -> Vec<PathBuf> {
+    let needle = fragment.to_lowercase();
+    if needle.is_empty() {
+        return entries;
+    }
+
+    let mut scored: Vec<(u8, bool, String, PathBuf)> = entries
+        .into_iter()
+        .filter_map(|path| {
+            let name = path.file_name()?.to_string_lossy().to_lowercase();
+            let rank = if name.starts_with(&needle) {
+                0
+            } else if name.contains(&needle) {
+                1
+            } else if is_subsequence(&needle, &name) {
+                2
+            } else {
+                return None;
+            };
+            Some((rank, !path.is_dir(), name, path))
+        })
+        .collect();
+
+    scored.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)).then_with(|| a.2.cmp(&b.2)));
+    scored.into_iter().map(|(_, _, _, path)| path).collect()
+}
+
+/// Return true if all chars in `needle` appear in `haystack` in order.
+fn is_subsequence(needle: &str, haystack: &str) -> bool {
+    let mut needle_chars = needle.chars();
+    let mut next = needle_chars.next();
+    for ch in haystack.chars() {
+        if Some(ch) == next {
+            next = needle_chars.next();
+            if next.is_none() {
+                return true;
+            }
         }
     }
-    let suffix = if path.is_dir() { "/" } else { "" };
-    format!("{}{}", path.display(), suffix)
+    next.is_none()
+}
+
+/// Cross-platform "ends with path separator" check for typed queries.
+fn query_ends_with_separator(query: &str) -> bool {
+    query.ends_with('/') || query.ends_with('\\')
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{LinkFilesystem, resolve_confirmation_target};
+    use std::fs;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
+
+    #[test]
+    fn plain_query_filters_home_entries_with_prefix_first() {
+        let home = tempdir().expect("create home dir");
+        fs::create_dir(home.path().join("Documents")).expect("create Documents");
+        fs::create_dir(home.path().join("Downloads")).expect("create Downloads");
+        fs::write(home.path().join("todo.txt"), b"todo").expect("create todo file");
+        fs::write(home.path().join("notes.txt"), b"notes").expect("create notes file");
+
+        let filesystem =
+            LinkFilesystem::with_roots(Some(home.path().to_path_buf()), home.path().to_path_buf());
+        let results = filesystem.search("do");
+        let names: Vec<String> = results
+            .into_iter()
+            .filter_map(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+            .collect();
+
+        assert_eq!(names, vec!["Documents", "Downloads", "todo.txt"]);
+    }
+
+    #[test]
+    fn resolve_existing_path_expands_tilde() {
+        let home = tempdir().expect("create home dir");
+        let file = home.path().join("design.md");
+        fs::write(&file, b"content").expect("create design file");
+
+        let filesystem =
+            LinkFilesystem::with_roots(Some(home.path().to_path_buf()), home.path().to_path_buf());
+        let resolved = filesystem.resolve_existing_path("~/design.md");
+
+        assert_eq!(resolved, Some(file));
+    }
+
+    #[test]
+    fn relative_query_uses_working_directory() {
+        let home = tempdir().expect("create home dir");
+        let work = tempdir().expect("create work dir");
+        fs::create_dir(work.path().join("assets")).expect("create assets dir");
+        fs::write(work.path().join("atlas.md"), b"atlas").expect("create atlas file");
+
+        let filesystem =
+            LinkFilesystem::with_roots(Some(home.path().to_path_buf()), work.path().to_path_buf());
+        let results = filesystem.search("./a");
+        let names: Vec<String> = results
+            .into_iter()
+            .filter_map(|path| path.file_name().map(|name| name.to_string_lossy().into_owned()))
+            .collect();
+
+        assert_eq!(names, vec!["assets", "atlas.md"]);
+    }
+
+    #[test]
+    fn directory_query_abbreviates_home_and_appends_separator() {
+        let home = tempdir().expect("create home dir");
+        let docs = home.path().join("docs");
+        fs::create_dir(&docs).expect("create docs dir");
+
+        let filesystem =
+            LinkFilesystem::with_roots(Some(home.path().to_path_buf()), PathBuf::from("/tmp"));
+        let query = filesystem.directory_query(&docs);
+
+        assert_eq!(query, "~/docs/");
+    }
+
+    #[test]
+    fn confirmation_prefers_selected_candidate_over_exact_directory_query() {
+        let home = tempdir().expect("create home dir");
+        let root = home.path().join("root");
+        let child = root.join("child");
+        fs::create_dir(&root).expect("create root dir");
+        fs::create_dir(&child).expect("create child dir");
+
+        let filesystem =
+            LinkFilesystem::with_roots(Some(home.path().to_path_buf()), home.path().to_path_buf());
+        let query = filesystem.directory_query(&root);
+        let candidates = vec![child.clone()];
+
+        let target = resolve_confirmation_target(&query, &candidates, 0, None, &filesystem);
+        assert_eq!(target, Some(child));
+    }
 }
