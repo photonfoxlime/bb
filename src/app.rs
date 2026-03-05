@@ -52,6 +52,9 @@ mod error;
 // Main Views
 mod context_menu;
 mod document;
+mod document_toolbar;
+mod document_top_right;
+mod mount_indicator;
 mod point_editor;
 mod settings;
 mod find_panel;

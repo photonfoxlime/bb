@@ -72,19 +72,17 @@
 
 use super::{
     AppState, ContextMenuAction, ContextMenuMessage, DocumentMode, ErrorBanner, ErrorMessage,
-    FindMessage, LinkModeMessage, Message, MountFileMessage, NavigationMessage, OverlayMessage,
-    StructureMessage, UndoRedoMessage,
+    Message, MountFileMessage, NavigationMessage, OverlayMessage, StructureMessage,
     action_bar::{
         ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
         ViewportBucket, action_i18n_key, action_icon, action_to_message, build_action_bar_vm,
         project_for_viewport, status_error_i18n_key,
     },
-    archive_panel::{self, ArchivePanelMessage},
+    archive_panel,
     find_panel,
     friends_panel::{self, FriendPanelMessage},
     instruction_panel::{self, InstructionPanelMessage},
     link_panel, point_editor,
-    settings::SettingsMessage,
 };
 use crate::{
     component::breadcrumbs::{BreadcrumbLayer, Breadcrumbs},
@@ -92,6 +90,7 @@ use crate::{
     component::error_banner_view::{ErrorBannerContent, ErrorBannerEntry, ErrorBannerView},
     component::icon_button::IconButton,
     component::shortcut_help_banner::ShortcutHelpBanner,
+    component::status_chip::StatusChip,
     component::text_button::TextButton,
     store::{BlockId, BlockPanelBarState, PointContent},
     text::truncate_for_display,
@@ -100,7 +99,7 @@ use crate::{
 use iced::{
     Element, Fill, Length, Padding, Point,
     widget::{
-        button, column, container, mouse_area, row, rule, scrollable, space, stack, text, tooltip,
+        button, column, container, mouse_area, row, rule, scrollable, stack, text, tooltip,
     },
 };
 use lucide_icons::iced as icons;
@@ -123,113 +122,11 @@ impl<'a> DocumentView<'a> {
         // Floating overlay
         let mut layout = column![].spacing(theme::LAYOUT_GAP);
 
-        // Modebar buttons (normal, find, multiselect) - top-left corner
-        // Document mode buttons reflect the underlying document mode, independent of find overlay
-        let is_normal_mode = state.ui().document_mode == DocumentMode::Normal;
-        let is_find_mode = state.ui().document_mode == DocumentMode::Find;
-        let is_link_mode = state.ui().document_mode == DocumentMode::LinkInput;
-        let is_multiselect_mode = state.ui().document_mode == DocumentMode::Multiselect;
-        let is_archive_mode = state.ui().document_mode == DocumentMode::Archive;
-
-        let normal_mode_btn = IconButton::mode(
-            icons::icon_mouse_pointer_2()
-                .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
-            is_normal_mode,
-        )
-        .on_press(Message::DocumentMode(DocumentMode::Normal));
-
-        let find_mode_btn = IconButton::mode(
-            icons::icon_search()
-                .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
-            is_find_mode,
-        )
-        .on_press(Message::Find(if is_find_mode {
-            FindMessage::Close
-        } else {
-            FindMessage::Open
-        }));
-
-        let mut link_mode_btn = IconButton::mode(
-            icons::icon_link()
-                .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
-            is_link_mode,
-        );
-        if is_link_mode {
-            link_mode_btn = link_mode_btn.on_press(Message::LinkMode(LinkModeMessage::Cancel));
-        } else if let Some(bid) = self.state.focus().map(|f| f.block_id) {
-            // Enter link mode targeting the currently focused block.
-            // Disabled (no on_press) when no block is focused.
-            link_mode_btn = link_mode_btn.on_press(Message::LinkMode(LinkModeMessage::Enter(bid)));
-        }
-
-        let multiselect_mode_btn = IconButton::mode(
-            icons::icon_square_check()
-                .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
-            is_multiselect_mode,
-        )
-        .on_press(Message::DocumentMode(if is_multiselect_mode {
-            DocumentMode::Normal
-        } else {
-            DocumentMode::Multiselect
-        }));
-
-        let archive_mode_btn = IconButton::mode(
-            icons::icon_archive()
-                .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
-            is_archive_mode,
-        )
-        .on_press(Message::Archive(ArchivePanelMessage::Toggle));
-
-        let multiselect_badge: Element<'a, Message> = if is_multiselect_mode {
-            let count = self.state.ui().multiselect_selected_blocks.len();
-            if count > 0 {
-                container(
-                    text(t!("multiselect_count", count = count).to_string())
-                        .size(theme::SMALL_TEXT_SIZE)
-                        .style(theme::status_text),
-                )
-                .padding(Padding::new(theme::CHIP_PAD_V).horizontal(theme::CHIP_PAD_H))
-                .into()
-            } else {
-                Element::from(iced::widget::Space::new())
-            }
-        } else {
-            Element::from(iced::widget::Space::new())
-        };
-
-        let toolbar = row![
-            normal_mode_btn,
-            find_mode_btn,
-            link_mode_btn,
-            multiselect_mode_btn,
-            archive_mode_btn,
-            multiselect_badge,
-        ]
-        .spacing(theme::ACTION_GAP)
-        .align_y(iced::Alignment::Center);
-
-        let toolbar_container = container(
-            container(toolbar)
-                .align_y(iced::alignment::Vertical::Top)
-                .align_x(iced::alignment::Horizontal::Left)
-                .padding(
-                    iced::Padding::new(theme::PANEL_PAD_H)
-                        .left(theme::CANVAS_PAD)
-                        .top(theme::CANVAS_TOP),
-                ),
-        )
-        .width(Fill)
-        .height(Fill);
+        let toolbar_container = super::document_toolbar::view(super::document_toolbar::DocumentToolbarVm {
+            document_mode: state.ui().document_mode,
+            multiselect_count: state.ui().multiselect_selected_blocks.len(),
+            focused_block_id: state.focus().map(|f| f.block_id),
+        });
 
         // Document tree
         let tree = TreeView::new(state).render_roots();
@@ -248,65 +145,14 @@ impl<'a> DocumentView<'a> {
 
         let main_content = container(layout).style(theme::canvas).width(Fill).height(Fill);
 
-        // Shortcut help button – top-right, before settings
         let show_shortcut_help = state.ui().show_shortcut_help;
-        let help_button = IconButton::mode(
-            icons::icon_circle_question_mark()
-                .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
-            show_shortcut_help,
-        )
-        .on_press(Message::Overlay(OverlayMessage::ToggleShortcutHelp));
-
-        // Settings gear button – top-right corner
-        let gear_button = IconButton::action(
-            lucide_icons::iced::icon_settings()
-                .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
-        )
-        .on_press(Message::Settings(SettingsMessage::Open));
-
-        // Undo/redo buttons – top-right, before settings
-        let can_undo = state.can_undo();
-        let can_redo = state.can_redo();
-
-        let mut undo_button = IconButton::action(
-            icons::icon_undo_2()
-                .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
+        let floating_gear = super::document_top_right::view(
+            super::document_top_right::DocumentTopRightVm {
+                can_undo: state.can_undo(),
+                can_redo: state.can_redo(),
+                show_shortcut_help,
+            },
         );
-        if can_undo {
-            undo_button = undo_button.on_press(Message::UndoRedo(UndoRedoMessage::Undo));
-        }
-
-        let mut redo_button = IconButton::action(
-            icons::icon_redo_2()
-                .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
-        );
-        if can_redo {
-            redo_button = redo_button.on_press(Message::UndoRedo(UndoRedoMessage::Redo));
-        }
-
-        let top_right_buttons =
-            row![undo_button, redo_button, help_button, gear_button].spacing(theme::ACTION_GAP);
-        let floating_gear = container(
-            container(top_right_buttons)
-                .width(Fill)
-                .align_y(iced::alignment::Vertical::Top)
-                .align_x(iced::alignment::Horizontal::Right)
-                .padding(
-                    iced::Padding::new(theme::PANEL_PAD_H)
-                        .right(theme::CANVAS_PAD)
-                        .bottom(theme::PANEL_PAD_H),
-                ),
-        )
-        .width(Fill)
-        .height(Fill);
 
         // Shortcut help banner – bottom-right corner
         let shortcut_help_banner_element = if show_shortcut_help {
@@ -926,15 +772,9 @@ impl<'a> TreeView<'a> {
                 t!("doc_status_draft_ready").to_string()
             }
             | Some(StatusChipVm::DraftActive { .. }) => t!("doc_status_draft").to_string(),
-            | None => String::new(),
+            | None => return Element::from(iced::widget::Space::new()),
         };
-
-        container(
-            text(label).size(theme::SMALL_TEXT_SIZE).font(theme::INTER).style(theme::status_text),
-        )
-        .padding(Padding::from([theme::CHIP_PAD_V, theme::CHIP_PAD_H]))
-        .width(Length::Shrink)
-        .into()
+        StatusChip::view(label)
     }
 
     /// Renders the panel bar containing toggle buttons for overlay panels.
@@ -1155,160 +995,15 @@ impl<'a> TreeView<'a> {
     /// Displayed above mount-backed nodes (both expanded and unexpanded).
     /// Provides an overflow menu for mount relocation, shallow inline, and
     /// recursive inline-all.
-    /// Inline-all uses a two-step confirmation button to reduce accidental
-    /// irreversible operations.
     fn render_mount_indicator(
         &self, block_id: &BlockId, mount_path: &'a std::path::Path,
     ) -> Element<'a, Message> {
-        let is_inline_confirmation_armed =
-            self.state.ui().pending_inline_mount_confirmation == Some(*block_id);
-        let is_mount_action_overflow_open =
-            self.state.ui().mount_action_overflow_block == Some(*block_id);
-
-        let move_label = t!("action_move_mount_file").to_string();
-        let inline_label = t!("action_inline_mount").to_string();
-        let inline_all_label = if is_inline_confirmation_armed {
-            t!("action_confirm_inline_mount_all").to_string()
-        } else {
-            t!("action_inline_mount_all").to_string()
-        };
-
-        let move_btn: Element<'a, Message> = {
-            let btn = IconButton::action(
-                icons::icon_folder_input()
-                    .size(theme::TOOLBAR_ICON_SIZE)
-                    .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                    .into(),
-            )
-            .on_press(Message::MountFile(MountFileMessage::MoveMount(*block_id)));
-            tooltip(
-                btn,
-                text(move_label).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
-                tooltip::Position::Bottom,
-            )
-            .style(theme::tooltip)
-            .padding(theme::TOOLTIP_PAD)
-            .gap(theme::TOOLTIP_GAP)
-            .into()
-        };
-
-        let inline_btn: Element<'a, Message> = {
-            let btn = IconButton::action(
-                icons::icon_chevron_down()
-                    .size(theme::TOOLBAR_ICON_SIZE)
-                    .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                    .into(),
-            )
-            .on_press(Message::MountFile(MountFileMessage::InlineMount(*block_id)));
-            tooltip(
-                btn,
-                text(inline_label).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
-                tooltip::Position::Bottom,
-            )
-            .style(theme::tooltip)
-            .padding(theme::TOOLTIP_PAD)
-            .gap(theme::TOOLTIP_GAP)
-            .into()
-        };
-
-        let inline_all_btn: Element<'a, Message> = {
-            let btn = if is_inline_confirmation_armed {
-                IconButton::destructive(
-                    icons::icon_chevrons_down()
-                        .size(theme::TOOLBAR_ICON_SIZE)
-                        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                        .into(),
-                )
-            } else {
-                IconButton::action(
-                    icons::icon_chevrons_down()
-                        .size(theme::TOOLBAR_ICON_SIZE)
-                        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                        .into(),
-                )
-            }
-            .on_press(Message::MountFile(MountFileMessage::InlineMountAll(*block_id)));
-            tooltip(
-                btn,
-                text(inline_all_label).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
-                tooltip::Position::Bottom,
-            )
-            .style(theme::tooltip)
-            .padding(theme::TOOLTIP_PAD)
-            .gap(theme::TOOLTIP_GAP)
-            .into()
-        };
-
-        let overflow_toggle_btn: Element<'a, Message> = {
-            let (icon, tooltip_label) = if is_mount_action_overflow_open {
-                (icons::icon_x(), t!("ui_close").to_string())
-            } else {
-                (icons::icon_ellipsis(), t!("ui_more").to_string())
-            };
-            let btn = IconButton::action(
-                icon.size(theme::TOOLBAR_ICON_SIZE)
-                    .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                    .into(),
-            )
-            .on_press(Message::Overlay(OverlayMessage::ToggleMountActionsOverflow(*block_id)));
-            tooltip(
-                btn,
-                text(tooltip_label).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
-                tooltip::Position::Bottom,
-            )
-            .style(theme::tooltip)
-            .padding(theme::TOOLTIP_PAD)
-            .gap(theme::TOOLTIP_GAP)
-            .into()
-        };
-
-        let confirm_close_btn: Element<'a, Message> = {
-            let btn = IconButton::action(
-                icons::icon_x()
-                    .size(theme::TOOLBAR_ICON_SIZE)
-                    .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                    .into(),
-            )
-            .on_press(Message::MountFile(MountFileMessage::CancelInlineMountAllConfirm(*block_id)));
-            tooltip(
-                btn,
-                text(t!("ui_close").to_string()).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
-                tooltip::Position::Bottom,
-            )
-            .style(theme::tooltip)
-            .padding(theme::TOOLTIP_PAD)
-            .gap(theme::TOOLTIP_GAP)
-            .into()
-        };
-
-        let mut header = row![
-            text(mount_path.display().to_string())
-                .font(theme::INTER)
-                .size(theme::MOUNT_HEADER_TEXT_SIZE)
-                .style(theme::spine_text),
-            space::horizontal(),
-        ]
-        .spacing(theme::ACTION_GAP)
-        .align_y(iced::Alignment::Center);
-
-        if is_inline_confirmation_armed {
-            header = header.push(
-                text(t!("mount_inline_confirm_hint").to_string())
-                    .font(theme::INTER)
-                    .size(theme::SMALL_TEXT_SIZE)
-                    .style(theme::spine_text),
-            );
-            header = header.push(inline_all_btn);
-            header = header.push(confirm_close_btn);
-            return header.into();
-        }
-
-        if is_mount_action_overflow_open {
-            header = header.push(move_btn);
-            header = header.push(inline_btn);
-            header = header.push(inline_all_btn);
-        }
-        header = header.push(overflow_toggle_btn);
-        header.into()
+        super::mount_indicator::view(super::mount_indicator::MountIndicatorVm {
+            block_id: *block_id,
+            mount_path,
+            is_inline_confirmation_armed: self.state.ui().pending_inline_mount_confirmation
+                == Some(*block_id),
+            is_overflow_open: self.state.ui().mount_action_overflow_block == Some(*block_id),
+        })
     }
 }
