@@ -1,5 +1,5 @@
-use super::*;
 use super::point_text_editor::WordCursorDirection;
+use super::*;
 
 /// Messages for point text editing.
 #[derive(Debug, Clone)]

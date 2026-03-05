@@ -143,14 +143,16 @@ fn render_rewrite_section<'a, Msg: Clone + 'a>(
 
 fn make_button<'a, Msg: Clone + 'a>(btn: PanelButton<Msg>) -> Element<'a, Msg> {
     match btn.style {
-        | PanelButtonStyle::Action => TextButton::action(btn.label, 13.0)
+        | PanelButtonStyle::Action => TextButton::action(btn.label, theme::LABEL_TEXT_SIZE)
             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
             .on_press(btn.on_press)
             .into(),
-        | PanelButtonStyle::Destructive => TextButton::destructive(btn.label, 13.0)
-            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(btn.on_press)
-            .into(),
+        | PanelButtonStyle::Destructive => {
+            TextButton::destructive(btn.label, theme::LABEL_TEXT_SIZE)
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(btn.on_press)
+                .into()
+        }
     }
 }
 
@@ -159,20 +161,20 @@ fn render_diff<'a, Msg: 'a>(is_dark: bool, old_text: &str, new_text: &str) -> El
 
     let changes = word_diff(old_text, new_text);
     let pal = theme::palette_for_mode(is_dark);
-    let del_bg = Color { a: 0.08, ..pal.danger };
-    let add_bg = Color { a: 0.08, ..pal.success };
+    let del_bg = Color { a: theme::DIFF_DELETED_BG_ALPHA, ..pal.danger };
+    let add_bg = Color { a: theme::DIFF_ADDED_BG_ALPHA, ..pal.success };
     let ctx = pal.ink;
 
     let old_spans: Vec<RichSpan<'_>> = changes
         .iter()
         .filter_map(|c| match c {
             | WordChange::Unchanged(s) => Some(span(s.clone()).color(ctx)),
-            | WordChange::Deleted(s) => Some(
-                span(s.clone())
-                    .color(ctx)
-                    .background(del_bg)
-                    .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
-            ),
+            | WordChange::Deleted(s) => {
+                Some(span(s.clone()).color(ctx).background(del_bg).padding(Padding::from([
+                    theme::DIFF_HIGHLIGHT_PAD_V,
+                    theme::DIFF_HIGHLIGHT_PAD_H,
+                ])))
+            }
             | WordChange::Added(_) => None,
         })
         .collect();
@@ -181,12 +183,12 @@ fn render_diff<'a, Msg: 'a>(is_dark: bool, old_text: &str, new_text: &str) -> El
         .iter()
         .filter_map(|c| match c {
             | WordChange::Unchanged(s) => Some(span(s.clone()).color(ctx)),
-            | WordChange::Added(s) => Some(
-                span(s.clone())
-                    .color(ctx)
-                    .background(add_bg)
-                    .padding(Padding::from([0.0, theme::DIFF_HIGHLIGHT_PAD_H])),
-            ),
+            | WordChange::Added(s) => {
+                Some(span(s.clone()).color(ctx).background(add_bg).padding(Padding::from([
+                    theme::DIFF_HIGHLIGHT_PAD_V,
+                    theme::DIFF_HIGHLIGHT_PAD_H,
+                ])))
+            }
             | WordChange::Deleted(_) => None,
         })
         .collect();

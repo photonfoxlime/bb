@@ -179,7 +179,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
         rows = rows.push(
             button(row_container)
                 .style(theme::action_button)
-                .padding(0)
+                .padding(Padding::ZERO)
                 .width(Length::Fill)
                 .on_press(Message::LinkMode(LinkModeMessage::Confirm)),
         );
@@ -209,7 +209,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     container(
         container(panel_content)
             .width(panel_width)
-            .padding(Padding::new(12.0))
+            .padding(Padding::new(theme::LINK_PANEL_CONTENT_PAD))
             .style(theme::draft_panel),
     )
     .padding(Padding::ZERO.top(panel_top))

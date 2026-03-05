@@ -9,10 +9,10 @@
 
 use super::error::{AppError, UiError};
 use super::llm_requests::RequestSignature;
-use super::{AppState, LLM_REQUEST_TIMEOUT, Message};
 use super::patch_panel::{
     ChildItem, ChildrenSection, PanelButton, PanelButtonStyle, RewriteSection,
 };
+use super::{AppState, LLM_REQUEST_TIMEOUT, Message};
 use crate::llm;
 use crate::store::{
     AmplificationDraftRecord, AtomizationDraftRecord, BlockId, DistillationDraftRecord,

@@ -3,14 +3,14 @@
 //! Renders top-left mode buttons (Normal, Find, Link, Multiselect, Archive)
 //! and multiselect count badge. Uses theme constants; delegates to IconButton.
 
-use super::{DocumentMode, FindMessage, Message};
-use super::archive_panel::ArchivePanelMessage;
 use super::LinkModeMessage;
+use super::archive_panel::ArchivePanelMessage;
+use super::{DocumentMode, FindMessage, Message};
 use crate::component::icon_button::IconButton;
 use crate::store::BlockId;
 use crate::theme;
-use iced::{Element, Fill, Padding};
 use iced::widget::{container, row, text};
+use iced::{Element, Fill, Padding};
 use lucide_icons::iced as icons;
 use rust_i18n::t;
 

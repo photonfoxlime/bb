@@ -3,8 +3,8 @@
 //! Renders file path and mount actions (move, inline, inline-all).
 //! Displayed above mount-backed nodes. Uses theme constants.
 
-use super::{Message, overlay::OverlayMessage};
 use super::mount_file::MountFileMessage;
+use super::{Message, overlay::OverlayMessage};
 use crate::component::icon_button::IconButton;
 use crate::store::BlockId;
 use crate::theme;
@@ -133,9 +133,7 @@ pub fn view<'a>(vm: MountIndicatorVm<'a>) -> Element<'a, Message> {
         .on_press(Message::MountFile(MountFileMessage::CancelInlineMountAllConfirm(vm.block_id)));
         tooltip(
             btn,
-            text(t!("ui_close").to_string())
-                .size(theme::SMALL_TEXT_SIZE)
-                .font(theme::INTER),
+            text(t!("ui_close").to_string()).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
             tooltip::Position::Bottom,
         )
         .style(theme::tooltip)

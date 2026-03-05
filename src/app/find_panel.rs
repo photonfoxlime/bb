@@ -319,7 +319,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
             rows = rows.push(
                 button(row_container)
                     .style(theme::action_button)
-                    .padding(0)
+                    .padding(Padding::ZERO)
                     .width(Length::Fill)
                     .on_press(Message::Find(FindMessage::JumpToIndex(index))),
             );

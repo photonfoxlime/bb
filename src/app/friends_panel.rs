@@ -37,7 +37,7 @@ use crate::theme;
 use iced::widget::{
     Id, button, column, container, operation::focus, row, text, text_input, tooltip,
 };
-use iced::{Element, Length, Task};
+use iced::{Element, Length, Padding, Task};
 use lucide_icons::iced as icons;
 
 /// Message types for friends panel interactions.
@@ -283,7 +283,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 .id(input_id)
                 .font(theme::INTER)
                 .size(theme::FRIEND_PERSPECTIVE_SIZE)
-                .padding(0)
+                .padding(Padding::ZERO)
                 .width(Length::Fill)
                 .on_input(|s| {
                     Message::FriendPanel(FriendPanelMessage::UpdateFriendPerspectiveInput(s))
@@ -314,7 +314,12 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                 FriendPanelMessage::ClearFriendPerspective { target, friend_id },
             ));
 
-            row![].spacing(4).push(input_field).push(accept_btn).push(cancel_btn).into()
+            row![]
+                .spacing(theme::INLINE_GAP)
+                .push(input_field)
+                .push(accept_btn)
+                .push(cancel_btn)
+                .into()
         } else if perspective_label.is_empty() {
             button(
                 text(rust_i18n::t!("doc_friend_perspective_placeholder").to_string())
@@ -325,7 +330,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             .style(theme::action_button)
             .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
             .width(Length::Fill)
-            .padding(0)
+            .padding(Padding::ZERO)
             .on_press(Message::FriendPanel(FriendPanelMessage::StartEditingFriendPerspective {
                 target,
                 friend_id,
@@ -344,7 +349,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     .style(theme::action_button)
                     .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
                     .width(Length::Fill)
-                    .padding(0)
+                    .padding(Padding::ZERO)
                     .on_press(Message::FriendPanel(
                         FriendPanelMessage::StartEditingFriendPerspective { target, friend_id },
                     )),
@@ -381,7 +386,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     }
                 })
                 .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-                .padding(0)
+                .padding(Padding::ZERO)
                 .on_press(Message::FriendPanel(FriendPanelMessage::HoverFriend(friend_id)))
                 .into()
         };
@@ -458,7 +463,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             .push(
                 TextButton::destructive(rust_i18n::t!("ui_remove").to_string(), theme::FRIEND_POINT_SIZE)
                 .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-                .padding(0)
+                .padding(Padding::ZERO)
                 .on_press(Message::Structure(
                     StructureMessage::RemoveFriendBlock { target, friend_id },
                 )),

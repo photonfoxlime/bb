@@ -10,10 +10,10 @@
 //! structural Enter shortcuts and focused-editor-only dispatch.
 
 use super::action_bar::{ActionId, shortcut_to_action};
-use super::{ContextMenuMessage, EditMessage, Message, ShortcutMessage};
 use super::point_text_editor::PointTextEditor;
 #[cfg(test)]
 use super::point_text_editor::WordCursorDirection;
+use super::{ContextMenuMessage, EditMessage, Message, ShortcutMessage};
 use crate::store::{BlockId, PointContent};
 use iced::{
     Element, Point,
@@ -71,8 +71,8 @@ fn shortcut_key(block_id: BlockId, key_press: &text_editor::KeyPress) -> Option<
 #[cfg(test)]
 mod tests {
     use super::super::AppState;
-    use super::*;
     use super::super::point_text_editor::build_key_binding;
+    use super::*;
 
     fn enter_key_press(modifiers: iced::keyboard::Modifiers) -> text_editor::KeyPress {
         text_editor::KeyPress {

@@ -3,13 +3,13 @@
 //! Renders undo, redo, shortcut help, and settings buttons.
 //! Uses theme constants; delegates to IconButton.
 
-use super::{Message, settings::SettingsMessage};
 use super::overlay::OverlayMessage;
 use super::undo_redo::UndoRedoMessage;
+use super::{Message, settings::SettingsMessage};
 use crate::component::icon_button::IconButton;
 use crate::theme;
-use iced::{Element, Fill};
 use iced::widget::{container, row};
+use iced::{Element, Fill};
 use lucide_icons::iced as icons;
 
 /// View model for the top-right toolbar.

@@ -23,7 +23,7 @@ impl IconButton {
     ) -> button::Button<'a, Message> {
         button(Self::frame(icon, theme::ICON_BUTTON_SIZE, theme::BUTTON_PAD))
             .style(theme::action_button)
-            .padding(0)
+            .padding(iced::Padding::ZERO)
             .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
     }
@@ -34,7 +34,7 @@ impl IconButton {
     ) -> button::Button<'a, Message> {
         button(Self::frame(icon, theme::ICON_BUTTON_SIZE, theme::BUTTON_PAD))
             .style(theme::destructive_button)
-            .padding(0)
+            .padding(iced::Padding::ZERO)
             .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
     }
@@ -45,7 +45,7 @@ impl IconButton {
     ) -> button::Button<'a, Message> {
         button(Self::frame(icon, theme::ICON_BUTTON_SIZE, theme::BUTTON_PAD))
             .style(move |theme, status| theme::mode_button(theme, status, is_active))
-            .padding(0)
+            .padding(iced::Padding::ZERO)
             .width(Length::Fixed(theme::ICON_BUTTON_SIZE))
             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
     }
@@ -56,7 +56,7 @@ impl IconButton {
     ) -> button::Button<'a, Message> {
         button(Self::frame(icon, button_size, icon_padding))
             .style(theme::toggle_button(is_on))
-            .padding(0)
+            .padding(iced::Padding::ZERO)
             .width(Length::Fixed(button_size))
             .height(Length::Fixed(button_size))
     }
@@ -67,7 +67,7 @@ impl IconButton {
     ) -> button::Button<'a, Message> {
         button(Self::frame(icon, button_size, icon_padding))
             .style(theme::action_button)
-            .padding(0)
+            .padding(iced::Padding::ZERO)
             .width(Length::Fixed(button_size))
             .height(Length::Fixed(button_size))
     }
@@ -78,7 +78,7 @@ impl IconButton {
     ) -> button::Button<'a, Message> {
         button(Self::frame(icon, button_size, icon_padding))
             .style(theme::destructive_button)
-            .padding(0)
+            .padding(iced::Padding::ZERO)
             .width(Length::Fixed(button_size))
             .height(Length::Fixed(button_size))
     }

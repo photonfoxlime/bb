@@ -121,6 +121,8 @@ pub const LINK_PANEL_TOP_RATIO: f32 = 0.382;
 pub const LINK_PANEL_MAX_WIDTH: f32 = 680.0;
 /// Fixed height for the link panel candidate list.
 pub const LINK_PANEL_LIST_HEIGHT: f32 = 280.0;
+/// Inner padding around the link panel content.
+pub const LINK_PANEL_CONTENT_PAD: f32 = 12.0;
 
 /// Computes the effective canvas max width based on window width.
 pub fn canvas_max_width(window_width: f32) -> f32 {
@@ -161,6 +163,8 @@ pub const SPINE_WIDTH: f32 = 4.0;
 pub const BUTTON_PAD: f32 = 4.0;
 /// Vertical offset applied to the current breadcrumb label to align with nav controls.
 pub const BREADCRUMB_CURRENT_TEXT_TOP_PAD: f32 = 1.0;
+/// Truncation budget for breadcrumb layer labels.
+pub const BREADCRUMB_LABEL_TRUNCATE: usize = 30;
 /// Shared square footprint for icon-like controls in block rows.
 ///
 /// Used by fold toggles, non-foldable ring markers, and overflow/action glyph buttons.
@@ -188,6 +192,12 @@ pub const PANEL_PAD_V: f32 = 8.0;
 pub const PANEL_PAD_H: f32 = 16.0;
 /// Horizontal padding for diff highlight spans.
 pub const DIFF_HIGHLIGHT_PAD_H: f32 = 2.0;
+/// Vertical padding for diff highlight spans.
+pub const DIFF_HIGHLIGHT_PAD_V: f32 = 0.0;
+/// Background alpha for deleted text in diff view.
+pub const DIFF_DELETED_BG_ALPHA: f32 = 0.08;
+/// Background alpha for added text in diff view.
+pub const DIFF_ADDED_BG_ALPHA: f32 = 0.08;
 /// Padding inside the error banner.
 pub const BANNER_PAD: f32 = 8.0;
 /// Maximum width for the keyboard-shortcuts help banner.
@@ -331,6 +341,10 @@ pub const CONTEXT_MENU_SHADOW_OFFSET_Y: f32 = 2.0;
 pub const CONTEXT_MENU_SHADOW_OPACITY: f32 = 0.2;
 /// Context menu border opacity.
 pub const CONTEXT_MENU_BORDER_OPACITY: f32 = 0.15;
+/// Icon size inside context menu rows.
+pub const CONTEXT_MENU_ICON_SIZE: f32 = 14.0;
+/// Horizontal padding for context menu button content.
+pub const CONTEXT_MENU_BUTTON_PAD_H: f32 = 8.0;
 
 // ── Link chip ──────────────────────────────────────────────────────
 

@@ -504,7 +504,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         let button_row = row![].spacing(theme::PANEL_BUTTON_GAP).push(
             button(
                 row![]
-                    .spacing(4)
+                    .spacing(theme::INLINE_GAP)
                     .align_y(iced::Alignment::Center)
                     .push(icons::icon_loader().size(theme::INSTRUCTION_BUTTON_SIZE).center())
                     .push(

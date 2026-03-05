@@ -32,7 +32,7 @@ impl ContextMenuIcon {
             | Self::ConvertToLink => icons::icon_link(),
             | Self::ConvertToText => icons::icon_type(),
         };
-        icon.size(14).into()
+        icon.size(theme::CONTEXT_MENU_ICON_SIZE).into()
     }
 }
 
@@ -47,10 +47,10 @@ impl ContextMenuButton {
         let icon_el = icon.to_element();
         button(
             row![icon_el, text(label).width(Length::Fill)]
-                .spacing(8)
+                .spacing(theme::PANEL_BUTTON_GAP)
                 .align_y(iced::Alignment::Center),
         )
-        .padding([4, 8])
+        .padding(iced::Padding::from([theme::CONTEXT_MENU_PAD, theme::CONTEXT_MENU_BUTTON_PAD_H]))
         .style(theme::context_menu_button)
         .on_press(on_press)
         .width(Length::Fill)

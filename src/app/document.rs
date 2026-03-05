@@ -78,8 +78,7 @@ use super::{
         ViewportBucket, action_i18n_key, action_icon, action_to_message, build_action_bar_vm,
         project_for_viewport, status_error_i18n_key,
     },
-    archive_panel,
-    find_panel,
+    archive_panel, find_panel,
     friends_panel::{self, FriendPanelMessage},
     instruction_panel::{self, InstructionPanelMessage},
     link_panel, point_editor,
@@ -97,9 +96,7 @@ use crate::{
 };
 use iced::{
     Element, Fill, Length, Padding, Point,
-    widget::{
-        button, column, container, mouse_area, row, rule, scrollable, stack, text, tooltip,
-    },
+    widget::{button, column, container, mouse_area, row, rule, scrollable, stack, text, tooltip},
 };
 use lucide_icons::iced as icons;
 use rust_i18n::t;
@@ -121,11 +118,12 @@ impl<'a> DocumentView<'a> {
         // Floating overlay
         let mut layout = column![].spacing(theme::LAYOUT_GAP);
 
-        let toolbar_container = super::document_toolbar::view(super::document_toolbar::DocumentToolbarVm {
-            document_mode: state.ui().document_mode,
-            multiselect_count: state.ui().multiselect_selected_blocks.len(),
-            focused_block_id: state.focus().map(|f| f.block_id),
-        });
+        let toolbar_container =
+            super::document_toolbar::view(super::document_toolbar::DocumentToolbarVm {
+                document_mode: state.ui().document_mode,
+                multiselect_count: state.ui().multiselect_selected_blocks.len(),
+                focused_block_id: state.focus().map(|f| f.block_id),
+            });
 
         // Document tree
         let tree = TreeView::new(state).render_roots();
@@ -145,13 +143,12 @@ impl<'a> DocumentView<'a> {
         let main_content = container(layout).style(theme::canvas).width(Fill).height(Fill);
 
         let show_shortcut_help = state.ui().show_shortcut_help;
-        let floating_gear = super::document_top_right::view(
-            super::document_top_right::DocumentTopRightVm {
+        let floating_gear =
+            super::document_top_right::view(super::document_top_right::DocumentTopRightVm {
                 can_undo: state.can_undo(),
                 can_redo: state.can_redo(),
                 show_shortcut_help,
-            },
-        );
+            });
 
         // Shortcut help banner – bottom-right corner
         let shortcut_help_banner_element = if show_shortcut_help {
@@ -198,7 +195,9 @@ impl<'a> DocumentView<'a> {
                     .width(Fill)
                     .align_x(iced::alignment::Horizontal::Right)
                     .padding(
-                        iced::Padding::new(16.0).right(theme::CANVAS_PAD).bottom(theme::CANVAS_PAD),
+                        iced::Padding::new(theme::PANEL_PAD_H)
+                            .right(theme::CANVAS_PAD)
+                            .bottom(theme::CANVAS_PAD),
                     ),
             )
             .align_y(iced::alignment::Vertical::Bottom)
@@ -211,13 +210,16 @@ impl<'a> DocumentView<'a> {
 
         // Breadcrumb navigation - bottom-left corner
         let breadcrumbs = self.render_breadcrumbs_elements();
-        let breadcrumbs_container =
-            container(container(breadcrumbs).align_x(iced::alignment::Horizontal::Left).padding(
-                iced::Padding::new(16.0).left(theme::CANVAS_PAD).bottom(theme::CANVAS_PAD),
-            ))
-            .align_y(iced::alignment::Vertical::Bottom)
-            .width(Fill)
-            .height(Fill);
+        let breadcrumbs_container = container(
+            container(breadcrumbs).align_x(iced::alignment::Horizontal::Left).padding(
+                iced::Padding::new(theme::PANEL_PAD_H)
+                    .left(theme::CANVAS_PAD)
+                    .bottom(theme::CANVAS_PAD),
+            ),
+        )
+        .align_y(iced::alignment::Vertical::Bottom)
+        .width(Fill)
+        .height(Fill);
 
         stack![
             main_content,
@@ -244,7 +246,7 @@ impl<'a> DocumentView<'a> {
             .enumerate()
             .map(|(i, layer)| {
                 let label = self.state.store.point(&layer.block_id).unwrap_or_default();
-                let display_label = truncate_for_display(&label, 30);
+                let display_label = truncate_for_display(&label, theme::BREADCRUMB_LABEL_TRUNCATE);
                 let full_label = if let Some(path) = &layer.path {
                     if let Some(file_name) = path.file_name() {
                         format!("{} ({})", display_label, file_name.to_string_lossy())
@@ -694,20 +696,20 @@ impl<'a> TreeView<'a> {
                         target,
                         friend_id: *block_id,
                     }))
-                    .padding(0)
+                    .padding(Padding::ZERO)
                     .style(theme::action_button)
                     .into()
             }
             | (DocumentMode::Multiselect, _) if is_multiselect_selected => {
                 button(container(block).style(theme::multiselect_selected))
                     .on_press(Message::MultiselectBlockClicked(*block_id))
-                    .padding(0)
+                    .padding(Padding::ZERO)
                     .style(theme::action_button)
                     .into()
             }
             | (DocumentMode::Multiselect, _) => button(container(block))
                 .on_press(Message::MultiselectBlockClicked(*block_id))
-                .padding(0)
+                .padding(Padding::ZERO)
                 .style(theme::action_button)
                 .into(),
             | (_, None) => block.into(),
@@ -803,14 +805,18 @@ impl<'a> TreeView<'a> {
         let button_row = row![]
             .spacing(theme::PANEL_BUTTON_GAP)
             .push(
-                TextButton::panel_toggle(t!("ui_friends").to_string(), 13.0, friends_panel_open)
-                    .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                    .on_press(Message::FriendPanel(FriendPanelMessage::Toggle(*block_id))),
+                TextButton::panel_toggle(
+                    t!("ui_friends").to_string(),
+                    theme::LABEL_TEXT_SIZE,
+                    friends_panel_open,
+                )
+                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::FriendPanel(FriendPanelMessage::Toggle(*block_id))),
             )
             .push(
                 TextButton::panel_toggle(
                     t!("ui_instruction").to_string(),
-                    13.0,
+                    theme::LABEL_TEXT_SIZE,
                     instruction_panel_open,
                 )
                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
@@ -867,14 +873,18 @@ impl<'a> TreeView<'a> {
 
         let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
         button_row = button_row.push(
-            TextButton::panel_toggle(t!("ui_friends").to_string(), 13.0, friends_panel_open)
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::FriendPanel(FriendPanelMessage::Toggle(*block_id))),
+            TextButton::panel_toggle(
+                t!("ui_friends").to_string(),
+                theme::LABEL_TEXT_SIZE,
+                friends_panel_open,
+            )
+            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::FriendPanel(FriendPanelMessage::Toggle(*block_id))),
         );
         button_row = button_row.push(
             TextButton::panel_toggle(
                 t!("ui_instruction").to_string(),
-                13.0,
+                theme::LABEL_TEXT_SIZE,
                 instruction_panel_open,
             )
             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
