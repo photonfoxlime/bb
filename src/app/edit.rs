@@ -585,7 +585,9 @@ pub fn handle_point_edited(
         | _ => None,
     };
 
-    let mut navigate_to: Option<BlockId> = None;
+    // When crossing block boundaries via Up/Down at edges, we remember the
+    // preferred column (byte offset) and place the cursor there in the target block.
+    let mut navigate_to: Option<(BlockId, VerticalDir, usize)> = None;
     if let Some(content) = state.editor_buffers.get_mut(&block_id) {
         let cursor_before = content.cursor().position;
         content.perform(action);
@@ -594,10 +596,14 @@ pub fn handle_point_edited(
         if let Some(dir) = vertical_direction
             && cursor_before == cursor_after
         {
-            navigate_to = match dir {
+            let target = match dir {
                 | VerticalDir::Up => state.store.prev_visible_in_dfs(&block_id),
                 | VerticalDir::Down => state.store.next_visible_in_dfs(&block_id),
             };
+            if let Some(target_id) = target {
+                let preferred_byte = cursor_before.column;
+                navigate_to = Some((target_id, dir, preferred_byte));
+            }
         }
 
         if navigate_to.is_none() {
@@ -631,19 +637,39 @@ pub fn handle_point_edited(
         }
     }
 
-    if let Some(target_id) = navigate_to
-        && let Some(wid) = state.editor_buffers.widget_id(&target_id)
-    {
-        // Only change focus in Normal mode
-        if state.ui().document_mode == DocumentMode::Normal {
-            let wid_clone = wid.clone();
+    if let Some((target_id, dir, preferred_byte)) = navigate_to {
+        let wid = state.editor_buffers.widget_id(&target_id).cloned();
+        if let (Some(wid), DocumentMode::Normal) =
+            (wid, state.ui().document_mode)
+        {
+            state.editor_buffers.ensure_block(&state.store, &target_id);
+            if let Some(target_content) = state.editor_buffers.get_mut(&target_id) {
+                let line_count = target_content.line_count();
+                let target_line = match dir {
+                    | VerticalDir::Up => line_count.saturating_sub(1), // last line
+                    | VerticalDir::Down => 0,                          // first line
+                };
+                let target_line_len = target_content
+                    .line(target_line)
+                    .map(|l| l.text.len())
+                    .unwrap_or(0);
+                let target_column_byte = preferred_byte.min(target_line_len);
+                target_content.move_to(text_editor::Cursor {
+                    position: text_editor::Position {
+                        line: target_line,
+                        column: target_column_byte,
+                    },
+                    selection: None,
+                });
+            }
             state.set_focus(target_id);
             tracing::debug!(
                 from = ?block_id,
                 to = ?target_id,
+                preferred_byte,
                 "keyboard traversal"
             );
-            return widget::operation::focus(wid_clone);
+            return widget::operation::focus(wid);
         }
     }
     Task::none()
