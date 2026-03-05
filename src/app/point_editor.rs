@@ -2,7 +2,7 @@
 //!
 //! Wires application-specific message types and keyboard shortcut resolution
 //! (`shortcut_to_action` / `ActionId`) into the generic
-//! [`crate::component::point_text_editor::PointTextEditor`] widget.
+//! [`super::point_text_editor::PointTextEditor`] widget.
 //!
 //! # Editor Shortcut Routing
 //!
@@ -11,9 +11,9 @@
 
 use super::action_bar::{ActionId, shortcut_to_action};
 use super::{ContextMenuMessage, EditMessage, Message, ShortcutMessage};
-use crate::component::point_text_editor::PointTextEditor;
+use super::point_text_editor::PointTextEditor;
 #[cfg(test)]
-use crate::component::point_text_editor::WordCursorDirection;
+use super::point_text_editor::WordCursorDirection;
 use crate::store::{BlockId, PointContent};
 use iced::{
     Element, Point,
@@ -72,7 +72,7 @@ fn shortcut_key(block_id: BlockId, key_press: &text_editor::KeyPress) -> Option<
 mod tests {
     use super::super::AppState;
     use super::*;
-    use crate::component::point_text_editor::build_key_binding;
+    use super::super::point_text_editor::build_key_binding;
 
     fn enter_key_press(modifiers: iced::keyboard::Modifiers) -> text_editor::KeyPress {
         text_editor::KeyPress {
@@ -102,7 +102,7 @@ mod tests {
     /// Reconstruct the full key-binding pipeline used by [`view`], for testing.
     ///
     /// Applies the same focus gate, shortcut dispatch, and word-cursor logic
-    /// that the [`PointTextEditor`] component wires together at render time.
+    /// that the [`super::point_text_editor::PointTextEditor`] widget wires together at render time.
     fn editor_key_binding(
         block_id: BlockId, key_press: text_editor::KeyPress,
     ) -> Option<text_editor::Binding<Message>> {

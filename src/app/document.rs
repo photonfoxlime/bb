@@ -89,7 +89,6 @@ use crate::{
     component::context_menu_button::{ContextMenuButton, ContextMenuIcon},
     component::error_banner_view::{ErrorBannerContent, ErrorBannerEntry, ErrorBannerView},
     component::icon_button::IconButton,
-    component::shortcut_help_banner::ShortcutHelpBanner,
     component::status_chip::StatusChip,
     component::text_button::TextButton,
     store::{BlockId, BlockPanelBarState, PointContent},
@@ -156,7 +155,9 @@ impl<'a> DocumentView<'a> {
 
         // Shortcut help banner – bottom-right corner
         let shortcut_help_banner_element = if show_shortcut_help {
-            Some(ShortcutHelpBanner::view(Message::Overlay(OverlayMessage::ToggleShortcutHelp)))
+            Some(super::shortcut_help_banner::ShortcutHelpBanner::view(Message::Overlay(
+                OverlayMessage::ToggleShortcutHelp,
+            )))
         } else {
             None
         };

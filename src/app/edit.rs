@@ -1,5 +1,5 @@
 use super::*;
-use crate::component::point_text_editor::WordCursorDirection;
+use super::point_text_editor::WordCursorDirection;
 
 /// Messages for point text editing.
 #[derive(Debug, Clone)]

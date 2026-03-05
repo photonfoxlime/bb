@@ -1,4 +1,4 @@
-//! Generic point editor widget for individual block rows.
+//! Point editor widget for individual block rows.
 //!
 //! Renders the editable content of a single block point, which can be in one
 //! of three states:
@@ -10,6 +10,9 @@
 //! message construction is delegated to the caller via `fn` pointer
 //! fields so the component carries no dependency on application-level
 //! message enums.
+//!
+//! App-specific: couples to store types (BlockId, PointContent, LinkKind)
+//! and the block document domain.
 //!
 //! # Key-binding layer
 //!

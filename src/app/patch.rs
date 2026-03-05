@@ -10,7 +10,7 @@
 use super::error::{AppError, UiError};
 use super::llm_requests::RequestSignature;
 use super::{AppState, LLM_REQUEST_TIMEOUT, Message};
-use crate::component::patch_panel::{
+use super::patch_panel::{
     ChildItem, ChildrenSection, PanelButton, PanelButtonStyle, RewriteSection,
 };
 use crate::llm;
@@ -724,7 +724,7 @@ pub fn render_patch_panel<'a>(
                 t!("doc_drop").to_string(),
                 d.children.iter().enumerate().map(|(i, s)| (i, s.clone())).collect(),
             );
-            crate::component::patch_panel::view(is_dark, rewrite, children)
+            super::patch_panel::view(is_dark, rewrite, children)
         }
         | PatchDraft::Atomize(d) => {
             let current_point = state.store.point(block_id).unwrap_or_default();
@@ -754,7 +754,7 @@ pub fn render_patch_panel<'a>(
                 t!("doc_drop").to_string(),
                 d.points.iter().enumerate().map(|(i, s)| (i, s.clone())).collect(),
             );
-            crate::component::patch_panel::view(is_dark, rewrite, children)
+            super::patch_panel::view(is_dark, rewrite, children)
         }
         | PatchDraft::Distill(d) => {
             let current_point = state.store.point(block_id).unwrap_or_default();
@@ -791,7 +791,7 @@ pub fn render_patch_panel<'a>(
                     .map(|(idx, id)| (idx, state.store.point(id).unwrap_or_default()))
                     .collect(),
             );
-            crate::component::patch_panel::view(is_dark, rewrite, children)
+            super::patch_panel::view(is_dark, rewrite, children)
         }
     }
 }

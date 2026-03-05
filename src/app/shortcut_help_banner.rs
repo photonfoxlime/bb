@@ -1,7 +1,9 @@
-//! Keyboard-shortcuts help banner component.
+//! Keyboard-shortcuts help banner.
 //!
 //! Renders a bottom-right overlay listing all supported shortcuts and editing
 //! gestures. Uses theme constants for layout; all user-facing text is i18n.
+//!
+//! App-specific: content reflects this application's shortcut inventory.
 
 use crate::theme;
 use iced::{

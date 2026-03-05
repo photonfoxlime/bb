@@ -523,7 +523,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
     if let Some(result) = inquiry_result {
         let response_text = result.response.as_str();
         if !response_text.is_empty() {
-            use crate::component::patch_panel::{PanelButton, PanelButtonStyle, RewriteSection};
+            use super::patch_panel::{PanelButton, PanelButtonStyle, RewriteSection};
             let content: iced::Element<'_, Message> = container(
                 scrollable(
                     text(response_text).font(theme::LXGW_WENKAI).size(theme::INPUT_TEXT_SIZE),
@@ -570,7 +570,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             } else {
                 vec![]
             };
-            let result_panel = crate::component::patch_panel::view(
+            let result_panel = super::patch_panel::view(
                 state.is_dark_mode(),
                 Some(RewriteSection::Content {
                     title: t!("instruction_response").to_string(),

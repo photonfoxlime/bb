@@ -1,4 +1,4 @@
-//! Generic panel component for LLM-produced draft suggestions.
+//! Panel component for LLM-produced draft suggestions.
 //!
 //! Accepts up to two independent sections, both optional:
 //! - **Rewrite**: a proposed text change rendered as a word-level diff, or a
@@ -9,8 +9,10 @@
 //!
 //! UI text is fully caller-controlled through the button/section structs, so
 //! the same layout can serve amplify, atomize, distill, and probe operations.
+//!
+//! App-specific: couples to diff module and draft workflow.
 
-use crate::app::diff::{WordChange, word_diff};
+use super::diff::{WordChange, word_diff};
 use crate::component::text_button::TextButton;
 use crate::theme;
 use iced::widget::{column, container, rich_text, row, space, span, text};

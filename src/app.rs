@@ -78,6 +78,9 @@ mod structure;
 mod multiselect;
 mod navigation;
 mod mount_file;
+mod patch_panel;
+mod point_text_editor;
+mod shortcut_help_banner;
 mod state;
 mod undo_redo;
 
