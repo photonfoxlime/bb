@@ -112,18 +112,16 @@ pub const CANVAS_TOP: f32 = 12.0;
 /// can scroll up to the vertical center when at max scroll.
 pub const CANVAS_SCROLL_TAIL_RATIO: f32 = 0.5;
 
+/// Shared layout for floating overlay panels (find, link, archive).
+pub const FLOATING_PANEL_MARGIN: f32 = 16.0;
+/// Top offset ratio for floating panels (0.382 = 38.2% of viewport height).
+pub const FLOATING_PANEL_TOP_RATIO: f32 = 0.382;
+/// Maximum width for floating panels.
+pub const FLOATING_PANEL_MAX_WIDTH: f32 = 680.0;
+
 // --- Link panel ---
-/// Margin around the link panel overlay.
-pub const LINK_PANEL_MARGIN: f32 = 16.0;
-/// Vertical position ratio for the link panel (golden ratio-ish).
-pub const LINK_PANEL_TOP_RATIO: f32 = 0.382;
-/// Maximum width of the link panel.
-pub const LINK_PANEL_MAX_WIDTH: f32 = 680.0;
 /// Fixed height for the link panel candidate list.
 pub const LINK_PANEL_LIST_HEIGHT: f32 = 280.0;
-/// Inner padding around the link panel content.
-pub const LINK_PANEL_CONTENT_PAD: f32 = 12.0;
-
 /// Computes the effective canvas max width based on window width.
 pub fn canvas_max_width(window_width: f32) -> f32 {
     if window_width <= CANVAS_THRESHOLD_STANDARD {
@@ -273,12 +271,6 @@ pub const FRIEND_TOGGLE_SIZE: f32 = 14.0;
 /// Gap between visibility toggles in friends panel.
 pub const FRIEND_TOGGLE_GAP: f32 = 8.0;
 
-/// Outer margin for the floating find panel overlay.
-pub const FIND_PANEL_MARGIN: f32 = 16.0;
-/// Top offset ratio for the floating find panel (`0.382` = 38.2% of viewport height).
-pub const FIND_PANEL_TOP_RATIO: f32 = 0.382;
-/// Maximum width for the floating find panel.
-pub const FIND_PANEL_MAX_WIDTH: f32 = 680.0;
 /// Font size for find panel title text.
 pub const FIND_TITLE_SIZE: f32 = 14.0;
 /// Font size for find panel metadata and controls.

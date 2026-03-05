@@ -40,6 +40,7 @@ use iced::widget::{
 use iced::{Alignment, Element, Length, Padding, Task};
 
 use crate::app::{AppState, DocumentMode, LinkModeMessage, Message};
+use crate::component::floating_panel;
 use crate::store::PointLink;
 use crate::theme;
 use rust_i18n::t;
@@ -192,33 +193,13 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     let hint =
         text(t!("link_panel_hint")).size(theme::FIND_RESULT_META_SIZE).style(theme::spine_text);
 
-    // --- Assemble panel ---
-    let panel_content =
-        column![title_row, input, result_list, hint].spacing(theme::PANEL_INNER_GAP);
+    let panel_content = column![title_row, input, result_list, hint].spacing(theme::PANEL_INNER_GAP);
 
-    let panel_width = if viewport_width > 0.0 {
-        (viewport_width - (theme::LINK_PANEL_MARGIN * 2.0)).min(theme::LINK_PANEL_MAX_WIDTH)
-    } else {
-        theme::LINK_PANEL_MAX_WIDTH
-    };
-    let panel_top = if viewport_height > 0.0 {
-        (viewport_height * theme::LINK_PANEL_TOP_RATIO).max(theme::LINK_PANEL_MARGIN)
-    } else {
-        theme::LINK_PANEL_MARGIN
-    };
-
-    container(
-        container(panel_content)
-            .width(panel_width)
-            .padding(Padding::new(theme::LINK_PANEL_CONTENT_PAD))
-            .style(theme::draft_panel),
+    floating_panel::wrap(
+        panel_content,
+        viewport_width,
+        viewport_height,
     )
-    .padding(Padding::ZERO.top(panel_top))
-    .align_x(Alignment::Center)
-    .align_y(Alignment::Start)
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .into()
 }
 
 // ---------------------------------------------------------------------------

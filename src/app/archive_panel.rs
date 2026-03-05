@@ -9,6 +9,7 @@
 //! Escape closes it via the global escape chain in `app.rs`.
 
 use crate::app::{AppState, DocumentMode, Message};
+use crate::component::floating_panel;
 use crate::component::text_button::TextButton;
 use crate::text::truncate_for_display;
 use crate::theme;
@@ -128,28 +129,8 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
 
     let viewport_width = state.ui().window_size.width;
     let viewport_height = state.ui().window_size.height;
-    let panel_width = if viewport_width > 0.0 {
-        (viewport_width - (theme::FIND_PANEL_MARGIN * 2.0)).min(theme::FIND_PANEL_MAX_WIDTH)
-    } else {
-        theme::FIND_PANEL_MAX_WIDTH
-    };
-    let panel_top_offset = if viewport_height > 0.0 {
-        (viewport_height * theme::FIND_PANEL_TOP_RATIO).max(theme::FIND_PANEL_MARGIN)
-    } else {
-        theme::FIND_PANEL_MARGIN
-    };
 
-    let panel = container(column![].spacing(theme::PANEL_INNER_GAP).push(header).push(content))
-        .style(theme::draft_panel)
-        .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
-        .width(Length::Fixed(panel_width));
+    let content = column![].spacing(theme::PANEL_INNER_GAP).push(header).push(content);
 
-    container(
-        container(panel).padding(Padding::new(theme::FIND_PANEL_MARGIN).top(panel_top_offset)),
-    )
-    .align_x(iced::alignment::Horizontal::Center)
-    .align_y(iced::alignment::Vertical::Top)
-    .width(Length::Fill)
-    .height(Length::Fill)
-    .into()
+    floating_panel::wrap(content, viewport_width, viewport_height)
 }
