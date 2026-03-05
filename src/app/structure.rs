@@ -89,10 +89,12 @@ pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> 
                     false
                 });
 
-            if let Some(sibling_id) = created_sibling
-                && let Some(widget_id) = state.editor_buffers.widget_id(&sibling_id)
-            {
-                return widget::operation::focus(widget_id.clone());
+            if let Some(sibling_id) = created_sibling {
+                let scroll = super::scroll::scroll_block_into_view(sibling_id);
+                if let Some(widget_id) = state.editor_buffers.widget_id(&sibling_id) {
+                    return Task::batch([widget::operation::focus(widget_id.clone()), scroll]);
+                }
+                return scroll;
             }
 
             Task::none()

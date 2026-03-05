@@ -98,6 +98,7 @@ use iced::{
     Element, Fill, Length, Padding, Point,
     widget::{button, column, container, mouse_area, row, rule, scrollable, stack, text, tooltip},
 };
+use super::scroll::{block_container_id, document_scrollable_id};
 use lucide_icons::iced as icons;
 use rust_i18n::t;
 
@@ -136,6 +137,7 @@ impl<'a> DocumentView<'a> {
                     .center_x(Fill)
                     .padding(iced::Padding::ZERO.top(theme::CANVAS_TOP).bottom(scroll_tail)),
             )
+            .id(document_scrollable_id())
             .height(Fill),
         );
 
@@ -630,63 +632,69 @@ impl<'a> TreeView<'a> {
         let is_multiselect_selected =
             self.state.ui().multiselect_selected_blocks.contains(block_id);
 
-        match (self.state.ui().document_mode, self.state.focus().map(|s| s.block_id)) {
-            | (
-                DocumentMode::Normal
-                | DocumentMode::Find
-                | DocumentMode::LinkInput
-                | DocumentMode::Archive,
-                Some(focused),
-            ) if focused == *block_id => {
-                // Render the block as the focused block
-                container(block).style(theme::focused_block).into()
-            }
-            | (
-                DocumentMode::Normal
-                | DocumentMode::Find
-                | DocumentMode::LinkInput
-                | DocumentMode::Archive,
-                _,
-            ) if is_hovered_friend => {
-                // Highlight block when friend panel hovers over it
-                container(block).style(theme::friend_picker_hover).into()
-            }
-            | (
-                DocumentMode::Normal
-                | DocumentMode::Find
-                | DocumentMode::LinkInput
-                | DocumentMode::Archive,
-                _,
-            ) => block.into(),
-            | (DocumentMode::PickFriend, Some(focused)) if focused == *block_id => {
-                // Render the picker block itself as is
-                block.into()
-            }
-            | (DocumentMode::PickFriend, Some(target)) => {
-                // Render the block as a friend picker target
-                button(container(block).style(theme::friend_picker_hover))
-                    .on_press(Message::Structure(StructureMessage::AddFriendBlock {
-                        target,
-                        friend_id: *block_id,
-                    }))
-                    .padding(Padding::ZERO)
-                    .style(theme::action_button)
-                    .into()
-            }
-            | (DocumentMode::Multiselect, _) if is_multiselect_selected => {
-                button(container(block).style(theme::multiselect_selected))
+        // Build the styled block element for the current mode.
+        let styled: Element<'a, Message> =
+            match (self.state.ui().document_mode, self.state.focus().map(|s| s.block_id)) {
+                | (
+                    DocumentMode::Normal
+                    | DocumentMode::Find
+                    | DocumentMode::LinkInput
+                    | DocumentMode::Archive,
+                    Some(focused),
+                ) if focused == *block_id => {
+                    // Render the block as the focused block
+                    container(block).style(theme::focused_block).into()
+                }
+                | (
+                    DocumentMode::Normal
+                    | DocumentMode::Find
+                    | DocumentMode::LinkInput
+                    | DocumentMode::Archive,
+                    _,
+                ) if is_hovered_friend => {
+                    // Highlight block when friend panel hovers over it
+                    container(block).style(theme::friend_picker_hover).into()
+                }
+                | (
+                    DocumentMode::Normal
+                    | DocumentMode::Find
+                    | DocumentMode::LinkInput
+                    | DocumentMode::Archive,
+                    _,
+                ) => block.into(),
+                | (DocumentMode::PickFriend, Some(focused)) if focused == *block_id => {
+                    // Render the picker block itself as is
+                    block.into()
+                }
+                | (DocumentMode::PickFriend, Some(target)) => {
+                    // Render the block as a friend picker target
+                    button(container(block).style(theme::friend_picker_hover))
+                        .on_press(Message::Structure(StructureMessage::AddFriendBlock {
+                            target,
+                            friend_id: *block_id,
+                        }))
+                        .padding(Padding::ZERO)
+                        .style(theme::action_button)
+                        .into()
+                }
+                | (DocumentMode::Multiselect, _) if is_multiselect_selected => {
+                    button(container(block).style(theme::multiselect_selected))
+                        .on_press(Message::MultiselectBlockClicked(*block_id))
+                        .padding(Padding::ZERO)
+                        .style(theme::action_button)
+                        .into()
+                }
+                | (DocumentMode::Multiselect, _) => button(container(block))
                     .on_press(Message::MultiselectBlockClicked(*block_id))
                     .padding(Padding::ZERO)
                     .style(theme::action_button)
-                    .into()
-            }
-            | (DocumentMode::Multiselect, _) => button(container(block))
-                .on_press(Message::MultiselectBlockClicked(*block_id))
-                .padding(Padding::ZERO)
-                .style(theme::action_button)
-                .into(),
-            | (_, None) => block.into(),
-        }
+                    .into(),
+                | (_, None) => block.into(),
+            };
+
+        // Wrap in an ID'd container so scroll_block_into_view can locate this
+        // block's bounds in the widget tree.
+        container(styled).id(block_container_id(*block_id)).into()
     }
 
     fn action_row_context(&self, block_id: &BlockId, point_text: String) -> RowContext {

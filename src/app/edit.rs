@@ -565,11 +565,12 @@ fn add_empty_first_child_from_enter(state: &mut AppState, block_id: BlockId) -> 
     state.set_focus(child_id);
     state.edit_session = None;
 
+    let scroll = super::scroll::scroll_block_into_view(child_id);
     if let Some(widget_id) = state.editor_buffers.widget_id(&child_id) {
-        return widget::operation::focus(widget_id.clone());
+        return Task::batch([widget::operation::focus(widget_id.clone()), scroll]);
     }
 
-    Task::none()
+    scroll
 }
 
 fn is_plain_backspace_action(action: &text_editor::Action, modifiers: keyboard::Modifiers) -> bool {
@@ -716,10 +717,11 @@ fn delete_multiselect_selection_on_backspace(
         && state.store.node(&next_focus).is_some()
     {
         state.set_focus(next_focus);
+        let scroll = super::scroll::scroll_block_into_view(next_focus);
         if let Some(widget_id) = state.editor_buffers.widget_id(&next_focus) {
-            return widget::operation::focus(widget_id.clone());
+            return Task::batch([widget::operation::focus(widget_id.clone()), scroll]);
         }
-        return Task::none();
+        return scroll;
     }
 
     state.clear_focus();
@@ -990,6 +992,7 @@ pub fn handle_point_edited(
                     column_byte: target_column_byte,
                     seek_visual_end: matches!(dir, VerticalDir::Up),
                 })),
+                super::scroll::scroll_block_into_view(target_id),
             ]);
         }
     }

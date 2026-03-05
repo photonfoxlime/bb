@@ -78,6 +78,7 @@ mod structure;
 mod multiselect;
 mod navigation;
 mod mount_file;
+mod scroll;
 mod patch_panel;
 mod shortcut_help_banner;
 mod state;

@@ -175,7 +175,8 @@ fn sibling_wrap_target(
 /// Order matters:
 /// 1. unfold collapsed ancestors,
 /// 2. reveal navigation path if needed,
-/// 3. set focus and request widget focus.
+/// 3. set focus and request widget focus,
+/// 4. scroll the block into the visible viewport.
 fn focus_block(state: &mut AppState, block_id: BlockId) -> Task<Message> {
     unfold_folded_ancestors_for_focus(state, block_id);
 
@@ -184,10 +185,11 @@ fn focus_block(state: &mut AppState, block_id: BlockId) -> Task<Message> {
     }
     state.set_focus(block_id);
     state.editor_buffers.ensure_block(&state.store, &block_id);
+    let scroll = super::scroll::scroll_block_into_view(block_id);
     if let Some(widget_id) = state.editor_buffers.widget_id(&block_id) {
-        return widget::operation::focus(widget_id.clone());
+        return Task::batch([widget::operation::focus(widget_id.clone()), scroll]);
     }
-    Task::none()
+    scroll
 }
 
 /// Ensure the focused target is visible by unfolding collapsed ancestors.

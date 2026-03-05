@@ -425,7 +425,7 @@ fn jump_to_selected(state: &mut AppState) -> Task<Message> {
     state.set_overflow_open(false);
 
     tracing::info!(target = ?target, "jumped to find result");
-    focus(find_query_input_id())
+    Task::batch([focus(find_query_input_id()), super::scroll::scroll_block_into_view(target)])
 }
 
 fn result_lineage(state: &AppState, block_id: &BlockId) -> String {
