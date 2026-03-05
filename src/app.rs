@@ -63,6 +63,7 @@ mod editor_buffers;
 pub(crate) mod diff;
 mod overlay;
 // Panel Views
+mod archive_panel;
 mod friends_panel;
 mod instruction_panel;
 // Actions and LLM Requests
@@ -80,6 +81,7 @@ use self::{
         ActionAvailability, ActionId, RowContext, ViewportBucket, action_to_message_by_id,
         build_action_bar_vm, project_for_viewport,
     },
+    archive_panel::ArchivePanelMessage,
     edit::EditMessage,
     editor_buffers::EditorBuffers,
     error::{AppError, ErrorMessage, UiError},
@@ -211,6 +213,7 @@ pub enum Message {
     Patch(PatchMessage),
     Structure(StructureMessage),
     Find(FindMessage),
+    Archive(ArchivePanelMessage),
     Overlay(OverlayMessage),
     MountFile(MountFileMessage),
     FriendPanel(FriendPanelMessage),
@@ -256,6 +259,7 @@ impl AppState {
             | Message::Edit(message) => edit::handle(self, message),
             | Message::Patch(message) => patch::handle(self, message),
             | Message::Find(message) => find_panel::handle(self, message),
+            | Message::Archive(message) => archive_panel::handle(self, message),
             | Message::Overlay(message) => overlay::handle(self, message),
             | Message::FriendPanel(message) => friends_panel::handle(self, message),
             | Message::Structure(message) => structure::handle(self, message),
@@ -279,6 +283,8 @@ impl AppState {
                     Task::none()
                 } else if matches!(self.ui().document_mode, DocumentMode::LinkInput) {
                     link_panel::handle(self, LinkModeMessage::Cancel)
+                } else if matches!(self.ui().document_mode, DocumentMode::Archive) {
+                    archive_panel::handle(self, ArchivePanelMessage::Close)
                 } else {
                     find_panel::handle(self, FindMessage::Escape)
                 }
@@ -842,6 +848,8 @@ pub enum DocumentMode {
     /// floating panel with fuzzy filesystem search. Selecting a candidate
     /// converts the block's point to a [`PointLink`].
     LinkInput,
+    /// Archive panel: browse and permanently delete archived block subtrees.
+    Archive,
 }
 
 /// Messages for the link-input panel.

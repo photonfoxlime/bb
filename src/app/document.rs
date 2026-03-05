@@ -79,6 +79,7 @@ use super::{
         ViewportBucket, action_i18n_key, action_icon, action_to_message, build_action_bar_vm,
         project_for_viewport, status_error_i18n_key,
     },
+    archive_panel::{self, ArchivePanelMessage},
     find_panel,
     friends_panel::{self, FriendPanelMessage},
     instruction_panel::{self, InstructionPanelMessage},
@@ -124,6 +125,7 @@ impl<'a> DocumentView<'a> {
         let is_find_mode = state.ui().document_mode == DocumentMode::Find;
         let is_link_mode = state.ui().document_mode == DocumentMode::LinkInput;
         let is_multiselect_mode = state.ui().document_mode == DocumentMode::Multiselect;
+        let is_archive_mode = state.ui().document_mode == DocumentMode::Archive;
 
         let normal_mode_btn = IconButton::mode(
             icons::icon_mouse_pointer_2()
@@ -175,6 +177,15 @@ impl<'a> DocumentView<'a> {
             DocumentMode::Multiselect
         }));
 
+        let archive_mode_btn = IconButton::mode(
+            icons::icon_archive()
+                .size(theme::TOOLBAR_ICON_SIZE)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into(),
+            is_archive_mode,
+        )
+        .on_press(Message::Archive(ArchivePanelMessage::Toggle));
+
         let multiselect_badge: Element<'a, Message> = if is_multiselect_mode {
             let count = self.state.ui().multiselect_selected_blocks.len();
             if count > 0 {
@@ -197,6 +208,7 @@ impl<'a> DocumentView<'a> {
             find_mode_btn,
             link_mode_btn,
             multiselect_mode_btn,
+            archive_mode_btn,
             multiselect_badge,
         ]
         .spacing(theme::ACTION_GAP)
@@ -374,6 +386,7 @@ impl<'a> DocumentView<'a> {
             floating_gear,
             toolbar_container,
             find_panel::floating_overlay(state),
+            archive_panel::floating_overlay(state),
             link_panel::floating_overlay(state),
             breadcrumbs_container,
             floating_bottom_right,
@@ -948,19 +961,32 @@ impl<'a> TreeView<'a> {
 
         match (self.state.ui().document_mode, self.state.focus().map(|s| s.block_id)) {
             | (
-                DocumentMode::Normal | DocumentMode::Find | DocumentMode::LinkInput,
+                DocumentMode::Normal
+                | DocumentMode::Find
+                | DocumentMode::LinkInput
+                | DocumentMode::Archive,
                 Some(focused),
             ) if focused == *block_id => {
                 // Render the block as the focused block
                 container(block).style(theme::focused_block).into()
             }
-            | (DocumentMode::Normal | DocumentMode::Find | DocumentMode::LinkInput, _)
-                if is_hovered_friend =>
-            {
+            | (
+                DocumentMode::Normal
+                | DocumentMode::Find
+                | DocumentMode::LinkInput
+                | DocumentMode::Archive,
+                _,
+            ) if is_hovered_friend => {
                 // Highlight block when friend panel hovers over it
                 container(block).style(theme::friend_picker_hover).into()
             }
-            | (DocumentMode::Normal | DocumentMode::Find | DocumentMode::LinkInput, _) => {
+            | (
+                DocumentMode::Normal
+                | DocumentMode::Find
+                | DocumentMode::LinkInput
+                | DocumentMode::Archive,
+                _,
+            ) => {
                 block.into()
             }
             | (DocumentMode::PickFriend, Some(focused)) if focused == *block_id => {

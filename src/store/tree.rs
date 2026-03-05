@@ -166,6 +166,41 @@ impl BlockStore {
         Some(removed_ids)
     }
 
+    /// Permanently delete a block that was previously archived.
+    ///
+    /// Removes the block from `self.archive` and destroys its entire subtree
+    /// from `nodes`, `points`, and all draft maps.
+    ///
+    /// # Requires
+    /// - `block_id` must be present in `self.archive`.
+    ///
+    /// # Ensures
+    /// - Returns `Some(Vec<BlockId>)` of all destroyed ids (root first) on success.
+    /// - Returns `None` if `block_id` is not found in `self.archive`.
+    pub fn delete_archived_block(&mut self, block_id: &BlockId) -> Option<Vec<BlockId>> {
+        let pos = self.archive.iter().position(|id| id == block_id)?;
+        self.archive.remove(pos);
+
+        let mut removed_ids = Vec::new();
+        self.collect_subtree_ids(block_id, &mut removed_ids);
+        for id in &removed_ids {
+            self.nodes.remove(*id);
+            self.points.remove(*id);
+            self.amplification_drafts.remove(*id);
+            self.atomization_drafts.remove(*id);
+            self.distillation_drafts.remove(*id);
+            self.instruction_drafts.remove(*id);
+            self.probe_drafts.remove(*id);
+            self.view_collapsed.remove(*id);
+            self.friend_blocks.remove(*id);
+            self.block_panel_state.remove(*id);
+            self.mount_table.remove_origin(*id);
+        }
+        self.remove_friend_block_references(&removed_ids);
+
+        Some(removed_ids)
+    }
+
     /// Detach a block from its parent (or roots) and append its id to `archive`.
     ///
     /// The block and its entire subtree remain in the store (`nodes`, `points`,
