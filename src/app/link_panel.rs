@@ -193,13 +193,10 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     let hint =
         text(t!("link_panel_hint")).size(theme::FIND_RESULT_META_SIZE).style(theme::spine_text);
 
-    let panel_content = column![title_row, input, result_list, hint].spacing(theme::PANEL_INNER_GAP);
+    let panel_content =
+        column![title_row, input, result_list, hint].spacing(theme::PANEL_INNER_GAP);
 
-    floating_panel::wrap(
-        panel_content,
-        viewport_width,
-        viewport_height,
-    )
+    floating_panel::wrap(panel_content, viewport_width, viewport_height)
 }
 
 // ---------------------------------------------------------------------------

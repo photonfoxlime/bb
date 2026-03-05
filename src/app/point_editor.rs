@@ -288,7 +288,9 @@ pub(super) fn view<'a>(
         expanded_link_index,
         placeholder: t!("doc_placeholder_point").to_string(),
         on_link_chip_toggle: |bid, idx| Message::LinkChipToggle(bid, idx),
-        on_remove_link: |bid, idx| Message::Edit(EditMessage::RemoveLink { block_id: bid, index: idx }),
+        on_remove_link: |bid, idx| {
+            Message::Edit(EditMessage::RemoveLink { block_id: bid, index: idx })
+        },
         on_context_menu: |bid, position| {
             Message::ContextMenu(ContextMenuMessage::Show { block_id: bid, position })
         },

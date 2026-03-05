@@ -537,12 +537,8 @@ impl<'a> TreeView<'a> {
                 && self.state.navigation.is_in_current_view(&self.state.store, block_id)
         });
 
-        let links = self
-            .state
-            .store
-            .point_content(block_id)
-            .map(|pc| pc.links.as_slice())
-            .unwrap_or(&[]);
+        let links =
+            self.state.store.point_content(block_id).map(|pc| pc.links.as_slice()).unwrap_or(&[]);
         let expanded_link_index = self.state.ui().expanded_links.get(block_id).copied();
         let point_editor = point_editor::view(
             block_id_for_edit,

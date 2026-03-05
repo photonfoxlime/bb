@@ -146,6 +146,16 @@ pub struct TransientUiState {
     /// This is used to filter command-shortcut key leaks (for example,
     /// suppressing `Cmd/Ctrl+F` text insertion into active editors/inputs).
     pub keyboard_modifiers: keyboard::Modifiers,
+    /// Preferred char column for consecutive vertical cursor navigation.
+    ///
+    /// This is set when processing `ArrowUp`/`ArrowDown` editor motions and
+    /// cleared on non-vertical editor actions or focus changes. Storing the
+    /// value as a Unicode scalar (char) column keeps traversal stable across
+    /// mixed UTF-8 lines and prevents large horizontal jumps after crossing a
+    /// short line.
+    ///
+    /// Note: this field is transient by design and must never be persisted.
+    pub vertical_cursor_preferred_column: Option<usize>,
     /// Whether the keyboard-shortcuts help banner is visible.
     pub show_shortcut_help: bool,
     /// Whether the current theme is dark.

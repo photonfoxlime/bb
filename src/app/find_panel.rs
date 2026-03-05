@@ -337,9 +337,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
         .push(
             row![
                 title,
-                container(controls)
-                    .width(Length::Fill)
-                    .align_x(iced::alignment::Horizontal::Right)
+                container(controls).width(Length::Fill).align_x(iced::alignment::Horizontal::Right)
             ]
             .align_y(Alignment::Center),
         )

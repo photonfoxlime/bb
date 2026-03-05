@@ -12,7 +12,9 @@ use iced::{Element, Length, Padding};
 /// Positions the panel centered horizontally, with top offset computed from
 /// viewport height. Width is clamped to [`theme::FLOATING_PANEL_MAX_WIDTH`]
 /// with margins on the sides.
-pub fn wrap<'a, M: 'a>(content: impl Into<Element<'a, M>>, viewport_width: f32, viewport_height: f32) -> Element<'a, M> {
+pub fn wrap<'a, M: 'a>(
+    content: impl Into<Element<'a, M>>, viewport_width: f32, viewport_height: f32,
+) -> Element<'a, M> {
     let panel_width = if viewport_width > 0.0 {
         (viewport_width - (theme::FLOATING_PANEL_MARGIN * 2.0)).min(theme::FLOATING_PANEL_MAX_WIDTH)
     } else {

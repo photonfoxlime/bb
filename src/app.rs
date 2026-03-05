@@ -752,10 +752,18 @@ impl AppState {
 
     /// Set the focused block.
     fn set_focus(&mut self, block_id: BlockId) {
+        let previous_focus = self.ui().focus.map(|focus| focus.block_id);
+
         if let Some(state) = &mut self.ui_mut().focus {
             state.block_id = block_id;
         } else {
             self.ui_mut().focus = Some(FocusState { block_id, overflow_open: false });
+        }
+
+        if previous_focus != Some(block_id) {
+            // Vertical-column intent only applies to one contiguous cursor
+            // traversal chain. Reset when focus changes for any other reason.
+            self.ui_mut().vertical_cursor_preferred_column = None;
         }
 
         if self.ui().document_mode == DocumentMode::Multiselect {
@@ -767,6 +775,7 @@ impl AppState {
     /// Clear the focus.
     fn clear_focus(&mut self) {
         self.ui_mut().focus = None;
+        self.ui_mut().vertical_cursor_preferred_column = None;
         if self.ui().document_mode == DocumentMode::Multiselect {
             self.ui_mut().multiselect_selected_blocks.clear();
         }

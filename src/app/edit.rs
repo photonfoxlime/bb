@@ -58,9 +58,36 @@ pub fn handle(state: &mut AppState, message: EditMessage) -> Task<Message> {
 ///
 /// Used to defer block traversal until *after* the editor processes
 /// the motion, so wrapped (visual) lines are handled correctly.
+#[derive(Debug, Clone, Copy)]
 enum VerticalDir {
     Up,
     Down,
+}
+
+/// Map an editor action to a vertical movement direction.
+fn vertical_direction_for_action(action: &text_editor::Action) -> Option<VerticalDir> {
+    match action {
+        | text_editor::Action::Move(text_editor::Motion::Up) => Some(VerticalDir::Up),
+        | text_editor::Action::Move(text_editor::Motion::Down) => Some(VerticalDir::Down),
+        | _ => None,
+    }
+}
+
+/// Convert a UTF-8 byte column to a char column in one line.
+///
+/// The editor cursor stores byte offsets. This helper clamps invalid byte
+/// offsets to the nearest previous char boundary so callers can safely reason
+/// in char columns.
+fn byte_column_to_char_column(line_text: &str, column_byte: usize) -> usize {
+    if column_byte >= line_text.len() {
+        return line_text.chars().count();
+    }
+    line_text.char_indices().take_while(|(idx, _)| *idx < column_byte).count()
+}
+
+/// Convert a char column to a UTF-8 byte column in one line.
+fn char_column_to_byte_column(line_text: &str, column_char: usize) -> usize {
+    line_text.char_indices().nth(column_char).map(|(idx, _)| idx).unwrap_or(line_text.len())
 }
 
 fn move_cursor_by_word(
@@ -87,7 +114,7 @@ fn move_cursor_by_word(
     // Convert cursor.column from byte offset to char offset.
     // iced's text_editor uses byte offsets for cursor position,
     // but our token spans use char offsets.
-    let current_column = line_text[..current_column_byte.min(line_text.len())].chars().count();
+    let current_column = byte_column_to_char_column(&line_text, current_column_byte);
 
     let spans = state.editor_buffers.word_token_spans_for_line(&block_id, &line_text);
     let line_char_count = line_text.chars().count();
@@ -105,8 +132,7 @@ fn move_cursor_by_word(
 
     if let Some(content) = state.editor_buffers.get_mut(&block_id) {
         // Convert char offset back to byte offset for the editor.
-        let next_column_byte =
-            line_text.char_indices().nth(next_column).map(|(i, _)| i).unwrap_or(line_text.len());
+        let next_column_byte = char_column_to_byte_column(&line_text, next_column);
 
         content.move_to(text_editor::Cursor {
             position: text_editor::Position { line: line_index, column: next_column_byte },
@@ -236,7 +262,10 @@ fn is_cursor_at_end_of_only_line(content: &text_editor::Content) -> bool {
         return false;
     }
 
-    content.line(0).is_some_and(|line| cursor.column >= line.text.chars().count())
+    content.line(0).is_some_and(|line| {
+        let cursor_char_column = byte_column_to_char_column(&line.text, cursor.column);
+        cursor_char_column >= line.text.chars().count()
+    })
 }
 
 /// Whether plain Enter should create a new child at index 0.
@@ -515,6 +544,10 @@ pub fn handle_point_edited(
 ) -> Task<Message> {
     // Clear friend hover state when editing
     state.ui_mut().hovered_friend_block = None;
+    let vertical_direction = vertical_direction_for_action(&action);
+    if vertical_direction.is_none() {
+        state.ui_mut().vertical_cursor_preferred_column = None;
+    }
 
     if let Some(action_id) =
         command_shortcut_action_from_editor_insert(&action, state.ui().keyboard_modifiers)
@@ -579,17 +612,27 @@ pub fn handle_point_edited(
     }
     state.editor_buffers.ensure_block(&state.store, &block_id);
 
-    let vertical_direction = match &action {
-        | text_editor::Action::Move(text_editor::Motion::Up) => Some(VerticalDir::Up),
-        | text_editor::Action::Move(text_editor::Motion::Down) => Some(VerticalDir::Down),
-        | _ => None,
-    };
+    // Preserve a sticky preferred char column while the user repeats vertical
+    // motion. This keeps horizontal intent stable when traversing short lines.
+    let previous_preferred_char_column = state.ui().vertical_cursor_preferred_column;
+    let mut next_preferred_char_column =
+        if vertical_direction.is_some() { previous_preferred_char_column } else { None };
 
-    // When crossing block boundaries via Up/Down at edges, we remember the
-    // preferred column (byte offset) and place the cursor there in the target block.
+    // When crossing block boundaries via Up/Down at edges, traverse to the
+    // adjacent visible block and restore the same preferred char column.
     let mut navigate_to: Option<(BlockId, VerticalDir, usize)> = None;
     if let Some(content) = state.editor_buffers.get_mut(&block_id) {
         let cursor_before = content.cursor().position;
+        let preferred_char_column = vertical_direction.map(|_| {
+            let current_char_column = content
+                .line(cursor_before.line)
+                .map(|line| byte_column_to_char_column(&line.text, cursor_before.column))
+                .unwrap_or(0);
+            let preferred = previous_preferred_char_column.unwrap_or(current_char_column);
+            next_preferred_char_column = Some(preferred);
+            preferred
+        });
+
         content.perform(action);
         let cursor_after = content.cursor().position;
 
@@ -601,8 +644,8 @@ pub fn handle_point_edited(
                 | VerticalDir::Down => state.store.next_visible_in_dfs(&block_id),
             };
             if let Some(target_id) = target {
-                let preferred_byte = cursor_before.column;
-                navigate_to = Some((target_id, dir, preferred_byte));
+                let preferred_char = preferred_char_column.unwrap_or(0);
+                navigate_to = Some((target_id, dir, preferred_char));
             }
         }
 
@@ -636,12 +679,11 @@ pub fn handle_point_edited(
             state.editor_buffers.invalidate_token_cache(&block_id);
         }
     }
+    state.ui_mut().vertical_cursor_preferred_column = next_preferred_char_column;
 
-    if let Some((target_id, dir, preferred_byte)) = navigate_to {
+    if let Some((target_id, dir, preferred_char_column)) = navigate_to {
         let wid = state.editor_buffers.widget_id(&target_id).cloned();
-        if let (Some(wid), DocumentMode::Normal) =
-            (wid, state.ui().document_mode)
-        {
+        if let (Some(wid), DocumentMode::Normal) = (wid, state.ui().document_mode) {
             state.editor_buffers.ensure_block(&state.store, &target_id);
             if let Some(target_content) = state.editor_buffers.get_mut(&target_id) {
                 let line_count = target_content.line_count();
@@ -649,11 +691,14 @@ pub fn handle_point_edited(
                     | VerticalDir::Up => line_count.saturating_sub(1), // last line
                     | VerticalDir::Down => 0,                          // first line
                 };
-                let target_line_len = target_content
+                let target_line_text = target_content
                     .line(target_line)
-                    .map(|l| l.text.len())
-                    .unwrap_or(0);
-                let target_column_byte = preferred_byte.min(target_line_len);
+                    .map(|line| line.text.to_string())
+                    .unwrap_or_default();
+                let target_column_char =
+                    preferred_char_column.min(target_line_text.chars().count());
+                let target_column_byte =
+                    char_column_to_byte_column(&target_line_text, target_column_char);
                 target_content.move_to(text_editor::Cursor {
                     position: text_editor::Position {
                         line: target_line,
@@ -663,10 +708,11 @@ pub fn handle_point_edited(
                 });
             }
             state.set_focus(target_id);
+            state.ui_mut().vertical_cursor_preferred_column = Some(preferred_char_column);
             tracing::debug!(
                 from = ?block_id,
                 to = ?target_id,
-                preferred_byte,
+                preferred_char_column,
                 "keyboard traversal"
             );
             return widget::operation::focus(wid);
@@ -1074,6 +1120,123 @@ mod tests {
         );
 
         assert_eq!(state.focus().map(|focus| focus.block_id), Some(sibling));
+    }
+
+    #[test]
+    fn vertical_navigation_keeps_preferred_column_across_blocks() {
+        let (mut state, root) = AppState::test_state();
+        let middle = state
+            .store
+            .append_sibling(&root, "short".to_string())
+            .expect("append sibling succeeds");
+        let tail = state
+            .store
+            .append_sibling(&middle, "0123456789".to_string())
+            .expect("append sibling succeeds");
+        state.store.update_point(&root, "0123456789\nabcdefghij".to_string());
+        state.editor_buffers.set_text(&root, "0123456789\nabcdefghij");
+        state.editor_buffers.set_text(&middle, "short");
+        state.editor_buffers.set_text(&tail, "0123456789");
+        if let Some(content) = state.editor_buffers.get_mut(&root) {
+            content.move_to(text_editor::Cursor {
+                position: text_editor::Position { line: 1, column: 8 },
+                selection: None,
+            });
+        }
+        state.set_focus(root);
+
+        let _ = handle_point_edited(
+            &mut state,
+            root,
+            text_editor::Action::Move(text_editor::Motion::Down),
+        );
+        let middle_cursor =
+            state.editor_buffers.get(&middle).expect("middle editor exists").cursor().position;
+        assert_eq!(state.focus().map(|focus| focus.block_id), Some(middle));
+        assert_eq!(middle_cursor.column, 5);
+
+        let _ = handle_point_edited(
+            &mut state,
+            middle,
+            text_editor::Action::Move(text_editor::Motion::Down),
+        );
+        let tail_cursor =
+            state.editor_buffers.get(&tail).expect("tail editor exists").cursor().position;
+        assert_eq!(state.focus().map(|focus| focus.block_id), Some(tail));
+        assert_eq!(tail_cursor.column, 8);
+    }
+
+    #[test]
+    fn non_vertical_motion_resets_preferred_vertical_column() {
+        let (mut state, root) = AppState::test_state();
+        let middle = state
+            .store
+            .append_sibling(&root, "short".to_string())
+            .expect("append sibling succeeds");
+        let tail = state
+            .store
+            .append_sibling(&middle, "0123456789".to_string())
+            .expect("append sibling succeeds");
+        state.store.update_point(&root, "0123456789\nabcdefghij".to_string());
+        state.editor_buffers.set_text(&root, "0123456789\nabcdefghij");
+        state.editor_buffers.set_text(&middle, "short");
+        state.editor_buffers.set_text(&tail, "0123456789");
+        if let Some(content) = state.editor_buffers.get_mut(&root) {
+            content.move_to(text_editor::Cursor {
+                position: text_editor::Position { line: 1, column: 8 },
+                selection: None,
+            });
+        }
+        state.set_focus(root);
+
+        let _ = handle_point_edited(
+            &mut state,
+            root,
+            text_editor::Action::Move(text_editor::Motion::Down),
+        );
+        let _ = handle_point_edited(
+            &mut state,
+            middle,
+            text_editor::Action::Move(text_editor::Motion::Left),
+        );
+        let _ = handle_point_edited(
+            &mut state,
+            middle,
+            text_editor::Action::Move(text_editor::Motion::Down),
+        );
+
+        let tail_cursor =
+            state.editor_buffers.get(&tail).expect("tail editor exists").cursor().position;
+        assert_eq!(state.focus().map(|focus| focus.block_id), Some(tail));
+        assert_eq!(tail_cursor.column, 4);
+    }
+
+    #[test]
+    fn vertical_navigation_clamps_to_valid_utf8_char_boundaries() {
+        let (mut state, root) = AppState::test_state();
+        let sibling =
+            state.store.append_sibling(&root, "你好".to_string()).expect("append sibling succeeds");
+        state.store.update_point(&root, "abc\ndef".to_string());
+        state.editor_buffers.set_text(&root, "abc\ndef");
+        state.editor_buffers.set_text(&sibling, "你好");
+        if let Some(content) = state.editor_buffers.get_mut(&root) {
+            content.move_to(text_editor::Cursor {
+                position: text_editor::Position { line: 1, column: 1 },
+                selection: None,
+            });
+        }
+        state.set_focus(root);
+
+        let _ = handle_point_edited(
+            &mut state,
+            root,
+            text_editor::Action::Move(text_editor::Motion::Down),
+        );
+
+        let sibling_cursor =
+            state.editor_buffers.get(&sibling).expect("sibling editor exists").cursor().position;
+        assert_eq!(state.focus().map(|focus| focus.block_id), Some(sibling));
+        assert_eq!(sibling_cursor.column, 3);
     }
 
     #[test]
