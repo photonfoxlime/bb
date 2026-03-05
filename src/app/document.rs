@@ -87,7 +87,11 @@ use super::{
     settings::SettingsMessage,
 };
 use crate::{
+    component::breadcrumbs::{BreadcrumbLayer, Breadcrumbs},
+    component::context_menu_button::{ContextMenuButton, ContextMenuIcon},
+    component::error_banner_view::{ErrorBannerContent, ErrorBannerEntry, ErrorBannerView},
     component::icon_button::IconButton,
+    component::shortcut_help_banner::ShortcutHelpBanner,
     component::text_button::TextButton,
     store::{BlockId, BlockPanelBarState, PointContent},
     text::truncate_for_display,
@@ -305,38 +309,25 @@ impl<'a> DocumentView<'a> {
         .height(Fill);
 
         // Shortcut help banner – bottom-right corner
-        let shortcut_help_banner_element = self.render_shortcut_help_banner();
+        let shortcut_help_banner_element = if show_shortcut_help {
+            Some(ShortcutHelpBanner::view(Message::Overlay(OverlayMessage::ToggleShortcutHelp)))
+        } else {
+            None
+        };
 
         // Error banner – bottom-right corner
-        let error_banner_element = if let Some(error_banner) = ErrorBanner::from_state(state) {
-            let mut banner_content = column![
-                row![
-                    text(error_banner.title()),
-                    button(text(t!("ui_dismiss").to_string())).on_press(Message::Error(
-                        ErrorMessage::DismissAt(error_banner.latest.index)
-                    )),
-                ]
-                .spacing(theme::PANEL_BUTTON_GAP)
-                .align_y(iced::Alignment::Center)
-            ]
-            .spacing(theme::INLINE_GAP);
-            for entry in &error_banner.previous_entries {
-                banner_content = banner_content.push(
-                    row![
-                        text(t!("error_earlier", message = entry.message.as_str()).to_string()),
-                        button(text(t!("ui_dismiss").to_string()))
-                            .on_press(Message::Error(ErrorMessage::DismissAt(entry.index))),
-                    ]
-                    .spacing(theme::PANEL_BUTTON_GAP)
-                    .align_y(iced::Alignment::Center),
-                );
-            }
-            if error_banner.hidden_previous_count > 0 {
-                banner_content = banner_content.push(text(
-                    t!("error_older_count", count = error_banner.hidden_previous_count).to_string(),
-                ));
-            }
-            Some(container(banner_content).style(theme::error_banner).padding(theme::BANNER_PAD))
+        let error_banner_element = if let Some(eb) = ErrorBanner::from_state(state) {
+            let content = ErrorBannerContent {
+                title: eb.title(),
+                latest_index: eb.latest.index,
+                previous_entries: eb
+                    .previous_entries
+                    .iter()
+                    .map(|e| ErrorBannerEntry { index: e.index, message: e.message.clone() })
+                    .collect(),
+                hidden_previous_count: eb.hidden_previous_count,
+            };
+            Some(ErrorBannerView::view(&content, |i| Message::Error(ErrorMessage::DismissAt(i))))
         } else {
             None
         };
@@ -372,7 +363,7 @@ impl<'a> DocumentView<'a> {
         };
 
         // Breadcrumb navigation - bottom-left corner
-        let breadcrumbs = self.render_breadcrumbs();
+        let breadcrumbs = self.render_breadcrumbs_elements();
         let breadcrumbs_container =
             container(container(breadcrumbs).align_x(iced::alignment::Horizontal::Left).padding(
                 iced::Padding::new(16.0).left(theme::CANVAS_PAD).bottom(theme::CANVAS_PAD),
@@ -397,200 +388,32 @@ impl<'a> DocumentView<'a> {
         .into()
     }
 
-    /// Render the bottom-right keyboard-shortcuts help banner when enabled.
-    fn render_shortcut_help_banner(&self) -> Option<Element<'a, Message>> {
-        if !self.state.ui().show_shortcut_help {
-            return None;
-        }
-
-        let title = row![
-            text(t!("shortcut_help_title").to_string())
-                .size(theme::SHORTCUT_HELP_TITLE_SIZE)
-                .font(theme::INTER),
-            space::horizontal(),
-            button(text(t!("ui_dismiss").to_string()))
-                .on_press(Message::Overlay(OverlayMessage::ToggleShortcutHelp))
-                .padding(theme::BUTTON_PAD)
-        ]
-        .spacing(theme::ACTION_GAP)
-        .align_y(iced::Alignment::Center)
-        .width(Fill);
-
-        let global_section = column![
-            text(t!("shortcut_help_section_global").to_string())
-                .font(theme::INTER)
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_global_find").to_string()).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_global_find_next").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_global_find_previous").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_global_undo").to_string()).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_global_redo").to_string()).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_global_escape").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-        ]
-        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
-
-        let structure_section = column![
-            text(t!("shortcut_help_section_structure").to_string())
-                .font(theme::INTER)
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_amplify").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_distill").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_atomize").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_add_child").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_add_sibling").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_accept_all").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-        ]
-        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
-
-        #[cfg(target_os = "macos")]
-        let movement_word_cursor = t!("shortcut_help_movement_word_cursor_macos").to_string();
-        #[cfg(not(target_os = "macos"))]
-        let movement_word_cursor = t!("shortcut_help_movement_word_cursor").to_string();
-        #[cfg(target_os = "macos")]
-        let movement_focus = t!("shortcut_help_movement_focus_macos").to_string();
-        #[cfg(not(target_os = "macos"))]
-        let movement_focus = t!("shortcut_help_movement_focus").to_string();
-        #[cfg(target_os = "macos")]
-        let movement_reorder = t!("shortcut_help_movement_reorder_macos").to_string();
-        #[cfg(not(target_os = "macos"))]
-        let movement_reorder = t!("shortcut_help_movement_reorder").to_string();
-        #[cfg(target_os = "macos")]
-        let movement_outdent = t!("shortcut_help_movement_outdent_macos").to_string();
-        #[cfg(not(target_os = "macos"))]
-        let movement_outdent = t!("shortcut_help_movement_outdent").to_string();
-        #[cfg(target_os = "macos")]
-        let movement_indent = t!("shortcut_help_movement_indent_macos").to_string();
-        #[cfg(not(target_os = "macos"))]
-        let movement_indent = t!("shortcut_help_movement_indent").to_string();
-
-        let movement_section = column![
-            text(t!("shortcut_help_section_movement").to_string())
-                .font(theme::INTER)
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(movement_word_cursor).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(movement_focus).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(movement_reorder).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(movement_outdent).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(movement_indent).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-        ]
-        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
-
-        let backspace_section = column![
-            text(t!("shortcut_help_section_backspace").to_string())
-                .font(theme::INTER)
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_backspace_enter_multiselect").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_backspace_delete_multiselect").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-        ]
-        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
-
-        let multiselect_section = column![
-            text(t!("shortcut_help_section_multiselect").to_string())
-                .font(theme::INTER)
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_multiselect_click").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_multiselect_shift_click").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_multiselect_cmd_click").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-        ]
-        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
-
-        let banner = container(
-            column![
-                title,
-                rule::horizontal(1),
-                global_section,
-                structure_section,
-                movement_section,
-                backspace_section,
-                multiselect_section,
-            ]
-            .spacing(theme::SHORTCUT_HELP_SECTION_GAP),
-        )
-        .style(theme::shortcut_help_banner)
-        .max_width(theme::SHORTCUT_HELP_MAX_WIDTH)
-        .padding(theme::BANNER_PAD);
-
-        Some(banner.into())
-    }
-
     /// Render the breadcrumb navigation bar.
-    fn render_breadcrumbs(&self) -> Element<'a, Message> {
-        let layers = self.state.navigation.layers();
-        if layers.is_empty() {
-            // At root, no breadcrumbs needed
-            return row![].into();
-        }
-
-        let mut crumbs = row![].spacing(theme::ACTION_GAP).align_y(iced::Alignment::Center);
-
-        // Home button
-        let home_btn = IconButton::action(
-            icons::icon_house()
-                .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
-        )
-        .on_press(Message::Navigation(NavigationMessage::Home));
-        crumbs = crumbs.push(home_btn);
-
-        // Separator before breadcrumbs
-        crumbs = crumbs.push(text("›").style(theme::spine_text));
-
-        // Each layer as a clickable breadcrumb
-        for (i, layer) in layers.iter().enumerate() {
-            // Get block text for label
-            let label = self.state.store.point(&layer.block_id).unwrap_or_default();
-            let display_label = truncate_for_display(&label, 30);
-
-            // Add file path indicator if present
-            let full_label = if let Some(path) = &layer.path {
-                if let Some(file_name) = path.file_name() {
-                    format!("{} ({})", display_label, file_name.to_string_lossy())
+    fn render_breadcrumbs_elements(&self) -> Element<'a, Message> {
+        let nav_layers = self.state.navigation.layers();
+        let layer_count = nav_layers.len();
+        let layers: Vec<BreadcrumbLayer> = nav_layers
+            .iter()
+            .enumerate()
+            .map(|(i, layer)| {
+                let label = self.state.store.point(&layer.block_id).unwrap_or_default();
+                let display_label = truncate_for_display(&label, 30);
+                let full_label = if let Some(path) = &layer.path {
+                    if let Some(file_name) = path.file_name() {
+                        format!("{} ({})", display_label, file_name.to_string_lossy())
+                    } else {
+                        display_label.to_string()
+                    }
                 } else {
                     display_label.to_string()
-                }
-            } else {
-                display_label.to_string()
-            };
+                };
+                BreadcrumbLayer { label: full_label, is_current: i == layer_count - 1 }
+            })
+            .collect();
 
-            let crumb_btn = button(text(full_label.clone()).style(theme::spine_text))
-                .style(theme::action_button)
-                .padding(theme::BUTTON_PAD);
-
-            // Make clickable except for current layer
-            if i < layers.len() - 1 {
-                crumbs = crumbs
-                    .push(crumb_btn.on_press(Message::Navigation(NavigationMessage::GoTo(i))));
-            } else {
-                // Current layer - not clickable, emphasize as plain text in a container
-                let current_crumb: Element<'a, Message> = text(full_label).into();
-                crumbs = crumbs.push(
-                    container(current_crumb)
-                        .padding(Padding::ZERO.top(theme::BREADCRUMB_CURRENT_TEXT_TOP_PAD)),
-                );
-            }
-
-            // Separator (not after last item)
-            if i < layers.len() - 1 {
-                crumbs = crumbs.push(text("›").style(theme::spine_text));
-            }
-        }
-
-        crumbs.into()
+        Breadcrumbs::view(&layers, Message::Navigation(NavigationMessage::Home), |i| {
+            Message::Navigation(NavigationMessage::GoTo(i))
+        })
     }
 
     /// Render the context menu overlay when visible.
@@ -675,25 +498,51 @@ impl<'a> DocumentView<'a> {
         // Context menu action buttons
         let is_link = self.state.store.point_content(&block_id).map_or(false, |pc| pc.is_link());
         let toggle_item: Element<'a, Message> = if is_link {
-            context_menu_button(
+            ContextMenuButton::view(
                 t!("ctx_convert_to_text").to_string(),
-                ContextMenuAction::ConvertToText,
+                ContextMenuIcon::ConvertToText,
+                Message::ContextMenu(ContextMenuMessage::Action(ContextMenuAction::ConvertToText)),
             )
         } else {
-            context_menu_button(
+            ContextMenuButton::view(
                 t!("ctx_convert_to_link").to_string(),
-                ContextMenuAction::ConvertToLink,
+                ContextMenuIcon::ConvertToLink,
+                Message::ContextMenu(ContextMenuMessage::Action(ContextMenuAction::ConvertToLink)),
             )
         };
         let menu_items: Element<'a, Message> = column![
-            context_menu_button(t!("ctx_undo").to_string(), ContextMenuAction::Undo),
-            context_menu_button(t!("ctx_redo").to_string(), ContextMenuAction::Redo),
+            ContextMenuButton::view(
+                t!("ctx_undo").to_string(),
+                ContextMenuIcon::Undo,
+                Message::ContextMenu(ContextMenuMessage::Action(ContextMenuAction::Undo)),
+            ),
+            ContextMenuButton::view(
+                t!("ctx_redo").to_string(),
+                ContextMenuIcon::Redo,
+                Message::ContextMenu(ContextMenuMessage::Action(ContextMenuAction::Redo)),
+            ),
             rule::horizontal(1),
-            context_menu_button(t!("ctx_cut").to_string(), ContextMenuAction::Cut),
-            context_menu_button(t!("ctx_copy").to_string(), ContextMenuAction::Copy),
-            context_menu_button(t!("ctx_paste").to_string(), ContextMenuAction::Paste),
+            ContextMenuButton::view(
+                t!("ctx_cut").to_string(),
+                ContextMenuIcon::Cut,
+                Message::ContextMenu(ContextMenuMessage::Action(ContextMenuAction::Cut)),
+            ),
+            ContextMenuButton::view(
+                t!("ctx_copy").to_string(),
+                ContextMenuIcon::Copy,
+                Message::ContextMenu(ContextMenuMessage::Action(ContextMenuAction::Copy)),
+            ),
+            ContextMenuButton::view(
+                t!("ctx_paste").to_string(),
+                ContextMenuIcon::Paste,
+                Message::ContextMenu(ContextMenuMessage::Action(ContextMenuAction::Paste)),
+            ),
             rule::horizontal(1),
-            context_menu_button(t!("ctx_select_all").to_string(), ContextMenuAction::SelectAll),
+            ContextMenuButton::view(
+                t!("ctx_select_all").to_string(),
+                ContextMenuIcon::SelectAll,
+                Message::ContextMenu(ContextMenuMessage::Action(ContextMenuAction::SelectAll)),
+            ),
             rule::horizontal(1),
             toggle_item,
         ]
@@ -1462,24 +1311,4 @@ impl<'a> TreeView<'a> {
         header = header.push(overflow_toggle_btn);
         header.into()
     }
-}
-
-fn context_menu_button<'a>(label: String, action: ContextMenuAction) -> Element<'a, Message> {
-    let icon = match action {
-        | ContextMenuAction::Undo => icons::icon_undo(),
-        | ContextMenuAction::Redo => icons::icon_redo(),
-        | ContextMenuAction::Cut => icons::icon_scissors(),
-        | ContextMenuAction::Copy => icons::icon_copy(),
-        | ContextMenuAction::Paste => icons::icon_clipboard_paste(),
-        | ContextMenuAction::SelectAll => icons::icon_list(),
-        | ContextMenuAction::ConvertToLink => icons::icon_link(),
-        | ContextMenuAction::ConvertToText => icons::icon_type(),
-    };
-
-    button(row![icon.size(14), text(label).width(Fill)].spacing(8).align_y(iced::Alignment::Center))
-        .padding([4, 8])
-        .style(theme::context_menu_button)
-        .on_press(Message::ContextMenu(ContextMenuMessage::Action(action)))
-        .width(Fill)
-        .into()
 }
