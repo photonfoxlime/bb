@@ -70,8 +70,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
             .into();
     }
 
-    let title =
-        text(t!("ui_archive").to_string()).font(theme::INTER).size(theme::FIND_TITLE_SIZE);
+    let title = text(t!("ui_archive").to_string()).font(theme::INTER).size(theme::FIND_TITLE_SIZE);
     let close_btn = TextButton::action(t!("ui_close").to_string(), theme::FIND_META_SIZE)
         .on_press(Message::Archive(ArchivePanelMessage::Close));
     let header = row![
@@ -94,10 +93,9 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
             let label = truncate_for_display(&point, theme::FIND_RESULT_POINT_TRUNCATE);
             let child_count = state.store.children(block_id).len();
 
-            let mut row_content =
-                column![].spacing(theme::FIND_RESULT_LINE_GAP).push(
-                    text(label).font(theme::LXGW_WENKAI).size(theme::FIND_RESULT_POINT_SIZE),
-                );
+            let mut row_content = column![]
+                .spacing(theme::FIND_RESULT_LINE_GAP)
+                .push(text(label).font(theme::LXGW_WENKAI).size(theme::FIND_RESULT_POINT_SIZE));
             if child_count > 0 {
                 row_content = row_content.push(
                     text(t!("archive_child_count", count = child_count).to_string())
@@ -146,10 +144,12 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
         .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
         .width(Length::Fixed(panel_width));
 
-    container(container(panel).padding(Padding::new(theme::FIND_PANEL_MARGIN).top(panel_top_offset)))
-        .align_x(iced::alignment::Horizontal::Center)
-        .align_y(iced::alignment::Vertical::Top)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+    container(
+        container(panel).padding(Padding::new(theme::FIND_PANEL_MARGIN).top(panel_top_offset)),
+    )
+    .align_x(iced::alignment::Horizontal::Center)
+    .align_y(iced::alignment::Vertical::Top)
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
 }

@@ -6,22 +6,24 @@
 //!
 //! # Module layout
 //!
-//! Start with this file (`mod.rs`) for the core types: [`BlockId`], [`BlockNode`],
-//! and [`BlockStore`] with its fundamental accessors. Then read the submodules in
-//! dependency order:
+//! Start with this file (`mod.rs`) for [`BlockStore`] and its fundamental
+//! accessors. Core identity and structure types ([`BlockId`], [`BlockNode`],
+//! etc.) live in [`block`]. Then read the submodules in dependency order:
 //!
-//! 1. [`drafts`] -- per-block draft records (amplify, distill, instruct,
+//! 1. [`block`] -- [`BlockId`], [`BlockNode`], [`FriendBlock`], [`Direction`],
+//!    [`BlockPanelBarState`]. Structural skeleton of the block tree.
+//! 2. [`drafts`] -- per-block draft records (amplify, distill, instruct,
 //!    probe) and friend-block relations. These are the "optional metadata"
 //!    that ride along with each block.
-//! 2. [`tree`] -- structural mutations (append child/sibling, insert parent,
+//! 3. [`tree`] -- structural mutations (append child/sibling, insert parent,
 //!    duplicate, remove) and tree-traversal helpers (subtree collection, lineage).
-//! 3. [`navigate`] -- DFS navigation respecting collapsed state, plus LLM
+//! 4. [`navigate`] -- DFS navigation respecting collapsed state, plus LLM
 //!    context builders that assemble lineage + children + friends.
-//! 4. [`mount`] -- mount data structures (table, entries, origins, errors)
+//! 5. [`mount`] -- mount data structures (table, entries, origins, errors)
 //!    and operations: expand/collapse external files, save subtrees to disk,
 //!    projected-store construction, and re-keying.
-//! 5. [`markdown`] -- Markdown Mount v1 render/parse for the `.md` mount format.
-//! 6. [`persist`] -- load/save the main store file; snapshot logic for
+//! 6. [`markdown`] -- Markdown Mount v1 render/parse for the `.md` mount format.
+//! 7. [`persist`] -- load/save the main store file; snapshot logic for
 //!    excluding mounted blocks from the main-file serialization.
 //!
 //! # Adding per-block persistent data
@@ -60,6 +62,7 @@
 //! 8. Tests, at minimum: serde round-trip, backward-compat (missing key
 //!    defaults to empty), and cleanup-on-removal.
 
+mod block;
 mod drafts;
 mod markdown;
 mod mount;
@@ -68,6 +71,7 @@ mod persist;
 mod point;
 mod tree;
 
+pub use block::{BlockId, BlockNode, BlockPanelBarState, Direction, FriendBlock, MountProjection};
 pub use drafts::{
     AmplificationDraftRecord, AtomizationDraftRecord, DistillationDraftRecord,
     InstructionDraftRecord, ProbeDraftRecord,
@@ -78,155 +82,7 @@ pub use point::{LinkKind, PointContent, PointLink};
 
 use mount::MountTable;
 use serde::{Deserialize, Serialize};
-use slotmap::{Key, SecondaryMap, SlotMap, SparseSecondaryMap};
-
-/// Internal projection used during snapshot/extract to override mount paths.
-#[derive(Debug, Clone)]
-pub(crate) struct MountProjection {
-    pub(crate) path: std::path::PathBuf,
-    pub(crate) format: MountFormat,
-}
-
-/// Persisted friend relation from a source block to a target block.
-///
-/// Friend blocks are user-selected related context for a block: they are not
-/// children but extra blocks whose text (and optional perspective) is included
-/// when building LLM context for distill/amplify. The block that "has" the
-/// friends is the *source* (key in `BlockStore::friend_blocks`); each
-/// [`FriendBlock`] points to another block in the graph and an optional
-/// framing string (perspective) for how the source should interpret that friend.
-///
-/// - [`Self::block_id`] points to the friend block in the main store graph.
-/// - [`Self::perspective`] is optional source-authored framing text that describes how
-///   the source block should interpret that friend block.
-/// - [`Self::parent_lineage_telescope`] controls whether the friend block's parent lineage
-///   is included in LLM context.
-/// - [`Self::children_telescope`] controls whether the friend block's children
-///   are included in LLM context.
-#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct FriendBlock {
-    /// Target friend block id.
-    pub block_id: BlockId,
-    /// Optional source-authored framing for this friend relation.
-    #[serde(default)]
-    pub perspective: Option<String>,
-    /// Whether to include the friend block's parent lineage in LLM context.
-    #[serde(default)]
-    pub parent_lineage_telescope: bool,
-    /// Whether to include the friend block's children in LLM context.
-    #[serde(default)]
-    pub children_telescope: bool,
-}
-
-slotmap::new_key_type! {
-    pub struct BlockId;
-}
-
-impl std::fmt::Display for BlockId {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let ffi = self.data().as_ffi();
-        let index = ffi & 0xFFFFFFFF;
-        let generation = ffi >> 32;
-        write!(f, "{}v{}", index, generation)
-    }
-}
-
-/// Specifies the direction for moving a block relative to a target block.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Direction {
-    /// Move the source block to immediately before the target.
-    Before,
-    /// Move the source block to immediately after the target.
-    After,
-    /// Move the source block to be the last child of the target.
-    Under,
-}
-
-/// Persisted block panel bar state: which panel (if any) is open for a block.
-///
-/// This is stored per-block so each block remembers its own panel state
-/// across app restarts. Unlike runtime UI state, this survives save/load.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub enum BlockPanelBarState {
-    /// Friends panel - shows user-selected friend blocks for LLM context.
-    Friends,
-    /// Instruction panel - text editor for LLM instructions.
-    Instruction,
-}
-
-/// One node in the block tree.
-///
-/// A node is either an inline list of child ids, or a mount point
-/// referencing an external file whose contents are loaded lazily.
-/// Text content (the "point") is stored separately in
-/// [`BlockStore::points`] so that structure and content can be
-/// queried and mutated independently.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum BlockNode {
-    /// Inline children: the default structural variant.
-    Children { children: Vec<BlockId> },
-    /// Mount point: a path to an external block-store file.
-    /// The path is stored relative to the parent store's file when possible.
-    /// At runtime, the referenced file is loaded and its blocks are re-keyed
-    /// into the main store; the node is then swapped to `Children` in memory.
-    Mount {
-        path: std::path::PathBuf,
-        #[serde(default)]
-        format: MountFormat,
-    },
-}
-
-impl BlockNode {
-    /// Create an inline-children node with the given child ids.
-    pub fn with_children(children: Vec<BlockId>) -> Self {
-        Self::Children { children }
-    }
-
-    /// Create a mount-point node referencing an external file.
-    pub fn with_path(path: std::path::PathBuf) -> Self {
-        Self::with_path_and_format(path, MountFormat::Json)
-    }
-
-    /// Create a mount-point node with an explicit persisted file format.
-    pub fn with_path_and_format(path: std::path::PathBuf, format: MountFormat) -> Self {
-        Self::Mount { path, format }
-    }
-
-    /// Return the inline children slice, or an empty slice for mount nodes.
-    pub fn children(&self) -> &[BlockId] {
-        match self {
-            | Self::Children { children } => children,
-            | Self::Mount { .. } => &[],
-        }
-    }
-
-    /// Return a mutable reference to the inline children vec.
-    ///
-    /// Returns `None` for mount nodes.
-    pub fn children_mut(&mut self) -> Option<&mut Vec<BlockId>> {
-        match self {
-            | Self::Children { children } => Some(children),
-            | Self::Mount { .. } => None,
-        }
-    }
-
-    /// Return the mount path if this is a mount node.
-    pub fn mount_path(&self) -> Option<&std::path::Path> {
-        match self {
-            | Self::Children { .. } => None,
-            | Self::Mount { path, .. } => Some(path),
-        }
-    }
-
-    /// Return the persisted mount format if this is a mount node.
-    pub fn mount_format(&self) -> Option<MountFormat> {
-        match self {
-            | Self::Children { .. } => None,
-            | Self::Mount { format, .. } => Some(*format),
-        }
-    }
-}
+use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
 
 /// Forest of blocks: root ids, an archive list, a structural map, and a content map.
 ///

@@ -600,8 +600,7 @@ impl BlockStore {
     }
 
     fn build_projected_store(
-        &self, kept_ids: &[BlockId], hint: Option<String>, roots: &[BlockId],
-        archive: &[BlockId],
+        &self, kept_ids: &[BlockId], hint: Option<String>, roots: &[BlockId], archive: &[BlockId],
         mount_path_overrides: &std::collections::HashMap<BlockId, MountProjection>,
     ) -> BlockStore {
         let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
@@ -875,7 +874,13 @@ impl BlockStore {
             );
         }
 
-        self.build_projected_store(&kept_ids, None, &self.roots, &self.archive, &mount_path_overrides)
+        self.build_projected_store(
+            &kept_ids,
+            None,
+            &self.roots,
+            &self.archive,
+            &mount_path_overrides,
+        )
     }
 
     /// Extract blocks belonging to a mount entry into a standalone store.

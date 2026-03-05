@@ -986,9 +986,7 @@ impl<'a> TreeView<'a> {
                 | DocumentMode::LinkInput
                 | DocumentMode::Archive,
                 _,
-            ) => {
-                block.into()
-            }
+            ) => block.into(),
             | (DocumentMode::PickFriend, Some(focused)) if focused == *block_id => {
                 // Render the picker block itself as is
                 block.into()
