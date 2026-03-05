@@ -104,22 +104,24 @@ jobs:
           PKG="${{ secrets.AUR_PKGNAME || env.AUR_PKGNAME }}"
           git clone "ssh://aur@aur.archlinux.org/${PKG}.git" aur
 
-      - name: Update PKGBUILD (pkgver, pkgrel, source, sha256sums)
+      - name: Update PKGBUILD (pkgver, pkgrel, source)
         shell: bash
         run: |
           set -euo pipefail
 
-          PKGVER="${{ steps.sha.outputs.pkgver }}"
-          URL="${{ steps.sha.outputs.url }}"
-          SHA="${{ steps.sha.outputs.sha256 }}"
+          PKGVER="${{ steps.tag.outputs.pkgver }}"
+          TAG="${{ steps.tag.outputs.tag }}"
+          URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET_NAME}"
 
           cd aur
-          test -f PKGBUILD
-
           sed -i -E "s/^pkgver=.*/pkgver=${PKGVER}/" PKGBUILD
           sed -i -E "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
-          sed -i -E "s|^source=\(.*\)|source=(\"${URL}\")|" PKGBUILD
-          sed -i -E "s/^sha256sums=\(.*/sha256sums=('${SHA}')/" PKGBUILD
+
+          if grep -qE '^source_x86_64=' PKGBUILD; then
+            sed -i -E "s|^source_x86_64=\(.*\)|source_x86_64=(\"${URL}\")|" PKGBUILD
+          else
+            sed -i -E "s|^source=\(.*\)|source=(\"${URL}\")|" PKGBUILD
+          fi
 
       - name: Pre-create .SRCINFO (host)
         shell: bash
