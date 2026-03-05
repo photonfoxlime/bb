@@ -48,3 +48,9 @@ parent/child structure only.
 The overall aesthetic is light and airy: soft blue ink, a paper-like background,
 and generous whitespace. The interface prioritizes legibility and flow so the
 structure of ideas is more prominent than chrome.
+
+## Next Phase: Multorum
+
+Multorum is a multi-agent framework that transforms design documents into working code. From many agents, one implementation.
+
+The central belief behind Multorum is that code is not the goal — it is the outcome of rigorous thinking. What matters is the clarity of the design that precedes it, and the discipline of the process that produces it. To that end, Multorum orchestrates a team of agents, LLM or human alike, each with a well-defined responsibility, working in parallel toward a shared specification. No single agent shoulders the full complexity of a project; instead, the work is distributed with intention, so that every piece of code written can be traced back to a deliberate decision in the design. The quality of the output is a reflection of the quality of the structure behind it.
