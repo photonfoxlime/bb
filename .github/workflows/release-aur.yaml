@@ -127,7 +127,7 @@ jobs:
           set -euo pipefail
           : > aur/.SRCINFO
 
-      - name: Regenerate .SRCINFO (Arch container, non-root, chown only .SRCINFO)
+      - name: Regenerate .SRCINFO (Arch container, match host UID/GID)
         uses: addnab/docker-run-action@v3
         with:
           image: archlinux:latest
@@ -137,21 +137,19 @@ jobs:
             set -euo pipefail
             pacman -Sy --noconfirm --needed base-devel
 
-            useradd -m builder
+            # Match the bind-mount owner from the host (GitHub runner)
+            HOST_UID="$(stat -c '%u' /pkg)"
+            HOST_GID="$(stat -c '%g' /pkg)"
 
-            # Ensure .SRCINFO exists and is writable by builder (ONLY this file)
+            # Create group/user with matching ids (ignore if they already exist)
+            getent group "$HOST_GID" >/dev/null || groupadd -g "$HOST_GID" hostgrp
+            id -u hostuser >/dev/null 2>&1 || useradd -m -u "$HOST_UID" -g "$HOST_GID" hostuser
+
+            # Ensure file exists; ownership becomes irrelevant once UID matches
             touch /pkg/.SRCINFO
-            chown builder:builder /pkg/.SRCINFO
 
-            # Now generate as non-root
-            su - builder -c 'cd /pkg && makepkg --printsrcinfo > .SRCINFO'
-
-      - name: Ensure aur/ is writable (safety)
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo chown -R "$(id -u):$(id -g)" aur
-          chmod -R u+rwX aur
+            # Generate as the matched non-root user
+            su - hostuser -c 'cd /pkg && makepkg --printsrcinfo > .SRCINFO'
 
       - name: Commit & push to AUR (PKGBUILD + .SRCINFO)
         shell: bash
