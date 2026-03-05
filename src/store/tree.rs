@@ -22,7 +22,7 @@ impl BlockStore {
         }
 
         let child_id = self.nodes.insert(BlockNode::with_children(vec![]));
-        self.points.insert(child_id, PointContent::Text(point));
+        self.points.insert(child_id, PointContent::from(point));
         if let Some(mount_point) = self.inherited_mount_point_for_anchor(parent_id) {
             self.mount_table.set_origin(child_id, BlockOrigin::Mounted { mount_point });
         }
@@ -49,7 +49,7 @@ impl BlockStore {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
 
         let parent_block_id = self.nodes.insert(BlockNode::with_children(vec![*block_id]));
-        self.points.insert(parent_block_id, PointContent::Text(point));
+        self.points.insert(parent_block_id, PointContent::from(point));
 
         if let Some(mount_point) = self.inherited_mount_point_for_anchor(block_id) {
             self.mount_table.set_origin(parent_block_id, BlockOrigin::Mounted { mount_point });
@@ -79,7 +79,7 @@ impl BlockStore {
     pub fn append_sibling(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
         let sibling_id = self.nodes.insert(BlockNode::with_children(vec![]));
-        self.points.insert(sibling_id, PointContent::Text(point));
+        self.points.insert(sibling_id, PointContent::from(point));
         if let Some(mount_point) = self.inherited_mount_point_for_anchor(block_id) {
             self.mount_table.set_origin(sibling_id, BlockOrigin::Mounted { mount_point });
         }
@@ -159,7 +159,7 @@ impl BlockStore {
 
         if self.roots.is_empty() {
             let root_id = self.nodes.insert(BlockNode::with_children(vec![]));
-            self.points.insert(root_id, PointContent::Text(String::new()));
+            self.points.insert(root_id, PointContent::default());
             self.roots.push(root_id);
         }
 
@@ -233,7 +233,7 @@ impl BlockStore {
 
         if self.roots.is_empty() {
             let root_id = self.nodes.insert(BlockNode::with_children(vec![]));
-            self.points.insert(root_id, PointContent::Text(String::new()));
+            self.points.insert(root_id, PointContent::default());
             self.roots.push(root_id);
         }
 

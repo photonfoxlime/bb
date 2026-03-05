@@ -1,32 +1,30 @@
 //! Typed point content for blocks.
 //!
-//! A block's "point" is its primary content. Historically this was always a
-//! plain [`String`]. This module introduces [`PointContent`] to distinguish
-//! between plain text and link references while keeping the existing API
-//! surface (which traffics in `String`) intact for the majority of callers.
+//! A block's "point" is its primary content: always a combination of editable
+//! text and zero or more [`PointLink`] references to external resources.
 //!
-//! # Variants
+//! # Shape
 //!
-//! - [`PointContent::Text`] -- plain text (the default, backward-compatible form).
-//! - [`PointContent::Link`] -- a reference to an external resource described by
-//!   a [`PointLink`] (href + inferred kind + optional label).
+//! [`PointContent`] is a struct with two fields:
+//! - `text` — the editable plain text of the block.
+//! - `links` — a `Vec<PointLink>` rendered as chips floating above the text
+//!   editor. Empty by default.
 //!
 //! # Serde contract
 //!
-//! Backward compatibility with existing JSON store files is critical:
+//! Three wire formats are accepted for backward compatibility:
 //!
-//! - **Deserialize**: a bare JSON string is read as `Text`; a JSON object with
-//!   at least an `href` field is read as `Link`.
-//! - **Serialize**: `Text(s)` writes a bare JSON string; `Link(link)` writes
-//!   a JSON object.
+//! | Wire format | Deserializes as |
+//! |---|---|
+//! | `"bare string"` (old `Text` variant) | `{ text: "bare string", links: [] }` |
+//! | `{ "href": ..., "kind": ... }` (old `Link` variant) | `{ text: "", links: [PointLink { ... }] }` |
+//! | `{ "text": ..., "links": [...] }` (current) | parsed normally |
 //!
-//! This means old files round-trip unchanged, and new files with links are
-//! ignored (treated as text) by older versions only if they fall back to
-//! the raw string representation -- which they will because `serde_json`
-//! rejects an unexpected object for a `String` field gracefully.
+//! Serialization always writes the current struct format, omitting `links`
+//! when empty.
 
-use serde::de::{self, Deserializer, Visitor};
-use serde::ser::Serializer;
+use serde::de::{self, Deserializer, MapAccess, Visitor};
+use serde::ser::{SerializeStruct, Serializer};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::path::Path;
@@ -125,66 +123,65 @@ impl PointLink {
 // PointContent
 // ---------------------------------------------------------------------------
 
-/// The typed content of a block's point.
+/// The content of a block's point: always editable text plus zero or more links.
 ///
-/// Most of the codebase accesses points through [`BlockStore::point()`] which
-/// returns `Option<String>` (via [`Self::display_text`]) so existing callers
-/// do not need to match on this enum. Only UI rendering and the toggle action
-/// need to inspect the variant via [`BlockStore::point_content()`].
+/// Links are rendered as chips floating above the text editor. The text field
+/// is always independently editable regardless of link count.
+///
+/// # Invariants
+///
+/// - `text` may be empty (e.g. a block that is purely a link collection).
+/// - `links` is append-only via [`Self::add_link`]; removal is index-based
+///   via [`Self::remove_link`].
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum PointContent {
-    /// Plain text (the historical default).
-    Text(String),
-    /// A link to an external resource.
-    Link(PointLink),
+pub struct PointContent {
+    /// The plain-text body of the block.
+    pub text: String,
+    /// External resource links attached to this block.
+    pub links: Vec<PointLink>,
 }
 
 impl PointContent {
     /// The user-visible text for this point.
-    ///
-    /// - `Text(s)` returns `s`.
-    /// - `Link(link)` returns `link.display_text()` (label or href).
     pub fn display_text(&self) -> &str {
-        match self {
-            | Self::Text(s) => s,
-            | Self::Link(link) => link.display_text(),
-        }
+        &self.text
     }
 
-    /// True when the content is an empty text point (the default for new blocks).
+    /// True when the text field is empty.
     pub fn is_empty_text(&self) -> bool {
-        matches!(self, Self::Text(s) if s.is_empty())
+        self.text.is_empty()
     }
 
-    /// True when the content is a [`PointContent::Link`].
-    pub fn is_link(&self) -> bool {
-        matches!(self, Self::Link(_))
+    /// Append a link to this point.
+    pub fn add_link(&mut self, link: PointLink) {
+        self.links.push(link);
     }
 
-    /// Return the inner link reference, if this is a `Link` variant.
-    pub fn as_link(&self) -> Option<&PointLink> {
-        match self {
-            | Self::Link(link) => Some(link),
-            | Self::Text(_) => None,
+    /// Remove the link at `index`.
+    ///
+    /// No-op if `index` is out of bounds.
+    pub fn remove_link(&mut self, index: usize) {
+        if index < self.links.len() {
+            self.links.remove(index);
         }
     }
 }
 
 impl Default for PointContent {
     fn default() -> Self {
-        Self::Text(String::new())
+        Self { text: String::new(), links: vec![] }
     }
 }
 
 impl From<String> for PointContent {
     fn from(s: String) -> Self {
-        Self::Text(s)
+        Self { text: s, links: vec![] }
     }
 }
 
 impl From<&str> for PointContent {
     fn from(s: &str) -> Self {
-        Self::Text(s.to_owned())
+        Self { text: s.to_owned(), links: vec![] }
     }
 }
 
@@ -194,9 +191,16 @@ impl From<&str> for PointContent {
 
 impl Serialize for PointContent {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
-        match self {
-            | Self::Text(s) => serializer.serialize_str(s),
-            | Self::Link(link) => link.serialize(serializer),
+        if self.links.is_empty() {
+            // Compact form: omit `links` field entirely.
+            let mut s = serializer.serialize_struct("PointContent", 1)?;
+            s.serialize_field("text", &self.text)?;
+            s.end()
+        } else {
+            let mut s = serializer.serialize_struct("PointContent", 2)?;
+            s.serialize_field("text", &self.text)?;
+            s.serialize_field("links", &self.links)?;
+            s.end()
         }
     }
 }
@@ -207,27 +211,76 @@ impl<'de> Deserialize<'de> for PointContent {
     }
 }
 
-/// Visitor that distinguishes bare strings (Text) from objects (Link).
+/// Visitor that handles three wire formats:
+/// - bare string → `PointContent { text: s, links: [] }`
+/// - object with `href` field (old Link variant) → `PointContent { text: "", links: [link] }`
+/// - object with `text` field (current format) → parsed normally
 struct PointContentVisitor;
 
 impl<'de> Visitor<'de> for PointContentVisitor {
     type Value = PointContent;
 
     fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("a string (text point) or an object with href/kind fields (link point)")
+        f.write_str(
+            "a string (legacy text point), an object with href/kind (legacy link), \
+             or an object with text/links fields (current format)",
+        )
     }
 
     fn visit_str<E: de::Error>(self, value: &str) -> Result<Self::Value, E> {
-        Ok(PointContent::Text(value.to_owned()))
+        Ok(PointContent { text: value.to_owned(), links: vec![] })
     }
 
     fn visit_string<E: de::Error>(self, value: String) -> Result<Self::Value, E> {
-        Ok(PointContent::Text(value))
+        Ok(PointContent { text: value, links: vec![] })
     }
 
-    fn visit_map<A: de::MapAccess<'de>>(self, map: A) -> Result<Self::Value, A::Error> {
-        let link = PointLink::deserialize(de::value::MapAccessDeserializer::new(map))?;
-        Ok(PointContent::Link(link))
+    fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+        // Peek at the first key to distinguish legacy Link objects from current format.
+        // Legacy: first key is "href" or "kind".
+        // Current: first key is "text".
+        //
+        // Note: we must buffer remaining key-value pairs because serde visitors
+        // consume the map sequentially.
+        let mut text: Option<String> = None;
+        let mut links: Option<Vec<PointLink>> = None;
+        let mut legacy_href: Option<String> = None;
+        let mut legacy_kind: Option<LinkKind> = None;
+        let mut legacy_label: Option<String> = None;
+
+        while let Some(key) = map.next_key::<String>()? {
+            match key.as_str() {
+                | "text" => {
+                    text = Some(map.next_value()?);
+                }
+                | "links" => {
+                    links = Some(map.next_value()?);
+                }
+                // Legacy Link fields.
+                | "href" => {
+                    legacy_href = Some(map.next_value()?);
+                }
+                | "kind" => {
+                    legacy_kind = Some(map.next_value()?);
+                }
+                | "label" => {
+                    legacy_label = Some(map.next_value()?);
+                }
+                | _ => {
+                    map.next_value::<de::IgnoredAny>()?;
+                }
+            }
+        }
+
+        if let Some(href) = legacy_href {
+            // Old Link variant: migrate to PointContent with one link.
+            let kind = legacy_kind.unwrap_or(LinkKind::Path);
+            let link = PointLink { href, kind, label: legacy_label };
+            Ok(PointContent { text: String::new(), links: vec![link] })
+        } else {
+            // Current format (or partial).
+            Ok(PointContent { text: text.unwrap_or_default(), links: links.unwrap_or_default() })
+        }
     }
 }
 
@@ -277,34 +330,41 @@ mod tests {
 
     #[test]
     fn point_content_display_text() {
-        let text = PointContent::Text("hello".into());
-        assert_eq!(text.display_text(), "hello");
-        let link = PointContent::Link(PointLink::infer("pic.jpg").with_label("Photo"));
-        assert_eq!(link.display_text(), "Photo");
+        let content = PointContent { text: "hello".into(), links: vec![] };
+        assert_eq!(content.display_text(), "hello");
+    }
+
+    #[test]
+    fn add_and_remove_link() {
+        let mut content = PointContent::default();
+        assert!(content.links.is_empty());
+        content.add_link(PointLink::infer("pic.jpg"));
+        assert!(!content.links.is_empty());
+        assert_eq!(content.links.len(), 1);
+        content.remove_link(0);
+        assert!(content.links.is_empty());
+    }
+
+    #[test]
+    fn remove_link_oob_is_noop() {
+        let mut content = PointContent::default();
+        content.remove_link(5); // should not panic
     }
 
     #[test]
     fn serde_text_round_trip() {
-        let original = PointContent::Text("hello world".into());
+        let original = PointContent { text: "hello world".into(), links: vec![] };
         let json = serde_json::to_string(&original).unwrap();
-        assert_eq!(json, r#""hello world""#);
+        assert_eq!(json, r#"{"text":"hello world"}"#);
         let parsed: PointContent = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, original);
     }
 
     #[test]
-    fn serde_link_round_trip() {
-        let original = PointContent::Link(PointLink::infer("diagram.png").with_label("Diagram"));
+    fn serde_with_links_round_trip() {
+        let mut original = PointContent { text: "my note".into(), links: vec![] };
+        original.add_link(PointLink::infer("diagram.png").with_label("Diagram"));
         let json = serde_json::to_string(&original).unwrap();
-        let parsed: PointContent = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, original);
-    }
-
-    #[test]
-    fn serde_link_without_label_round_trip() {
-        let original = PointContent::Link(PointLink::infer("notes.md"));
-        let json = serde_json::to_string(&original).unwrap();
-        assert!(!json.contains("label"));
         let parsed: PointContent = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, original);
     }
@@ -313,13 +373,34 @@ mod tests {
     fn serde_backward_compat_bare_string() {
         let json = r#""existing text point""#;
         let parsed: PointContent = serde_json::from_str(json).unwrap();
-        assert_eq!(parsed, PointContent::Text("existing text point".into()));
+        assert_eq!(parsed.text, "existing text point");
+        assert!(parsed.links.is_empty());
+    }
+
+    #[test]
+    fn serde_backward_compat_old_link_object() {
+        let json = r#"{"href":"/path/to/photo.png","kind":"image","label":"Photo"}"#;
+        let parsed: PointContent = serde_json::from_str(json).unwrap();
+        assert_eq!(parsed.text, "");
+        assert_eq!(parsed.links.len(), 1);
+        assert_eq!(parsed.links[0].href, "/path/to/photo.png");
+        assert_eq!(parsed.links[0].kind, LinkKind::Image);
+        assert_eq!(parsed.links[0].label.as_deref(), Some("Photo"));
+    }
+
+    #[test]
+    fn serde_backward_compat_old_link_no_label() {
+        let json = r#"{"href":"notes.md","kind":"markdown"}"#;
+        let parsed: PointContent = serde_json::from_str(json).unwrap();
+        assert!(parsed.text.is_empty());
+        assert_eq!(parsed.links.len(), 1);
+        assert_eq!(parsed.links[0].kind, LinkKind::Markdown);
+        assert!(parsed.links[0].label.is_none());
     }
 
     #[test]
     fn is_empty_text() {
-        assert!(PointContent::Text(String::new()).is_empty_text());
-        assert!(!PointContent::Text("non-empty".into()).is_empty_text());
-        assert!(!PointContent::Link(PointLink::infer("a.png")).is_empty_text());
+        assert!(PointContent::default().is_empty_text());
+        assert!(!PointContent { text: "non-empty".into(), links: vec![] }.is_empty_text());
     }
 }

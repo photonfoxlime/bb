@@ -1,20 +1,21 @@
 //! Point editing commands.
 //!
 //! This module provides CLI commands for modifying the text content (point) of blocks.
-//! Supports both plain text and link points via the `--link` flag.
+//! Supports appending link chips via the `--link` flag.
 
 use super::{
     BlockId, execute,
     results::{BatchError, BatchOutput, CliResult},
 };
-use crate::store::BlockStore;
+use crate::store::{BlockStore, PointLink};
 use clap::Parser;
 
 /// Edit the text content of a block.
 ///
-/// By default, the text is treated as plain text. With `--link`, the text is
-/// interpreted as an href and the block's point becomes a [`PointLink`] with
-/// [`LinkKind`] inferred from the file extension.
+/// By default, the text is treated as plain text and replaces the block's
+/// current text. With `--link`, the text is interpreted as an href and a new
+/// [`PointLink`] is appended to the block's links; the existing text is
+/// unchanged.
 #[derive(Debug, Parser)]
 pub struct EditPointCommand {
     /// The block ID to edit.
@@ -25,15 +26,13 @@ pub struct EditPointCommand {
     pub block_id: BlockId,
 
     /// The new text content (or href when `--link` is set) for the block.
-    ///
-    /// This replaces the existing content entirely.
     #[arg(value_name = "TEXT")]
     pub text: String,
 
-    /// Treat the text as a link href instead of plain text.
+    /// Append the text as a link href rather than setting the plain text.
     ///
     /// The link kind (image, markdown, or path) is inferred from the file
-    /// extension. The previous content is discarded.
+    /// extension. The block's existing text is preserved.
     #[arg(long)]
     pub link: bool,
 }
@@ -50,9 +49,10 @@ pub fn execute_point(mut store: BlockStore, cmd: &EditPointCommand) -> (BlockSto
         match id {
             | None => (store, CliResult::Error("Unknown block ID".to_string())),
             | Some(block_id) => {
-                store.update_point(&block_id, cmd.text.clone());
                 if cmd.link {
-                    store.toggle_to_link(&block_id);
+                    store.add_link_to_point(&block_id, PointLink::infer(&cmd.text));
+                } else {
+                    store.update_point(&block_id, cmd.text.clone());
                 }
                 (store, CliResult::Success)
             }
@@ -65,9 +65,10 @@ pub fn execute_point(mut store: BlockStore, cmd: &EditPointCommand) -> (BlockSto
             match execute::resolve_block_id(&store, &target) {
                 | None => errors.push(BatchError { input, error: "Unknown block ID".to_string() }),
                 | Some(block_id) => {
-                    store.update_point(&block_id, cmd.text.clone());
                     if cmd.link {
-                        store.toggle_to_link(&block_id);
+                        store.add_link_to_point(&block_id, PointLink::infer(&cmd.text));
+                    } else {
+                        store.update_point(&block_id, cmd.text.clone());
                     }
                     outputs.push(BatchOutput::Success { input });
                 }

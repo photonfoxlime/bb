@@ -146,10 +146,6 @@ pub enum ContextMenuAction {
     Copy,
     Paste,
     SelectAll,
-    /// Convert a text point to a link (href = current text, kind inferred).
-    ConvertToLink,
-    /// Convert a link point back to plain text (display text becomes content).
-    ConvertToText,
 }
 
 /// Default capacity: 64 undo steps.
@@ -239,7 +235,11 @@ pub enum Message {
     ContextMenu(ContextMenuMessage),
     LinkMode(LinkModeMessage),
     /// Toggle inline preview for a link chip (expand / collapse).
-    LinkChipToggle(BlockId),
+    ///
+    /// The `usize` is the index into the block's `links` vec.
+    /// Toggling the same index collapses it; toggling a different index
+    /// replaces the previously expanded chip.
+    LinkChipToggle(BlockId, usize),
     /// Block clicked in multiselect mode. Modifiers at click time drive behavior.
     MultiselectBlockClicked(BlockId),
     /// Plain Backspace in multiselect mode: delete selection. Handled globally
@@ -282,9 +282,12 @@ impl AppState {
             | Message::Settings(message) => settings::handle(self, message),
             | Message::ContextMenu(message) => context_menu::handle(self, message),
             | Message::LinkMode(message) => link_panel::handle(self, message),
-            | Message::LinkChipToggle(block_id) => {
-                if !self.ui_mut().expanded_links.remove(&block_id) {
-                    self.ui_mut().expanded_links.insert(block_id);
+            | Message::LinkChipToggle(block_id, index) => {
+                let expanded = &mut self.ui_mut().expanded_links;
+                if expanded.get(&block_id) == Some(&index) {
+                    expanded.remove(&block_id);
+                } else {
+                    expanded.insert(block_id, index);
                 }
                 Task::none()
             }

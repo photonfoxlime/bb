@@ -90,7 +90,7 @@ use crate::{
     component::icon_button::IconButton,
     component::status_chip::StatusChip,
     component::text_button::TextButton,
-    store::{BlockId, BlockPanelBarState, PointContent},
+    store::{BlockId, BlockPanelBarState},
     text::truncate_for_display,
     theme,
 };
@@ -344,21 +344,7 @@ impl<'a> DocumentView<'a> {
             action_buttons_column = action_buttons_column.push(row_buttons.width(Fill));
         }
 
-        // Context menu action buttons
-        let is_link = self.state.store.point_content(&block_id).map_or(false, |pc| pc.is_link());
-        let toggle_item: Element<'a, Message> = if is_link {
-            ContextMenuButton::view(
-                t!("ctx_convert_to_text").to_string(),
-                ContextMenuIcon::ConvertToText,
-                Message::ContextMenu(ContextMenuMessage::Action(ContextMenuAction::ConvertToText)),
-            )
-        } else {
-            ContextMenuButton::view(
-                t!("ctx_convert_to_link").to_string(),
-                ContextMenuIcon::ConvertToLink,
-                Message::ContextMenu(ContextMenuMessage::Action(ContextMenuAction::ConvertToLink)),
-            )
-        };
+        // Context menu text-editing actions.
         let menu_items: Element<'a, Message> = column![
             ContextMenuButton::view(
                 t!("ctx_undo").to_string(),
@@ -392,8 +378,6 @@ impl<'a> DocumentView<'a> {
                 ContextMenuIcon::SelectAll,
                 Message::ContextMenu(ContextMenuMessage::Action(ContextMenuAction::SelectAll)),
             ),
-            rule::horizontal(1),
-            toggle_item,
         ]
         .spacing(theme::CONTEXT_MENU_ITEM_SPACING)
         .padding(theme::CONTEXT_MENU_PAD)
@@ -478,17 +462,9 @@ impl<'a> TreeView<'a> {
             self.state.store.mount_table().entry(*block_id).map(|entry| entry.rel_path.as_path())
         });
 
-        // Link blocks bypass the editor buffer entirely — they render a chip
-        // widget instead of a text editor. Checking here avoids the "missing
-        // editor content" error that would otherwise fire for blocks whose
-        // buffer was removed on link conversion.
-        let is_link_block =
-            self.state.store.point_content(block_id).map_or(false, PointContent::is_link);
-
-        // Editor content is only needed for non-link blocks.
-        let editor_content = if is_link_block {
-            None
-        } else {
+        // Editor content must be present for all blocks that are not in
+        // plain-text mode. Log and return a fallback if it is missing.
+        let editor_content = {
             let content = self.state.editor_buffers.get(block_id);
             if content.is_none() {
                 let fallback_text = self.state.store.point(block_id).unwrap_or_default();
@@ -500,12 +476,7 @@ impl<'a> TreeView<'a> {
 
         let block_id_for_edit = *block_id;
 
-        // For action bar context, use editor text or link display text.
-        let point_text_for_context = if is_link_block {
-            self.state.store.point(block_id).unwrap_or_default()
-        } else {
-            editor_content.unwrap().text()
-        };
+        let point_text_for_context = editor_content.unwrap().text();
         let row_context = self.action_row_context(block_id, point_text_for_context);
         let action_bar =
             project_for_viewport(build_action_bar_vm(&row_context), self.viewport_bucket());
@@ -566,15 +537,22 @@ impl<'a> TreeView<'a> {
                 && self.state.navigation.is_in_current_view(&self.state.store, block_id)
         });
 
+        let links = self
+            .state
+            .store
+            .point_content(block_id)
+            .map(|pc| pc.links.as_slice())
+            .unwrap_or(&[]);
+        let expanded_link_index = self.state.ui().expanded_links.get(block_id).copied();
         let point_editor = point_editor::view(
             block_id_for_edit,
             is_target_block || is_multiselect_mode,
             self.state.store.point(block_id).unwrap_or_default(),
-            self.state.store.point_content(block_id),
+            links,
             editor_content,
             self.state.editor_buffers.widget_id(block_id),
             self.state.ui().cursor_position.unwrap_or(Point::ORIGIN),
-            self.state.ui().expanded_links.contains(block_id),
+            expanded_link_index,
         );
 
         let row_content = row![]

@@ -11,7 +11,7 @@
 //! owning VM types and builder/projection functions below.
 
 use super::{
-    AppState, Message, MountFileMessage, StructureMessage,
+    AppState, LinkModeMessage, Message, MountFileMessage, StructureMessage,
     patch::{PatchKind, PatchMessage},
 };
 use crate::{store::BlockId, theme};
@@ -43,6 +43,8 @@ pub enum ActionId {
     /// Atomize: break text into distinct information points.
     Atomize,
     Cancel,
+    /// Append a link to the block's point via the link-input panel.
+    AddLink,
     AddChild,
     AddParent,
     AcceptAll,
@@ -120,6 +122,7 @@ pub fn action_i18n_key(id: ActionId) -> &'static str {
         | ActionId::Amplify => "action_amplify",
         | ActionId::Distill => "action_distill",
         | ActionId::Atomize => "action_atomize",
+        | ActionId::AddLink => "action_add_link",
         | ActionId::AddChild => "action_add_child",
         | ActionId::AddParent => "action_add_parent",
         | ActionId::AcceptAll => "action_accept_all",
@@ -318,6 +321,11 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     vm.primary.push(ActionDescriptor::new(
         ActionId::Atomize,
         atomize_availability,
+        ActionPriority::Pinned,
+    ));
+    vm.primary.push(ActionDescriptor::new(
+        ActionId::AddLink,
+        ActionAvailability::Enabled,
         ActionPriority::Pinned,
     ));
     vm.primary.push(ActionDescriptor::new(
@@ -543,6 +551,7 @@ pub fn action_to_message_by_id(
             kind: PatchKind::Distill,
             block_id: *block_id,
         })),
+        | ActionId::AddLink => Some(Message::LinkMode(LinkModeMessage::Enter(*block_id))),
         | ActionId::AddChild => Some(Message::Structure(StructureMessage::AddChild(*block_id))),
         | ActionId::AddParent => Some(Message::Structure(StructureMessage::AddParent(*block_id))),
         | ActionId::AcceptAll => accept_all_message_for_block(state, block_id),
@@ -645,6 +654,7 @@ pub fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
         | ActionId::Distill => icons::icon_minimize_2(),
         | ActionId::Atomize => icons::icon_maximize(),
         | ActionId::Cancel => icons::icon_circle_x(),
+        | ActionId::AddLink => icons::icon_link_2(),
         | ActionId::AddChild => icons::icon_corner_down_right(),
         | ActionId::AddParent => icons::icon_corner_up_left(),
         | ActionId::AcceptAll => icons::icon_check_check(),
@@ -692,7 +702,13 @@ mod tests {
         let ids = vm.primary.into_iter().map(|action| action.id).collect::<Vec<_>>();
         assert_eq!(
             ids,
-            vec![ActionId::Amplify, ActionId::Distill, ActionId::Atomize, ActionId::AddChild]
+            vec![
+                ActionId::Amplify,
+                ActionId::Distill,
+                ActionId::Atomize,
+                ActionId::AddLink,
+                ActionId::AddChild,
+            ]
         );
     }
 
@@ -885,7 +901,7 @@ mod tests {
         let projected = project_for_viewport(vm, ViewportBucket::Wide);
 
         assert_eq!(projected.primary.len(), original_count);
-        assert_eq!(projected.primary.len(), 4);
+        assert_eq!(projected.primary.len(), 5);
     }
 
     #[test]

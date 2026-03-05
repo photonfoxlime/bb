@@ -14,7 +14,7 @@ use super::point_text_editor::PointTextEditor;
 #[cfg(test)]
 use super::point_text_editor::WordCursorDirection;
 use super::{ContextMenuMessage, EditMessage, Message, ShortcutMessage};
-use crate::store::{BlockId, PointContent};
+use crate::store::{BlockId, PointLink};
 use iced::{
     Element, Point,
     widget::{self, text_editor},
@@ -26,21 +26,22 @@ use rust_i18n::t;
 /// Delegates to [`PointTextEditor`] with application-specific message
 /// constructors and keyboard shortcut handling.
 pub(super) fn view<'a>(
-    block_id: BlockId, is_plain_text: bool, point_text: String,
-    point_content: Option<&'a PointContent>, editor_content: Option<&'a text_editor::Content>,
-    widget_id: Option<&'a widget::Id>, cursor_position: Point, is_link_expanded: bool,
+    block_id: BlockId, is_plain_text: bool, point_text: String, links: &'a [PointLink],
+    editor_content: Option<&'a text_editor::Content>, widget_id: Option<&'a widget::Id>,
+    cursor_position: Point, expanded_link_index: Option<usize>,
 ) -> Element<'a, Message> {
     PointTextEditor {
         block_id,
         is_plain_text,
         point_text,
-        point_content,
+        links,
         editor_content,
         widget_id,
         cursor_position,
-        is_link_expanded,
+        expanded_link_index,
         placeholder: t!("doc_placeholder_point").to_string(),
-        on_link_chip_toggle: |bid| Message::LinkChipToggle(bid),
+        on_link_chip_toggle: |bid, idx| Message::LinkChipToggle(bid, idx),
+        on_remove_link: |bid, idx| Message::Edit(EditMessage::RemoveLink { block_id: bid, index: idx }),
         on_context_menu: |bid, position| {
             Message::ContextMenu(ContextMenuMessage::Show { block_id: bid, position })
         },

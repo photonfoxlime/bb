@@ -1,17 +1,26 @@
 //! Point editor widget for individual block rows.
 //!
-//! Renders the editable content of a single block point, which can be in one
-//! of three states:
-//! - Plain text: read-only display used in friend-picker or multiselect mode
-//! - Link chip: a clickable chip showing a filesystem link with optional inline preview
-//! - Text editor: an interactive `iced::text_editor` for freeform text input
+//! Renders the editable content of a single block point. A point always has
+//! a text editor, optionally preceded by a row of link chips (one per entry
+//! in the block's `links` vec).
+//!
+//! Three rendering modes:
+//! - `is_plain_text`: renders a static text container (friend-picker / multiselect).
+//! - standard: renders link chips (if any) above an interactive `text_editor`.
+//!
+//! # Link chip layout
+//!
+//! Link chips are rendered in a wrapping column above the text editor.
+//! Each chip shows a kind icon and the link's display text. An inline
+//! preview (image or markdown content) appears below the chip when expanded.
+//! An × button on each chip removes that link from the block's point.
 //!
 //! The component is generic over the application `Message` type. All
 //! message construction is delegated to the caller via `fn` pointer
 //! fields so the component carries no dependency on application-level
 //! message enums.
 //!
-//! App-specific: couples to store types (BlockId, PointContent, LinkKind)
+//! App-specific: couples to store types (BlockId, PointLink, LinkKind)
 //! and the block document domain.
 //!
 //! # Key-binding layer
@@ -27,7 +36,7 @@
 //!    cursor by one word token, dispatched via `on_word_move`.
 //! 4. Fallback: the key press is forwarded to the default iced binding.
 
-use crate::store::{BlockId, LinkKind, PointContent};
+use crate::store::{BlockId, LinkKind, PointLink};
 use crate::theme;
 use iced::{
     Element, Fill, Length, Point,
@@ -48,22 +57,29 @@ pub enum WordCursorDirection {
 /// Construct with a struct literal and call [`PointTextEditor::view`] to
 /// produce the element.
 ///
-/// Three visual modes (selected by inspecting the supplied data):
+/// Two visual modes (selected by inspecting `is_plain_text`):
 /// - `is_plain_text`: renders a static text container.
-/// - link block (`point_content` is a link): renders a clickable chip.
-/// - text block: renders an interactive `text_editor` with key bindings.
+/// - standard: renders link chips (if any) above the interactive text editor.
 pub struct PointTextEditor<'a, Message> {
     pub block_id: BlockId,
     pub is_plain_text: bool,
     pub point_text: String,
-    pub point_content: Option<&'a PointContent>,
+    /// Links attached to this block's point, rendered as chips above the editor.
+    pub links: &'a [PointLink],
     pub editor_content: Option<&'a text_editor::Content>,
     pub widget_id: Option<&'a widget::Id>,
     pub cursor_position: Point,
-    pub is_link_expanded: bool,
+    /// Which link chip index is currently expanded (showing inline preview), if any.
+    pub expanded_link_index: Option<usize>,
     pub placeholder: String,
-    /// Message to emit when the link chip is pressed.
-    pub on_link_chip_toggle: fn(BlockId) -> Message,
+    /// Message to emit when a link chip is pressed (toggle expand).
+    ///
+    /// Arguments: `(block_id, link_index)`.
+    pub on_link_chip_toggle: fn(BlockId, usize) -> Message,
+    /// Message to emit when the × button on a chip is pressed.
+    ///
+    /// Arguments: `(block_id, link_index)`.
+    pub on_remove_link: fn(BlockId, usize) -> Message,
     /// Message to emit on a right-click anywhere in the editor.
     pub on_context_menu: fn(BlockId, Point) -> Message,
     /// Message wrapping a raw `text_editor::Action`.
@@ -82,13 +98,14 @@ impl<'a, Message: Clone + 'a> PointTextEditor<'a, Message> {
             block_id,
             is_plain_text,
             point_text,
-            point_content,
+            links,
             editor_content,
             widget_id,
             cursor_position,
-            is_link_expanded,
+            expanded_link_index,
             placeholder,
             on_link_chip_toggle,
+            on_remove_link,
             on_context_menu,
             on_edit_action,
             on_word_move,
@@ -98,9 +115,13 @@ impl<'a, Message: Clone + 'a> PointTextEditor<'a, Message> {
         if is_plain_text {
             // In friend picker or multiselect mode, render as plain text so
             // the block wrapper can capture clicks.
-            container(text(point_text)).width(Fill).height(Length::Shrink).into()
-        } else if let Some(link) = point_content.and_then(PointContent::as_link) {
-            // Link point: render as a clickable chip instead of a text editor.
+            return container(text(point_text)).width(Fill).height(Length::Shrink).into();
+        }
+
+        // Build link chips column (empty when no links attached).
+        let mut outer_col = column![].width(Fill);
+
+        for (i, link) in links.iter().enumerate() {
             let kind_icon: Element<'a, Message> = match link.kind {
                 | LinkKind::Image => icons::icon_image().size(theme::LINK_CHIP_ICON_SIZE).into(),
                 | LinkKind::Markdown => {
@@ -109,21 +130,33 @@ impl<'a, Message: Clone + 'a> PointTextEditor<'a, Message> {
                 | LinkKind::Path => icons::icon_link().size(theme::LINK_CHIP_ICON_SIZE).into(),
             };
             let label_text = link.display_text().to_owned();
-            let chip = button(
+
+            let expand_btn = button(
                 row![kind_icon, text(label_text).size(theme::LINK_CHIP_TEXT_SIZE)]
                     .spacing(theme::LINK_CHIP_ICON_GAP)
                     .align_y(iced::Alignment::Center),
             )
             .style(theme::link_chip_button)
             .padding(theme::LINK_CHIP_PAD)
-            .on_press(on_link_chip_toggle(block_id));
+            .on_press(on_link_chip_toggle(block_id, i));
 
-            let mut chip_col = column![
-                mouse_area(chip).on_right_press(on_context_menu(block_id, cursor_position))
-            ];
+            let remove_btn = button(
+                icons::icon_x()
+                    .size(theme::LINK_CHIP_ICON_SIZE)
+                    .line_height(iced::widget::text::LineHeight::Relative(1.0)),
+            )
+            .style(theme::link_chip_button)
+            .padding(theme::LINK_CHIP_PAD)
+            .on_press(on_remove_link(block_id, i));
 
-            // Inline preview when expanded.
-            if is_link_expanded {
+            let chip_row = row![expand_btn, remove_btn]
+                .spacing(theme::LINK_CHIP_ICON_GAP)
+                .align_y(iced::Alignment::Center);
+
+            let mut chip_col = column![chip_row];
+
+            // Inline preview when this chip is expanded.
+            if expanded_link_index == Some(i) {
                 match link.kind {
                     | LinkKind::Image => {
                         let img =
@@ -146,23 +179,27 @@ impl<'a, Message: Clone + 'a> PointTextEditor<'a, Message> {
                 }
             }
 
-            chip_col.into()
-        } else {
-            // Safety: editor_content is always Some for non-link blocks.
-            let editor_content =
-                editor_content.expect("editor_content must be Some for text blocks");
-            let key_binding = build_key_binding(block_id, on_word_move, on_shortcut_key);
-            let mut editor = text_editor(editor_content)
-                .placeholder(placeholder)
-                .style(theme::point_editor)
-                .on_action(move |action| on_edit_action(block_id, action))
-                .key_binding(key_binding)
-                .height(Length::Shrink);
-            if let Some(wid) = widget_id {
-                editor = editor.id(wid.clone());
-            }
-            mouse_area(editor).on_right_press(on_context_menu(block_id, cursor_position)).into()
+            outer_col = outer_col.push(chip_col);
         }
+
+        // Text editor — always rendered.
+        // Safety: editor_content is always Some for non-plain-text blocks.
+        let editor_content =
+            editor_content.expect("editor_content must be Some for non-plain-text blocks");
+        let key_binding = build_key_binding(block_id, on_word_move, on_shortcut_key);
+        let mut editor = text_editor(editor_content)
+            .placeholder(placeholder)
+            .style(theme::point_editor)
+            .on_action(move |action| on_edit_action(block_id, action))
+            .key_binding(key_binding)
+            .height(Length::Shrink);
+        if let Some(wid) = widget_id {
+            editor = editor.id(wid.clone());
+        }
+        let editor_el =
+            mouse_area(editor).on_right_press(on_context_menu(block_id, cursor_position));
+
+        outer_col.push(editor_el).into()
     }
 }
 

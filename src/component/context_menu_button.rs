@@ -16,8 +16,6 @@ pub enum ContextMenuIcon {
     Copy,
     Paste,
     SelectAll,
-    ConvertToLink,
-    ConvertToText,
 }
 
 impl ContextMenuIcon {
@@ -29,8 +27,6 @@ impl ContextMenuIcon {
             | Self::Copy => icons::icon_copy(),
             | Self::Paste => icons::icon_clipboard_paste(),
             | Self::SelectAll => icons::icon_list(),
-            | Self::ConvertToLink => icons::icon_link(),
-            | Self::ConvertToText => icons::icon_type(),
         };
         icon.size(theme::CONTEXT_MENU_ICON_SIZE).into()
     }

@@ -1,20 +1,22 @@
-//! Link-input panel for searching the filesystem and converting a block's
-//! point into a [`PointLink`].
+//! Link-input panel for searching the filesystem and appending a [`PointLink`]
+//! to a block's point.
 //!
-//! Entered by typing `@` in an empty point editor. Shows a floating panel
+//! Entered by typing `@` in an empty point editor, or by pressing the
+//! "Add Link" button in the action bar / context menu. Shows a floating panel
 //! with fuzzy filesystem search starting from `$HOME`. Selecting a candidate
-//! converts the entire point to a link via [`PointLink::infer`].
+//! appends a new link chip via [`PointLink::infer`]; the block's text is
+//! unchanged.
 //!
 //! # User interaction flow
 //!
-//! 1. User focuses an empty block and types `@`.
+//! 1. User focuses a block and types `@` (when text is empty) or presses
+//!    the "Add Link" action.
 //! 2. The `@` is detected in [`crate::app::edit`] (PointEdited handler),
 //!    which clears the editor and emits [`LinkModeMessage::Enter`].
 //! 3. The panel opens, showing `$HOME` entries. The search input is focused.
 //! 4. Typing narrows the candidates via [`search_filesystem`].
-//! 5. **Confirm** (Enter or click): the selected path replaces the block's
-//!    point with a [`PointLink`]. The editor buffer is removed since link
-//!    blocks render as chips, not text editors.
+//! 5. **Confirm** (Enter or click): the selected path is appended to the
+//!    block's `links` vec as a new chip. The text editor is unaffected.
 //! 6. **Cancel** (Escape): exits link mode with no changes.
 //! 7. **Double-`@`**: typing `@` as the first character in the search input
 //!    exits link mode and inserts a literal `@` into the block's point editor.
@@ -106,11 +108,10 @@ pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
             if let (Some(block_id), Some(path)) = (panel.block_id, selected) {
                 let href = path.to_string_lossy().to_string();
                 let link = PointLink::infer(href);
-                state.store.set_point_content(&block_id, crate::store::PointContent::Link(link));
-                state.persist_with_context("convert to link");
-                // Clear the editor buffer — link blocks render as chips, not
-                // text editors, so the buffer would be stale.
-                state.editor_buffers.remove_blocks(&[block_id]);
+                state.store.add_link_to_point(&block_id, link);
+                state.persist_with_context("add link");
+                // Editor buffer is kept: the text editor is always present
+                // alongside link chips.
             }
             exit_link_mode(state);
             Task::none()

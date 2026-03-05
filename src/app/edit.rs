@@ -23,6 +23,13 @@ pub enum EditMessage {
     AddEmptyFirstChild {
         block_id: BlockId,
     },
+    /// Remove the link at `index` from a block's point.
+    ///
+    /// Emitted by the × button on a link chip.
+    RemoveLink {
+        block_id: BlockId,
+        index: usize,
+    },
 }
 
 /// Handle a point-editing message.
@@ -36,6 +43,13 @@ pub fn handle(state: &mut AppState, message: EditMessage) -> Task<Message> {
         }
         | EditMessage::AddEmptyFirstChild { block_id } => {
             add_empty_first_child_from_enter(state, block_id)
+        }
+        | EditMessage::RemoveLink { block_id, index } => {
+            state.store.remove_link_from_point(&block_id, index);
+            // Collapse any expanded chip for this block whose index is now stale.
+            state.ui_mut().expanded_links.remove(&block_id);
+            state.persist_with_context("remove link");
+            Task::none()
         }
     }
 }

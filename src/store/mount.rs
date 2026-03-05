@@ -270,7 +270,7 @@ impl BlockStore {
             && content.is_empty_text()
             && let Some(hint) = &sub_store.hint
         {
-            *content = PointContent::Text(hint.clone());
+            content.text = hint.clone();
         }
 
         let (new_roots, all_new_ids) = self.rekey_sub_store(&sub_store, mount_point);

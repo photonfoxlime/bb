@@ -5,7 +5,7 @@
 
 use crate::store::BlockId;
 use iced::keyboard;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use super::find_panel::FindUiState;
 
@@ -188,8 +188,10 @@ pub struct TransientUiState {
     pub cursor_position: Option<iced::Point>,
     /// State for the link-input panel (filesystem search).
     pub link_panel: LinkPanelState,
-    /// Set of blocks whose link chips are expanded (showing inline preview).
+    /// Per-block expanded link chip index (showing inline preview).
     ///
+    /// Maps a block id to the index of its currently expanded link chip.
+    /// At most one chip per block can be expanded at a time.
     /// Transient: not persisted, reset on restart.
-    pub expanded_links: BTreeSet<BlockId>,
+    pub expanded_links: BTreeMap<BlockId, usize>,
 }

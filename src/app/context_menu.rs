@@ -71,23 +71,6 @@ pub fn handle(state: &mut AppState, message: ContextMenuMessage) -> Task<Message
                     content.perform(text_editor::Action::SelectAll);
                     Task::none()
                 }
-                | ContextMenuAction::ConvertToLink => {
-                    state.store.toggle_to_link(&block_id);
-                    // Rebuild editor buffer: link blocks show a chip, not a text editor.
-                    state
-                        .editor_buffers
-                        .set_text(&block_id, &state.store.point(&block_id).unwrap_or_default());
-                    state.persist_with_context("convert to link");
-                    Task::none()
-                }
-                | ContextMenuAction::ConvertToText => {
-                    state.store.toggle_to_text(&block_id);
-                    state
-                        .editor_buffers
-                        .set_text(&block_id, &state.store.point(&block_id).unwrap_or_default());
-                    state.persist_with_context("convert to text");
-                    Task::none()
-                }
             }
         }
     }
