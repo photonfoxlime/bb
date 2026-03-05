@@ -154,6 +154,16 @@ pub struct TransientUiState {
     /// mixed UTF-8 lines and prevents large horizontal jumps after crossing a
     /// short line.
     ///
+    /// Lifecycle:
+    /// - seeded from current caret column on first vertical move in a chain,
+    /// - reused while vertical motion continues across lines/blocks,
+    /// - reset when edit flow switches to non-vertical motion or explicit
+    ///   focus change.
+    ///
+    /// Note: this field tracks horizontal intent only. Final visual-row
+    /// placement for wrapped lines is resolved at runtime by editor motions in
+    /// `app::edit::set_cursor`.
+    ///
     /// Note: this field is transient by design and must never be persisted.
     pub vertical_cursor_preferred_column: Option<usize>,
     /// Whether the keyboard-shortcuts help banner is visible.

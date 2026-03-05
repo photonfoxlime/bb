@@ -763,6 +763,8 @@ impl AppState {
         if previous_focus != Some(block_id) {
             // Vertical-column intent only applies to one contiguous cursor
             // traversal chain. Reset when focus changes for any other reason.
+            // Note: cross-block cursor traversal reseeds this intent
+            // immediately when handling the next vertical editor action.
             self.ui_mut().vertical_cursor_preferred_column = None;
         }
 

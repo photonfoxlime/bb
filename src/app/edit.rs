@@ -1,3 +1,36 @@
+//! Point editor mutation and cursor-navigation behavior.
+//!
+//! This module owns all point-level edit actions emitted by
+//! [`PointTextEditor`](super::point_editor::PointTextEditor), including:
+//! - text insert/delete/newline handling,
+//! - word-wise cursor movement,
+//! - multiselect backspace transitions,
+//! - cross-block vertical cursor traversal.
+//!
+//! # Vertical navigation model
+//!
+//! Cursor state is tracked in two coordinate spaces:
+//! - logical position (`line`, `column_byte`) used by iced content APIs,
+//! - visual row position inside wrapped lines (runtime layout dependent).
+//!
+//! `ArrowUp`/`ArrowDown` first delegates to iced (`content.perform(action)`),
+//! then detects an edge hit when cursor position is unchanged. At that point we
+//! traverse to the adjacent visible block and restore horizontal intent using a
+//! sticky preferred char column (`TransientUiState::vertical_cursor_preferred_column`).
+//!
+//! Note: wrapped lines can report `line_count == 1` while rendering many
+//! visual rows. Therefore, cross-block `Up` must optionally seek to the lowest
+//! visual row after cursor placement instead of relying on logical line index.
+//!
+//! Note: focus transfer can override caret state in some runtimes.
+//! Cross-block traversal applies cursor placement both immediately and in a
+//! deferred `SetCursor` message so the final caret location is deterministic.
+//!
+//! Invariants:
+//! - Preferred vertical column is stored in char units, never raw bytes.
+//! - Byte/char conversion always clamps to valid UTF-8 boundaries.
+//! - Preferred vertical column is reset on non-vertical edits and focus change.
+
 use super::point_editor::WordCursorDirection;
 use super::*;
 
@@ -30,6 +63,25 @@ pub enum EditMessage {
         block_id: BlockId,
         index: usize,
     },
+    /// Apply an explicit cursor position to a point editor.
+    ///
+    /// This is used after cross-block focus transitions so the target editor
+    /// receives focus first, then cursor placement is restored deterministically.
+    ///
+    /// Note: this message intentionally carries a byte column because
+    /// iced cursor APIs are byte-based. Callers are responsible for providing
+    /// byte offsets derived from char-clamped conversions.
+    SetCursor {
+        block_id: BlockId,
+        line: usize,
+        column_byte: usize,
+        /// Whether to continue moving down visually after initial placement.
+        ///
+        /// Used for cross-block `ArrowUp` traversal so a wrapped logical line
+        /// lands on its last visual row, matching user expectation of moving
+        /// "up into the row above".
+        seek_visual_end: bool,
+    },
 }
 
 /// Handle a point-editing message.
@@ -50,6 +102,16 @@ pub fn handle(state: &mut AppState, message: EditMessage) -> Task<Message> {
             state.ui_mut().expanded_links.remove(&block_id);
             state.persist_with_context("remove link");
             Task::none()
+        }
+        | EditMessage::SetCursor { block_id, line, column_byte, seek_visual_end } => {
+            tracing::debug!(
+                block_id = ?block_id,
+                line,
+                column_byte,
+                seek_visual_end,
+                "received deferred set-cursor edit message"
+            );
+            set_cursor(state, block_id, line, column_byte, seek_visual_end)
         }
     }
 }
@@ -82,12 +144,152 @@ fn byte_column_to_char_column(line_text: &str, column_byte: usize) -> usize {
     if column_byte >= line_text.len() {
         return line_text.chars().count();
     }
-    line_text.char_indices().take_while(|(idx, _)| *idx < column_byte).count()
+    // Clamp to the nearest char boundary at or before `column_byte`.
+    // Example: for "你" (bytes 0..3), byte 1 maps to char column 0.
+    let boundary_count =
+        line_text.char_indices().take_while(|(idx, _)| *idx <= column_byte).count();
+    boundary_count.saturating_sub(1)
 }
 
 /// Convert a char column to a UTF-8 byte column in one line.
 fn char_column_to_byte_column(line_text: &str, column_char: usize) -> usize {
     line_text.char_indices().nth(column_char).map(|(idx, _)| idx).unwrap_or(line_text.len())
+}
+
+/// Resolve the last line index that can be read via [`text_editor::Content::line`].
+///
+/// `iced` may report a line count that includes an internal trailing line
+/// marker. This helper walks backwards to find a line index that is actually
+/// addressable for cursor placement.
+///
+/// Note: this fallback keeps cross-block Up traversal stable even when backend
+/// line accounting and exposed line access diverge.
+fn last_addressable_line_index(content: &text_editor::Content) -> usize {
+    let mut index = content.line_count().saturating_sub(1);
+    loop {
+        if content.line(index).is_some() || index == 0 {
+            return index;
+        }
+        index = index.saturating_sub(1);
+    }
+}
+
+/// Resolve target cursor position for cross-block vertical traversal.
+///
+/// Returns `(target_line, target_column_byte, target_line_char_len)`.
+///
+/// Note: when a target point is a single logical line that wraps
+/// visually, `line_count` may still be `1`. In that case the caller must use
+/// visual-row seeking after this logical placement when moving `Up`.
+fn target_cursor_for_vertical_cross_block(
+    content: &text_editor::Content, dir: VerticalDir, preferred_char_column: usize,
+) -> (usize, usize, usize) {
+    let line_count = content.line_count();
+    let target_line = match dir {
+        | VerticalDir::Up => last_addressable_line_index(content),
+        | VerticalDir::Down => 0, // first line
+    };
+    let target_line_text =
+        content.line(target_line).map(|line| line.text.to_string()).unwrap_or_default();
+    let target_line_chars = target_line_text.chars().count();
+    let target_column_char = preferred_char_column.min(target_line_text.chars().count());
+    let target_column_byte = char_column_to_byte_column(&target_line_text, target_column_char);
+    tracing::debug!(
+        ?dir,
+        line_count,
+        target_line,
+        preferred_char_column,
+        target_column_char,
+        target_column_byte,
+        target_line_chars,
+        "resolved cross-block vertical traversal target cursor"
+    );
+    (target_line, target_column_byte, target_line_chars)
+}
+
+/// Move the caret to the lowest reachable visual row in the current logical line.
+///
+/// Returns the number of successful visual-down steps performed.
+///
+/// Note: this is intentionally implemented by repeated editor-native
+/// `Move(Down)` operations. The editor owns wrap/layout logic, so this avoids
+/// duplicating line-wrap calculations in app code.
+fn seek_cursor_to_visual_end(content: &mut text_editor::Content, max_steps: usize) -> usize {
+    let mut visual_down_steps = 0usize;
+    loop {
+        let before = content.cursor().position;
+        content.perform(text_editor::Action::Move(text_editor::Motion::Down));
+        let after = content.cursor().position;
+        if after == before {
+            break;
+        }
+        visual_down_steps += 1;
+        if visual_down_steps > max_steps {
+            break;
+        }
+    }
+    visual_down_steps
+}
+
+fn set_cursor(
+    state: &mut AppState, block_id: BlockId, line: usize, column_byte: usize, seek_visual_end: bool,
+) -> Task<Message> {
+    state.editor_buffers.ensure_block(&state.store, &block_id);
+    if let Some(content) = state.editor_buffers.get_mut(&block_id) {
+        let requested_line = line;
+        let requested_column_byte = column_byte;
+        let cursor_before = content.cursor().position;
+        let line_count = content.line_count();
+        let final_line =
+            if content.line(line).is_some() { line } else { last_addressable_line_index(content) };
+        let final_line_text =
+            content.line(final_line).map(|line| line.text.to_string()).unwrap_or_default();
+        // Clamp to line length and a valid char boundary before moving.
+        // Note: clamped placement avoids backend normalization that can
+        // otherwise jump the caret unexpectedly across UTF-8 boundaries.
+        let clamped_char = byte_column_to_char_column(&final_line_text, column_byte);
+        let final_column_byte = char_column_to_byte_column(&final_line_text, clamped_char);
+        content.move_to(text_editor::Cursor {
+            position: text_editor::Position { line: final_line, column: final_column_byte },
+            selection: None,
+        });
+        let mut visual_down_steps = 0usize;
+        if seek_visual_end {
+            // Use editor-native vertical motion to descend wrapped visual rows.
+            // This is layout-aware at runtime and avoids homegrown wrap math.
+            visual_down_steps = seek_cursor_to_visual_end(
+                content,
+                final_line_text.chars().count().saturating_add(1),
+            );
+            if visual_down_steps > final_line_text.chars().count().saturating_add(1) {
+                tracing::warn!(
+                    block_id = ?block_id,
+                    visual_down_steps,
+                    "aborting visual seek due to unexpected excessive down steps"
+                );
+            }
+        }
+        let cursor_after = content.cursor().position;
+        tracing::debug!(
+            block_id = ?block_id,
+            line_count,
+            requested_line,
+            requested_column_byte,
+            seek_visual_end,
+            visual_down_steps,
+            final_line,
+            final_column_byte,
+            final_line_chars = final_line_text.chars().count(),
+            before_line = cursor_before.line,
+            before_column = cursor_before.column,
+            after_line = cursor_after.line,
+            after_column = cursor_after.column,
+            "applied set-cursor request"
+        );
+    } else {
+        tracing::warn!(block_id = ?block_id, "set-cursor skipped because editor buffer is missing");
+    }
+    Task::none()
 }
 
 fn move_cursor_by_word(
@@ -539,12 +741,29 @@ fn delete_multiselect_selection_on_backspace(
 ///   the focused block.
 /// - Plain `Backspace` in multiselect mode deletes current selection and
 ///   returns to normal mode.
+///
+/// Vertical traversal contract:
+/// - Let iced perform the `Up`/`Down` move inside the current editor first.
+/// - If the cursor did not move, treat it as a block-edge hit and traverse to
+///   previous/next visible block.
+/// - Preserve horizontal intent using char-based preferred column state.
+/// - For `Up`, seek to the target line's lowest visual row to match user
+///   expectation in wrapped single-line editors.
 pub fn handle_point_edited(
     state: &mut AppState, block_id: BlockId, action: text_editor::Action,
 ) -> Task<Message> {
     // Clear friend hover state when editing
     state.ui_mut().hovered_friend_block = None;
     let vertical_direction = vertical_direction_for_action(&action);
+    if let Some(dir) = vertical_direction {
+        tracing::debug!(
+            block_id = ?block_id,
+            ?dir,
+            document_mode = ?state.ui().document_mode,
+            previous_preferred = state.ui().vertical_cursor_preferred_column,
+            "handling vertical editor motion"
+        );
+    }
     if vertical_direction.is_none() {
         state.ui_mut().vertical_cursor_preferred_column = None;
     }
@@ -632,9 +851,28 @@ pub fn handle_point_edited(
             next_preferred_char_column = Some(preferred);
             preferred
         });
+        if let Some(dir) = vertical_direction {
+            tracing::debug!(
+                block_id = ?block_id,
+                ?dir,
+                before_line = cursor_before.line,
+                before_column = cursor_before.column,
+                preferred_char_column = preferred_char_column.unwrap_or(0),
+                "vertical move before editor perform"
+            );
+        }
 
         content.perform(action);
         let cursor_after = content.cursor().position;
+        if let Some(dir) = vertical_direction {
+            tracing::debug!(
+                block_id = ?block_id,
+                ?dir,
+                after_line = cursor_after.line,
+                after_column = cursor_after.column,
+                "vertical move after editor perform"
+            );
+        }
 
         if let Some(dir) = vertical_direction
             && cursor_before == cursor_after
@@ -645,7 +883,20 @@ pub fn handle_point_edited(
             };
             if let Some(target_id) = target {
                 let preferred_char = preferred_char_column.unwrap_or(0);
+                tracing::debug!(
+                    from = ?block_id,
+                    to = ?target_id,
+                    ?dir,
+                    preferred_char_column = preferred_char,
+                    "detected vertical edge hit; scheduling cross-block traversal"
+                );
                 navigate_to = Some((target_id, dir, preferred_char));
+            } else {
+                tracing::debug!(
+                    from = ?block_id,
+                    ?dir,
+                    "vertical edge hit with no adjacent visible block"
+                );
             }
         }
 
@@ -685,20 +936,15 @@ pub fn handle_point_edited(
         let wid = state.editor_buffers.widget_id(&target_id).cloned();
         if let (Some(wid), DocumentMode::Normal) = (wid, state.ui().document_mode) {
             state.editor_buffers.ensure_block(&state.store, &target_id);
+            let (target_line, target_column_byte, target_line_chars) = state
+                .editor_buffers
+                .get(&target_id)
+                .map(|content| {
+                    target_cursor_for_vertical_cross_block(content, dir, preferred_char_column)
+                })
+                .unwrap_or((0, 0, 0));
             if let Some(target_content) = state.editor_buffers.get_mut(&target_id) {
-                let line_count = target_content.line_count();
-                let target_line = match dir {
-                    | VerticalDir::Up => line_count.saturating_sub(1), // last line
-                    | VerticalDir::Down => 0,                          // first line
-                };
-                let target_line_text = target_content
-                    .line(target_line)
-                    .map(|line| line.text.to_string())
-                    .unwrap_or_default();
-                let target_column_char =
-                    preferred_char_column.min(target_line_text.chars().count());
-                let target_column_byte =
-                    char_column_to_byte_column(&target_line_text, target_column_char);
+                let before = target_content.cursor().position;
                 target_content.move_to(text_editor::Cursor {
                     position: text_editor::Position {
                         line: target_line,
@@ -706,16 +952,45 @@ pub fn handle_point_edited(
                     },
                     selection: None,
                 });
+                let immediate_visual_down_steps = if matches!(dir, VerticalDir::Up) {
+                    seek_cursor_to_visual_end(target_content, target_line_chars.saturating_add(1))
+                } else {
+                    0
+                };
+                let after = target_content.cursor().position;
+                tracing::debug!(
+                    target = ?target_id,
+                    ?dir,
+                    immediate_target_line = target_line,
+                    immediate_target_column = target_column_byte,
+                    immediate_visual_down_steps,
+                    before_line = before.line,
+                    before_column = before.column,
+                    after_line = after.line,
+                    after_column = after.column,
+                    "applied immediate cross-block cursor placement before focus"
+                );
             }
             state.set_focus(target_id);
             state.ui_mut().vertical_cursor_preferred_column = Some(preferred_char_column);
             tracing::debug!(
                 from = ?block_id,
                 to = ?target_id,
+                ?dir,
                 preferred_char_column,
+                deferred_target_line = target_line,
+                deferred_target_column = target_column_byte,
                 "keyboard traversal"
             );
-            return widget::operation::focus(wid);
+            return Task::batch([
+                widget::operation::focus(wid),
+                Task::done(Message::Edit(EditMessage::SetCursor {
+                    block_id: target_id,
+                    line: target_line,
+                    column_byte: target_column_byte,
+                    seek_visual_end: matches!(dir, VerticalDir::Up),
+                })),
+            ]);
         }
     }
     Task::none()
@@ -1237,6 +1512,77 @@ mod tests {
             state.editor_buffers.get(&sibling).expect("sibling editor exists").cursor().position;
         assert_eq!(state.focus().map(|focus| focus.block_id), Some(sibling));
         assert_eq!(sibling_cursor.column, 3);
+    }
+
+    #[test]
+    fn vertical_navigation_up_crosses_to_last_line_of_previous_block() {
+        let (mut state, root) = AppState::test_state();
+        let below = state
+            .store
+            .append_sibling(&root, "bottom".to_string())
+            .expect("append sibling succeeds");
+        state.store.update_point(&root, "abc\ndefgh".to_string());
+        state.editor_buffers.set_text(&root, "abc\ndefgh");
+        state.editor_buffers.set_text(&below, "bottom");
+        if let Some(content) = state.editor_buffers.get_mut(&below) {
+            content.move_to(text_editor::Cursor {
+                position: text_editor::Position { line: 0, column: 4 },
+                selection: None,
+            });
+        }
+        state.set_focus(below);
+
+        let _ = handle_point_edited(
+            &mut state,
+            below,
+            text_editor::Action::Move(text_editor::Motion::Up),
+        );
+
+        let root_cursor =
+            state.editor_buffers.get(&root).expect("root editor exists").cursor().position;
+        assert_eq!(state.focus().map(|focus| focus.block_id), Some(root));
+        assert_eq!(root_cursor.line, 1);
+        assert_eq!(root_cursor.column, 4);
+    }
+
+    #[test]
+    fn set_cursor_clamps_to_last_addressable_line() {
+        let (mut state, root) = AppState::test_state();
+        state.editor_buffers.set_text(&root, "aaa\nbbbb");
+
+        let _ = handle(
+            &mut state,
+            EditMessage::SetCursor {
+                block_id: root,
+                line: usize::MAX,
+                column_byte: 2,
+                seek_visual_end: false,
+            },
+        );
+
+        let cursor = state.editor_buffers.get(&root).expect("root editor exists").cursor().position;
+        assert_eq!(cursor.line, 1);
+        assert_eq!(cursor.column, 2);
+    }
+
+    #[test]
+    fn set_cursor_clamps_to_utf8_char_boundary() {
+        let (mut state, root) = AppState::test_state();
+        state.editor_buffers.set_text(&root, "你好");
+
+        let _ = handle(
+            &mut state,
+            EditMessage::SetCursor {
+                block_id: root,
+                line: 0,
+                column_byte: 1,
+                seek_visual_end: false,
+            },
+        );
+
+        let cursor = state.editor_buffers.get(&root).expect("root editor exists").cursor().position;
+        assert_eq!(cursor.line, 0);
+        assert_eq!(cursor.column, 0);
     }
 
     #[test]
