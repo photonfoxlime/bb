@@ -129,7 +129,7 @@ impl ShortcutHelpBanner {
         container(
             column![
                 title,
-                rule::horizontal(1),
+                rule::horizontal(theme::RULE_WIDTH),
                 global_section,
                 structure_section,
                 movement_section,

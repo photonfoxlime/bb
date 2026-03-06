@@ -106,6 +106,8 @@ pub const CANVAS_MAX_WIDTH_WIDE: f32 = 1080.0;
 pub const CANVAS_THRESHOLD_STANDARD: f32 = 1200.0;
 /// Window width threshold for switching to ultra wide layout.
 pub const CANVAS_THRESHOLD_WIDE: f32 = 1800.0;
+/// Fraction of window width used for canvas max width in medium layout.
+pub const CANVAS_MAX_WIDTH_RATIO: f32 = 0.6;
 /// Top padding inside the scrollable viewport.
 pub const CANVAS_TOP: f32 = 12.0;
 /// Fraction of viewport height used as extra bottom padding so the last item
@@ -125,7 +127,7 @@ pub fn canvas_max_width(window_width: f32) -> f32 {
     if window_width <= CANVAS_THRESHOLD_STANDARD {
         CANVAS_MAX_WIDTH_STANDARD
     } else if window_width <= CANVAS_THRESHOLD_WIDE {
-        window_width * 0.6
+        window_width * CANVAS_MAX_WIDTH_RATIO
     } else {
         CANVAS_MAX_WIDTH_WIDE
     }
@@ -154,6 +156,8 @@ pub const DIFF_LINE_GAP: f32 = 2.0;
 pub const INDENT: f32 = 16.0;
 /// Width of the spine rule column.
 pub const SPINE_WIDTH: f32 = 4.0;
+/// Thickness of horizontal/vertical rule lines (dividers).
+pub const RULE_WIDTH: f32 = 1.0;
 
 /// Padding inside buttons and tooltips.
 pub const BUTTON_PAD: f32 = 4.0;
@@ -350,6 +354,49 @@ pub const LINK_CHIP_PAD: f32 = 4.0;
 pub const LINK_CHIP_BORDER_RADIUS: f32 = 4.0;
 /// Background opacity for the link chip in its default state.
 pub const LINK_CHIP_BG_OPACITY: f32 = 0.06;
+/// Link chip background opacity multiplier on hover.
+pub const LINK_CHIP_BG_HOVER_MULT: f32 = 2.0;
+/// Link chip background opacity multiplier when pressed.
+pub const LINK_CHIP_BG_PRESSED_MULT: f32 = 3.0;
+/// Link chip background opacity multiplier when disabled.
+pub const LINK_CHIP_BG_DISABLED_MULT: f32 = 0.5;
+
+// ── Style tokens (used by style functions) ────────────────────────────
+
+/// Border radius for action buttons, panel toggle, mode button, toggle, destructive.
+pub const BORDER_RADIUS_BUTTON: f32 = 3.0;
+/// Border radius for panels, blocks, tooltip, context menu.
+pub const BORDER_RADIUS_PANEL: f32 = 4.0;
+/// Border radius for shortcut help banner.
+pub const BORDER_RADIUS_BANNER: f32 = 6.0;
+/// Border radius for point editor.
+pub const BORDER_RADIUS_EDITOR: f32 = 2.0;
+
+/// Accent background opacity on button hover/press.
+pub const BUTTON_ACCENT_BG_OPACITY: f32 = 0.15;
+/// Danger background opacity on destructive button hover.
+pub const BUTTON_DANGER_BG_HOVER_OPACITY: f32 = 0.08;
+/// Danger border opacity on destructive button hover.
+pub const BUTTON_DANGER_BORDER_HOVER_OPACITY: f32 = 0.3;
+/// Danger background opacity on destructive button press.
+pub const BUTTON_DANGER_BG_PRESSED_OPACITY: f32 = 0.14;
+/// Error banner background opacity.
+pub const ERROR_BANNER_BG_OPACITY: f32 = 0.15;
+/// Error banner border opacity.
+pub const ERROR_BANNER_BORDER_OPACITY: f32 = 0.5;
+/// Shortcut help banner background opacity.
+pub const SHORTCUT_HELP_BG_OPACITY: f32 = 0.96;
+/// Shortcut help banner border opacity.
+pub const SHORTCUT_HELP_BORDER_OPACITY: f32 = 0.5;
+/// Text editor selection background opacity.
+pub const EDITOR_SELECTION_OPACITY: f32 = 0.18;
+/// Text editor hover border opacity.
+pub const EDITOR_HOVER_BORDER_OPACITY: f32 = 0.2;
+
+/// Destructive button pressed text color (hardcoded for high contrast).
+pub const DESTRUCTIVE_PRESSED_R: f32 = 0.9;
+pub const DESTRUCTIVE_PRESSED_G: f32 = 0.25;
+pub const DESTRUCTIVE_PRESSED_B: f32 = 0.18;
 
 // ── Theme constructor ────────────────────────────────────────────────
 
@@ -388,7 +435,7 @@ pub fn action_button(theme: &Theme, status: button::Status) -> button::Style {
     let base = button::Style {
         background: None,
         text_color: p.accent_muted,
-        border: border::rounded(3).width(0).color(Color::TRANSPARENT),
+        border: border::rounded(BORDER_RADIUS_BUTTON).width(0).color(Color::TRANSPARENT),
         shadow: Default::default(),
         snap: false,
     };
@@ -397,13 +444,13 @@ pub fn action_button(theme: &Theme, status: button::Status) -> button::Style {
         | button::Status::Hovered => button::Style {
             text_color: p.ink,
             background: Some(p.tint.into()),
-            border: border::rounded(3).width(1).color(p.spine),
+            border: border::rounded(BORDER_RADIUS_BUTTON).width(1).color(p.spine),
             ..base
         },
         | button::Status::Pressed => button::Style {
             text_color: p.ink,
-            background: Some(Color { a: 0.15, ..p.accent }.into()),
-            border: border::rounded(3).width(1).color(p.accent_muted),
+            background: Some(Color { a: BUTTON_ACCENT_BG_OPACITY, ..p.accent }.into()),
+            border: border::rounded(BORDER_RADIUS_BUTTON).width(1).color(p.accent_muted),
             ..base
         },
         | button::Status::Disabled => button::Style { text_color: p.spine, ..base },
@@ -422,7 +469,7 @@ pub fn panel_toggle_button(
     let base = button::Style {
         background: if is_active { Some(p.tint.into()) } else { None },
         text_color: if is_active { p.accent } else { p.accent_muted },
-        border: border::rounded(3).width(if is_active { 1 } else { 0 }).color(if is_active {
+        border: border::rounded(BORDER_RADIUS_BUTTON).width(if is_active { 1 } else { 0 }).color(if is_active {
             p.accent
         } else {
             Color::TRANSPARENT
@@ -435,13 +482,13 @@ pub fn panel_toggle_button(
         | button::Status::Hovered => button::Style {
             text_color: p.ink,
             background: Some(p.tint.into()),
-            border: border::rounded(3).width(1).color(p.spine),
+            border: border::rounded(BORDER_RADIUS_BUTTON).width(1).color(p.spine),
             ..base
         },
         | button::Status::Pressed => button::Style {
             text_color: p.ink,
-            background: Some(Color { a: 0.15, ..p.accent }.into()),
-            border: border::rounded(3).width(1).color(p.accent_muted),
+            background: Some(Color { a: BUTTON_ACCENT_BG_OPACITY, ..p.accent }.into()),
+            border: border::rounded(BORDER_RADIUS_BUTTON).width(1).color(p.accent_muted),
             ..base
         },
         | button::Status::Disabled => button::Style { text_color: p.spine, ..base },
@@ -457,7 +504,7 @@ pub fn mode_button(theme: &Theme, status: button::Status, is_active: bool) -> bu
     let base = button::Style {
         background: if is_active { Some(p.tint.into()) } else { None },
         text_color: if is_active { p.accent } else { p.accent_muted },
-        border: border::rounded(3).width(if is_active { 1 } else { 0 }).color(if is_active {
+        border: border::rounded(BORDER_RADIUS_BUTTON).width(if is_active { 1 } else { 0 }).color(if is_active {
             p.accent
         } else {
             Color::TRANSPARENT
@@ -470,13 +517,13 @@ pub fn mode_button(theme: &Theme, status: button::Status, is_active: bool) -> bu
         | button::Status::Hovered => button::Style {
             text_color: p.ink,
             background: Some(p.tint.into()),
-            border: border::rounded(3).width(1).color(p.spine),
+            border: border::rounded(BORDER_RADIUS_BUTTON).width(1).color(p.spine),
             ..base
         },
         | button::Status::Pressed => button::Style {
             text_color: p.ink,
-            background: Some(Color { a: 0.15, ..p.accent }.into()),
-            border: border::rounded(3).width(1).color(p.accent_muted),
+            background: Some(Color { a: BUTTON_ACCENT_BG_OPACITY, ..p.accent }.into()),
+            border: border::rounded(BORDER_RADIUS_BUTTON).width(1).color(p.accent_muted),
             ..base
         },
         | button::Status::Disabled => button::Style { text_color: p.spine, ..base },
@@ -489,7 +536,7 @@ pub fn destructive_button(theme: &Theme, status: button::Status) -> button::Styl
     let base = button::Style {
         background: None,
         text_color: p.accent_muted,
-        border: border::rounded(3).width(0).color(Color::TRANSPARENT),
+        border: border::rounded(BORDER_RADIUS_BUTTON).width(0).color(Color::TRANSPARENT),
         shadow: Default::default(),
         snap: false,
     };
@@ -497,13 +544,13 @@ pub fn destructive_button(theme: &Theme, status: button::Status) -> button::Styl
         | button::Status::Active => base,
         | button::Status::Hovered => button::Style {
             text_color: p.danger,
-            background: Some(Color { a: 0.08, ..p.danger }.into()),
-            border: border::rounded(3).width(1).color(Color { a: 0.3, ..p.danger }),
+            background: Some(Color { a: BUTTON_DANGER_BG_HOVER_OPACITY, ..p.danger }.into()),
+            border: border::rounded(BORDER_RADIUS_BUTTON).width(1).color(Color { a: BUTTON_DANGER_BORDER_HOVER_OPACITY, ..p.danger }),
             ..base
         },
         | button::Status::Pressed => button::Style {
-            text_color: Color { a: 1.0, ..Color::from_rgb(0.9, 0.25, 0.18) },
-            background: Some(Color { a: 0.14, ..p.danger }.into()),
+            text_color: Color { a: 1.0, ..Color::from_rgb(DESTRUCTIVE_PRESSED_R, DESTRUCTIVE_PRESSED_G, DESTRUCTIVE_PRESSED_B) },
+            background: Some(Color { a: BUTTON_DANGER_BG_PRESSED_OPACITY, ..p.danger }.into()),
             ..base
         },
         | button::Status::Disabled => button::Style { text_color: p.spine, ..base },
@@ -518,7 +565,7 @@ pub fn toggle_button(is_on: bool) -> impl Fn(&Theme, button::Status) -> button::
         let base = button::Style {
             background: if active { Some(p.tint.into()) } else { None },
             text_color: if active { p.accent } else { p.accent_muted },
-            border: border::rounded(3).width(if active { 1 } else { 0 }).color(if active {
+            border: border::rounded(BORDER_RADIUS_BUTTON).width(if active { 1 } else { 0 }).color(if active {
                 p.accent
             } else {
                 Color::TRANSPARENT
@@ -531,13 +578,13 @@ pub fn toggle_button(is_on: bool) -> impl Fn(&Theme, button::Status) -> button::
             | button::Status::Hovered => button::Style {
                 text_color: p.ink,
                 background: Some(p.tint.into()),
-                border: border::rounded(3).width(1).color(p.spine),
+                border: border::rounded(BORDER_RADIUS_BUTTON).width(1).color(p.spine),
                 ..base
             },
             | button::Status::Pressed => button::Style {
                 text_color: p.ink,
-                background: Some(Color { a: 0.15, ..p.accent }.into()),
-                border: border::rounded(3).width(1).color(p.accent_muted),
+                background: Some(Color { a: BUTTON_ACCENT_BG_OPACITY, ..p.accent }.into()),
+                border: border::rounded(BORDER_RADIUS_BUTTON).width(1).color(p.accent_muted),
                 ..base
             },
             | button::Status::Disabled => button::Style { text_color: p.spine, ..base },
@@ -558,7 +605,7 @@ pub fn draft_panel(theme: &Theme) -> container::Style {
     let p = focused_palette(theme);
     container::Style {
         background: Some(p.tint.into()),
-        border: border::rounded(4).width(1).color(p.spine),
+        border: border::rounded(BORDER_RADIUS_PANEL).width(1).color(p.spine),
         ..Default::default()
     }
 }
@@ -567,8 +614,8 @@ pub fn draft_panel(theme: &Theme) -> container::Style {
 pub fn error_banner(theme: &Theme) -> container::Style {
     let p = focused_palette(theme);
     container::Style {
-        background: Some(Color { a: 0.15, ..p.danger }.into()),
-        border: border::rounded(4).width(1).color(Color { a: 0.5, ..p.danger }),
+        background: Some(Color { a: ERROR_BANNER_BG_OPACITY, ..p.danger }.into()),
+        border: border::rounded(BORDER_RADIUS_PANEL).width(1).color(Color { a: ERROR_BANNER_BORDER_OPACITY, ..p.danger }),
         text_color: Some(p.danger),
         ..Default::default()
     }
@@ -578,8 +625,8 @@ pub fn error_banner(theme: &Theme) -> container::Style {
 pub fn shortcut_help_banner(theme: &Theme) -> container::Style {
     let p = focused_palette(theme);
     container::Style {
-        background: Some(Color { a: 0.96, ..p.paper }.into()),
-        border: border::rounded(6).width(1).color(Color { a: 0.5, ..p.accent }),
+        background: Some(Color { a: SHORTCUT_HELP_BG_OPACITY, ..p.paper }.into()),
+        border: border::rounded(BORDER_RADIUS_BANNER).width(1).color(Color { a: SHORTCUT_HELP_BORDER_OPACITY, ..p.accent }),
         text_color: Some(p.ink),
         ..Default::default()
     }
@@ -590,7 +637,7 @@ pub fn focused_block(theme: &Theme) -> container::Style {
     let p = focused_palette(theme);
     container::Style {
         background: Some(p.focus_wash.into()),
-        border: border::rounded(4).width(0),
+        border: border::rounded(BORDER_RADIUS_PANEL).width(0),
         ..Default::default()
     }
 }
@@ -603,7 +650,7 @@ pub fn multiselect_selected(theme: &Theme) -> container::Style {
     let p = focused_palette(theme);
     container::Style {
         background: Some(p.focus_wash.into()),
-        border: border::rounded(4).width(1).color(p.accent),
+        border: border::rounded(BORDER_RADIUS_PANEL).width(1).color(p.accent),
         ..Default::default()
     }
 }
@@ -613,7 +660,7 @@ pub fn friend_picker_hover(theme: &Theme) -> container::Style {
     let p = focused_palette(theme);
     container::Style {
         background: Some(p.tint.into()),
-        border: border::rounded(4).width(1).color(p.accent),
+        border: border::rounded(BORDER_RADIUS_PANEL).width(1).color(p.accent),
         ..Default::default()
     }
 }
@@ -625,19 +672,19 @@ pub fn point_editor(theme: &Theme, status: text_editor::Status) -> text_editor::
     let p = focused_palette(theme);
     let base = text_editor::Style {
         background: Color::TRANSPARENT.into(),
-        border: border::rounded(2).width(0).color(Color::TRANSPARENT),
+        border: border::rounded(BORDER_RADIUS_EDITOR).width(0).color(Color::TRANSPARENT),
         placeholder: p.spine,
         value: p.ink,
-        selection: Color { a: 0.18, ..p.accent },
+        selection: Color { a: EDITOR_SELECTION_OPACITY, ..p.accent },
     };
     match status {
         | text_editor::Status::Active => base,
         | text_editor::Status::Hovered => text_editor::Style {
-            border: border::rounded(2).width(1).color(Color { a: 0.2, ..p.spine }),
+            border: border::rounded(BORDER_RADIUS_EDITOR).width(RULE_WIDTH).color(Color { a: EDITOR_HOVER_BORDER_OPACITY, ..p.spine }),
             ..base
         },
         | text_editor::Status::Focused { .. } => {
-            text_editor::Style { border: border::rounded(2).width(1).color(p.accent_muted), ..base }
+            text_editor::Style { border: border::rounded(BORDER_RADIUS_EDITOR).width(RULE_WIDTH).color(p.accent_muted), ..base }
         }
         | text_editor::Status::Disabled => text_editor::Style { value: p.accent_muted, ..base },
     }
@@ -679,7 +726,7 @@ pub fn tooltip(theme: &Theme) -> container::Style {
     container::Style {
         background: Some(p.ink.into()),
         text_color: Some(p.paper),
-        border: border::rounded(4).width(0),
+        border: border::rounded(BORDER_RADIUS_PANEL).width(0),
         ..Default::default()
     }
 }
@@ -757,9 +804,9 @@ pub fn link_chip_button(theme: &Theme, status: button::Status) -> button::Style 
     let p = focused_palette(theme);
     let bg_alpha = match status {
         | button::Status::Active => LINK_CHIP_BG_OPACITY,
-        | button::Status::Hovered => LINK_CHIP_BG_OPACITY * 2.0,
-        | button::Status::Pressed => LINK_CHIP_BG_OPACITY * 3.0,
-        | button::Status::Disabled => LINK_CHIP_BG_OPACITY * 0.5,
+        | button::Status::Hovered => LINK_CHIP_BG_OPACITY * LINK_CHIP_BG_HOVER_MULT,
+        | button::Status::Pressed => LINK_CHIP_BG_OPACITY * LINK_CHIP_BG_PRESSED_MULT,
+        | button::Status::Disabled => LINK_CHIP_BG_OPACITY * LINK_CHIP_BG_DISABLED_MULT,
     };
     button::Style {
         background: Some(Color { a: bg_alpha, ..p.accent }.into()),

@@ -357,7 +357,7 @@ impl<'a> DocumentView<'a> {
                 ContextMenuIcon::Redo,
                 Message::ContextMenu(ContextMenuMessage::Action(ContextMenuAction::Redo)),
             ),
-            rule::horizontal(1),
+            rule::horizontal(theme::RULE_WIDTH),
             ContextMenuButton::view(
                 t!("ctx_cut").to_string(),
                 ContextMenuIcon::Cut,
@@ -373,7 +373,7 @@ impl<'a> DocumentView<'a> {
                 ContextMenuIcon::Paste,
                 Message::ContextMenu(ContextMenuMessage::Action(ContextMenuAction::Paste)),
             ),
-            rule::horizontal(1),
+            rule::horizontal(theme::RULE_WIDTH),
             ContextMenuButton::view(
                 t!("ctx_select_all").to_string(),
                 ContextMenuIcon::SelectAll,
@@ -386,7 +386,7 @@ impl<'a> DocumentView<'a> {
 
         // Combine action buttons and menu items
         let content = if enabled_actions.len() > 0 {
-            column![action_buttons_column, rule::horizontal(1), menu_items]
+            column![action_buttons_column, rule::horizontal(theme::RULE_WIDTH), menu_items]
                 .spacing(theme::CONTEXT_MENU_ITEM_SPACING)
         } else {
             column![menu_items].spacing(theme::CONTEXT_MENU_ITEM_SPACING)
@@ -482,7 +482,7 @@ impl<'a> TreeView<'a> {
         let action_bar =
             project_for_viewport(build_action_bar_vm(&row_context), self.viewport_bucket());
 
-        let spine = container(rule::vertical(1).style(theme::spine_rule))
+        let spine = container(rule::vertical(theme::RULE_WIDTH).style(theme::spine_rule))
             .width(Length::Fixed(theme::SPINE_WIDTH))
             .align_x(iced::alignment::Horizontal::Center);
         let has_children = !self.state.store.children(block_id).is_empty();
