@@ -39,7 +39,9 @@
 use std::path::{Path, PathBuf};
 
 use iced::widget::{
-    Id, button, column, container, operation::focus, row, scrollable, text, text_input,
+    Id, button, column, container,
+    operation::{focus, move_cursor_to_end},
+    row, scrollable, text, text_input,
 };
 use iced::{Alignment, Element, Length, Padding, Task};
 
@@ -109,12 +111,10 @@ pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
             Task::none()
         }
         | LinkModeMessage::Confirm => {
-            confirm_selection(state, None);
-            Task::none()
+            confirm_selection(state, None)
         }
         | LinkModeMessage::ConfirmCandidate(index) => {
-            confirm_selection(state, Some(index));
-            Task::none()
+            confirm_selection(state, Some(index))
         }
         | LinkModeMessage::Cancel => {
             exit_link_mode(state);
@@ -131,7 +131,7 @@ fn exit_link_mode(state: &mut AppState) {
 
 /// Confirm the current selection. Directories are opened in-place, files are
 /// added as links.
-fn confirm_selection(state: &mut AppState, requested_index: Option<usize>) {
+fn confirm_selection(state: &mut AppState, requested_index: Option<usize>) -> Task<Message> {
     let (block_id, query, candidates, selected_index) = {
         let panel = &state.ui().link_panel;
         (panel.block_id, panel.query.clone(), panel.candidates.clone(), panel.selected_index)
@@ -139,7 +139,7 @@ fn confirm_selection(state: &mut AppState, requested_index: Option<usize>) {
 
     let Some(block_id) = block_id else {
         exit_link_mode(state);
-        return;
+        return Task::none();
     };
 
     let filesystem = LinkFilesystem::new();
@@ -151,13 +151,14 @@ fn confirm_selection(state: &mut AppState, requested_index: Option<usize>) {
         &filesystem,
     ) else {
         exit_link_mode(state);
-        return;
+        return Task::none();
     };
 
     if path.is_dir() {
-        open_directory(state, &filesystem, &path);
+        open_directory(state, &filesystem, &path)
     } else {
         append_file_link(state, block_id, &path);
+        Task::none()
     }
 }
 
@@ -188,7 +189,11 @@ fn resolve_confirmation_target(
 }
 
 /// Open a directory in the panel and refresh candidates without leaving link mode.
-fn open_directory(state: &mut AppState, filesystem: &LinkFilesystem, directory: &Path) {
+fn open_directory(
+    state: &mut AppState,
+    filesystem: &LinkFilesystem,
+    directory: &Path,
+) -> Task<Message> {
     let query = filesystem.directory_query(directory);
     let candidates = filesystem.search(&query);
     let panel = &mut state.ui_mut().link_panel;
@@ -196,6 +201,10 @@ fn open_directory(state: &mut AppState, filesystem: &LinkFilesystem, directory: 
     panel.candidates = candidates;
     panel.selected_index = 0;
     tracing::info!(path = %directory.display(), "link panel opened directory");
+    Task::batch([
+        focus(link_query_input_id()),
+        move_cursor_to_end(link_query_input_id()),
+    ])
 }
 
 /// Append a file link to the selected block and close link mode.
