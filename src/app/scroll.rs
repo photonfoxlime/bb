@@ -18,10 +18,9 @@ use crate::store::BlockId;
 use iced::{
     Rectangle, Task, Vector,
     advanced::widget::{
-        Id,
-        operate,
-        operation::{Operation, Outcome, Scrollable},
+        Id, operate,
         operation::scrollable::AbsoluteOffset,
+        operation::{Operation, Outcome, Scrollable},
     },
 };
 
@@ -94,11 +93,11 @@ impl Operation<()> for FindBlockBounds {
 
     fn finish(&self) -> Outcome<()> {
         match self.bounds {
-            Some(block_bounds) => Outcome::Chain(Box::new(DoScroll {
+            | Some(block_bounds) => Outcome::Chain(Box::new(DoScroll {
                 scrollable_id: self.scrollable_id.clone(),
                 block_bounds,
             })),
-            None => {
+            | None => {
                 tracing::debug!(
                     target_id = ?self.target_id,
                     "block container not found during scroll-into-view traversal"
@@ -125,12 +124,8 @@ impl Operation<()> for DoScroll {
     }
 
     fn scrollable(
-        &mut self,
-        id: Option<&Id>,
-        bounds: Rectangle,
-        content_bounds: Rectangle,
-        translation: Vector,
-        state: &mut dyn Scrollable,
+        &mut self, id: Option<&Id>, bounds: Rectangle, content_bounds: Rectangle,
+        translation: Vector, state: &mut dyn Scrollable,
     ) {
         if id != Some(&self.scrollable_id) {
             return;

@@ -70,6 +70,7 @@
 //! Keeping this cheat-sheet in-document reduces mode-switching cost for users
 //! while preserving discoverability of less obvious chords.
 
+use super::scroll::{block_container_id, document_scrollable_id, point_editor_container_id};
 use super::{
     AppState, ContextMenuAction, ContextMenuMessage, DocumentMode, ErrorBanner, ErrorMessage,
     Message, MountFileMessage, NavigationMessage, OverlayMessage, StructureMessage,
@@ -98,7 +99,6 @@ use iced::{
     Element, Fill, Length, Padding, Point,
     widget::{button, column, container, mouse_area, row, rule, scrollable, stack, text, tooltip},
 };
-use super::scroll::{block_container_id, document_scrollable_id, point_editor_container_id};
 use lucide_icons::iced as icons;
 use rust_i18n::t;
 

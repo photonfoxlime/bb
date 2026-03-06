@@ -469,11 +469,9 @@ pub fn panel_toggle_button(
     let base = button::Style {
         background: if is_active { Some(p.tint.into()) } else { None },
         text_color: if is_active { p.accent } else { p.accent_muted },
-        border: border::rounded(BORDER_RADIUS_BUTTON).width(if is_active { 1 } else { 0 }).color(if is_active {
-            p.accent
-        } else {
-            Color::TRANSPARENT
-        }),
+        border: border::rounded(BORDER_RADIUS_BUTTON)
+            .width(if is_active { 1 } else { 0 })
+            .color(if is_active { p.accent } else { Color::TRANSPARENT }),
         shadow: Default::default(),
         snap: false,
     };
@@ -504,11 +502,9 @@ pub fn mode_button(theme: &Theme, status: button::Status, is_active: bool) -> bu
     let base = button::Style {
         background: if is_active { Some(p.tint.into()) } else { None },
         text_color: if is_active { p.accent } else { p.accent_muted },
-        border: border::rounded(BORDER_RADIUS_BUTTON).width(if is_active { 1 } else { 0 }).color(if is_active {
-            p.accent
-        } else {
-            Color::TRANSPARENT
-        }),
+        border: border::rounded(BORDER_RADIUS_BUTTON)
+            .width(if is_active { 1 } else { 0 })
+            .color(if is_active { p.accent } else { Color::TRANSPARENT }),
         shadow: Default::default(),
         snap: false,
     };
@@ -545,11 +541,20 @@ pub fn destructive_button(theme: &Theme, status: button::Status) -> button::Styl
         | button::Status::Hovered => button::Style {
             text_color: p.danger,
             background: Some(Color { a: BUTTON_DANGER_BG_HOVER_OPACITY, ..p.danger }.into()),
-            border: border::rounded(BORDER_RADIUS_BUTTON).width(1).color(Color { a: BUTTON_DANGER_BORDER_HOVER_OPACITY, ..p.danger }),
+            border: border::rounded(BORDER_RADIUS_BUTTON)
+                .width(1)
+                .color(Color { a: BUTTON_DANGER_BORDER_HOVER_OPACITY, ..p.danger }),
             ..base
         },
         | button::Status::Pressed => button::Style {
-            text_color: Color { a: 1.0, ..Color::from_rgb(DESTRUCTIVE_PRESSED_R, DESTRUCTIVE_PRESSED_G, DESTRUCTIVE_PRESSED_B) },
+            text_color: Color {
+                a: 1.0,
+                ..Color::from_rgb(
+                    DESTRUCTIVE_PRESSED_R,
+                    DESTRUCTIVE_PRESSED_G,
+                    DESTRUCTIVE_PRESSED_B,
+                )
+            },
             background: Some(Color { a: BUTTON_DANGER_BG_PRESSED_OPACITY, ..p.danger }.into()),
             ..base
         },
@@ -565,11 +570,9 @@ pub fn toggle_button(is_on: bool) -> impl Fn(&Theme, button::Status) -> button::
         let base = button::Style {
             background: if active { Some(p.tint.into()) } else { None },
             text_color: if active { p.accent } else { p.accent_muted },
-            border: border::rounded(BORDER_RADIUS_BUTTON).width(if active { 1 } else { 0 }).color(if active {
-                p.accent
-            } else {
-                Color::TRANSPARENT
-            }),
+            border: border::rounded(BORDER_RADIUS_BUTTON)
+                .width(if active { 1 } else { 0 })
+                .color(if active { p.accent } else { Color::TRANSPARENT }),
             shadow: Default::default(),
             snap: false,
         };
@@ -615,7 +618,9 @@ pub fn error_banner(theme: &Theme) -> container::Style {
     let p = focused_palette(theme);
     container::Style {
         background: Some(Color { a: ERROR_BANNER_BG_OPACITY, ..p.danger }.into()),
-        border: border::rounded(BORDER_RADIUS_PANEL).width(1).color(Color { a: ERROR_BANNER_BORDER_OPACITY, ..p.danger }),
+        border: border::rounded(BORDER_RADIUS_PANEL)
+            .width(1)
+            .color(Color { a: ERROR_BANNER_BORDER_OPACITY, ..p.danger }),
         text_color: Some(p.danger),
         ..Default::default()
     }
@@ -626,7 +631,9 @@ pub fn shortcut_help_banner(theme: &Theme) -> container::Style {
     let p = focused_palette(theme);
     container::Style {
         background: Some(Color { a: SHORTCUT_HELP_BG_OPACITY, ..p.paper }.into()),
-        border: border::rounded(BORDER_RADIUS_BANNER).width(1).color(Color { a: SHORTCUT_HELP_BORDER_OPACITY, ..p.accent }),
+        border: border::rounded(BORDER_RADIUS_BANNER)
+            .width(1)
+            .color(Color { a: SHORTCUT_HELP_BORDER_OPACITY, ..p.accent }),
         text_color: Some(p.ink),
         ..Default::default()
     }
@@ -680,12 +687,15 @@ pub fn point_editor(theme: &Theme, status: text_editor::Status) -> text_editor::
     match status {
         | text_editor::Status::Active => base,
         | text_editor::Status::Hovered => text_editor::Style {
-            border: border::rounded(BORDER_RADIUS_EDITOR).width(RULE_WIDTH).color(Color { a: EDITOR_HOVER_BORDER_OPACITY, ..p.spine }),
+            border: border::rounded(BORDER_RADIUS_EDITOR)
+                .width(RULE_WIDTH)
+                .color(Color { a: EDITOR_HOVER_BORDER_OPACITY, ..p.spine }),
             ..base
         },
-        | text_editor::Status::Focused { .. } => {
-            text_editor::Style { border: border::rounded(BORDER_RADIUS_EDITOR).width(RULE_WIDTH).color(p.accent_muted), ..base }
-        }
+        | text_editor::Status::Focused { .. } => text_editor::Style {
+            border: border::rounded(BORDER_RADIUS_EDITOR).width(RULE_WIDTH).color(p.accent_muted),
+            ..base
+        },
         | text_editor::Status::Disabled => text_editor::Style { value: p.accent_muted, ..base },
     }
 }

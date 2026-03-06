@@ -110,12 +110,8 @@ pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
             }
             Task::none()
         }
-        | LinkModeMessage::Confirm => {
-            confirm_selection(state, None)
-        }
-        | LinkModeMessage::ConfirmCandidate(index) => {
-            confirm_selection(state, Some(index))
-        }
+        | LinkModeMessage::Confirm => confirm_selection(state, None),
+        | LinkModeMessage::ConfirmCandidate(index) => confirm_selection(state, Some(index)),
         | LinkModeMessage::Cancel => {
             exit_link_mode(state);
             Task::none()
@@ -172,27 +168,19 @@ fn confirm_selection(state: &mut AppState, requested_index: Option<usize>) -> Ta
 /// Note: selecting candidates before exact query path keeps Enter behavior
 /// explorer-like when the current query already points to an open directory.
 fn resolve_confirmation_target(
-    query: &str,
-    candidates: &[PathBuf],
-    selected_index: usize,
-    requested_index: Option<usize>,
+    query: &str, candidates: &[PathBuf], selected_index: usize, requested_index: Option<usize>,
     filesystem: &LinkFilesystem,
 ) -> Option<PathBuf> {
     if let Some(index) = requested_index {
         return candidates.get(index).cloned().or_else(|| filesystem.resolve_existing_path(query));
     }
 
-    candidates
-        .get(selected_index)
-        .cloned()
-        .or_else(|| filesystem.resolve_existing_path(query))
+    candidates.get(selected_index).cloned().or_else(|| filesystem.resolve_existing_path(query))
 }
 
 /// Open a directory in the panel and refresh candidates without leaving link mode.
 fn open_directory(
-    state: &mut AppState,
-    filesystem: &LinkFilesystem,
-    directory: &Path,
+    state: &mut AppState, filesystem: &LinkFilesystem, directory: &Path,
 ) -> Task<Message> {
     let query = filesystem.directory_query(directory);
     let candidates = filesystem.search(&query);
@@ -201,10 +189,7 @@ fn open_directory(
     panel.candidates = candidates;
     panel.selected_index = 0;
     tracing::info!(path = %directory.display(), "link panel opened directory");
-    Task::batch([
-        focus(link_query_input_id()),
-        move_cursor_to_end(link_query_input_id()),
-    ])
+    Task::batch([focus(link_query_input_id()), move_cursor_to_end(link_query_input_id())])
 }
 
 /// Append a file link to the selected block and close link mode.
