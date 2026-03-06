@@ -45,6 +45,7 @@ use super::action_bar::{ActionId, shortcut_to_action};
 use super::{ContextMenuMessage, EditMessage, Message, ShortcutMessage};
 use crate::store::{BlockId, LinkKind, PointLink};
 use crate::theme;
+use frostmark::{MarkState, MarkWidget};
 use iced::{
     Element, Fill, Length, Point,
     keyboard::{Key, key::Named},
@@ -79,6 +80,10 @@ pub struct PointTextEditor<'a, Message> {
     pub cursor_position: Point,
     /// Which link chip index is currently expanded (showing inline preview), if any.
     pub expanded_link_index: Option<usize>,
+    /// Frostmark state for the currently expanded markdown link preview.
+    ///
+    /// Note: this is optional because expanded chips can also be image/path.
+    pub expanded_markdown_preview: Option<&'a MarkState>,
     pub placeholder: String,
     /// Message to emit when a link chip is pressed (toggle expand).
     ///
@@ -99,7 +104,7 @@ pub struct PointTextEditor<'a, Message> {
     pub on_shortcut_key: fn(BlockId, &text_editor::KeyPress) -> Option<Message>,
 }
 
-impl<'a, Message: Clone + 'a> PointTextEditor<'a, Message> {
+impl<'a, Message: Clone + 'static + 'a> PointTextEditor<'a, Message> {
     /// Consume the struct and produce the widget element.
     pub fn view(self) -> Element<'a, Message> {
         let Self {
@@ -111,6 +116,7 @@ impl<'a, Message: Clone + 'a> PointTextEditor<'a, Message> {
             widget_id,
             cursor_position,
             expanded_link_index,
+            expanded_markdown_preview,
             placeholder,
             on_link_chip_toggle,
             on_remove_link,
@@ -173,13 +179,18 @@ impl<'a, Message: Clone + 'a> PointTextEditor<'a, Message> {
                         chip_col = chip_col.push(img);
                     }
                     | LinkKind::Markdown => {
-                        let content_text = std::fs::read_to_string(&link.href)
-                            .unwrap_or_else(|e| format!("(error: {})", e));
-                        chip_col = chip_col.push(
-                            container(text(content_text).size(theme::FIND_RESULT_POINT_SIZE))
-                                .padding(theme::LINK_CHIP_PAD)
-                                .width(Fill),
-                        );
+                        if let Some(markdown_preview) = expanded_markdown_preview {
+                            let markdown_widget: Element<'a, Message> =
+                                MarkWidget::new(markdown_preview)
+                                    .font(theme::DEFAULT_FONT)
+                                    .text_size(theme::FIND_RESULT_POINT_SIZE)
+                                    .into();
+                            chip_col = chip_col.push(
+                                container(markdown_widget)
+                                    .padding(theme::LINK_CHIP_PAD)
+                                    .width(Fill),
+                            );
+                        }
                     }
                     | LinkKind::Path => {
                         // No preview for generic paths.
@@ -276,6 +287,7 @@ pub(super) fn view<'a>(
     block_id: BlockId, is_plain_text: bool, point_text: String, links: &'a [PointLink],
     editor_content: Option<&'a text_editor::Content>, widget_id: Option<&'a widget::Id>,
     cursor_position: Point, expanded_link_index: Option<usize>,
+    expanded_markdown_preview: Option<&'a MarkState>,
 ) -> Element<'a, Message> {
     PointTextEditor {
         block_id,
@@ -286,6 +298,7 @@ pub(super) fn view<'a>(
         widget_id,
         cursor_position,
         expanded_link_index,
+        expanded_markdown_preview,
         placeholder: t!("doc_placeholder_point").to_string(),
         on_link_chip_toggle: |bid, idx| Message::LinkChipToggle(bid, idx),
         on_remove_link: |bid, idx| {

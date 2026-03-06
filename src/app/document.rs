@@ -541,6 +541,7 @@ impl<'a> TreeView<'a> {
         let links =
             self.state.store.point_content(block_id).map(|pc| pc.links.as_slice()).unwrap_or(&[]);
         let expanded_link_index = self.state.ui().expanded_links.get(block_id).copied();
+        let expanded_markdown_preview = self.state.expanded_markdown_preview(block_id);
         let point_editor = point_editor::view(
             block_id_for_edit,
             is_target_block || is_multiselect_mode,
@@ -550,6 +551,7 @@ impl<'a> TreeView<'a> {
             self.state.editor_buffers.widget_id(block_id),
             self.state.ui().cursor_position.unwrap_or(Point::ORIGIN),
             expanded_link_index,
+            expanded_markdown_preview,
         );
 
         let row_content = row![]

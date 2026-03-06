@@ -113,15 +113,17 @@ use self::{
 };
 use crate::{
     i18n, llm,
-    store::{BlockId, BlockPanelBarState, BlockStore, StoreLoadError},
+    store::{BlockId, BlockPanelBarState, BlockStore, LinkKind, StoreLoadError},
     undo::UndoHistory,
 };
+use frostmark::MarkState;
 use iced::{
     Element, Event, Subscription, Task, event, keyboard, system,
     widget::{self, text_editor},
     window,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 use std::time::Duration;
 
 pub use config::AppConfig;
@@ -198,6 +200,14 @@ pub struct AppState {
     /// This keeps call sites consistent and centralizes expectations for
     /// non-persisted UI state usage.
     transient_ui: TransientUiState,
+    /// Cached frostmark state for the currently expanded markdown link chip per block.
+    ///
+    /// This cache exists because `frostmark::MarkWidget` borrows a long-lived
+    /// [`MarkState`]. We refresh entries only when a chip is expanded.
+    ///
+    /// Note: the cache key is only `BlockId` because at most one link chip can
+    /// be expanded per block (`TransientUiState::expanded_links` invariant).
+    expanded_markdown_previews: BTreeMap<BlockId, Arc<MarkState>>,
     /// Edit session: block currently coalescing point edits into a single undo entry.
     edit_session: Option<BlockId>,
     /// Navigation stack: tracks drill-down path through block subtrees.
@@ -283,11 +293,12 @@ impl AppState {
             | Message::ContextMenu(message) => context_menu::handle(self, message),
             | Message::LinkMode(message) => link_panel::handle(self, message),
             | Message::LinkChipToggle(block_id, index) => {
-                let expanded = &mut self.ui_mut().expanded_links;
-                if expanded.get(&block_id) == Some(&index) {
-                    expanded.remove(&block_id);
+                if self.ui().expanded_links.get(&block_id) == Some(&index) {
+                    self.ui_mut().expanded_links.remove(&block_id);
+                    self.clear_expanded_markdown_preview(&block_id);
                 } else {
-                    expanded.insert(block_id, index);
+                    self.ui_mut().expanded_links.insert(block_id.clone(), index);
+                    self.refresh_expanded_markdown_preview(&block_id, index);
                 }
                 Task::none()
             }
@@ -586,6 +597,7 @@ impl AppState {
             persistence_blocked,
             persistence_write_disabled: false,
             transient_ui,
+            expanded_markdown_previews: BTreeMap::new(),
             edit_session: None,
             navigation: NavigationStack::default(),
         }
@@ -621,6 +633,16 @@ impl AppState {
         &mut self.transient_ui
     }
 
+    /// Return the cached expanded markdown preview state for a block, if any.
+    pub(crate) fn expanded_markdown_preview(&self, block_id: &BlockId) -> Option<&MarkState> {
+        self.expanded_markdown_previews.get(block_id).map(Arc::as_ref)
+    }
+
+    /// Drop any cached expanded markdown preview for `block_id`.
+    pub(crate) fn clear_expanded_markdown_preview(&mut self, block_id: &BlockId) {
+        self.expanded_markdown_previews.remove(block_id);
+    }
+
     /// Whether the current UI appearance mode is dark.
     pub fn is_dark_mode(&self) -> bool {
         self.ui().is_dark
@@ -649,6 +671,38 @@ impl AppState {
                 (BlockStore::recovery_store(), true, vec![error])
             }
         }
+    }
+
+    /// Load (or clear) the frostmark state for a newly expanded link chip.
+    ///
+    /// For non-markdown links, this clears any stale cached markdown preview.
+    ///
+    /// Note: failing fast here would interrupt normal editor flow on a broken
+    /// link path, so we log the read error and render the OS error message text
+    /// as markdown content instead.
+    fn refresh_expanded_markdown_preview(&mut self, block_id: &BlockId, index: usize) {
+        let Some(link) = self
+            .store
+            .point_content(block_id)
+            .and_then(|point_content| point_content.links.get(index))
+        else {
+            self.expanded_markdown_previews.remove(block_id);
+            return;
+        };
+        if link.kind != LinkKind::Markdown {
+            self.expanded_markdown_previews.remove(block_id);
+            return;
+        }
+
+        let markdown = match std::fs::read_to_string(&link.href) {
+            | Ok(markdown) => markdown,
+            | Err(error) => {
+                tracing::error!(path = %link.href, %error, "failed to read markdown link preview");
+                error.to_string()
+            }
+        };
+        self.expanded_markdown_previews
+            .insert(block_id.clone(), Arc::new(MarkState::with_markdown_only(&markdown)));
     }
 
     /// Persist all graph state.
@@ -899,6 +953,7 @@ impl AppState {
             persistence_blocked: false,
             persistence_write_disabled: true,
             transient_ui: TransientUiState::default(),
+            expanded_markdown_previews: BTreeMap::new(),
             edit_session: None,
             navigation: NavigationStack::default(),
         };
