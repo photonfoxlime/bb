@@ -114,8 +114,6 @@ pub const CANVAS_SCROLL_TAIL_RATIO: f32 = 0.5;
 
 /// Shared layout for floating overlay panels (find, link, archive).
 pub const FLOATING_PANEL_MARGIN: f32 = 16.0;
-/// Top offset ratio for floating panels (0.382 = 38.2% of viewport height).
-pub const FLOATING_PANEL_TOP_RATIO: f32 = 0.382;
 /// Maximum width for floating panels.
 pub const FLOATING_PANEL_MAX_WIDTH: f32 = 680.0;
 
