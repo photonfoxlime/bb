@@ -50,7 +50,7 @@ enum SiblingDirection {
     Next,
 }
 
-/// Parse Option/Alt navigation and movement shortcuts from a key press.
+/// Parse movement shortcuts from a key press.
 ///
 /// Returns `None` when the key chord is not one of the declared movement
 /// shortcuts or when extra command/control modifiers are pressed.
@@ -60,9 +60,12 @@ enum SiblingDirection {
 /// filters leaked editor actions so this parser remains the single source
 /// of truth for movement dispatch.
 pub fn movement_shortcut_from_key(
-    key: &keyboard::Key, modifiers: keyboard::Modifiers,
+    key: &keyboard::Key, modified_key: &keyboard::Key, physical_key: keyboard::key::Physical,
+    modifiers: keyboard::Modifiers,
 ) -> Option<ShortcutMessage> {
-    if let Some(shortcut) = movement_shortcut_from_bracket_key(key, modifiers) {
+    if let Some(shortcut) =
+        movement_shortcut_from_bracket_key(key, modified_key, physical_key, modifiers)
+    {
         return Some(ShortcutMessage::Movement(shortcut));
     }
 
@@ -117,7 +120,8 @@ pub fn movement_shortcut_from_key(
 /// Note: this stays as an alias layer over existing movement variants so
 /// all execution paths (undo, tracing, and persistence) remain shared.
 fn movement_shortcut_from_bracket_key(
-    key: &keyboard::Key, modifiers: keyboard::Modifiers,
+    key: &keyboard::Key, modified_key: &keyboard::Key, physical_key: keyboard::key::Physical,
+    modifiers: keyboard::Modifiers,
 ) -> Option<MovementShortcut> {
     #[cfg(target_os = "macos")]
     let has_bracket_modifier =
@@ -130,11 +134,40 @@ fn movement_shortcut_from_bracket_key(
         return None;
     }
 
+    movement_shortcut_from_bracket_logical_key(key)
+        .or_else(|| movement_shortcut_from_bracket_logical_key(modified_key))
+        .or_else(|| movement_shortcut_from_bracket_physical_key(physical_key))
+}
+
+fn movement_shortcut_from_bracket_logical_key(key: &keyboard::Key) -> Option<MovementShortcut> {
     match key {
         | keyboard::Key::Character(value) if value == "[" => {
             Some(MovementShortcut::MoveAfterParent)
         }
         | keyboard::Key::Character(value) if value == "]" => {
+            Some(MovementShortcut::MoveToPreviousSiblingFirstChild)
+        }
+        // Some backends can resolve command+bracket chords to browser-history
+        // logical keys instead of the literal bracket character.
+        | keyboard::Key::Named(keyboard::key::Named::BrowserBack)
+        | keyboard::Key::Named(keyboard::key::Named::GoBack) => {
+            Some(MovementShortcut::MoveAfterParent)
+        }
+        | keyboard::Key::Named(keyboard::key::Named::BrowserForward) => {
+            Some(MovementShortcut::MoveToPreviousSiblingFirstChild)
+        }
+        | _ => None,
+    }
+}
+
+fn movement_shortcut_from_bracket_physical_key(
+    physical_key: keyboard::key::Physical,
+) -> Option<MovementShortcut> {
+    match physical_key {
+        | keyboard::key::Physical::Code(keyboard::key::Code::BracketLeft) => {
+            Some(MovementShortcut::MoveAfterParent)
+        }
+        | keyboard::key::Physical::Code(keyboard::key::Code::BracketRight) => {
             Some(MovementShortcut::MoveToPreviousSiblingFirstChild)
         }
         | _ => None,
@@ -457,6 +490,40 @@ fn run_shortcut_for_block(
 mod tests {
     use super::*;
 
+    fn movement_with_unidentified_physical(
+        key: keyboard::Key, modifiers: keyboard::Modifiers,
+    ) -> Option<ShortcutMessage> {
+        movement_shortcut_from_key(
+            &key,
+            &key,
+            keyboard::key::Physical::Unidentified(keyboard::key::NativeCode::Unidentified),
+            modifiers,
+        )
+    }
+
+    fn movement_with_physical_bracket_code(
+        key: keyboard::Key, modified_key: keyboard::Key, physical_code: keyboard::key::Code,
+        modifiers: keyboard::Modifiers,
+    ) -> Option<ShortcutMessage> {
+        movement_shortcut_from_key(
+            &key,
+            &modified_key,
+            keyboard::key::Physical::Code(physical_code),
+            modifiers,
+        )
+    }
+
+    fn bracket_modifiers_for_current_platform() -> keyboard::Modifiers {
+        #[cfg(target_os = "macos")]
+        {
+            keyboard::Modifiers::COMMAND
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            keyboard::Modifiers::CTRL
+        }
+    }
+
     #[test]
     fn trigger_uses_edit_session_when_focus_is_missing() {
         let (mut state, root) = AppState::test_state();
@@ -472,12 +539,12 @@ mod tests {
     #[test]
     fn alt_arrow_shortcuts_map_to_movement_commands() {
         let modifiers = keyboard::Modifiers::ALT;
-        let up = movement_shortcut_from_key(
-            &keyboard::Key::Named(keyboard::key::Named::ArrowUp),
+        let up = movement_with_unidentified_physical(
+            keyboard::Key::Named(keyboard::key::Named::ArrowUp),
             modifiers,
         );
-        let left = movement_shortcut_from_key(
-            &keyboard::Key::Named(keyboard::key::Named::ArrowLeft),
+        let left = movement_with_unidentified_physical(
+            keyboard::Key::Named(keyboard::key::Named::ArrowLeft),
             modifiers,
         );
         assert!(matches!(
@@ -491,12 +558,12 @@ mod tests {
     #[test]
     fn ctrl_arrow_shortcuts_map_to_movement_commands_on_macos() {
         let modifiers = keyboard::Modifiers::CTRL;
-        let up = movement_shortcut_from_key(
-            &keyboard::Key::Named(keyboard::key::Named::ArrowUp),
+        let up = movement_with_unidentified_physical(
+            keyboard::Key::Named(keyboard::key::Named::ArrowUp),
             modifiers,
         );
-        let left = movement_shortcut_from_key(
-            &keyboard::Key::Named(keyboard::key::Named::ArrowLeft),
+        let left = movement_with_unidentified_physical(
+            keyboard::Key::Named(keyboard::key::Named::ArrowLeft),
             modifiers,
         );
         assert!(matches!(
@@ -510,12 +577,12 @@ mod tests {
     #[test]
     fn alt_shift_arrow_shortcuts_map_to_move_commands() {
         let modifiers = keyboard::Modifiers::ALT | keyboard::Modifiers::SHIFT;
-        let down = movement_shortcut_from_key(
-            &keyboard::Key::Named(keyboard::key::Named::ArrowDown),
+        let down = movement_with_unidentified_physical(
+            keyboard::Key::Named(keyboard::key::Named::ArrowDown),
             modifiers,
         );
-        let right = movement_shortcut_from_key(
-            &keyboard::Key::Named(keyboard::key::Named::ArrowRight),
+        let right = movement_with_unidentified_physical(
+            keyboard::Key::Named(keyboard::key::Named::ArrowRight),
             modifiers,
         );
         assert!(matches!(down, Some(ShortcutMessage::Movement(MovementShortcut::MoveSiblingNext))));
@@ -529,10 +596,18 @@ mod tests {
     #[test]
     fn ctrl_bracket_shortcuts_map_to_move_commands() {
         let modifiers = keyboard::Modifiers::CTRL;
-        let left_bracket =
-            movement_shortcut_from_key(&keyboard::Key::Character("[".into()), modifiers);
-        let right_bracket =
-            movement_shortcut_from_key(&keyboard::Key::Character("]".into()), modifiers);
+        let left_bracket = movement_with_physical_bracket_code(
+            keyboard::Key::Character("x".into()),
+            keyboard::Key::Character("x".into()),
+            keyboard::key::Code::BracketLeft,
+            modifiers,
+        );
+        let right_bracket = movement_with_physical_bracket_code(
+            keyboard::Key::Character("x".into()),
+            keyboard::Key::Character("x".into()),
+            keyboard::key::Code::BracketRight,
+            modifiers,
+        );
 
         assert!(matches!(
             left_bracket,
@@ -548,12 +623,12 @@ mod tests {
     #[test]
     fn ctrl_shift_arrow_shortcuts_map_to_move_commands_on_macos() {
         let modifiers = keyboard::Modifiers::CTRL | keyboard::Modifiers::SHIFT;
-        let down = movement_shortcut_from_key(
-            &keyboard::Key::Named(keyboard::key::Named::ArrowDown),
+        let down = movement_with_unidentified_physical(
+            keyboard::Key::Named(keyboard::key::Named::ArrowDown),
             modifiers,
         );
-        let right = movement_shortcut_from_key(
-            &keyboard::Key::Named(keyboard::key::Named::ArrowRight),
+        let right = movement_with_unidentified_physical(
+            keyboard::Key::Named(keyboard::key::Named::ArrowRight),
             modifiers,
         );
         assert!(matches!(down, Some(ShortcutMessage::Movement(MovementShortcut::MoveSiblingNext))));
@@ -567,10 +642,18 @@ mod tests {
     #[test]
     fn command_bracket_shortcuts_map_to_move_commands_on_macos() {
         let modifiers = keyboard::Modifiers::COMMAND;
-        let left_bracket =
-            movement_shortcut_from_key(&keyboard::Key::Character("[".into()), modifiers);
-        let right_bracket =
-            movement_shortcut_from_key(&keyboard::Key::Character("]".into()), modifiers);
+        let left_bracket = movement_with_physical_bracket_code(
+            keyboard::Key::Character("x".into()),
+            keyboard::Key::Character("x".into()),
+            keyboard::key::Code::BracketLeft,
+            modifiers,
+        );
+        let right_bracket = movement_with_physical_bracket_code(
+            keyboard::Key::Character("x".into()),
+            keyboard::Key::Character("x".into()),
+            keyboard::key::Code::BracketRight,
+            modifiers,
+        );
 
         assert!(matches!(
             left_bracket,
@@ -578,6 +661,48 @@ mod tests {
         ));
         assert!(matches!(
             right_bracket,
+            Some(ShortcutMessage::Movement(MovementShortcut::MoveToPreviousSiblingFirstChild))
+        ));
+    }
+
+    #[test]
+    fn bracket_shortcuts_accept_modified_key_and_browser_named_aliases() {
+        let modifiers = bracket_modifiers_for_current_platform();
+        let from_modified_left = movement_shortcut_from_key(
+            &keyboard::Key::Character("x".into()),
+            &keyboard::Key::Character("[".into()),
+            keyboard::key::Physical::Unidentified(keyboard::key::NativeCode::Unidentified),
+            modifiers,
+        );
+        let from_modified_right = movement_shortcut_from_key(
+            &keyboard::Key::Character("x".into()),
+            &keyboard::Key::Character("]".into()),
+            keyboard::key::Physical::Unidentified(keyboard::key::NativeCode::Unidentified),
+            modifiers,
+        );
+        let from_named_back = movement_with_unidentified_physical(
+            keyboard::Key::Named(keyboard::key::Named::BrowserBack),
+            modifiers,
+        );
+        let from_named_forward = movement_with_unidentified_physical(
+            keyboard::Key::Named(keyboard::key::Named::BrowserForward),
+            modifiers,
+        );
+
+        assert!(matches!(
+            from_modified_left,
+            Some(ShortcutMessage::Movement(MovementShortcut::MoveAfterParent))
+        ));
+        assert!(matches!(
+            from_modified_right,
+            Some(ShortcutMessage::Movement(MovementShortcut::MoveToPreviousSiblingFirstChild))
+        ));
+        assert!(matches!(
+            from_named_back,
+            Some(ShortcutMessage::Movement(MovementShortcut::MoveAfterParent))
+        ));
+        assert!(matches!(
+            from_named_forward,
             Some(ShortcutMessage::Movement(MovementShortcut::MoveToPreviousSiblingFirstChild))
         ));
     }

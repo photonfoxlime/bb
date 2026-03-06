@@ -446,8 +446,19 @@ impl AppState {
                     // Needed because multiselect blocks render as plain text (no editor).
                     Some(Message::MultiselectBackspace)
                 }
-                | Event::Keyboard(keyboard::Event::KeyPressed { key, modifiers, .. }) => {
-                    if let Some(shortcut) = shortcut::movement_shortcut_from_key(&key, modifiers) {
+                | Event::Keyboard(keyboard::Event::KeyPressed {
+                    key,
+                    modified_key,
+                    physical_key,
+                    modifiers,
+                    ..
+                }) => {
+                    if let Some(shortcut) = shortcut::movement_shortcut_from_key(
+                        &key,
+                        &modified_key,
+                        physical_key,
+                        modifiers,
+                    ) {
                         return Some(Message::Shortcut(shortcut));
                     }
 
