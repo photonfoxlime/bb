@@ -56,20 +56,19 @@ pub use results::CliResult;
 
 /// Block ID type for CLI argument parsing.
 ///
-/// Accepts block IDs in clean "NvG" format (e.g., `1v1`, `2v3`) where:
-/// - `N` = slot index in the store
-/// - `G` = generation counter (incremented on reuse)
+/// Accepts canonical UUID block IDs (for example,
+/// `018f44f1-6f5a-7a0e-9bc5-8c7a4d7d6b20`).
 ///
 /// Batch-capable commands additionally accept comma-separated IDs in the same
-/// argument position (for example, `1v1,2v1,3v1`).
+/// argument position.
 ///
 /// Matching is case-insensitive and flexible.
 ///
 /// # Examples
 ///
 /// ```bash
-/// block show 1v1
-/// block show 2v3
+/// block show 018f44f1-6f5a-7a0e-9bc5-8c7a4d7d6b20
+/// block show 018f44f1-6f5a-7a0e-9bc5-8c7a4d7d6b20,018f44f1-6f5a-7c11-97fb-c86a7507ab7d
 /// ```
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct BlockId(pub String);

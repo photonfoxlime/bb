@@ -1,6 +1,6 @@
 //! Block store: the core document data model.
 //!
-//! A document is a forest of blocks. Each block has a slotmap identity, a text
+//! A document is a forest of blocks. Each block has a UUID identity, a text
 //! point, and ordered children. Persistence and mount invariants are documented
 //! on the owning save/expand/collapse functions below.
 //!
@@ -28,7 +28,7 @@
 //!
 //! # Adding per-block persistent data
 //!
-//! The store uses [`SparseSecondaryMap<BlockId, T>`] for optional per-block
+//! The store uses [`FxHashMap<BlockId, T>`] for optional per-block
 //! metadata that must survive save/load cycles. Two categories exist:
 //!
 //! 1. Per-block data (user-authored content): `amplification_drafts`,
@@ -42,7 +42,7 @@
 //!
 //! 1. Declare the field on [`BlockStore`] with `#[serde(default)]`.
 //!    Use `bool` rather than `()` as the value type for set-like maps;
-//!    `SparseSecondaryMap<_, ()>` fails to round-trip through serde.
+//!    `FxHashMap<_, ()>` is valid but less explicit than `bool` for set-like state.
 //! 2. Thread through [`BlockStore::new_with_drafts`] (the internal
 //!    constructor used by `new` and all projection paths).
 //! 3. Accessor methods, at minimum a read accessor and a mutating
@@ -81,8 +81,8 @@ pub use persist::StoreLoadError;
 pub use point::{LinkKind, PointContent, PointLink};
 
 use mount::MountTable;
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
 
 /// Forest of blocks: root ids, an archive list, a structural map, and a content map.
 ///
@@ -107,13 +107,13 @@ pub struct BlockStore {
     #[serde(default)]
     pub archive: Vec<BlockId>,
     /// The structural map of blocks, keyed by [`BlockId`].
-    pub nodes: SlotMap<BlockId, BlockNode>,
+    pub nodes: FxHashMap<BlockId, BlockNode>,
     /// Typed content for each block, keyed by [`BlockId`].
     ///
     /// Each entry holds a [`PointContent`] with editable text and zero or more
     /// [`PointLink`]s. Backward-compatible serde handles legacy bare strings
     /// and old link objects.
-    pub points: SecondaryMap<BlockId, PointContent>,
+    pub points: FxHashMap<BlockId, PointContent>,
     /// Runtime-only mount tracking. Not serialized; reconstructed by
     /// re-expanding [`BlockNode::Mount`] nodes after deserialization.
     #[serde(skip)]
@@ -123,43 +123,43 @@ pub struct BlockStore {
     /// Invariant: keys should reference existing blocks in [`Self::nodes`].
     /// Sparse by design: only blocks with pending amplification drafts are stored.
     #[serde(default, rename = "expansion_drafts")]
-    pub amplification_drafts: SparseSecondaryMap<BlockId, AmplificationDraftRecord>,
+    pub amplification_drafts: FxHashMap<BlockId, AmplificationDraftRecord>,
     /// Persisted per-block atomization drafts.
     #[serde(default)]
-    pub atomization_drafts: SparseSecondaryMap<BlockId, AtomizationDraftRecord>,
+    pub atomization_drafts: FxHashMap<BlockId, AtomizationDraftRecord>,
     /// Persisted per-block distillation drafts.
     ///
     /// Invariant: keys should reference existing blocks in [`Self::nodes`].
     /// Sparse by design: only blocks with pending distillation drafts are stored.
     #[serde(default, rename = "reduction_drafts")]
-    pub distillation_drafts: SparseSecondaryMap<BlockId, DistillationDraftRecord>,
+    pub distillation_drafts: FxHashMap<BlockId, DistillationDraftRecord>,
     /// Persisted per-block instruction drafts.
     #[serde(default)]
-    pub instruction_drafts: SparseSecondaryMap<BlockId, InstructionDraftRecord>,
+    pub instruction_drafts: FxHashMap<BlockId, InstructionDraftRecord>,
     /// Persisted per-block probe drafts.
     #[serde(default, rename = "inquiry_drafts")]
-    pub probe_drafts: SparseSecondaryMap<BlockId, ProbeDraftRecord>,
+    pub probe_drafts: FxHashMap<BlockId, ProbeDraftRecord>,
     /// Persisted per-block fold (collapse) state.
     ///
     /// Presence of a key means the block's children are hidden in the UI.
     /// Stored in the authoritative graph so fold state survives reloads,
     /// participates in undo/redo snapshots, and follows save/load id remapping.
     #[serde(default)]
-    pub view_collapsed: SparseSecondaryMap<BlockId, bool>,
+    pub view_collapsed: FxHashMap<BlockId, bool>,
     #[serde(default)]
-    pub friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>>,
+    pub friend_blocks: FxHashMap<BlockId, Vec<FriendBlock>>,
     /// Persisted per-block block panel bar state (which panel is open).
     ///
     /// Stores whether the Friends or Instruction panel is open for each block.
     /// This survives reloads so the UI remembers which panel was last open.
     #[serde(default)]
-    pub block_panel_state: SparseSecondaryMap<BlockId, BlockPanelBarState>,
+    pub block_panel_state: FxHashMap<BlockId, BlockPanelBarState>,
 }
 
 impl BlockStore {
     /// Construct a store from pre-built roots, nodes, and plain-text points.
     ///
-    /// Accepts `SecondaryMap<BlockId, String>` for backward compatibility with
+    /// Accepts `FxHashMap<BlockId, String>` for backward compatibility with
     /// existing call sites and tests. Strings are wrapped in
     /// [`PointContent`] internally.
     ///
@@ -170,8 +170,8 @@ impl BlockStore {
     /// # Ensures
     /// - The store has at least one root.
     pub fn new(
-        roots: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
-        points: SecondaryMap<BlockId, String>,
+        roots: Vec<BlockId>, nodes: FxHashMap<BlockId, BlockNode>,
+        points: FxHashMap<BlockId, String>,
     ) -> Self {
         let typed_points = Self::convert_string_points(&nodes, points);
         Self::new_with_drafts(
@@ -179,14 +179,14 @@ impl BlockStore {
             vec![],
             nodes,
             typed_points,
-            SparseSecondaryMap::new(),
-            SparseSecondaryMap::new(),
-            SparseSecondaryMap::new(),
-            SparseSecondaryMap::new(),
-            SparseSecondaryMap::new(),
-            SparseSecondaryMap::new(),
-            SparseSecondaryMap::new(),
-            SparseSecondaryMap::new(),
+            FxHashMap::default(),
+            FxHashMap::default(),
+            FxHashMap::default(),
+            FxHashMap::default(),
+            FxHashMap::default(),
+            FxHashMap::default(),
+            FxHashMap::default(),
+            FxHashMap::default(),
             None,
         )
     }
@@ -195,16 +195,16 @@ impl BlockStore {
     ///
     /// Used by projection/rekey paths that already operate on `PointContent`.
     pub(crate) fn new_with_drafts(
-        roots: Vec<BlockId>, archive: Vec<BlockId>, nodes: SlotMap<BlockId, BlockNode>,
-        points: SecondaryMap<BlockId, PointContent>,
-        amplification_drafts: SparseSecondaryMap<BlockId, AmplificationDraftRecord>,
-        atomization_drafts: SparseSecondaryMap<BlockId, AtomizationDraftRecord>,
-        distillation_drafts: SparseSecondaryMap<BlockId, DistillationDraftRecord>,
-        instruction_drafts: SparseSecondaryMap<BlockId, InstructionDraftRecord>,
-        probe_drafts: SparseSecondaryMap<BlockId, ProbeDraftRecord>,
-        view_collapsed: SparseSecondaryMap<BlockId, bool>,
-        friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>>,
-        block_panel_state: SparseSecondaryMap<BlockId, BlockPanelBarState>, hint: Option<String>,
+        roots: Vec<BlockId>, archive: Vec<BlockId>, nodes: FxHashMap<BlockId, BlockNode>,
+        points: FxHashMap<BlockId, PointContent>,
+        amplification_drafts: FxHashMap<BlockId, AmplificationDraftRecord>,
+        atomization_drafts: FxHashMap<BlockId, AtomizationDraftRecord>,
+        distillation_drafts: FxHashMap<BlockId, DistillationDraftRecord>,
+        instruction_drafts: FxHashMap<BlockId, InstructionDraftRecord>,
+        probe_drafts: FxHashMap<BlockId, ProbeDraftRecord>,
+        view_collapsed: FxHashMap<BlockId, bool>,
+        friend_blocks: FxHashMap<BlockId, Vec<FriendBlock>>,
+        block_panel_state: FxHashMap<BlockId, BlockPanelBarState>, hint: Option<String>,
     ) -> Self {
         Self {
             roots,
@@ -224,17 +224,39 @@ impl BlockStore {
         }
     }
 
-    /// Convert a `SecondaryMap<BlockId, String>` to `SecondaryMap<BlockId, PointContent>`.
+    /// Allocate a fresh block id that is not present in `nodes`.
+    ///
+    /// Note: UUID v7 collisions are negligible in practice; the loop keeps the
+    /// uniqueness invariant explicit and testable.
+    fn fresh_block_id(nodes: &FxHashMap<BlockId, BlockNode>) -> BlockId {
+        loop {
+            let id = BlockId::new_v7();
+            if !nodes.contains_key(&id) {
+                return id;
+            }
+        }
+    }
+
+    /// Insert one structural node and return its newly allocated block id.
+    pub(crate) fn insert_node(
+        nodes: &mut FxHashMap<BlockId, BlockNode>, node: BlockNode,
+    ) -> BlockId {
+        let id = Self::fresh_block_id(nodes);
+        nodes.insert(id, node);
+        id
+    }
+
+    /// Convert a `FxHashMap<BlockId, String>` to `FxHashMap<BlockId, PointContent>`.
     ///
     /// Used by [`Self::new`] to bridge the public `String`-based API to the
     /// internal `PointContent` representation.
     fn convert_string_points(
-        nodes: &SlotMap<BlockId, BlockNode>, mut string_points: SecondaryMap<BlockId, String>,
-    ) -> SecondaryMap<BlockId, PointContent> {
-        let mut typed = SecondaryMap::new();
+        nodes: &FxHashMap<BlockId, BlockNode>, mut string_points: FxHashMap<BlockId, String>,
+    ) -> FxHashMap<BlockId, PointContent> {
+        let mut typed = FxHashMap::default();
         for (id, _) in nodes.iter() {
             if let Some(s) = string_points.remove(id) {
-                typed.insert(id, PointContent::from(s));
+                typed.insert(*id, PointContent::from(s));
             }
         }
         typed
@@ -258,7 +280,7 @@ impl BlockStore {
     /// - `Some(&BlockNode)` if the id exists in the store.
     /// - `None` if the id is unknown.
     pub fn node(&self, id: &BlockId) -> Option<&BlockNode> {
-        self.nodes.get(*id)
+        self.nodes.get(id)
     }
 
     /// Return the parent of a block, if any.
@@ -268,7 +290,7 @@ impl BlockStore {
         }
         for (parent_id, node) in &self.nodes {
             if node.children().contains(child) {
-                return Some(parent_id);
+                return Some(*parent_id);
             }
         }
         None
@@ -280,14 +302,14 @@ impl BlockStore {
     /// - The children block ids if the block exists and is an inline children node.
     /// - An empty slice if the block is unknown or a mount node.
     pub fn children(&self, id: &BlockId) -> &[BlockId] {
-        self.nodes.get(*id).map(|n| n.children()).unwrap_or(&[])
+        self.nodes.get(id).map(|n| n.children()).unwrap_or(&[])
     }
 
     /// Return the text of a block's point, or `None` if unknown.
     ///
     /// Most call sites use this; only UI rendering needs [`Self::point_content`].
     pub fn point(&self, id: &BlockId) -> Option<String> {
-        self.points.get(*id).map(|pc| pc.text.clone())
+        self.points.get(id).map(|pc| pc.text.clone())
     }
 
     /// Return a reference to the full [`PointContent`] for UI rendering.
@@ -295,17 +317,17 @@ impl BlockStore {
     /// Use this when the caller needs access to the block's links as well
     /// as its text (e.g., rendering link chips above the text editor).
     pub fn point_content(&self, id: &BlockId) -> Option<&PointContent> {
-        self.points.get(*id)
+        self.points.get(id)
     }
 
     /// Overwrite the text of an existing block's point.
     ///
     /// Links are preserved unchanged. No-op if the block does not exist.
     pub fn update_point(&mut self, id: &BlockId, value: String) {
-        if !self.nodes.contains_key(*id) {
+        if !self.nodes.contains_key(id) {
             return;
         }
-        match self.points.get_mut(*id) {
+        match self.points.get_mut(id) {
             | Some(content) => content.text = value,
             | None => {
                 self.points.insert(*id, PointContent::from(value));
@@ -317,10 +339,10 @@ impl BlockStore {
     ///
     /// No-op if the block does not exist.
     pub fn add_link_to_point(&mut self, id: &BlockId, link: PointLink) {
-        if !self.nodes.contains_key(*id) {
+        if !self.nodes.contains_key(id) {
             return;
         }
-        match self.points.get_mut(*id) {
+        match self.points.get_mut(id) {
             | Some(content) => content.add_link(link),
             | None => {
                 let mut content = PointContent::default();
@@ -334,7 +356,7 @@ impl BlockStore {
     ///
     /// No-op if the block does not exist or `index` is out of bounds.
     pub fn remove_link_from_point(&mut self, id: &BlockId, index: usize) {
-        if let Some(content) = self.points.get_mut(*id) {
+        if let Some(content) = self.points.get_mut(id) {
             content.remove_link(index);
         }
     }
@@ -345,20 +367,20 @@ impl BlockStore {
     /// avoids the sample default document so the UI clearly indicates recovery
     /// state instead of looking like a normal first-run dataset.
     pub(crate) fn recovery_store() -> Self {
-        let mut nodes = SlotMap::with_key();
-        let mut points = SecondaryMap::new();
+        let mut nodes = FxHashMap::default();
+        let mut points = FxHashMap::default();
 
-        let root_id = nodes.insert(BlockNode::with_children(vec![]));
+        let root_id = Self::insert_node(&mut nodes, BlockNode::with_children(vec![]));
         points.insert(root_id, String::new());
 
         BlockStore::new(vec![root_id], nodes, points)
     }
 
     fn default_store() -> Self {
-        let mut nodes = SlotMap::with_key();
-        let mut points = SecondaryMap::new();
+        let mut nodes = FxHashMap::default();
+        let mut points = FxHashMap::default();
 
-        let root_id = nodes.insert(BlockNode::with_children(vec![]));
+        let root_id = Self::insert_node(&mut nodes, BlockNode::with_children(vec![]));
         points.insert(
             root_id,
             "Tree of Thoughts: A Notebook for Designers and Developers".to_string(),

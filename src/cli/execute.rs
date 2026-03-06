@@ -101,13 +101,13 @@ pub fn expand_cli_pairs(
 /// Resolve a CLI BlockId string to an actual store BlockId.
 ///
 /// Performs flexible, case-insensitive matching on block ID strings.
-/// Format: `NvG` where N=index and G=generation (e.g., `1v1`, `2v3`).
+/// Format: canonical UUID string.
 pub fn resolve_block_id(store: &BlockStore, cli_id: &BlockId) -> Option<crate::store::BlockId> {
     let cli_str = &cli_id.0;
     for (id, _) in &store.nodes {
         let id_str = format!("{}", id);
         if id_str.eq_ignore_ascii_case(cli_str) {
-            return Some(id);
+            return Some(*id);
         }
     }
     None

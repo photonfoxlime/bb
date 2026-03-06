@@ -34,15 +34,15 @@
 //! bb --output json roots
 //!
 //! # Tree operations
-//! bb tree add-child 1v1 "New idea"
-//! bb tree move 1v1 2v1 --after
+//! bb tree add-child 018f44f1-6f5a-7a0e-9bc5-8c7a4d7d6b20 "New idea"
+//! bb tree move 018f44f1-6f5a-7a0e-9bc5-8c7a4d7d6b20 018f44f1-6f5a-7c11-97fb-c86a7507ab7d --after
 //!
 //! # Draft management
-//! bb draft amplify 1v1 --rewrite "Refined text" --children "Child 1" "Child 2"
+//! bb draft amplify 018f44f1-6f5a-7a0e-9bc5-8c7a4d7d6b20 --rewrite "Refined text" --children "Child 1" "Child 2"
 //!
 //! # Mount external files
-//! bb mount set 1v1 /path/to/file.md --format markdown
-//! bb mount expand 1v1
+//! bb mount set 018f44f1-6f5a-7a0e-9bc5-8c7a4d7d6b20 /path/to/file.md --format markdown
+//! bb mount expand 018f44f1-6f5a-7a0e-9bc5-8c7a4d7d6b20
 //! ```
 //!
 //! # Execution Flow

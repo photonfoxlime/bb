@@ -5,7 +5,7 @@
 //! comment identifies the format version.
 
 use super::{BlockId, BlockNode, BlockStore};
-use slotmap::{SecondaryMap, SlotMap};
+use rustc_hash::FxHashMap;
 
 impl BlockStore {
     /// Render a projected mount store into Markdown Mount v1.
@@ -39,8 +39,8 @@ impl BlockStore {
     /// [`Self::render_markdown_mount_store`]: preamble line + two-space nested
     /// bullet list with quoted and escaped point text.
     pub(crate) fn parse_markdown_mount_store(markdown: &str) -> Result<BlockStore, String> {
-        let mut nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
-        let mut points: SecondaryMap<BlockId, String> = SecondaryMap::new();
+        let mut nodes: FxHashMap<BlockId, BlockNode> = FxHashMap::default();
+        let mut points: FxHashMap<BlockId, String> = FxHashMap::default();
         let mut roots: Vec<BlockId> = Vec::new();
         let mut path_by_depth: Vec<BlockId> = Vec::new();
 
@@ -90,7 +90,7 @@ impl BlockStore {
             }
             path_by_depth.truncate(depth);
 
-            let id = nodes.insert(BlockNode::with_children(vec![]));
+            let id = BlockStore::insert_node(&mut nodes, BlockNode::with_children(vec![]));
             points.insert(id, point);
             saw_item = true;
 
@@ -104,7 +104,7 @@ impl BlockStore {
                         depth - 1
                     ));
                 };
-                let Some(parent) = nodes.get_mut(parent_id) else {
+                let Some(parent) = nodes.get_mut(&parent_id) else {
                     return Err(format!("line {}: parent block does not exist", line_no));
                 };
                 let Some(children) = parent.children_mut() else {

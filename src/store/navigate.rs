@@ -46,7 +46,7 @@ impl BlockStore {
     fn find_block_point_in_subtree(
         &self, current: &BlockId, query_lower: &str, query_terms: &[String], out: &mut Vec<BlockId>,
     ) {
-        let point = self.points.get(*current).map(|pc| pc.display_text()).unwrap_or_default();
+        let point = self.points.get(current).map(|pc| pc.display_text()).unwrap_or_default();
         let point_lower = point.to_lowercase();
         let is_match = point_lower.contains(query_lower)
             || query_terms.iter().any(|phrase| point_lower.contains(phrase));
@@ -87,7 +87,7 @@ impl BlockStore {
     /// Used by amplify/distill/atomize/probe handlers so all four operations read the
     /// same context envelope.
     pub fn block_context_for_id(&self, target: &BlockId) -> llm::BlockContext {
-        let friend_ids = self.friend_blocks.get(*target).cloned().unwrap_or_default();
+        let friend_ids = self.friend_blocks.get(target).cloned().unwrap_or_default();
         self.block_context_for_id_with_friend_blocks(target, &friend_ids)
     }
 
@@ -143,7 +143,7 @@ impl BlockStore {
     /// Returns `None` when `current` is the last visible block.
     pub fn next_visible_in_dfs(&self, current: &BlockId) -> Option<BlockId> {
         // If current has visible children, descend into the first child.
-        if !self.view_collapsed.contains_key(*current) {
+        if !self.view_collapsed.contains_key(current) {
             let children = self.children(current);
             if let Some(&first) = children.first() {
                 return Some(first);
@@ -185,7 +185,7 @@ impl BlockStore {
         // Previous sibling's deepest visible descendant.
         let mut target = siblings[index - 1];
         loop {
-            if self.view_collapsed.contains_key(target) {
+            if self.view_collapsed.contains_key(&target) {
                 return Some(target);
             }
             let children = self.children(&target);
@@ -220,7 +220,7 @@ impl BlockStore {
         // Walk up the ancestor chain; if any ancestor is collapsed, return false
         let mut current = *block_id;
         while let Some(parent) = self.parent(&current) {
-            if self.view_collapsed.contains_key(parent) {
+            if self.view_collapsed.contains_key(&parent) {
                 return false;
             }
             current = parent;

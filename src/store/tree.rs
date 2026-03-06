@@ -17,16 +17,16 @@ impl BlockStore {
     /// - The returned `Some(BlockId)` references the newly created child block.
     /// - The child inherits the mount origin of its parent if applicable.
     pub fn append_child(&mut self, parent_id: &BlockId, point: String) -> Option<BlockId> {
-        if !self.nodes.contains_key(*parent_id) {
+        if !self.nodes.contains_key(parent_id) {
             return None;
         }
 
-        let child_id = self.nodes.insert(BlockNode::with_children(vec![]));
+        let child_id = Self::insert_node(&mut self.nodes, BlockNode::with_children(vec![]));
         self.points.insert(child_id, PointContent::from(point));
         if let Some(mount_point) = self.inherited_mount_point_for_anchor(parent_id) {
             self.mount_table.set_origin(child_id, BlockOrigin::Mounted { mount_point });
         }
-        if let Some(parent) = self.nodes.get_mut(*parent_id)
+        if let Some(parent) = self.nodes.get_mut(parent_id)
             && let Some(children) = parent.children_mut()
         {
             children.push(child_id);
@@ -48,7 +48,8 @@ impl BlockStore {
     pub fn insert_parent(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
 
-        let parent_block_id = self.nodes.insert(BlockNode::with_children(vec![*block_id]));
+        let parent_block_id =
+            Self::insert_node(&mut self.nodes, BlockNode::with_children(vec![*block_id]));
         self.points.insert(parent_block_id, PointContent::from(point));
 
         if let Some(mount_point) = self.inherited_mount_point_for_anchor(block_id) {
@@ -56,7 +57,7 @@ impl BlockStore {
         }
 
         if let Some(parent_id) = parent_id {
-            let parent = self.nodes.get_mut(parent_id)?;
+            let parent = self.nodes.get_mut(&parent_id)?;
             if let Some(children) = parent.children_mut() {
                 children[index] = parent_block_id;
             }
@@ -78,14 +79,14 @@ impl BlockStore {
     /// - The sibling inherits the mount origin of `block_id` if applicable.
     pub fn append_sibling(&mut self, block_id: &BlockId, point: String) -> Option<BlockId> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
-        let sibling_id = self.nodes.insert(BlockNode::with_children(vec![]));
+        let sibling_id = Self::insert_node(&mut self.nodes, BlockNode::with_children(vec![]));
         self.points.insert(sibling_id, PointContent::from(point));
         if let Some(mount_point) = self.inherited_mount_point_for_anchor(block_id) {
             self.mount_table.set_origin(sibling_id, BlockOrigin::Mounted { mount_point });
         }
 
         if let Some(parent_id) = parent_id {
-            let parent = self.nodes.get_mut(parent_id)?;
+            let parent = self.nodes.get_mut(&parent_id)?;
             if let Some(children) = parent.children_mut() {
                 children.insert(index + 1, sibling_id);
             }
@@ -109,7 +110,7 @@ impl BlockStore {
         let duplicate_id = self.clone_subtree_with_new_ids(block_id)?;
 
         if let Some(parent_id) = parent_id {
-            let parent = self.nodes.get_mut(parent_id)?;
+            let parent = self.nodes.get_mut(&parent_id)?;
             if let Some(children) = parent.children_mut() {
                 children.insert(index + 1, duplicate_id);
             }
@@ -131,7 +132,7 @@ impl BlockStore {
     pub fn remove_block_subtree(&mut self, block_id: &BlockId) -> Option<Vec<BlockId>> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
         if let Some(parent_id) = parent_id {
-            if let Some(parent) = self.nodes.get_mut(parent_id)
+            if let Some(parent) = self.nodes.get_mut(&parent_id)
                 && let Some(children) = parent.children_mut()
             {
                 children.remove(index);
@@ -143,22 +144,22 @@ impl BlockStore {
         let mut removed_ids = Vec::new();
         self.collect_subtree_ids(block_id, &mut removed_ids);
         for id in &removed_ids {
-            self.nodes.remove(*id);
-            self.points.remove(*id);
-            self.amplification_drafts.remove(*id);
-            self.atomization_drafts.remove(*id);
-            self.distillation_drafts.remove(*id);
-            self.instruction_drafts.remove(*id);
-            self.probe_drafts.remove(*id);
-            self.view_collapsed.remove(*id);
-            self.friend_blocks.remove(*id);
-            self.block_panel_state.remove(*id);
+            self.nodes.remove(id);
+            self.points.remove(id);
+            self.amplification_drafts.remove(id);
+            self.atomization_drafts.remove(id);
+            self.distillation_drafts.remove(id);
+            self.instruction_drafts.remove(id);
+            self.probe_drafts.remove(id);
+            self.view_collapsed.remove(id);
+            self.friend_blocks.remove(id);
+            self.block_panel_state.remove(id);
             self.mount_table.remove_origin(*id);
         }
         self.remove_friend_block_references(&removed_ids);
 
         if self.roots.is_empty() {
-            let root_id = self.nodes.insert(BlockNode::with_children(vec![]));
+            let root_id = Self::insert_node(&mut self.nodes, BlockNode::with_children(vec![]));
             self.points.insert(root_id, PointContent::default());
             self.roots.push(root_id);
         }
@@ -184,16 +185,16 @@ impl BlockStore {
         let mut removed_ids = Vec::new();
         self.collect_subtree_ids(block_id, &mut removed_ids);
         for id in &removed_ids {
-            self.nodes.remove(*id);
-            self.points.remove(*id);
-            self.amplification_drafts.remove(*id);
-            self.atomization_drafts.remove(*id);
-            self.distillation_drafts.remove(*id);
-            self.instruction_drafts.remove(*id);
-            self.probe_drafts.remove(*id);
-            self.view_collapsed.remove(*id);
-            self.friend_blocks.remove(*id);
-            self.block_panel_state.remove(*id);
+            self.nodes.remove(id);
+            self.points.remove(id);
+            self.amplification_drafts.remove(id);
+            self.atomization_drafts.remove(id);
+            self.distillation_drafts.remove(id);
+            self.instruction_drafts.remove(id);
+            self.probe_drafts.remove(id);
+            self.view_collapsed.remove(id);
+            self.friend_blocks.remove(id);
+            self.block_panel_state.remove(id);
             self.mount_table.remove_origin(*id);
         }
         self.remove_friend_block_references(&removed_ids);
@@ -220,7 +221,7 @@ impl BlockStore {
     pub fn archive_block(&mut self, block_id: &BlockId) -> Option<Vec<BlockId>> {
         let (parent_id, index) = self.parent_and_index_of(block_id)?;
         if let Some(parent_id) = parent_id {
-            if let Some(parent) = self.nodes.get_mut(parent_id)
+            if let Some(parent) = self.nodes.get_mut(&parent_id)
                 && let Some(children) = parent.children_mut()
             {
                 children.remove(index);
@@ -232,7 +233,7 @@ impl BlockStore {
         self.archive.push(*block_id);
 
         if self.roots.is_empty() {
-            let root_id = self.nodes.insert(BlockNode::with_children(vec![]));
+            let root_id = Self::insert_node(&mut self.nodes, BlockNode::with_children(vec![]));
             self.points.insert(root_id, PointContent::default());
             self.roots.push(root_id);
         }
@@ -268,7 +269,7 @@ impl BlockStore {
         // Find and remove source from its current position
         let (source_parent_id, source_index) = self.parent_and_index_of(source_id)?;
         if let Some(parent_id) = source_parent_id {
-            let parent = self.nodes.get_mut(parent_id)?;
+            let parent = self.nodes.get_mut(&parent_id)?;
             if let Some(children) = parent.children_mut() {
                 children.remove(source_index);
             }
@@ -289,7 +290,7 @@ impl BlockStore {
                 };
 
                 if let Some(parent_id) = target_parent_id {
-                    let parent = self.nodes.get_mut(parent_id)?;
+                    let parent = self.nodes.get_mut(&parent_id)?;
                     if let Some(children) = parent.children_mut() {
                         children.insert(insert_index, *source_id);
                     }
@@ -299,7 +300,7 @@ impl BlockStore {
             }
             | Direction::Under => {
                 // Add source as the last child of target
-                let target_node = self.nodes.get_mut(*target_id)?;
+                let target_node = self.nodes.get_mut(target_id)?;
                 let children = target_node.children_mut()?;
                 children.push(*source_id);
             }
@@ -332,7 +333,7 @@ impl BlockStore {
 
         for (parent_id, node) in &self.nodes {
             if let Some(index) = node.children().iter().position(|id| id == target) {
-                return Some((Some(parent_id), index));
+                return Some((Some(*parent_id), index));
             }
         }
         None
@@ -340,14 +341,14 @@ impl BlockStore {
 
     fn clone_subtree_with_new_ids(&mut self, source_id: &BlockId) -> Option<BlockId> {
         let source_node = self.node(source_id)?.clone();
-        let source_content = self.points.get(*source_id).cloned().unwrap_or_default();
+        let source_content = self.points.get(source_id).cloned().unwrap_or_default();
         let source_children: Vec<BlockId> = source_node.children().to_vec();
         let mut child_ids = Vec::with_capacity(source_children.len());
         for child in &source_children {
             child_ids.push(self.clone_subtree_with_new_ids(child)?);
         }
 
-        let next_id = self.nodes.insert(BlockNode::with_children(child_ids));
+        let next_id = Self::insert_node(&mut self.nodes, BlockNode::with_children(child_ids));
         self.points.insert(next_id, source_content);
         if let Some(mount_point) = self.inherited_mount_point_for_anchor(source_id) {
             self.mount_table.set_origin(next_id, BlockOrigin::Mounted { mount_point });
@@ -406,12 +407,12 @@ impl BlockStore {
     pub(crate) fn collect_lineage_points(
         &self, current: &BlockId, target: &BlockId, out: &mut Vec<String>,
     ) -> bool {
-        if !self.nodes.contains_key(*current) {
+        if !self.nodes.contains_key(current) {
             return false;
         }
 
         let point =
-            self.points.get(*current).map(|pc| pc.display_text().to_owned()).unwrap_or_default();
+            self.points.get(current).map(|pc| pc.display_text().to_owned()).unwrap_or_default();
         out.push(point);
         if current == target {
             return true;
@@ -433,10 +434,10 @@ impl BlockStore {
             return;
         }
         let removed = removed_ids.iter().copied().collect::<std::collections::HashSet<_>>();
-        let target_ids = self.friend_blocks.iter().map(|(id, _)| id).collect::<Vec<_>>();
+        let target_ids = self.friend_blocks.iter().map(|(id, _)| *id).collect::<Vec<_>>();
         let mut empty_targets = Vec::new();
         for target_id in target_ids {
-            if let Some(friend_ids) = self.friend_blocks.get_mut(target_id) {
+            if let Some(friend_ids) = self.friend_blocks.get_mut(&target_id) {
                 friend_ids.retain(|friend| !removed.contains(&friend.block_id));
                 if friend_ids.is_empty() {
                     empty_targets.push(target_id);
@@ -444,7 +445,7 @@ impl BlockStore {
             }
         }
         for target_id in empty_targets {
-            self.friend_blocks.remove(target_id);
+            self.friend_blocks.remove(&target_id);
         }
     }
 }

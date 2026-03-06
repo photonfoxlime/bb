@@ -10,7 +10,7 @@ use super::error::UiError;
 use crate::llm;
 use crate::store::BlockId;
 use iced::task;
-use slotmap::SparseSecondaryMap;
+use rustc_hash::FxHashMap;
 use std::hash::{Hash, Hasher};
 
 #[derive(Clone, Default)]
@@ -19,19 +19,19 @@ use std::hash::{Hash, Hasher};
 /// This struct owns transient request state only; persisted drafts remain in
 /// `BlockStore` so request orchestration and persisted content stay decoupled.
 pub struct LlmRequests {
-    amplify_states: SparseSecondaryMap<BlockId, AmplifyState>,
-    distill_states: SparseSecondaryMap<BlockId, DistillState>,
-    atomize_states: SparseSecondaryMap<BlockId, AtomizeState>,
-    probe_states: SparseSecondaryMap<BlockId, ProbeState>,
-    amplify_handles: SparseSecondaryMap<BlockId, task::Handle>,
-    distill_handles: SparseSecondaryMap<BlockId, task::Handle>,
-    atomize_handles: SparseSecondaryMap<BlockId, task::Handle>,
-    probe_handles: SparseSecondaryMap<BlockId, task::Handle>,
-    pending_amplify_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
-    pending_distill_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
-    pending_atomize_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
-    pending_probe_signatures: SparseSecondaryMap<BlockId, RequestSignature>,
-    probe_errors: SparseSecondaryMap<BlockId, UiError>,
+    amplify_states: FxHashMap<BlockId, AmplifyState>,
+    distill_states: FxHashMap<BlockId, DistillState>,
+    atomize_states: FxHashMap<BlockId, AtomizeState>,
+    probe_states: FxHashMap<BlockId, ProbeState>,
+    amplify_handles: FxHashMap<BlockId, task::Handle>,
+    distill_handles: FxHashMap<BlockId, task::Handle>,
+    atomize_handles: FxHashMap<BlockId, task::Handle>,
+    probe_handles: FxHashMap<BlockId, task::Handle>,
+    pending_amplify_signatures: FxHashMap<BlockId, RequestSignature>,
+    pending_distill_signatures: FxHashMap<BlockId, RequestSignature>,
+    pending_atomize_signatures: FxHashMap<BlockId, RequestSignature>,
+    pending_probe_signatures: FxHashMap<BlockId, RequestSignature>,
+    probe_errors: FxHashMap<BlockId, UiError>,
 }
 
 impl LlmRequests {
@@ -57,41 +57,41 @@ impl LlmRequests {
 
     pub fn is_distilling(&self, block_id: BlockId) -> bool {
         self.distill_states
-            .get(block_id)
+            .get(&block_id)
             .is_some_and(|state| matches!(state, DistillState::Loading))
     }
 
     pub fn is_atomizing(&self, block_id: BlockId) -> bool {
         self.atomize_states
-            .get(block_id)
+            .get(&block_id)
             .is_some_and(|state| matches!(state, AtomizeState::Loading))
     }
 
     pub fn is_amplifying(&self, block_id: BlockId) -> bool {
         self.amplify_states
-            .get(block_id)
+            .get(&block_id)
             .is_some_and(|state| matches!(state, AmplifyState::Loading))
     }
 
     pub fn is_probing(&self, block_id: BlockId) -> bool {
-        self.probe_states.get(block_id).is_some_and(|state| matches!(state, ProbeState::Loading))
+        self.probe_states.get(&block_id).is_some_and(|state| matches!(state, ProbeState::Loading))
     }
 
     pub fn has_distill_error(&self, block_id: BlockId) -> bool {
         self.distill_states
-            .get(block_id)
+            .get(&block_id)
             .is_some_and(|state| matches!(state, DistillState::Error { .. }))
     }
 
     pub fn has_atomize_error(&self, block_id: BlockId) -> bool {
         self.atomize_states
-            .get(block_id)
+            .get(&block_id)
             .is_some_and(|state| matches!(state, AtomizeState::Error { .. }))
     }
 
     pub fn has_amplify_error(&self, block_id: BlockId) -> bool {
         self.amplify_states
-            .get(block_id)
+            .get(&block_id)
             .is_some_and(|state| matches!(state, AmplifyState::Error { .. }))
     }
 
@@ -113,32 +113,32 @@ impl LlmRequests {
     pub fn mark_probe_loading(&mut self, block_id: BlockId, request_signature: RequestSignature) {
         self.probe_states.insert(block_id, ProbeState::Loading);
         self.pending_probe_signatures.insert(block_id, request_signature);
-        self.probe_errors.remove(block_id);
+        self.probe_errors.remove(&block_id);
     }
 
     pub fn replace_distill_handle(&mut self, block_id: BlockId, handle: task::Handle) {
-        if let Some(previous) = self.distill_handles.remove(block_id) {
+        if let Some(previous) = self.distill_handles.remove(&block_id) {
             previous.abort();
         }
         self.distill_handles.insert(block_id, handle.abort_on_drop());
     }
 
     pub fn replace_atomize_handle(&mut self, block_id: BlockId, handle: task::Handle) {
-        if let Some(previous) = self.atomize_handles.remove(block_id) {
+        if let Some(previous) = self.atomize_handles.remove(&block_id) {
             previous.abort();
         }
         self.atomize_handles.insert(block_id, handle.abort_on_drop());
     }
 
     pub fn replace_amplify_handle(&mut self, block_id: BlockId, handle: task::Handle) {
-        if let Some(previous) = self.amplify_handles.remove(block_id) {
+        if let Some(previous) = self.amplify_handles.remove(&block_id) {
             previous.abort();
         }
         self.amplify_handles.insert(block_id, handle.abort_on_drop());
     }
 
     pub fn replace_probe_handle(&mut self, block_id: BlockId, handle: task::Handle) {
-        if let Some(previous) = self.probe_handles.remove(block_id) {
+        if let Some(previous) = self.probe_handles.remove(&block_id) {
             previous.abort();
         }
         self.probe_handles.insert(block_id, handle.abort_on_drop());
@@ -149,16 +149,16 @@ impl LlmRequests {
     /// Finalization is atomic per block: loading marker, handle, and pending
     /// signature are cleared together.
     pub fn finish_distill_request(&mut self, block_id: BlockId) -> Option<RequestSignature> {
-        self.distill_handles.remove(block_id);
-        self.distill_states.remove(block_id);
-        self.pending_distill_signatures.remove(block_id)
+        self.distill_handles.remove(&block_id);
+        self.distill_states.remove(&block_id);
+        self.pending_distill_signatures.remove(&block_id)
     }
 
     /// Finalize an atomize request and return its captured lineage signature.
     pub fn finish_atomize_request(&mut self, block_id: BlockId) -> Option<RequestSignature> {
-        self.atomize_handles.remove(block_id);
-        self.atomize_states.remove(block_id);
-        self.pending_atomize_signatures.remove(block_id)
+        self.atomize_handles.remove(&block_id);
+        self.atomize_states.remove(&block_id);
+        self.pending_atomize_signatures.remove(&block_id)
     }
 
     /// Finalize an expand request and return its captured lineage signature.
@@ -166,9 +166,9 @@ impl LlmRequests {
     /// Finalization is atomic per block: loading marker, handle, and pending
     /// signature are cleared together.
     pub fn finish_amplify_request(&mut self, block_id: BlockId) -> Option<RequestSignature> {
-        self.amplify_handles.remove(block_id);
-        self.amplify_states.remove(block_id);
-        self.pending_amplify_signatures.remove(block_id)
+        self.amplify_handles.remove(&block_id);
+        self.amplify_states.remove(&block_id);
+        self.pending_amplify_signatures.remove(&block_id)
     }
 
     /// Finalize an inquiry request and return signature + deferred error.
@@ -178,9 +178,9 @@ impl LlmRequests {
     pub fn finish_probe_request(
         &mut self, block_id: BlockId,
     ) -> (Option<RequestSignature>, Option<UiError>) {
-        self.probe_handles.remove(block_id);
-        self.probe_states.remove(block_id);
-        (self.pending_probe_signatures.remove(block_id), self.probe_errors.remove(block_id))
+        self.probe_handles.remove(&block_id);
+        self.probe_states.remove(&block_id);
+        (self.pending_probe_signatures.remove(&block_id), self.probe_errors.remove(&block_id))
     }
 
     /// Record a deferred inquiry stream error for later finalization.
@@ -204,11 +204,11 @@ impl LlmRequests {
         if !self.is_distilling(block_id) {
             return false;
         }
-        if let Some(handle) = self.distill_handles.remove(block_id) {
+        if let Some(handle) = self.distill_handles.remove(&block_id) {
             handle.abort();
         }
-        self.distill_states.remove(block_id);
-        self.pending_distill_signatures.remove(block_id);
+        self.distill_states.remove(&block_id);
+        self.pending_distill_signatures.remove(&block_id);
         true
     }
 
@@ -216,11 +216,11 @@ impl LlmRequests {
         if !self.is_atomizing(block_id) {
             return false;
         }
-        if let Some(handle) = self.atomize_handles.remove(block_id) {
+        if let Some(handle) = self.atomize_handles.remove(&block_id) {
             handle.abort();
         }
-        self.atomize_states.remove(block_id);
-        self.pending_atomize_signatures.remove(block_id);
+        self.atomize_states.remove(&block_id);
+        self.pending_atomize_signatures.remove(&block_id);
         true
     }
 
@@ -228,11 +228,11 @@ impl LlmRequests {
         if !self.is_amplifying(block_id) {
             return false;
         }
-        if let Some(handle) = self.amplify_handles.remove(block_id) {
+        if let Some(handle) = self.amplify_handles.remove(&block_id) {
             handle.abort();
         }
-        self.amplify_states.remove(block_id);
-        self.pending_amplify_signatures.remove(block_id);
+        self.amplify_states.remove(&block_id);
+        self.pending_amplify_signatures.remove(&block_id);
         true
     }
 
@@ -240,37 +240,37 @@ impl LlmRequests {
         if !self.is_probing(block_id) {
             return false;
         }
-        if let Some(handle) = self.probe_handles.remove(block_id) {
+        if let Some(handle) = self.probe_handles.remove(&block_id) {
             handle.abort();
         }
-        self.probe_states.remove(block_id);
-        self.pending_probe_signatures.remove(block_id);
-        self.probe_errors.remove(block_id);
+        self.probe_states.remove(&block_id);
+        self.pending_probe_signatures.remove(&block_id);
+        self.probe_errors.remove(&block_id);
         true
     }
 
     pub fn remove_block(&mut self, block_id: BlockId) {
-        if let Some(handle) = self.distill_handles.remove(block_id) {
+        if let Some(handle) = self.distill_handles.remove(&block_id) {
             handle.abort();
         }
-        if let Some(handle) = self.atomize_handles.remove(block_id) {
+        if let Some(handle) = self.atomize_handles.remove(&block_id) {
             handle.abort();
         }
-        if let Some(handle) = self.amplify_handles.remove(block_id) {
+        if let Some(handle) = self.amplify_handles.remove(&block_id) {
             handle.abort();
         }
-        if let Some(handle) = self.probe_handles.remove(block_id) {
+        if let Some(handle) = self.probe_handles.remove(&block_id) {
             handle.abort();
         }
-        self.pending_distill_signatures.remove(block_id);
-        self.pending_atomize_signatures.remove(block_id);
-        self.pending_amplify_signatures.remove(block_id);
-        self.pending_probe_signatures.remove(block_id);
-        self.probe_errors.remove(block_id);
-        self.distill_states.remove(block_id);
-        self.atomize_states.remove(block_id);
-        self.amplify_states.remove(block_id);
-        self.probe_states.remove(block_id);
+        self.pending_distill_signatures.remove(&block_id);
+        self.pending_atomize_signatures.remove(&block_id);
+        self.pending_amplify_signatures.remove(&block_id);
+        self.pending_probe_signatures.remove(&block_id);
+        self.probe_errors.remove(&block_id);
+        self.distill_states.remove(&block_id);
+        self.atomize_states.remove(&block_id);
+        self.amplify_states.remove(&block_id);
+        self.probe_states.remove(&block_id);
     }
 }
 

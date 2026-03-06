@@ -36,8 +36,8 @@ use super::drafts::{
 use super::{
     BlockId, BlockNode, BlockPanelBarState, BlockStore, FriendBlock, MountProjection, PointContent,
 };
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
-use slotmap::{SecondaryMap, SlotMap, SparseSecondaryMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -106,9 +106,9 @@ impl MountEntry {
 #[derive(Debug, Clone, Default)]
 pub struct MountTable {
     /// Per-block origin. Only blocks from mounted files are tracked.
-    origins: SecondaryMap<BlockId, BlockOrigin>,
+    origins: FxHashMap<BlockId, BlockOrigin>,
     /// Per-mount-point metadata, keyed by the mount-point block id.
-    entries: SecondaryMap<BlockId, MountEntry>,
+    entries: FxHashMap<BlockId, MountEntry>,
 }
 
 impl MountTable {
@@ -129,37 +129,37 @@ impl MountTable {
 
     /// Look up the mount entry for a mount-point block.
     pub fn entry(&self, mount_point: BlockId) -> Option<&MountEntry> {
-        self.entries.get(mount_point)
+        self.entries.get(&mount_point)
     }
 
     /// Mutably look up the mount entry for a mount-point block.
     pub fn entry_mut(&mut self, mount_point: BlockId) -> Option<&mut MountEntry> {
-        self.entries.get_mut(mount_point)
+        self.entries.get_mut(&mount_point)
     }
 
     /// Remove the mount entry and all associated origin records.
     ///
     /// Returns the removed entry, or `None` if `mount_point` had no entry.
     pub fn remove_entry(&mut self, mount_point: BlockId) -> Option<MountEntry> {
-        let entry = self.entries.remove(mount_point)?;
+        let entry = self.entries.remove(&mount_point)?;
         for &id in &entry.block_ids {
-            self.origins.remove(id);
+            self.origins.remove(&id);
         }
         Some(entry)
     }
 
     /// Remove a single block's origin record (e.g. when the block is deleted).
     pub fn remove_origin(&mut self, block_id: BlockId) {
-        self.origins.remove(block_id);
+        self.origins.remove(&block_id);
     }
 
     pub fn origin(&self, block_id: BlockId) -> Option<&BlockOrigin> {
-        self.origins.get(block_id)
+        self.origins.get(&block_id)
     }
 
     /// Iterate over all mount entries as `(mount_point_id, entry)` pairs.
     pub fn entries(&self) -> impl Iterator<Item = (BlockId, &MountEntry)> {
-        self.entries.iter()
+        self.entries.iter().map(|(id, entry)| (*id, entry))
     }
 }
 
@@ -213,11 +213,11 @@ impl BlockStore {
     pub fn set_mount_path_with_format(
         &mut self, id: &BlockId, path: std::path::PathBuf, format: MountFormat,
     ) -> Option<()> {
-        let node = self.nodes.get(*id)?;
+        let node = self.nodes.get(id)?;
         if !node.children().is_empty() {
             return None;
         }
-        if let Some(node) = self.nodes.get_mut(*id) {
+        if let Some(node) = self.nodes.get_mut(id) {
             *node = if format == MountFormat::Json {
                 BlockNode::with_path(path)
             } else {
@@ -242,7 +242,7 @@ impl BlockStore {
     pub fn expand_mount(
         &mut self, mount_point: &BlockId, base_dir: &Path,
     ) -> Result<Vec<BlockId>, MountError> {
-        let node = self.nodes.get(*mount_point).ok_or(MountError::UnknownBlock)?;
+        let node = self.nodes.get(mount_point).ok_or(MountError::UnknownBlock)?;
         let (rel_path, format) = match node {
             | BlockNode::Mount { path, format } => (path.clone(), *format),
             | BlockNode::Children { .. } => return Err(MountError::NotAMount),
@@ -262,11 +262,11 @@ impl BlockStore {
         };
 
         // tracing::trace!(mount_point = ?mount_point, "expanding mount");
-        // tracing::trace!(point = ?self.points.get(*mount_point), "mount point content");
+        // tracing::trace!(point = ?self.points.get(&mount_point), "mount point content");
         // tracing::trace!(hint = ?sub_store.hint, "hint");
 
         // If the mount point is empty, use the hint to fill its content.
-        if let Some(content) = self.points.get_mut(*mount_point)
+        if let Some(content) = self.points.get_mut(mount_point)
             && content.is_empty_text()
             && let Some(hint) = &sub_store.hint
         {
@@ -280,11 +280,11 @@ impl BlockStore {
             MountEntry::new(canonical, rel_path.clone(), format, new_roots.clone(), all_new_ids),
         );
 
-        if let Some(node) = self.nodes.get_mut(*mount_point) {
+        if let Some(node) = self.nodes.get_mut(mount_point) {
             *node = BlockNode::with_children(new_roots.clone());
         }
-        self.view_collapsed.remove(*mount_point);
-        self.friend_blocks.remove(*mount_point);
+        self.view_collapsed.remove(mount_point);
+        self.friend_blocks.remove(mount_point);
 
         Ok(new_roots)
     }
@@ -316,20 +316,20 @@ impl BlockStore {
         }
 
         for id in &removed_ids {
-            self.nodes.remove(*id);
-            self.points.remove(*id);
-            self.amplification_drafts.remove(*id);
-            self.atomization_drafts.remove(*id);
-            self.distillation_drafts.remove(*id);
-            self.instruction_drafts.remove(*id);
-            self.probe_drafts.remove(*id);
-            self.view_collapsed.remove(*id);
-            self.friend_blocks.remove(*id);
-            self.block_panel_state.remove(*id);
+            self.nodes.remove(id);
+            self.points.remove(id);
+            self.amplification_drafts.remove(id);
+            self.atomization_drafts.remove(id);
+            self.distillation_drafts.remove(id);
+            self.instruction_drafts.remove(id);
+            self.probe_drafts.remove(id);
+            self.view_collapsed.remove(id);
+            self.friend_blocks.remove(id);
+            self.block_panel_state.remove(id);
             self.mount_table.remove_origin(*id);
         }
         self.remove_friend_block_references(&removed_ids);
-        if let Some(node) = self.nodes.get_mut(*mount_point) {
+        if let Some(node) = self.nodes.get_mut(mount_point) {
             *node = BlockNode::with_path_and_format(entry.rel_path, entry.format);
         }
         Some(())
@@ -349,7 +349,7 @@ impl BlockStore {
     pub fn move_mount_file(
         &mut self, mount_point: &BlockId, new_path: &Path, base_dir: &Path,
     ) -> Result<(), MountError> {
-        let _ = self.nodes.get(*mount_point).ok_or(MountError::UnknownBlock)?;
+        let _ = self.nodes.get(mount_point).ok_or(MountError::UnknownBlock)?;
         let effective_base_dir = self.effective_mount_base_dir(mount_point, base_dir);
         let target_path = if new_path.is_relative() {
             effective_base_dir.join(new_path)
@@ -378,7 +378,7 @@ impl BlockStore {
             return Ok(());
         }
 
-        let (current_rel_path, format) = match self.nodes.get(*mount_point) {
+        let (current_rel_path, format) = match self.nodes.get(mount_point) {
             | Some(BlockNode::Mount { path, format }) => (path.clone(), *format),
             | Some(BlockNode::Children { .. }) => return Err(MountError::NotMounted),
             | None => return Err(MountError::UnknownBlock),
@@ -405,7 +405,7 @@ impl BlockStore {
         }
 
         let rel_path = Self::relative_or_absolute_path(&target_path, &effective_base_dir);
-        if let Some(node) = self.nodes.get_mut(*mount_point) {
+        if let Some(node) = self.nodes.get_mut(mount_point) {
             *node = BlockNode::with_path_and_format(rel_path, format);
         }
         Ok(())
@@ -419,7 +419,7 @@ impl BlockStore {
     pub fn inline_mount(
         &mut self, mount_point: &BlockId, base_dir: &Path,
     ) -> Result<(), MountError> {
-        let node = self.nodes.get(*mount_point).ok_or(MountError::UnknownBlock)?;
+        let node = self.nodes.get(mount_point).ok_or(MountError::UnknownBlock)?;
         let has_entry = self.mount_table.entry(*mount_point).is_some();
         let is_unexpanded_mount = matches!(node, BlockNode::Mount { .. });
         if !has_entry && !is_unexpanded_mount {
@@ -449,12 +449,12 @@ impl BlockStore {
     pub fn inline_mount_recursive(
         &mut self, mount_point: &BlockId, base_dir: &Path,
     ) -> Result<usize, MountError> {
-        let _ = self.nodes.get(*mount_point).ok_or(MountError::UnknownBlock)?;
+        let _ = self.nodes.get(mount_point).ok_or(MountError::UnknownBlock)?;
 
         let mut stack = vec![*mount_point];
         let mut inlined_mount_count = 0;
         while let Some(current) = stack.pop() {
-            if self.nodes.get(current).is_none() {
+            if self.nodes.get(&current).is_none() {
                 continue;
             }
 
@@ -499,10 +499,10 @@ impl BlockStore {
         &mut self, block_id: &BlockId, path: &Path, base_dir: &Path,
         format_override: Option<MountFormat>,
     ) -> Result<(), MountError> {
-        let node = self.nodes.get(*block_id).ok_or(MountError::UnknownBlock)?;
+        let node = self.nodes.get(block_id).ok_or(MountError::UnknownBlock)?;
         let hint = self
             .points
-            .get(*block_id)
+            .get(block_id)
             .map(|pc| pc.display_text().to_owned())
             .and_then(|p| if p.is_empty() { None } else { Some(p) });
         let children = node.children().to_vec();
@@ -554,32 +554,32 @@ impl BlockStore {
             if let Some(entry) = self.mount_table.remove_entry(mount_id) {
                 removed_friend_references.extend(entry.block_ids.iter().copied());
                 for &id in &entry.block_ids {
-                    self.nodes.remove(id);
-                    self.points.remove(id);
-                    self.amplification_drafts.remove(id);
-                    self.atomization_drafts.remove(id);
-                    self.distillation_drafts.remove(id);
-                    self.instruction_drafts.remove(id);
-                    self.probe_drafts.remove(id);
-                    self.view_collapsed.remove(id);
-                    self.friend_blocks.remove(id);
-                    self.block_panel_state.remove(id);
+                    self.nodes.remove(&id);
+                    self.points.remove(&id);
+                    self.amplification_drafts.remove(&id);
+                    self.atomization_drafts.remove(&id);
+                    self.distillation_drafts.remove(&id);
+                    self.instruction_drafts.remove(&id);
+                    self.probe_drafts.remove(&id);
+                    self.view_collapsed.remove(&id);
+                    self.friend_blocks.remove(&id);
+                    self.block_panel_state.remove(&id);
                 }
             }
         }
 
         // Remove own subtree nodes from main store (not block_id itself).
         for &id in &own_ids {
-            self.nodes.remove(id);
-            self.points.remove(id);
-            self.amplification_drafts.remove(id);
-            self.atomization_drafts.remove(id);
-            self.distillation_drafts.remove(id);
-            self.instruction_drafts.remove(id);
-            self.probe_drafts.remove(id);
-            self.view_collapsed.remove(id);
-            self.friend_blocks.remove(id);
-            self.block_panel_state.remove(id);
+            self.nodes.remove(&id);
+            self.points.remove(&id);
+            self.amplification_drafts.remove(&id);
+            self.atomization_drafts.remove(&id);
+            self.distillation_drafts.remove(&id);
+            self.instruction_drafts.remove(&id);
+            self.probe_drafts.remove(&id);
+            self.view_collapsed.remove(&id);
+            self.friend_blocks.remove(&id);
+            self.block_panel_state.remove(&id);
             self.mount_table.remove_origin(id);
         }
         removed_friend_references.extend(own_ids.iter().copied());
@@ -592,7 +592,7 @@ impl BlockStore {
             .unwrap_or_else(|_| path.to_path_buf());
 
         // Replace node with mount.
-        if let Some(node) = self.nodes.get_mut(*block_id) {
+        if let Some(node) = self.nodes.get_mut(block_id) {
             *node = BlockNode::with_path_and_format(rel_path, format);
         }
 
@@ -603,28 +603,26 @@ impl BlockStore {
         &self, kept_ids: &[BlockId], hint: Option<String>, roots: &[BlockId], archive: &[BlockId],
         mount_path_overrides: &std::collections::HashMap<BlockId, MountProjection>,
     ) -> BlockStore {
-        let mut sub_nodes: SlotMap<BlockId, BlockNode> = SlotMap::with_key();
-        let mut sub_points: SecondaryMap<BlockId, PointContent> = SecondaryMap::new();
-        let mut sub_amplification_drafts: SparseSecondaryMap<BlockId, AmplificationDraftRecord> =
-            SparseSecondaryMap::new();
-        let mut sub_atomization_drafts: SparseSecondaryMap<BlockId, AtomizationDraftRecord> =
-            SparseSecondaryMap::new();
-        let mut sub_distillation_drafts: SparseSecondaryMap<BlockId, DistillationDraftRecord> =
-            SparseSecondaryMap::new();
-        let mut sub_instruction_drafts: SparseSecondaryMap<BlockId, InstructionDraftRecord> =
-            SparseSecondaryMap::new();
-        let mut sub_probe_drafts: SparseSecondaryMap<BlockId, ProbeDraftRecord> =
-            SparseSecondaryMap::new();
-        let mut sub_friend_blocks: SparseSecondaryMap<BlockId, Vec<FriendBlock>> =
-            SparseSecondaryMap::new();
-        let mut sub_block_panel_state: SparseSecondaryMap<BlockId, BlockPanelBarState> =
-            SparseSecondaryMap::new();
+        let mut sub_nodes: FxHashMap<BlockId, BlockNode> = FxHashMap::default();
+        let mut sub_points: FxHashMap<BlockId, PointContent> = FxHashMap::default();
+        let mut sub_amplification_drafts: FxHashMap<BlockId, AmplificationDraftRecord> =
+            FxHashMap::default();
+        let mut sub_atomization_drafts: FxHashMap<BlockId, AtomizationDraftRecord> =
+            FxHashMap::default();
+        let mut sub_distillation_drafts: FxHashMap<BlockId, DistillationDraftRecord> =
+            FxHashMap::default();
+        let mut sub_instruction_drafts: FxHashMap<BlockId, InstructionDraftRecord> =
+            FxHashMap::default();
+        let mut sub_probe_drafts: FxHashMap<BlockId, ProbeDraftRecord> = FxHashMap::default();
+        let mut sub_friend_blocks: FxHashMap<BlockId, Vec<FriendBlock>> = FxHashMap::default();
+        let mut sub_block_panel_state: FxHashMap<BlockId, BlockPanelBarState> =
+            FxHashMap::default();
         let mut id_map: std::collections::HashMap<BlockId, BlockId> =
             std::collections::HashMap::new();
 
         for &old_id in kept_ids {
-            let point = self.points.get(old_id).cloned().unwrap_or_default();
-            let new_id = sub_nodes.insert(BlockNode::with_children(vec![]));
+            let point = self.points.get(&old_id).cloned().unwrap_or_default();
+            let new_id = Self::insert_node(&mut sub_nodes, BlockNode::with_children(vec![]));
             sub_points.insert(new_id, point);
             id_map.insert(old_id, new_id);
         }
@@ -634,7 +632,7 @@ impl BlockStore {
                 continue;
             };
             if let Some(mount_projection) = mount_path_overrides.get(&old_id) {
-                if let Some(node) = sub_nodes.get_mut(new_id) {
+                if let Some(node) = sub_nodes.get_mut(&new_id) {
                     *node = BlockNode::with_path_and_format(
                         mount_projection.path.clone(),
                         mount_projection.format,
@@ -643,17 +641,17 @@ impl BlockStore {
                 continue;
             }
 
-            if let Some(old_node) = self.nodes.get(old_id) {
+            if let Some(old_node) = self.nodes.get(&old_id) {
                 match old_node {
                     | BlockNode::Children { children } => {
                         let new_children: Vec<BlockId> =
                             children.iter().filter_map(|c| id_map.get(c).copied()).collect();
-                        if let Some(node) = sub_nodes.get_mut(new_id) {
+                        if let Some(node) = sub_nodes.get_mut(&new_id) {
                             *node = BlockNode::with_children(new_children);
                         }
                     }
                     | BlockNode::Mount { path, format } => {
-                        if let Some(node) = sub_nodes.get_mut(new_id) {
+                        if let Some(node) = sub_nodes.get_mut(&new_id) {
                             *node = BlockNode::with_path_and_format(path.clone(), *format);
                         }
                     }
@@ -690,7 +688,7 @@ impl BlockStore {
                 sub_probe_drafts.insert(new_id, draft.clone());
             }
         }
-        let mut sub_view_collapsed: SparseSecondaryMap<BlockId, bool> = SparseSecondaryMap::new();
+        let mut sub_view_collapsed: FxHashMap<BlockId, bool> = FxHashMap::default();
         for (old_id, _) in &self.view_collapsed {
             if let Some(&new_id) = id_map.get(&old_id) {
                 sub_view_collapsed.insert(new_id, true);
@@ -752,8 +750,8 @@ impl BlockStore {
 
         // First pass: allocate fresh ids for every block in the sub-store.
         for (old_id, _node) in &sub_store.nodes {
-            let new_id = self.nodes.insert(BlockNode::with_children(vec![]));
-            id_map.insert(old_id, new_id);
+            let new_id = Self::insert_node(&mut self.nodes, BlockNode::with_children(vec![]));
+            id_map.insert(*old_id, new_id);
             all_new_ids.push(new_id);
 
             let point = sub_store.points.get(old_id).cloned().unwrap_or_default();
@@ -764,18 +762,18 @@ impl BlockStore {
 
         // Second pass: rewrite children references using the id map.
         for (old_id, old_node) in &sub_store.nodes {
-            let new_id = id_map[&old_id];
+            let new_id = id_map[old_id];
             let remapped_children: Vec<BlockId> =
                 old_node.children().iter().filter_map(|c| id_map.get(c).copied()).collect();
 
             match old_node {
                 | BlockNode::Children { .. } => {
-                    if let Some(node) = self.nodes.get_mut(new_id) {
+                    if let Some(node) = self.nodes.get_mut(&new_id) {
                         *node = BlockNode::with_children(remapped_children);
                     }
                 }
                 | BlockNode::Mount { path, format } => {
-                    if let Some(node) = self.nodes.get_mut(new_id) {
+                    if let Some(node) = self.nodes.get_mut(&new_id) {
                         *node = BlockNode::with_path_and_format(path.clone(), *format);
                     }
                 }
@@ -846,8 +844,8 @@ impl BlockStore {
     /// Build a serialization-ready snapshot that restores mount nodes and
     /// excludes re-keyed blocks.
     ///
-    /// Builds a fresh `BlockStore` with compacted SlotMaps so that
-    /// serialization produces no vacant-slot nulls.
+    /// Builds a fresh `BlockStore` backed by dense hash maps so serialization
+    /// only contains reachable ids.
     pub(crate) fn snapshot_for_save(&self) -> BlockStore {
         let mut mounted_ids: std::collections::HashSet<BlockId> = std::collections::HashSet::new();
         for (mount_point, _entry) in self.mount_table.entries() {
@@ -861,7 +859,7 @@ impl BlockStore {
         let mut kept_ids = Vec::new();
         for (old_id, _node) in &self.nodes {
             if !mounted_ids.contains(&old_id) {
-                kept_ids.push(old_id);
+                kept_ids.push(*old_id);
             }
         }
 
@@ -885,8 +883,8 @@ impl BlockStore {
 
     /// Extract blocks belonging to a mount entry into a standalone store.
     ///
-    /// Builds a fresh `BlockStore` with compacted SlotMaps so that
-    /// serialization produces no vacant-slot nulls.
+    /// Builds a fresh `BlockStore` backed by dense hash maps so serialization
+    /// only contains reachable ids.
     pub(crate) fn extract_mount_store(
         &self, mount_point: &BlockId, entry: &MountEntry,
     ) -> BlockStore {
@@ -918,7 +916,7 @@ impl BlockStore {
 
         let hint = self
             .points
-            .get(*mount_point)
+            .get(mount_point)
             .map(|pc| pc.display_text().to_owned())
             .and_then(|p| if p.is_empty() { None } else { Some(p) });
 

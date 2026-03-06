@@ -6,18 +6,32 @@
 
 use super::mount::MountFormat;
 use serde::{Deserialize, Serialize};
-use slotmap::Key;
+use uuid::Uuid;
 
-slotmap::new_key_type! {
-    pub struct BlockId;
+/// Stable block identifier used across the in-memory graph and persisted files.
+///
+/// New IDs are allocated with UUID v7 via [`Self::new_v7`]. UUID v7 preserves
+/// globally unique semantics while improving temporal locality for newly
+/// inserted keys.
+///
+/// Note: persisted stores using the legacy slot-style ids are not decoded by
+/// this type and require an explicit migration step.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
+)]
+#[serde(transparent)]
+pub struct BlockId(pub Uuid);
+
+impl BlockId {
+    /// Create a fresh block id using UUID v7.
+    pub fn new_v7() -> Self {
+        Self(Uuid::now_v7())
+    }
 }
 
 impl std::fmt::Display for BlockId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let ffi = self.data().as_ffi();
-        let index = ffi & 0xFFFFFFFF;
-        let generation = ffi >> 32;
-        write!(f, "{}v{}", index, generation)
+        write!(f, "{}", self.0)
     }
 }
 

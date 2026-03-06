@@ -16,7 +16,7 @@ pub struct RootCommand {}
 pub struct ShowCommand {
     /// The block ID to display.
     ///
-    /// Must be a valid NvG format string (for example, `1v1`).
+    /// Must be a valid UUID string.
     /// Fails if the ID is not found in the store.
     #[arg(value_name = "BLOCK_ID")]
     pub block_id: BlockId,

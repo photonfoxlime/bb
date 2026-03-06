@@ -197,7 +197,7 @@ pub struct ReductionDraftInfo {
 /// Show command result: block ID, point text, and child block IDs.
 #[derive(Debug, serde::Serialize)]
 pub struct ShowResult {
-    /// Block ID in NvG format.
+    /// Block ID in UUID format.
     pub id: String,
     /// Point text content.
     pub text: String,
@@ -211,7 +211,7 @@ pub struct ShowResult {
 /// and full point text.
 #[derive(Debug, serde::Serialize)]
 pub struct Match {
-    /// Block ID in NvG format (e.g., "1v1").
+    /// Block ID in UUID format.
     pub id: String,
     /// Full point text content of the block.
     pub text: String,
@@ -223,7 +223,7 @@ pub struct Match {
 /// including telescope settings for context expansion.
 #[derive(Debug, serde::Serialize)]
 pub struct FriendInfo {
-    /// Friend block ID in NvG format.
+    /// Friend block ID in UUID format.
     pub id: String,
     /// Perspective text (optional annotation for the link).
     pub perspective: Option<String>,

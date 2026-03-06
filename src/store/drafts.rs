@@ -76,14 +76,14 @@ impl BlockStore {
     /// - `Some(&AmplificationDraftRecord)` if the block has a pending amplification draft.
     /// - `None` if no amplification draft exists for this block.
     pub fn amplification_draft(&self, id: &BlockId) -> Option<&AmplificationDraftRecord> {
-        self.amplification_drafts.get(*id)
+        self.amplification_drafts.get(id)
     }
 
     /// Get a mutable reference to the amplification draft for a block, if any.
     pub fn amplification_draft_mut(
         &mut self, id: &BlockId,
     ) -> Option<&mut AmplificationDraftRecord> {
-        self.amplification_drafts.get_mut(*id)
+        self.amplification_drafts.get_mut(id)
     }
 
     /// Insert or replace the amplification draft for a block.
@@ -96,17 +96,17 @@ impl BlockStore {
 
     /// Remove the amplification draft for a block, returning the removed draft if any.
     pub fn remove_amplification_draft(&mut self, id: &BlockId) -> Option<AmplificationDraftRecord> {
-        self.amplification_drafts.remove(*id)
+        self.amplification_drafts.remove(id)
     }
 
     /// Get the atomization draft for a block, if any.
     pub fn atomization_draft(&self, id: &BlockId) -> Option<&AtomizationDraftRecord> {
-        self.atomization_drafts.get(*id)
+        self.atomization_drafts.get(id)
     }
 
     /// Get a mutable reference to the atomization draft for a block, if any.
     pub fn atomization_draft_mut(&mut self, id: &BlockId) -> Option<&mut AtomizationDraftRecord> {
-        self.atomization_drafts.get_mut(*id)
+        self.atomization_drafts.get_mut(id)
     }
 
     /// Insert or replace the atomization draft for a block.
@@ -116,7 +116,7 @@ impl BlockStore {
 
     /// Remove the atomization draft for a block, returning the removed draft if any.
     pub fn remove_atomization_draft(&mut self, id: &BlockId) -> Option<AtomizationDraftRecord> {
-        self.atomization_drafts.remove(*id)
+        self.atomization_drafts.remove(id)
     }
 
     /// Get the distillation draft for a block, if any.
@@ -125,12 +125,12 @@ impl BlockStore {
     /// - `Some(&DistillationDraftRecord)` if the block has a pending distillation draft.
     /// - `None` if no distillation draft exists for this block.
     pub fn distillation_draft(&self, id: &BlockId) -> Option<&DistillationDraftRecord> {
-        self.distillation_drafts.get(*id)
+        self.distillation_drafts.get(id)
     }
 
     /// Get a mutable reference to the distillation draft for a block, if any.
     pub fn distillation_draft_mut(&mut self, id: &BlockId) -> Option<&mut DistillationDraftRecord> {
-        self.distillation_drafts.get_mut(*id)
+        self.distillation_drafts.get_mut(id)
     }
 
     /// Insert or replace the distillation draft for a block.
@@ -140,11 +140,11 @@ impl BlockStore {
 
     /// Remove the distillation draft for a block, returning the removed draft if any.
     pub fn remove_distillation_draft(&mut self, id: &BlockId) -> Option<DistillationDraftRecord> {
-        self.distillation_drafts.remove(*id)
+        self.distillation_drafts.remove(id)
     }
 
     pub fn instruction_draft(&self, id: &BlockId) -> Option<&InstructionDraftRecord> {
-        self.instruction_drafts.get(*id)
+        self.instruction_drafts.get(id)
     }
 
     /// Set the instruction draft for a block.
@@ -154,14 +154,14 @@ impl BlockStore {
     /// - Otherwise, stores the instruction text.
     pub fn set_instruction_draft(&mut self, id: BlockId, instruction: String) {
         if instruction.is_empty() {
-            self.instruction_drafts.remove(id);
+            self.instruction_drafts.remove(&id);
         } else {
             self.instruction_drafts.insert(id, InstructionDraftRecord { instruction });
         }
     }
 
     pub fn remove_instruction_draft(&mut self, id: &BlockId) -> Option<InstructionDraftRecord> {
-        self.instruction_drafts.remove(*id)
+        self.instruction_drafts.remove(id)
     }
 
     /// Get the probe draft for a block, if any.
@@ -170,7 +170,7 @@ impl BlockStore {
     /// - `Some(&ProbeDraftRecord)` if the block has a pending probe draft.
     /// - `None` if no probe draft exists for this block.
     pub fn probe_draft(&self, id: &BlockId) -> Option<&ProbeDraftRecord> {
-        self.probe_drafts.get(*id)
+        self.probe_drafts.get(id)
     }
 
     /// Set the probe question for a block.
@@ -181,7 +181,7 @@ impl BlockStore {
     pub fn set_probe_question(&mut self, id: BlockId, inquiry: String) {
         let trimmed = inquiry.trim().to_string();
         if trimmed.is_empty() {
-            self.probe_drafts.remove(id);
+            self.probe_drafts.remove(&id);
             return;
         }
         self.probe_drafts
@@ -197,10 +197,10 @@ impl BlockStore {
     pub fn set_probe_response(&mut self, id: BlockId, response: String) {
         let trimmed = response.trim();
         if trimmed.is_empty() {
-            self.probe_drafts.remove(id);
+            self.probe_drafts.remove(&id);
         } else {
             let existing_inquiry =
-                self.probe_drafts.get(id).map(|r| r.inquiry.clone()).unwrap_or_default();
+                self.probe_drafts.get(&id).map(|r| r.inquiry.clone()).unwrap_or_default();
             self.probe_drafts.insert(
                 id,
                 ProbeDraftRecord { inquiry: existing_inquiry, response: trimmed.to_string() },
@@ -219,7 +219,7 @@ impl BlockStore {
             return;
         }
 
-        if let Some(record) = self.probe_drafts.get_mut(id) {
+        if let Some(record) = self.probe_drafts.get_mut(&id) {
             record.response.push_str(chunk);
             return;
         }
@@ -230,17 +230,17 @@ impl BlockStore {
 
     /// Remove the probe draft for a block, returning the removed draft if any.
     pub fn remove_probe_draft(&mut self, id: &BlockId) -> Option<ProbeDraftRecord> {
-        self.probe_drafts.remove(*id)
+        self.probe_drafts.remove(id)
     }
 
     /// Whether the given block's children are folded (hidden) in the UI.
     pub fn is_collapsed(&self, id: &BlockId) -> bool {
-        self.view_collapsed.contains_key(*id)
+        self.view_collapsed.contains_key(id)
     }
 
     /// Toggle the fold state of a block. Returns the new state (`true` = collapsed).
     pub fn toggle_collapsed(&mut self, id: &BlockId) -> bool {
-        if self.view_collapsed.remove(*id).is_some() {
+        if self.view_collapsed.remove(id).is_some() {
             false
         } else {
             self.view_collapsed.insert(*id, true);
@@ -250,13 +250,13 @@ impl BlockStore {
 
     /// Return the friend blocks for a target, or an empty slice if none.
     pub fn friend_blocks_for(&self, target: &BlockId) -> &[FriendBlock] {
-        self.friend_blocks.get(*target).map(Vec::as_slice).unwrap_or(&[])
+        self.friend_blocks.get(target).map(Vec::as_slice).unwrap_or(&[])
     }
 
     /// Set (or clear) friend blocks for a target.
     pub fn set_friend_blocks_for(&mut self, target: &BlockId, friend_block_ids: Vec<FriendBlock>) {
         if friend_block_ids.is_empty() {
-            self.friend_blocks.remove(*target);
+            self.friend_blocks.remove(target);
         } else {
             self.friend_blocks.insert(*target, friend_block_ids);
         }
@@ -264,14 +264,14 @@ impl BlockStore {
 
     /// Get the panel state for a block, if any.
     pub fn block_panel_state(&self, id: &BlockId) -> Option<&BlockPanelBarState> {
-        self.block_panel_state.get(*id)
+        self.block_panel_state.get(id)
     }
 
     /// Set (or clear) panel state for a target.
     pub fn set_block_panel_state(&mut self, target: &BlockId, state: Option<BlockPanelBarState>) {
         match state {
             | None => {
-                self.block_panel_state.remove(*target);
+                self.block_panel_state.remove(target);
             }
             | Some(s) => {
                 self.block_panel_state.insert(*target, s);

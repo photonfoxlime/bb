@@ -20,7 +20,7 @@ use clap::Parser;
 pub struct EditPointCommand {
     /// The block ID to edit.
     ///
-    /// Must be a valid NvG format string (e.g., `1v1`, `2v3`).
+    /// Must be a valid UUID string.
     /// Fails if the ID does not exist in the store.
     #[arg(value_name = "BLOCK_ID")]
     pub block_id: BlockId,
