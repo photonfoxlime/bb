@@ -589,7 +589,7 @@ impl<'a> TreeView<'a> {
             row_content.into()
         };
 
-        let mut own_content = column![head_row, bar_row, panel_row].spacing(theme::BLOCK_INNER_GAP);
+        let mut own_content = column![head_row, bar_row, panel_row];
         if action_bar.status_chip.is_some() {
             own_content = own_content.push(
                 container(self.render_status_chip(&action_bar))
@@ -623,10 +623,15 @@ impl<'a> TreeView<'a> {
 
         // Apply lineage highlight to own content line only — ancestors get lavender on their
         // head row, children are rendered outside the highlight boundary.
+        // Top/bottom padding is baked into the same container so the highlight wash
+        // (if any) covers the padded region consistently.
+        let line_pad = Padding::ZERO
+            .top(theme::BLOCK_LINE_PAD_TOP)
+            .bottom(theme::BLOCK_LINE_PAD_BOTTOM);
         let styled_head: Element<'a, Message> = if is_ancestor {
-            container(own_content).style(theme::lineage_highlight).into()
+            container(own_content).padding(line_pad).style(theme::lineage_highlight).into()
         } else {
-            own_content.into()
+            container(own_content).padding(line_pad).into()
         };
 
         // Combine highlighted own content with children outside the highlight boundary.
@@ -639,7 +644,6 @@ impl<'a> TreeView<'a> {
                         container(self.render_line(children))
                             .padding(Padding::ZERO.left(theme::INDENT)),
                     )
-                    .spacing(theme::BLOCK_INNER_GAP)
                     .into()
             } else {
                 styled_head

@@ -140,9 +140,11 @@ pub fn canvas_max_width(window_width: f32) -> f32 {
 /// Vertical gap between error banner and content.
 pub const LAYOUT_GAP: f32 = 12.0;
 /// Vertical gap between sibling blocks.
-pub const BLOCK_GAP: f32 = 6.0;
-/// Vertical gap between rows inside a single block (row, status, panels, children).
-pub const BLOCK_INNER_GAP: f32 = 0.0;
+pub const BLOCK_GAP: f32 = 1.0;
+/// Top padding inside a block's own content line (before head row).
+pub const BLOCK_LINE_PAD_TOP: f32 = 2.0;
+/// Bottom padding inside a block's own content line (after last row before children).
+pub const BLOCK_LINE_PAD_BOTTOM: f32 = 2.0;
 /// Vertical gap between mount header and the block row.
 pub const MOUNT_HEADER_ROW_GAP: f32 = 2.0;
 /// Horizontal gap between items within a row (spine, marker, editor, actions).
