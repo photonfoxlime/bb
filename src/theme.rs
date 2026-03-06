@@ -62,8 +62,8 @@ pub const LIGHT: Palette = Palette {
     danger: Color::from_rgb(0.75, 0.28, 0.22),
     success: Color::from_rgb(0.30, 0.60, 0.38),
     warning: Color::from_rgb(0.85, 0.65, 0.20),
-    focus_wash: Color { r: 0.35, g: 0.48, b: 0.62, a: 0.06 },
-    lineage_wash: Color { r: 0.52, g: 0.38, b: 0.68, a: 0.05 },
+    focus_wash: Color { r: 0.35, g: 0.48, b: 0.62, a: 0.09 },
+    lineage_wash: Color { r: 0.52, g: 0.38, b: 0.68, a: 0.09 },
 };
 
 /// Dark palette: deep charcoal surface, warm off-white text, desaturated blue accent.
