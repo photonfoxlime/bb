@@ -51,26 +51,6 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "pkgver=${PKGVER}" >> "$GITHUB_OUTPUT"
 
-      - name: Download release asset and compute sha256
-        id: sha
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          TAG="${{ steps.tag.outputs.tag }}"
-          PKGVER="${{ steps.tag.outputs.pkgver }}"
-          ASSET="${ASSET_NAME}"
-
-          URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
-          echo "Downloading: $URL"
-
-          curl -fL --retry 5 --retry-delay 2 -o "$ASSET" "$URL"
-          SHA="$(sha256sum "$ASSET" | awk '{print $1}')"
-
-          echo "url=${URL}" >> "$GITHUB_OUTPUT"
-          echo "sha256=${SHA}" >> "$GITHUB_OUTPUT"
-          echo "pkgver=${PKGVER}" >> "$GITHUB_OUTPUT"
-
       - name: Setup SSH for AUR
         shell: bash
         env:
