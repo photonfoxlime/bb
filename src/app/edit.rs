@@ -397,6 +397,11 @@ fn command_shortcut_action_from_editor_insert(
     }
 }
 
+/// Return true when an editor insert should be treated as a leaked global
+/// shortcut chord instead of literal text input.
+///
+/// Note: `[`/`]` are included because movement is resolved globally
+/// (`Cmd+[ / ]` on macOS, `Ctrl+[ / ]` on other platforms).
 fn is_command_shortcut_editor_insert(
     action: &text_editor::Action, modifiers: keyboard::Modifiers,
 ) -> bool {
@@ -407,7 +412,7 @@ fn is_command_shortcut_editor_insert(
     matches!(
         action,
         text_editor::Action::Edit(text_editor::Edit::Insert(c))
-            if matches!(c.to_ascii_lowercase(), 'f' | 'g' | 'z' | '.' | '/' | ',')
+            if matches!(c.to_ascii_lowercase(), 'f' | 'g' | 'z' | '.' | '/' | ',' | '[' | ']')
     )
 }
 
@@ -1075,6 +1080,42 @@ mod tests {
         );
 
         assert!(state.llm_requests.is_amplifying(root));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn ctrl_left_bracket_insert_is_ignored_as_shortcut_leak() {
+        let (mut state, root) = AppState::test_state();
+        state.ui_mut().keyboard_modifiers = keyboard::Modifiers::CTRL;
+        state.store.update_point(&root, "hello".to_string());
+        state.editor_buffers.set_text(&root, "hello");
+
+        let _ = handle_point_edited(
+            &mut state,
+            root,
+            text_editor::Action::Edit(text_editor::Edit::Insert('[')),
+        );
+
+        let text = state.editor_buffers.get(&root).expect("editor content exists").text();
+        assert_eq!(text, "hello");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn command_left_bracket_insert_is_ignored_as_shortcut_leak() {
+        let (mut state, root) = AppState::test_state();
+        state.ui_mut().keyboard_modifiers = keyboard::Modifiers::COMMAND;
+        state.store.update_point(&root, "hello".to_string());
+        state.editor_buffers.set_text(&root, "hello");
+
+        let _ = handle_point_edited(
+            &mut state,
+            root,
+            text_editor::Action::Edit(text_editor::Edit::Insert('[')),
+        );
+
+        let text = state.editor_buffers.get(&root).expect("editor content exists").text();
+        assert_eq!(text, "hello");
     }
 
     #[test]

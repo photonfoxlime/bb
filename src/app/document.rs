@@ -618,16 +618,14 @@ impl<'a> TreeView<'a> {
             ));
         }
 
-        let is_ancestor =
-            self.state.focus().is_some_and(|s| s.ancestor_ids.contains(block_id));
+        let is_ancestor = self.state.focus().is_some_and(|s| s.ancestor_ids.contains(block_id));
 
         // Apply lineage highlight to own content line only — ancestors get lavender on their
         // head row, children are rendered outside the highlight boundary.
         // Top/bottom padding is baked into the same container so the highlight wash
         // (if any) covers the padded region consistently.
-        let line_pad = Padding::ZERO
-            .top(theme::BLOCK_LINE_PAD_TOP)
-            .bottom(theme::BLOCK_LINE_PAD_BOTTOM);
+        let line_pad =
+            Padding::ZERO.top(theme::BLOCK_LINE_PAD_TOP).bottom(theme::BLOCK_LINE_PAD_BOTTOM);
         let styled_head: Element<'a, Message> = if is_ancestor {
             container(own_content).padding(line_pad).style(theme::lineage_highlight).into()
         } else {

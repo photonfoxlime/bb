@@ -769,8 +769,7 @@ impl AppState {
             state.block_id = block_id;
             state.ancestor_ids = ancestor_ids;
         } else {
-            self.ui_mut().focus =
-                Some(FocusState { block_id, overflow_open: false, ancestor_ids });
+            self.ui_mut().focus = Some(FocusState { block_id, overflow_open: false, ancestor_ids });
         }
 
         if previous_focus != Some(block_id) {

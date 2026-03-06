@@ -4,8 +4,12 @@ use crate::store::Direction;
 /// Keyboard shortcuts for block focus navigation and structural movement.
 ///
 /// Keymap:
-/// - macOS: `Ctrl+Up/Down/Left/Right` / `Ctrl+Shift+Up/Down/Left/Right`
-/// - Other platforms: `Alt+Up/Down/Left/Right` / `Alt+Shift+Up/Down/Left/Right`
+/// - macOS:
+///   `Ctrl+Up/Down/Left/Right` / `Ctrl+Shift+Up/Down/Left/Right` /
+///   `Cmd+[` / `Cmd+]`
+/// - Other platforms:
+///   `Alt+Up/Down/Left/Right` / `Alt+Shift+Up/Down/Left/Right` /
+///   `Ctrl+[` / `Ctrl+]`
 ///
 /// - `Up` / `Down`: focus previous/next sibling (wrap at boundaries).
 /// - `Left`: focus parent.
@@ -58,6 +62,10 @@ enum SiblingDirection {
 pub fn movement_shortcut_from_key(
     key: &keyboard::Key, modifiers: keyboard::Modifiers,
 ) -> Option<ShortcutMessage> {
+    if let Some(shortcut) = movement_shortcut_from_bracket_key(key, modifiers) {
+        return Some(ShortcutMessage::Movement(shortcut));
+    }
+
     #[cfg(target_os = "macos")]
     if !modifiers.control() || modifiers.command() || modifiers.alt() {
         return None;
@@ -100,6 +108,37 @@ pub fn movement_shortcut_from_key(
     };
 
     Some(ShortcutMessage::Movement(shortcut))
+}
+
+/// Parse bracket aliases for structural movement shortcuts.
+///
+/// `[` maps to outdent and `]` maps to indent-into-previous-sibling.
+///
+/// Note: this stays as an alias layer over existing movement variants so
+/// all execution paths (undo, tracing, and persistence) remain shared.
+fn movement_shortcut_from_bracket_key(
+    key: &keyboard::Key, modifiers: keyboard::Modifiers,
+) -> Option<MovementShortcut> {
+    #[cfg(target_os = "macos")]
+    let has_bracket_modifier =
+        modifiers.command() && !modifiers.control() && !modifiers.alt() && !modifiers.shift();
+    #[cfg(not(target_os = "macos"))]
+    let has_bracket_modifier =
+        modifiers.control() && !modifiers.command() && !modifiers.alt() && !modifiers.shift();
+
+    if !has_bracket_modifier {
+        return None;
+    }
+
+    match key {
+        | keyboard::Key::Character(value) if value == "[" => {
+            Some(MovementShortcut::MoveAfterParent)
+        }
+        | keyboard::Key::Character(value) if value == "]" => {
+            Some(MovementShortcut::MoveToPreviousSiblingFirstChild)
+        }
+        | _ => None,
+    }
 }
 
 pub fn handle(state: &mut AppState, message: ShortcutMessage) -> Task<Message> {
@@ -486,6 +525,25 @@ mod tests {
         ));
     }
 
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn ctrl_bracket_shortcuts_map_to_move_commands() {
+        let modifiers = keyboard::Modifiers::CTRL;
+        let left_bracket =
+            movement_shortcut_from_key(&keyboard::Key::Character("[".into()), modifiers);
+        let right_bracket =
+            movement_shortcut_from_key(&keyboard::Key::Character("]".into()), modifiers);
+
+        assert!(matches!(
+            left_bracket,
+            Some(ShortcutMessage::Movement(MovementShortcut::MoveAfterParent))
+        ));
+        assert!(matches!(
+            right_bracket,
+            Some(ShortcutMessage::Movement(MovementShortcut::MoveToPreviousSiblingFirstChild))
+        ));
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn ctrl_shift_arrow_shortcuts_map_to_move_commands_on_macos() {
@@ -501,6 +559,25 @@ mod tests {
         assert!(matches!(down, Some(ShortcutMessage::Movement(MovementShortcut::MoveSiblingNext))));
         assert!(matches!(
             right,
+            Some(ShortcutMessage::Movement(MovementShortcut::MoveToPreviousSiblingFirstChild))
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn command_bracket_shortcuts_map_to_move_commands_on_macos() {
+        let modifiers = keyboard::Modifiers::COMMAND;
+        let left_bracket =
+            movement_shortcut_from_key(&keyboard::Key::Character("[".into()), modifiers);
+        let right_bracket =
+            movement_shortcut_from_key(&keyboard::Key::Character("]".into()), modifiers);
+
+        assert!(matches!(
+            left_bracket,
+            Some(ShortcutMessage::Movement(MovementShortcut::MoveAfterParent))
+        ));
+        assert!(matches!(
+            right_bracket,
             Some(ShortcutMessage::Movement(MovementShortcut::MoveToPreviousSiblingFirstChild))
         ));
     }
