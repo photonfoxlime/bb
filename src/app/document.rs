@@ -589,50 +589,71 @@ impl<'a> TreeView<'a> {
             row_content.into()
         };
 
-        let mut block = column![head_row, bar_row, panel_row].spacing(theme::BLOCK_INNER_GAP);
+        let mut own_content = column![head_row, bar_row, panel_row].spacing(theme::BLOCK_INNER_GAP);
         if action_bar.status_chip.is_some() {
-            block = block.push(
+            own_content = own_content.push(
                 container(self.render_status_chip(&action_bar))
                     .padding(Padding::ZERO.left(theme::INDENT)),
             );
         }
         if let Some(draft) = self.state.store.atomization_draft(block_id) {
-            block = block.push(super::patch::render_patch_panel(
+            own_content = own_content.push(super::patch::render_patch_panel(
                 self.state,
                 block_id,
                 super::patch::PatchDraft::Atomize(draft),
             ));
         }
         if let Some(draft) = self.state.store.amplification_draft(block_id) {
-            block = block.push(super::patch::render_patch_panel(
+            own_content = own_content.push(super::patch::render_patch_panel(
                 self.state,
                 block_id,
                 super::patch::PatchDraft::Amplify(draft),
             ));
         }
         if let Some(draft) = self.state.store.distillation_draft(block_id) {
-            block = block.push(super::patch::render_patch_panel(
+            own_content = own_content.push(super::patch::render_patch_panel(
                 self.state,
                 block_id,
                 super::patch::PatchDraft::Distill(draft),
             ));
         }
 
-        // Render children only when not folded.
-        if !is_collapsed {
+        let is_ancestor =
+            self.state.focus().is_some_and(|s| s.ancestor_ids.contains(block_id));
+
+        // Apply lineage highlight to own content line only — ancestors get lavender on their
+        // head row, children are rendered outside the highlight boundary.
+        let styled_head: Element<'a, Message> = if is_ancestor {
+            container(own_content).style(theme::lineage_highlight).into()
+        } else {
+            own_content.into()
+        };
+
+        // Combine highlighted own content with children outside the highlight boundary.
+        let block: Element<'a, Message> = if !is_collapsed {
             let children = self.state.store.children(block_id);
             if !children.is_empty() {
-                block = block.push(
-                    container(self.render_line(children))
-                        .padding(Padding::ZERO.left(theme::INDENT)),
-                );
+                column![]
+                    .push(styled_head)
+                    .push(
+                        container(self.render_line(children))
+                            .padding(Padding::ZERO.left(theme::INDENT)),
+                    )
+                    .spacing(theme::BLOCK_INNER_GAP)
+                    .into()
+            } else {
+                styled_head
             }
-        }
+        } else {
+            styled_head
+        };
 
         let is_multiselect_selected =
             self.state.ui().multiselect_selected_blocks.contains(block_id);
 
         // Build the styled block element for the current mode.
+        // The focused block blue wash wraps the whole subtree (own content + children).
+        // Ancestor lineage highlight is already applied to own_content above.
         let styled: Element<'a, Message> =
             match (self.state.ui().document_mode, self.state.focus().map(|s| s.block_id)) {
                 | (
@@ -642,7 +663,7 @@ impl<'a> TreeView<'a> {
                     | DocumentMode::Archive,
                     Some(focused),
                 ) if focused == *block_id => {
-                    // Render the block as the focused block
+                    // Focused block: blue wash covers the whole subtree including children.
                     container(block).style(theme::focused_block).into()
                 }
                 | (
@@ -661,10 +682,10 @@ impl<'a> TreeView<'a> {
                     | DocumentMode::LinkInput
                     | DocumentMode::Archive,
                     _,
-                ) => block.into(),
+                ) => block,
                 | (DocumentMode::PickFriend, Some(focused)) if focused == *block_id => {
                     // Render the picker block itself as is
-                    block.into()
+                    block
                 }
                 | (DocumentMode::PickFriend, Some(target)) => {
                     // Render the block as a friend picker target
@@ -689,7 +710,7 @@ impl<'a> TreeView<'a> {
                     .padding(Padding::ZERO)
                     .style(theme::action_button)
                     .into(),
-                | (_, None) => block.into(),
+                | (_, None) => block,
             };
 
         // Wrap in an ID'd container so scroll_block_into_view can locate this

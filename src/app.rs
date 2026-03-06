@@ -747,18 +747,30 @@ impl AppState {
     }
 
     /// Get the current UI focus state.
-    fn focus(&self) -> Option<FocusState> {
-        self.ui().focus
+    fn focus(&self) -> Option<&FocusState> {
+        self.ui().focus.as_ref()
     }
 
     /// Set the focused block.
     fn set_focus(&mut self, block_id: BlockId) {
-        let previous_focus = self.ui().focus.map(|focus| focus.block_id);
+        let previous_focus = self.ui().focus.as_ref().map(|focus| focus.block_id);
+
+        let ancestor_ids = {
+            let mut ids = std::collections::HashSet::new();
+            let mut cur = block_id;
+            while let Some(parent) = self.store.parent(&cur) {
+                ids.insert(parent);
+                cur = parent;
+            }
+            ids
+        };
 
         if let Some(state) = &mut self.ui_mut().focus {
             state.block_id = block_id;
+            state.ancestor_ids = ancestor_ids;
         } else {
-            self.ui_mut().focus = Some(FocusState { block_id, overflow_open: false });
+            self.ui_mut().focus =
+                Some(FocusState { block_id, overflow_open: false, ancestor_ids });
         }
 
         if previous_focus != Some(block_id) {

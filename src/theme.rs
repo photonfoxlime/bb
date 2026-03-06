@@ -46,6 +46,8 @@ pub struct Palette {
     pub warning: Color,
     /// Very faint accent wash for focused block highlight.
     pub focus_wash: Color,
+    /// Very faint lavender wash for ancestor-lineage highlight.
+    pub lineage_wash: Color,
 }
 
 /// Light palette: warm off-white paper, near-black ink, soft blue accent.
@@ -61,6 +63,7 @@ pub const LIGHT: Palette = Palette {
     success: Color::from_rgb(0.30, 0.60, 0.38),
     warning: Color::from_rgb(0.85, 0.65, 0.20),
     focus_wash: Color { r: 0.35, g: 0.48, b: 0.62, a: 0.06 },
+    lineage_wash: Color { r: 0.52, g: 0.38, b: 0.68, a: 0.05 },
 };
 
 /// Dark palette: deep charcoal surface, warm off-white text, desaturated blue accent.
@@ -76,6 +79,7 @@ pub const DARK: Palette = Palette {
     success: Color::from_rgb(0.40, 0.72, 0.48),
     warning: Color::from_rgb(0.90, 0.72, 0.30),
     focus_wash: Color { r: 0.50, g: 0.65, b: 0.82, a: 0.08 },
+    lineage_wash: Color { r: 0.65, g: 0.50, b: 0.85, a: 0.07 },
 };
 
 /// Resolve the focused palette from the current theme's mode.
@@ -644,6 +648,16 @@ pub fn focused_block(theme: &Theme) -> container::Style {
     let p = focused_palette(theme);
     container::Style {
         background: Some(p.focus_wash.into()),
+        border: border::rounded(BORDER_RADIUS_PANEL).width(0),
+        ..Default::default()
+    }
+}
+
+/// Ancestor block own-line — very faint lavender tint to show lineage.
+pub fn lineage_highlight(theme: &Theme) -> container::Style {
+    let p = focused_palette(theme);
+    container::Style {
+        background: Some(p.lineage_wash.into()),
         border: border::rounded(BORDER_RADIUS_PANEL).width(0),
         ..Default::default()
     }

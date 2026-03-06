@@ -5,7 +5,7 @@
 
 use crate::store::BlockId;
 use iced::keyboard;
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use super::find_panel::FindUiState;
 
@@ -91,13 +91,15 @@ pub struct WindowSize {
     pub height: f32,
 }
 
-/// UI focus state: keyboard focus + overflow menu state.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// UI focus state: keyboard focus, overflow menu state, and ancestor lineage.
+#[derive(Clone, Debug)]
 pub struct FocusState {
     /// The block that currently has keyboard focus.
     pub block_id: BlockId,
     /// Whether the overflow menu is open for this block.
     pub overflow_open: bool,
+    /// IDs of all ancestor blocks of the focused block, for lineage highlighting.
+    pub ancestor_ids: HashSet<BlockId>,
 }
 
 /// UI singleton state: transient interaction state not persisted with the document.
