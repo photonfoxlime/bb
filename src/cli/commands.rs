@@ -65,17 +65,18 @@ pub use super::point::EditPointCommand;
 pub use super::query::{FindCommand, RootCommand, ShowCommand};
 pub use super::tree::TreeCommands;
 
-/// Basic Block: CLI for block store manipulation.
+/// Blooming Blockery: document editor (GUI) and Basic Block CLI.
 #[derive(Debug, Parser)]
 #[command(
-    name = "bb",
+    name = "blooming-blockery",
     version = env!("CARGO_PKG_VERSION"),
-    about = "Basic Block: CLI for block store manipulation.",
-    long_about = "Basic Block: CLI for block store manipulation. Use `blooming-blockery` for Blooming Blockery (GUI)."
+    about = "Blooming Blockery: structured document editor with Basic Block CLI.",
+    long_about = "Blooming Blockery: structured document editor. Run without subcommands to launch the GUI. Use subcommands (roots, tree, draft, mount, etc.) for CLI automation.",
+    subcommand_required = false
 )]
 pub struct Cli {
     #[command(subcommand)]
-    pub command: Commands,
+    pub command: Option<Commands>,
 
     /// Path to the block store file.
     #[arg(long, global = true, value_name = "PATH")]
@@ -88,9 +89,11 @@ pub struct Cli {
     pub output: OutputFormat,
 }
 
-/// Commands available in Basic Block (no GUI variant).
+/// Commands: GUI launch or Basic Block CLI subcommands.
 #[derive(Debug, Parser)]
 pub enum Commands {
+    /// Launch the document editor GUI.
+    Gui,
     GenerateCompletion {
         #[arg(value_name = "SHELL")]
         shell: clap_complete::Shell,

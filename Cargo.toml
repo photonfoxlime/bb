@@ -61,10 +61,6 @@ jieba-rs = "0.8"
 unicode-segmentation = "1"
 regex = "1"
 
-[[bin]]
-name = "bb"
-path = "src/bin/bb.rs"
-
 [dev-dependencies]
 tempfile = "3"
 

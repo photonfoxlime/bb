@@ -123,14 +123,6 @@
                         <Component Id='binary0' Guid='*'>
                             <File
                                 Id='exe0'
-                                Name='bb.exe'
-                                DiskId='1'
-                                Source='$(var.CargoTargetBinDir)\bb.exe'
-                                KeyPath='yes'/>
-                        </Component>
-                        <Component Id='binary1' Guid='*'>
-                            <File
-                                Id='exe1'
                                 Name='blooming-blockery.exe'
                                 DiskId='1'
                                 Source='$(var.CargoTargetBinDir)\blooming-blockery.exe'
@@ -158,7 +150,6 @@
             <!--<ComponentRef Id='License'/>-->
 
             <ComponentRef Id='binary0'/>
-            <ComponentRef Id='binary1'/>
 
             <Feature
                 Id='Environment'

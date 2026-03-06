@@ -4,8 +4,8 @@
 //!
 //! Blooming Blockery ships two entry points over the same block-store core:
 //!
-//! - `blooming-blockery` launches the iced document editor from [`BloomingBlockery::run_gui`].
-//! - `bb` launches the clap-based automation CLI from [`BloomingBlockery::run_cli`].
+//! A single `blooming-blockery` binary launches the iced document editor by default, or runs
+//! the Basic Block CLI when a subcommand is given (roots, tree, draft, mount, etc.).
 //!
 //! Both runtimes operate on the same persisted document model:
 //! - `blocks.json` stores the main block forest.
@@ -27,7 +27,7 @@
 rust_i18n::i18n!("locales", fallback = "en-US");
 
 mod app;
-mod cli;
+pub mod cli;
 mod component;
 mod i18n;
 mod store;
@@ -43,32 +43,33 @@ use self::{
     paths::AppPaths,
     store::BlockStore,
 };
-use clap::{CommandFactory, Parser};
+use clap::CommandFactory;
 use std::path::PathBuf;
 
-/// Entry-point namespace for the Blooming Blockery CLI and GUI binaries.
+/// Entry-point namespace for the Blooming Blockery binary (GUI and CLI).
 ///
-/// The type itself carries no state; it groups the two runtime entry points so
-/// both binaries can share startup, tracing, and application bootstrap logic.
+/// The type itself carries no state; it groups the two runtime modes so both share
+/// startup, tracing, and application bootstrap logic.
 pub struct BloomingBlockery;
 
 impl BloomingBlockery {
-    /// Runs the Basic Block CLI entry point (used by the `bb` binary).
-    pub fn run_cli(binary_name: &str) -> anyhow::Result<()> {
+    /// Runs the merged binary: GUI when no subcommand, CLI when a subcommand is given.
+    pub fn run(cli: Cli) -> anyhow::Result<()> {
         #[cfg(feature = "log")]
         Self::init_tracing()?;
 
-        let cli = Cli::parse();
         match cli.command {
-            | Commands::GenerateCompletion { shell } => {
+            | None | Some(Commands::Gui) => Self::gui(),
+            | Some(Commands::GenerateCompletion { shell }) => {
                 clap_complete::generate(
                     shell,
                     &mut Cli::command(),
-                    binary_name,
+                    "blooming-blockery",
                     &mut std::io::stdout(),
                 );
+                Ok(())
             }
-            | cmd => {
+            | Some(cmd) => {
                 let store_path = cli
                     .store
                     .clone()
@@ -89,12 +90,12 @@ impl BloomingBlockery {
                     let () = store.save()?;
                 }
                 print_result(&result, cli.output);
+                Ok(())
             }
         }
-        Ok(())
     }
 
-    /// Runs the Blooming Blockery GUI entry point (used by the `blooming-blockery` binary).
+    /// Runs the Blooming Blockery GUI entry point.
     pub fn run_gui() -> anyhow::Result<()> {
         #[cfg(feature = "log")]
         Self::init_tracing()?;

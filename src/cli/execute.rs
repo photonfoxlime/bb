@@ -26,6 +26,7 @@ impl Commands {
         self, store: BlockStore, base_dir: &std::path::Path,
     ) -> (BlockStore, super::results::CliResult) {
         match self {
+            | Commands::Gui => unreachable!("Gui is handled before execute"),
             | Commands::GenerateCompletion { .. } => {
                 unreachable!("GenerateCompletion is handled before execute")
             }

@@ -1,6 +1,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-use blooming_blockery::BloomingBlockery;
+use blooming_blockery::{cli::Cli, BloomingBlockery};
+use clap::Parser;
 
 fn main() -> anyhow::Result<()> {
-    BloomingBlockery::run_gui()
+    let cli = Cli::parse();
+    BloomingBlockery::run(cli)
 }
