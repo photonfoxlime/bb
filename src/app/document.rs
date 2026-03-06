@@ -98,7 +98,7 @@ use iced::{
     Element, Fill, Length, Padding, Point,
     widget::{button, column, container, mouse_area, row, rule, scrollable, stack, text, tooltip},
 };
-use super::scroll::{block_container_id, document_scrollable_id};
+use super::scroll::{block_container_id, document_scrollable_id, point_editor_container_id};
 use lucide_icons::iced as icons;
 use rust_i18n::t;
 
@@ -564,7 +564,7 @@ impl<'a> TreeView<'a> {
                         .bottom(theme::ROW_CONTROL_VERTICAL_PAD),
                 ),
             )
-            .push(point_editor);
+            .push(container(point_editor).id(point_editor_container_id(*block_id)));
 
         // Panel bar (left) and action bar (right) in one row
         let panel_bar = self.render_panel_bar_only(block_id, is_focused);

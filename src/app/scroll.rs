@@ -38,20 +38,29 @@ pub fn document_scrollable_id() -> Id {
 
 /// Stable container ID for a block row.
 ///
-/// Derived deterministically from the block ID's display string. Used by
-/// [`scroll_block_into_view`] to locate the block's container bounds.
+/// Derived deterministically from the block ID's display string. Used for
+/// block-level layout (e.g. multiselect styling).
 pub fn block_container_id(block_id: BlockId) -> Id {
     Id::from(format!("block-{block_id}"))
 }
 
-/// Returns a [`Task`] that scrolls the document canvas so `block_id` is
-/// visible in the viewport.
+/// Stable container ID for a block's point text editor.
 ///
-/// Runs a two-stage widget operation (see module docs). If the block is already
-/// fully visible, the scrollable state is not mutated.
+/// Used by [`scroll_block_into_view`] to locate the point editor bounds so
+/// scrolling centers the editor (not the whole block row) in the viewport.
+pub fn point_editor_container_id(block_id: BlockId) -> Id {
+    Id::from(format!("point-editor-{block_id}"))
+}
+
+/// Returns a [`Task`] that scrolls the document canvas so the block's point
+/// editor is visible in the viewport.
+///
+/// Targets the point editor (not the whole block row) so the text input area
+/// is centered when focus changes. Runs a two-stage widget operation (see
+/// module docs). If the point editor is already fully visible, no scroll.
 pub fn scroll_block_into_view(block_id: BlockId) -> Task<Message> {
     operate(FindBlockBounds {
-        target_id: block_container_id(block_id),
+        target_id: point_editor_container_id(block_id),
         scrollable_id: document_scrollable_id(),
         bounds: None,
     })
