@@ -174,10 +174,12 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
                             ),
                         )
                         .await,
-                        format!(
-                            "amplify request timed out after {} seconds",
-                            LLM_REQUEST_TIMEOUT.as_secs()
-                        ),
+                        t!(
+                            "error_request_timeout",
+                            task = "amplify",
+                            seconds = LLM_REQUEST_TIMEOUT.as_secs()
+                        )
+                        .to_string(),
                     )
                 },
                 move |r| {
@@ -213,10 +215,12 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
                             ),
                         )
                         .await,
-                        format!(
-                            "atomize request timed out after {} seconds",
-                            LLM_REQUEST_TIMEOUT.as_secs()
-                        ),
+                        t!(
+                            "error_request_timeout",
+                            task = "atomize",
+                            seconds = LLM_REQUEST_TIMEOUT.as_secs()
+                        )
+                        .to_string(),
                     )
                 },
                 move |r| {
@@ -253,7 +257,12 @@ fn handle_start(state: &mut AppState, kind: PatchKind, block_id: BlockId) -> Tas
                             ),
                         )
                         .await,
-                        "distill request timed out after 30 seconds",
+                        t!(
+                            "error_request_timeout",
+                            task = "distill",
+                            seconds = LLM_REQUEST_TIMEOUT.as_secs()
+                        )
+                        .to_string(),
                     )
                 },
                 move |r| {
@@ -323,7 +332,7 @@ fn handle_done(
                 .collect::<Vec<_>>();
             tracing::info!(block_id = ?block_id, has_rewrite = rewrite.is_some(), child_count = children.len(), "amplify succeeded");
             if rewrite.is_none() && children.is_empty() {
-                let reason = UiError::from_message("amplify returned no usable suggestions");
+                let reason = UiError::from_message(&t!("error_amplify_no_suggestions"));
                 state.llm_requests.set_amplify_error(block_id, reason.clone());
                 state.record_error(AppError::Amplify(reason));
                 return Task::none();

@@ -10,17 +10,24 @@ use std::path::Path;
 use std::{fs, io};
 use thiserror::Error;
 
+/// Errors that can occur when loading the block store from disk.
 #[derive(Debug, Error)]
 pub enum StoreLoadError {
+    /// The platform-specific application data path could not be determined.
     #[error("application data path is unavailable")]
     PathUnavailable,
+    /// The store file exists but could not be read.
     #[error("failed to read block store file {path}: {source}")]
     Read { path: std::path::PathBuf, source: io::Error },
+    /// The store file was read but failed JSON deserialization.
     #[error("failed to parse block store file {path}: {source}")]
     Parse { path: std::path::PathBuf, source: serde_json::Error },
 }
 
 impl BlockStore {
+    /// Load the block store from the default application data file.
+    ///
+    /// Returns an empty store if the file does not exist yet.
     pub fn load() -> Result<Self, StoreLoadError> {
         let Some(path) = AppPaths::data_file() else {
             return Err(StoreLoadError::PathUnavailable);
@@ -28,6 +35,9 @@ impl BlockStore {
         Self::load_from_path(&path)
     }
 
+    /// Load the block store from a specific file path.
+    ///
+    /// Returns an empty store if the file does not exist (not-found).
     pub(crate) fn load_from_path(path: &Path) -> Result<Self, StoreLoadError> {
         match fs::read_to_string(path) {
             | Ok(contents) => serde_json::from_str(&contents)
@@ -44,8 +54,12 @@ impl BlockStore {
     /// - mounted descendants are excluded from the main-file snapshot,
     /// - draft keys are remapped to the compacted key-space,
     /// - serialization is strict (`serde_json` failure aborts save).
+    ///
+    /// Note: Returns `Ok(())` with a warning log when the data file path
+    /// cannot be determined, since this can happen on unsupported platforms.
     pub fn save(&self) -> io::Result<()> {
         let Some(path) = AppPaths::data_file() else {
+            tracing::warn!("data file path unavailable, skipping save");
             return Ok(());
         };
         if let Some(parent) = path.parent() {

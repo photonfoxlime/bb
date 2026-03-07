@@ -176,6 +176,8 @@ action_inline_mount: "内联"
 action_inline_mount_all: "全部内联"
 action_confirm_inline_mount_all: "确认内联"
 action_archive: "归档"
+action_expand_branch: "展开分支"
+action_collapse_branch: "折叠分支"
 
 # Status chip messages
 status_amplify_failed: "扩写失败"
@@ -197,3 +199,13 @@ link_panel_title: "链接到文件"
 link_panel_placeholder: "搜索文件..."
 link_panel_hint: "输入路径或搜索。按 Esc 取消。"
 link_panel_close: "关闭"
+
+# Localized error messages
+error_provider_name_empty: "提供方名称不能为空"
+error_provider_already_exists: "提供方「%{name}」已存在"
+error_save_failed: "保存失败：%{error}"
+error_invalid_config: "无效配置：%{error}"
+error_config_save_failed: "保存配置失败：%{error}"
+error_request_timeout: "%{task}请求在%{seconds}秒后超时"
+error_amplify_no_suggestions: "扩写未返回可用建议"
+settings_default_label: "默认"

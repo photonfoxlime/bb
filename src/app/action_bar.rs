@@ -129,7 +129,7 @@ pub fn action_i18n_key(id: ActionId) -> &'static str {
         | ActionId::Retry => "action_retry",
         | ActionId::DismissDraft => "action_dismiss",
         | ActionId::Cancel => "action_cancel",
-        | ActionId::CollapseBranch => "action_expand_branch",
+        | ActionId::CollapseBranch => "action_collapse_branch",
         | ActionId::ExpandBranch => "action_expand_branch",
         | ActionId::AddSibling => "action_add_sibling",
         | ActionId::DuplicateBlock => "action_duplicate",

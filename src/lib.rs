@@ -82,8 +82,10 @@ impl BloomingBlockery {
                     .map(PathBuf::from)
                     .unwrap_or_else(|| PathBuf::from("."));
 
-                let store = BlockStore::load_from_path(&store_path)
-                    .unwrap_or_else(|_| BlockStore::default());
+                let store = BlockStore::load_from_path(&store_path).unwrap_or_else(|err| {
+                    tracing::warn!(%err, "failed to load store, falling back to default");
+                    BlockStore::default()
+                });
                 let (store, result) = cmd.execute(store, &base_dir);
 
                 if !matches!(result, CliResult::Error(_)) {

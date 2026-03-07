@@ -189,13 +189,9 @@ impl BlockStore {
                 return Some(target);
             }
             let children = self.children(&target);
-            if children.is_empty() {
-                return Some(target);
-            }
-            if let Some(&last) = children.last() {
-                target = last;
-            } else {
-                return Some(target);
+            match children.last() {
+                | None => return Some(target),
+                | Some(&last) => target = last,
             }
         }
     }

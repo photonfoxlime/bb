@@ -53,11 +53,10 @@
 //!    and pass it to `new_with_drafts`.
 //! 5. Import in [`BlockStore::rekey_sub_store`] with same key translation
 //!    but inserting into `self` rather than a fresh store.
-//! 6. Clean up on removal. Add `.remove(id)` calls in:
-//!    - [`BlockStore::remove_block_subtree`] and [`BlockStore::archive_block`]
-//!    - [`BlockStore::collapse_mount`] (two sites: own ids and nested mount ids)
-//!    - [`BlockStore::save_subtree_to_file`] (two sites: nested mount cleanup
-//!      and own-ids cleanup)
+//! 6. Clean up on removal via [`BlockStore::remove_block_metadata`], the
+//!    single helper that removes an id from every per-block map. All tree
+//!    and mount cleanup sites call this helper instead of inlining the
+//!    removal loop.
 //! 7. Update [`PartialEq`] by adding a length + element comparison clause.
 //! 8. Tests, at minimum: serde round-trip, backward-compat (missing key
 //!    defaults to empty), and cleanup-on-removal.
@@ -146,6 +145,7 @@ pub struct BlockStore {
     /// participates in undo/redo snapshots, and follows save/load id remapping.
     #[serde(default)]
     pub view_collapsed: FxHashMap<BlockId, bool>,
+    /// Per-block friend (linked) blocks used for cross-referencing.
     #[serde(default)]
     pub friend_blocks: FxHashMap<BlockId, Vec<FriendBlock>>,
     /// Persisted per-block block panel bar state (which panel is open).
@@ -244,6 +244,29 @@ impl BlockStore {
         let id = Self::fresh_block_id(nodes);
         nodes.insert(id, node);
         id
+    }
+
+    /// Remove all per-block metadata for `id` from every map in the store.
+    ///
+    /// This is the single site that must be updated when a new per-block
+    /// field is added to [`BlockStore`]. Covers: `nodes`, `points`, all
+    /// draft maps, `view_collapsed`, `friend_blocks`, `block_panel_state`,
+    /// and the mount-table origin index.
+    ///
+    /// Note: Does **not** call [`Self::remove_friend_block_references`];
+    /// callers that remove multiple blocks should batch that call separately.
+    pub(crate) fn remove_block_metadata(&mut self, id: &BlockId) {
+        self.nodes.remove(id);
+        self.points.remove(id);
+        self.amplification_drafts.remove(id);
+        self.atomization_drafts.remove(id);
+        self.distillation_drafts.remove(id);
+        self.instruction_drafts.remove(id);
+        self.probe_drafts.remove(id);
+        self.view_collapsed.remove(id);
+        self.friend_blocks.remove(id);
+        self.block_panel_state.remove(id);
+        self.mount_table.remove_origin(*id);
     }
 
     /// Convert a `FxHashMap<BlockId, String>` to `FxHashMap<BlockId, PointContent>`.

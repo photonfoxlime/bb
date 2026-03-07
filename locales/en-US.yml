@@ -148,6 +148,7 @@ action_inline_mount_all: "Inline all"
 action_confirm_inline_mount_all: "Confirm inline"
 action_archive: "Archive"
 action_expand_branch: "Expand branch"
+action_collapse_branch: "Collapse branch"
 
 # Settings (additional)
 settings_appearance_mode: "Color scheme"
@@ -206,3 +207,13 @@ link_panel_title: "Link to file"
 link_panel_placeholder: "Search files..."
 link_panel_hint: "Type a path or search. Esc to cancel."
 link_panel_close: "Close"
+
+# Localized error messages
+error_provider_name_empty: "provider name cannot be empty"
+error_provider_already_exists: "provider \"%{name}\" already exists"
+error_save_failed: "save failed: %{error}"
+error_invalid_config: "invalid config: %{error}"
+error_config_save_failed: "failed to save config: %{error}"
+error_request_timeout: "%{task} request timed out after %{seconds} seconds"
+error_amplify_no_suggestions: "amplify returned no usable suggestions"
+settings_default_label: "Default"

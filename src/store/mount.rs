@@ -29,13 +29,7 @@
 //! [`snapshot_for_save`](BlockStore::snapshot_for_save),
 //! [`extract_mount_store`](BlockStore::extract_mount_store).
 
-use super::drafts::{
-    AmplificationDraftRecord, AtomizationDraftRecord, DistillationDraftRecord,
-    InstructionDraftRecord, ProbeDraftRecord,
-};
-use super::{
-    BlockId, BlockNode, BlockPanelBarState, BlockStore, FriendBlock, MountProjection, PointContent,
-};
+use super::{BlockId, BlockNode, BlockStore, FriendBlock, MountProjection, PointContent};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -46,20 +40,28 @@ use thiserror::Error;
 // Mount data types (formerly top-level `crate::mount`)
 // ---------------------------------------------------------------------------
 
+/// Errors arising from mount-related file and block operations.
 #[derive(Debug, Error)]
 pub enum MountError {
+    /// The referenced block is not a mount node.
     #[error("block is not a mount node")]
     NotAMount,
+    /// The referenced block is not currently mounted (expanded).
     #[error("block is not mounted")]
     NotMounted,
+    /// The block id does not exist in the store.
     #[error("unknown block id")]
     UnknownBlock,
+    /// Failed to read a mount file from disk.
     #[error("failed to read mount file {path}: {source}")]
     Read { path: PathBuf, source: std::io::Error },
+    /// Failed to write a mount file back to disk.
     #[error("failed to write mount file {path}: {source}")]
     Write { path: PathBuf, source: std::io::Error },
+    /// Failed to parse a JSON mount file.
     #[error("failed to parse mount file {path}: {source}")]
     Parse { path: PathBuf, source: serde_json::Error },
+    /// Failed to parse a Markdown mount file.
     #[error("failed to parse markdown mount file {path}: {reason}")]
     MarkdownParse { path: PathBuf, reason: String },
 }
@@ -91,6 +93,7 @@ pub struct MountEntry {
 }
 
 impl MountEntry {
+    /// Create a new mount entry from its constituent parts.
     pub fn new(
         path: PathBuf, rel_path: PathBuf, format: MountFormat, root_ids: Vec<BlockId>,
         block_ids: Vec<BlockId>,
@@ -153,6 +156,7 @@ impl MountTable {
         self.origins.remove(&block_id);
     }
 
+    /// Look up the origin record for a single block id.
     pub fn origin(&self, block_id: BlockId) -> Option<&BlockOrigin> {
         self.origins.get(&block_id)
     }
@@ -316,17 +320,7 @@ impl BlockStore {
         }
 
         for id in &removed_ids {
-            self.nodes.remove(id);
-            self.points.remove(id);
-            self.amplification_drafts.remove(id);
-            self.atomization_drafts.remove(id);
-            self.distillation_drafts.remove(id);
-            self.instruction_drafts.remove(id);
-            self.probe_drafts.remove(id);
-            self.view_collapsed.remove(id);
-            self.friend_blocks.remove(id);
-            self.block_panel_state.remove(id);
-            self.mount_table.remove_origin(*id);
+            self.remove_block_metadata(id);
         }
         self.remove_friend_block_references(&removed_ids);
         if let Some(node) = self.nodes.get_mut(mount_point) {
@@ -514,8 +508,7 @@ impl BlockStore {
             self.collect_own_subtree_ids(child, &mut own_ids, &mut nested_mounts);
         }
 
-        let mut mount_path_overrides: std::collections::HashMap<BlockId, MountProjection> =
-            std::collections::HashMap::new();
+        let mut mount_path_overrides: FxHashMap<BlockId, MountProjection> = FxHashMap::default();
         for &old_id in &nested_mounts {
             if let Some(entry) = self.mount_table.entry(old_id) {
                 mount_path_overrides.insert(
@@ -532,19 +525,19 @@ impl BlockStore {
         // Write to file.
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)
-                .map_err(|e| MountError::Read { path: path.to_path_buf(), source: e })?;
+                .map_err(|e| MountError::Write { path: path.to_path_buf(), source: e })?;
         }
         match format {
             | MountFormat::Json => {
                 let json = serde_json::to_string_pretty(&sub_store)
                     .map_err(|e| MountError::Parse { path: path.to_path_buf(), source: e })?;
                 fs::write(path, &json)
-                    .map_err(|e| MountError::Read { path: path.to_path_buf(), source: e })?;
+                    .map_err(|e| MountError::Write { path: path.to_path_buf(), source: e })?;
             }
             | MountFormat::Markdown => {
                 let markdown = Self::render_markdown_mount_store(&sub_store);
                 fs::write(path, markdown)
-                    .map_err(|e| MountError::Read { path: path.to_path_buf(), source: e })?;
+                    .map_err(|e| MountError::Write { path: path.to_path_buf(), source: e })?;
             }
         }
 
@@ -554,33 +547,14 @@ impl BlockStore {
             if let Some(entry) = self.mount_table.remove_entry(mount_id) {
                 removed_friend_references.extend(entry.block_ids.iter().copied());
                 for &id in &entry.block_ids {
-                    self.nodes.remove(&id);
-                    self.points.remove(&id);
-                    self.amplification_drafts.remove(&id);
-                    self.atomization_drafts.remove(&id);
-                    self.distillation_drafts.remove(&id);
-                    self.instruction_drafts.remove(&id);
-                    self.probe_drafts.remove(&id);
-                    self.view_collapsed.remove(&id);
-                    self.friend_blocks.remove(&id);
-                    self.block_panel_state.remove(&id);
+                    self.remove_block_metadata(&id);
                 }
             }
         }
 
         // Remove own subtree nodes from main store (not block_id itself).
         for &id in &own_ids {
-            self.nodes.remove(&id);
-            self.points.remove(&id);
-            self.amplification_drafts.remove(&id);
-            self.atomization_drafts.remove(&id);
-            self.distillation_drafts.remove(&id);
-            self.instruction_drafts.remove(&id);
-            self.probe_drafts.remove(&id);
-            self.view_collapsed.remove(&id);
-            self.friend_blocks.remove(&id);
-            self.block_panel_state.remove(&id);
-            self.mount_table.remove_origin(id);
+            self.remove_block_metadata(&id);
         }
         removed_friend_references.extend(own_ids.iter().copied());
         self.remove_friend_block_references(&removed_friend_references);
@@ -601,24 +575,11 @@ impl BlockStore {
 
     fn build_projected_store(
         &self, kept_ids: &[BlockId], hint: Option<String>, roots: &[BlockId], archive: &[BlockId],
-        mount_path_overrides: &std::collections::HashMap<BlockId, MountProjection>,
+        mount_path_overrides: &FxHashMap<BlockId, MountProjection>,
     ) -> BlockStore {
         let mut sub_nodes: FxHashMap<BlockId, BlockNode> = FxHashMap::default();
         let mut sub_points: FxHashMap<BlockId, PointContent> = FxHashMap::default();
-        let mut sub_amplification_drafts: FxHashMap<BlockId, AmplificationDraftRecord> =
-            FxHashMap::default();
-        let mut sub_atomization_drafts: FxHashMap<BlockId, AtomizationDraftRecord> =
-            FxHashMap::default();
-        let mut sub_distillation_drafts: FxHashMap<BlockId, DistillationDraftRecord> =
-            FxHashMap::default();
-        let mut sub_instruction_drafts: FxHashMap<BlockId, InstructionDraftRecord> =
-            FxHashMap::default();
-        let mut sub_probe_drafts: FxHashMap<BlockId, ProbeDraftRecord> = FxHashMap::default();
-        let mut sub_friend_blocks: FxHashMap<BlockId, Vec<FriendBlock>> = FxHashMap::default();
-        let mut sub_block_panel_state: FxHashMap<BlockId, BlockPanelBarState> =
-            FxHashMap::default();
-        let mut id_map: std::collections::HashMap<BlockId, BlockId> =
-            std::collections::HashMap::new();
+        let mut id_map: FxHashMap<BlockId, BlockId> = FxHashMap::default();
 
         for &old_id in kept_ids {
             let point = self.points.get(&old_id).cloned().unwrap_or_default();
@@ -663,61 +624,24 @@ impl BlockStore {
         let sub_archive: Vec<BlockId> =
             archive.iter().filter_map(|r| id_map.get(r).copied()).collect();
 
-        for (old_id, draft) in &self.amplification_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                sub_amplification_drafts.insert(new_id, draft.clone());
-            }
-        }
-        for (old_id, draft) in &self.atomization_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                sub_atomization_drafts.insert(new_id, draft.clone());
-            }
-        }
-        for (old_id, draft) in &self.distillation_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                sub_distillation_drafts.insert(new_id, draft.clone());
-            }
-        }
-        for (old_id, draft) in &self.instruction_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                sub_instruction_drafts.insert(new_id, draft.clone());
-            }
-        }
-        for (old_id, draft) in &self.probe_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                sub_probe_drafts.insert(new_id, draft.clone());
-            }
-        }
-        let mut sub_view_collapsed: FxHashMap<BlockId, bool> = FxHashMap::default();
-        for (old_id, _) in &self.view_collapsed {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                sub_view_collapsed.insert(new_id, true);
-            }
-        }
-        for (old_target_id, old_friend_ids) in &self.friend_blocks {
-            let Some(&new_target_id) = id_map.get(&old_target_id) else {
-                continue;
-            };
-            let remapped = old_friend_ids
-                .iter()
-                .filter_map(|friend| {
-                    id_map.get(&friend.block_id).copied().map(|block_id| FriendBlock {
-                        block_id,
-                        perspective: friend.perspective.clone(),
-                        parent_lineage_telescope: friend.parent_lineage_telescope,
-                        children_telescope: friend.children_telescope,
-                    })
-                })
-                .collect::<Vec<_>>();
-            if !remapped.is_empty() {
-                sub_friend_blocks.insert(new_target_id, remapped);
-            }
-        }
-        for (old_id, state) in &self.block_panel_state {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                sub_block_panel_state.insert(new_id, *state);
-            }
-        }
+        let mut sub_amplification_drafts = FxHashMap::default();
+        let mut sub_atomization_drafts = FxHashMap::default();
+        let mut sub_distillation_drafts = FxHashMap::default();
+        let mut sub_instruction_drafts = FxHashMap::default();
+        let mut sub_probe_drafts = FxHashMap::default();
+        let mut sub_view_collapsed = FxHashMap::default();
+        let mut sub_friend_blocks = FxHashMap::default();
+        let mut sub_block_panel_state = FxHashMap::default();
+
+        remap_per_block_map(&self.amplification_drafts, &id_map, &mut sub_amplification_drafts);
+        remap_per_block_map(&self.atomization_drafts, &id_map, &mut sub_atomization_drafts);
+        remap_per_block_map(&self.distillation_drafts, &id_map, &mut sub_distillation_drafts);
+        remap_per_block_map(&self.instruction_drafts, &id_map, &mut sub_instruction_drafts);
+        remap_per_block_map(&self.probe_drafts, &id_map, &mut sub_probe_drafts);
+        remap_per_block_map(&self.view_collapsed, &id_map, &mut sub_view_collapsed);
+        remap_friend_blocks(&self.friend_blocks, &id_map, &mut sub_friend_blocks);
+        remap_per_block_map(&self.block_panel_state, &id_map, &mut sub_block_panel_state);
+
         BlockStore::new_with_drafts(
             sub_roots,
             sub_archive,
@@ -744,8 +668,7 @@ impl BlockStore {
     pub fn rekey_sub_store(
         &mut self, sub_store: &BlockStore, mount_point: &BlockId,
     ) -> (Vec<BlockId>, Vec<BlockId>) {
-        let mut id_map: std::collections::HashMap<BlockId, BlockId> =
-            std::collections::HashMap::new();
+        let mut id_map: FxHashMap<BlockId, BlockId> = FxHashMap::default();
         let mut all_new_ids = Vec::new();
 
         // First pass: allocate fresh ids for every block in the sub-store.
@@ -783,61 +706,19 @@ impl BlockStore {
         let new_roots: Vec<BlockId> =
             sub_store.roots.iter().filter_map(|r| id_map.get(r).copied()).collect();
 
-        for (old_id, draft) in &sub_store.amplification_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                self.amplification_drafts.insert(new_id, draft.clone());
-            }
-        }
-        for (old_id, draft) in &sub_store.atomization_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                self.atomization_drafts.insert(new_id, draft.clone());
-            }
-        }
-        for (old_id, draft) in &sub_store.distillation_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                self.distillation_drafts.insert(new_id, draft.clone());
-            }
-        }
-        for (old_id, draft) in &sub_store.instruction_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                self.instruction_drafts.insert(new_id, draft.clone());
-            }
-        }
-        for (old_id, draft) in &sub_store.probe_drafts {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                self.probe_drafts.insert(new_id, draft.clone());
-            }
-        }
+        remap_per_block_map(
+            &sub_store.amplification_drafts,
+            &id_map,
+            &mut self.amplification_drafts,
+        );
+        remap_per_block_map(&sub_store.atomization_drafts, &id_map, &mut self.atomization_drafts);
+        remap_per_block_map(&sub_store.distillation_drafts, &id_map, &mut self.distillation_drafts);
+        remap_per_block_map(&sub_store.instruction_drafts, &id_map, &mut self.instruction_drafts);
+        remap_per_block_map(&sub_store.probe_drafts, &id_map, &mut self.probe_drafts);
+        remap_per_block_map(&sub_store.view_collapsed, &id_map, &mut self.view_collapsed);
+        remap_friend_blocks(&sub_store.friend_blocks, &id_map, &mut self.friend_blocks);
+        remap_per_block_map(&sub_store.block_panel_state, &id_map, &mut self.block_panel_state);
 
-        for (old_id, _) in &sub_store.view_collapsed {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                self.view_collapsed.insert(new_id, true);
-            }
-        }
-        for (old_target_id, old_friend_ids) in &sub_store.friend_blocks {
-            let Some(&new_target_id) = id_map.get(&old_target_id) else {
-                continue;
-            };
-            let remapped = old_friend_ids
-                .iter()
-                .filter_map(|friend| {
-                    id_map.get(&friend.block_id).copied().map(|block_id| FriendBlock {
-                        block_id,
-                        perspective: friend.perspective.clone(),
-                        parent_lineage_telescope: friend.parent_lineage_telescope,
-                        children_telescope: friend.children_telescope,
-                    })
-                })
-                .collect::<Vec<_>>();
-            if !remapped.is_empty() {
-                self.friend_blocks.insert(new_target_id, remapped);
-            }
-        }
-        for (old_id, state) in &sub_store.block_panel_state {
-            if let Some(&new_id) = id_map.get(&old_id) {
-                self.block_panel_state.insert(new_id, *state);
-            }
-        }
         (new_roots, all_new_ids)
     }
 
@@ -863,8 +744,7 @@ impl BlockStore {
             }
         }
 
-        let mut mount_path_overrides: std::collections::HashMap<BlockId, MountProjection> =
-            std::collections::HashMap::new();
+        let mut mount_path_overrides: FxHashMap<BlockId, MountProjection> = FxHashMap::default();
         for (mount_point, entry) in self.mount_table.entries() {
             mount_path_overrides.insert(
                 mount_point,
@@ -900,8 +780,7 @@ impl BlockStore {
         let mut seen = std::collections::HashSet::new();
         own_ids.retain(|id| seen.insert(*id));
 
-        let mut mount_path_overrides: std::collections::HashMap<BlockId, MountProjection> =
-            std::collections::HashMap::new();
+        let mut mount_path_overrides: FxHashMap<BlockId, MountProjection> = FxHashMap::default();
         for &old_id in &own_ids {
             if let Some(nested_entry) = self.mount_table.entry(old_id) {
                 mount_path_overrides.insert(
@@ -994,6 +873,50 @@ impl BlockStore {
             | BlockOrigin::Mounted { mount_point } => {
                 self.mount_table.entry(*mount_point).map(|entry| entry.path.as_path())
             }
+        }
+    }
+}
+
+/// Remap a per-block map from old block ids to new block ids.
+///
+/// For each entry in `source` whose key appears in `id_map`, insert
+/// the cloned value into `target` under the new key.
+fn remap_per_block_map<V: Clone>(
+    source: &FxHashMap<BlockId, V>, id_map: &FxHashMap<BlockId, BlockId>,
+    target: &mut FxHashMap<BlockId, V>,
+) {
+    for (old_id, val) in source {
+        if let Some(&new_id) = id_map.get(old_id) {
+            target.insert(new_id, val.clone());
+        }
+    }
+}
+
+/// Remap friend block relations from old block ids to new block ids.
+///
+/// Both the target block id and each friend's block id are remapped.
+/// Friends whose block id has no mapping are dropped.
+fn remap_friend_blocks(
+    source: &FxHashMap<BlockId, Vec<FriendBlock>>, id_map: &FxHashMap<BlockId, BlockId>,
+    target: &mut FxHashMap<BlockId, Vec<FriendBlock>>,
+) {
+    for (old_target_id, old_friend_ids) in source {
+        let Some(&new_target_id) = id_map.get(old_target_id) else {
+            continue;
+        };
+        let remapped: Vec<FriendBlock> = old_friend_ids
+            .iter()
+            .filter_map(|friend| {
+                id_map.get(&friend.block_id).copied().map(|block_id| FriendBlock {
+                    block_id,
+                    perspective: friend.perspective.clone(),
+                    parent_lineage_telescope: friend.parent_lineage_telescope,
+                    children_telescope: friend.children_telescope,
+                })
+            })
+            .collect();
+        if !remapped.is_empty() {
+            target.insert(new_target_id, remapped);
         }
     }
 }

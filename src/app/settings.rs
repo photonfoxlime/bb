@@ -406,12 +406,13 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             let name = state.settings.new_provider_name.trim().to_string();
             if name.is_empty() {
                 state.settings.status =
-                    Some(SettingsStatus::Error("provider name cannot be empty".to_string()));
+                    Some(SettingsStatus::Error(t!("error_provider_name_empty").to_string()));
                 return Task::none();
             }
             if state.providers.provider_exists(&name) {
-                state.settings.status =
-                    Some(SettingsStatus::Error(format!("provider \"{name}\" already exists")));
+                state.settings.status = Some(SettingsStatus::Error(
+                    t!("error_provider_already_exists", name = name).to_string(),
+                ));
                 return Task::none();
             }
             match state.providers.upsert_custom(name.clone(), llm::CustomProvider::default()) {
@@ -438,8 +439,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                     state.settings.load_selected_fields(&state.providers);
                     state.settings.status = None;
                     if let Err(err) = state.providers.save_to_file() {
-                        state.settings.status =
-                            Some(SettingsStatus::Error(format!("save failed: {err}")));
+                        state.settings.status = Some(SettingsStatus::Error(
+                            t!("error_save_failed", error = err.to_string()).to_string(),
+                        ));
                         tracing::error!(%err, "failed to save provider deletion");
                     } else {
                         tracing::info!(provider = %name, "deleted custom provider");
@@ -494,8 +496,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                     "validation-placeholder".to_string(),
                     custom.api_style,
                 ) {
-                    state.settings.status =
-                        Some(SettingsStatus::Error(format!("invalid config: {err}")));
+                    state.settings.status = Some(SettingsStatus::Error(
+                        t!("error_invalid_config", error = err.to_string()).to_string(),
+                    ));
                     return Task::none();
                 }
                 if let Err(err) = state.providers.upsert_custom(provider_name.clone(), custom) {
@@ -514,8 +517,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                     );
                 }
                 | Err(err) => {
-                    state.settings.status =
-                        Some(SettingsStatus::Error(format!("save failed: {err}")));
+                    state.settings.status = Some(SettingsStatus::Error(
+                        t!("error_save_failed", error = err.to_string()).to_string(),
+                    ));
                     tracing::error!(%err, "failed to save provider config");
                 }
             }
@@ -529,8 +533,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             state.config.dark_mode = dark_mode;
             state.settings.config.dark_mode = dark_mode;
             if let Err(err) = config::save(&state.config) {
-                state.settings.status =
-                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                state.settings.status = Some(SettingsStatus::Error(
+                    t!("error_config_save_failed", error = err.to_string()).to_string(),
+                ));
                 tracing::error!(%err, ?preference, "failed to persist appearance mode preference");
             } else {
                 tracing::info!(?preference, is_dark, "appearance mode changed and persisted");
@@ -542,8 +547,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             state.config.first_line_enter_add_child = first_line_enter_add_child;
             state.settings.config.first_line_enter_add_child = first_line_enter_add_child;
             if let Err(err) = config::save(&state.config) {
-                state.settings.status =
-                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                state.settings.status = Some(SettingsStatus::Error(
+                    t!("error_config_save_failed", error = err.to_string()).to_string(),
+                ));
                 tracing::error!(
                     %err,
                     ?behavior,
@@ -561,8 +567,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             state.settings.config.locale = locale.clone();
             // Save config to disk.
             if let Err(err) = config::save(&state.config) {
-                state.settings.status =
-                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                state.settings.status = Some(SettingsStatus::Error(
+                    t!("error_config_save_failed", error = err.to_string()).to_string(),
+                ));
                 tracing::error!(%err, "failed to save app config");
             } else {
                 // Apply the new locale immediately for the current session.
@@ -600,8 +607,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                 | TaskKind::Probe => state.settings.config.tasks.probe.provider = provider.clone(),
             }
             if let Err(err) = config::save(&state.config) {
-                state.settings.status =
-                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                state.settings.status = Some(SettingsStatus::Error(
+                    t!("error_config_save_failed", error = err.to_string()).to_string(),
+                ));
                 tracing::error!(%err, ?kind, %provider, "failed to persist task provider change");
             } else {
                 tracing::info!(?kind, %provider, "task provider changed and persisted");
@@ -624,8 +632,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                 | TaskKind::Probe => state.settings.config.tasks.probe.model = model.clone(),
             }
             if let Err(err) = config::save(&state.config) {
-                state.settings.status =
-                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                state.settings.status = Some(SettingsStatus::Error(
+                    t!("error_config_save_failed", error = err.to_string()).to_string(),
+                ));
                 tracing::error!(%err, ?kind, %model, "failed to persist task model change");
             } else {
                 tracing::info!(?kind, %model, "task model changed and persisted");
@@ -660,8 +669,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                         }
                     }
                     if let Err(err) = config::save(&state.config) {
-                        state.settings.status =
-                            Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                        state.settings.status = Some(SettingsStatus::Error(
+                            t!("error_config_save_failed", error = err.to_string()).to_string(),
+                        ));
                         tracing::error!(%err, ?kind, n, "failed to persist token limit");
                     } else {
                         tracing::info!(?kind, n, "token limit changed and persisted");
@@ -703,8 +713,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             state.settings.task_drafts.get_mut(&kind).max_tokens_text =
                 SettingsState::max_tokens_display_text(mt);
             if let Err(err) = config::save(&state.config) {
-                state.settings.status =
-                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                state.settings.status = Some(SettingsStatus::Error(
+                    t!("error_config_save_failed", error = err.to_string()).to_string(),
+                ));
                 tracing::error!(%err, ?kind, unlimited, "failed to persist token limit toggle");
             } else {
                 tracing::info!(?kind, unlimited, "token limit unlimited toggled and persisted");
@@ -736,8 +747,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                 }
             }
             if let Err(err) = config::save(&state.config) {
-                state.settings.status =
-                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                state.settings.status = Some(SettingsStatus::Error(
+                    t!("error_config_save_failed", error = err.to_string()).to_string(),
+                ));
                 tracing::error!(%err, ?kind, "failed to persist system prompt");
             } else {
                 tracing::info!(?kind, "system prompt changed and persisted");
@@ -767,8 +779,9 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                 | TaskKind::Probe => state.settings.config.tasks.probe.user_prompt = prompt.clone(),
             }
             if let Err(err) = config::save(&state.config) {
-                state.settings.status =
-                    Some(SettingsStatus::Error(format!("failed to save config: {err}")));
+                state.settings.status = Some(SettingsStatus::Error(
+                    t!("error_config_save_failed", error = err.to_string()).to_string(),
+                ));
                 tracing::error!(%err, ?kind, "failed to persist user prompt");
             } else {
                 tracing::info!(?kind, "user prompt changed and persisted");
@@ -1017,9 +1030,9 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let api_key_label = t!("settings_api_key").to_string();
     let api_key_placeholder = t!("settings_api_key_placeholder").to_string();
     let base_url_field: Element<'_, Message> = if settings.selected_is_preset {
-        labeled_readonly(base_url_label, &settings.base_url)
+        labeled_readonly(palette, base_url_label, &settings.base_url)
     } else {
-        labeled_input(base_url_label, &settings.base_url, base_url_placeholder, |v| {
+        labeled_input(palette, base_url_label, &settings.base_url, base_url_placeholder, |v| {
             Message::Settings(SettingsMessage::BaseUrlChanged(v))
         })
     };
@@ -1027,7 +1040,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     // API style: read-only for presets, editable pick list for custom providers.
     let api_style_label = t!("settings_api_style").to_string();
     let api_style_field: Element<'_, Message> = if settings.selected_is_preset {
-        labeled_readonly(api_style_label, settings.api_style.label())
+        labeled_readonly(palette, api_style_label, settings.api_style.label())
     } else {
         let current_style = settings.api_style;
         let api_style_options: Vec<String> =
@@ -1047,16 +1060,17 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
             text(api_style_label)
                 .size(theme::LABEL_TEXT_SIZE)
                 .font(theme::INTER)
-                .color(theme::LIGHT.accent_muted),
+                .color(palette.accent_muted),
             api_style_picker,
         ]
         .spacing(theme::INLINE_GAP)
         .into()
     };
 
-    let api_key_input = labeled_input(api_key_label, &settings.api_key, api_key_placeholder, |v| {
-        Message::Settings(SettingsMessage::ApiKeyChanged(v))
-    });
+    let api_key_input =
+        labeled_input(palette, api_key_label, &settings.api_key, api_key_placeholder, |v| {
+            Message::Settings(SettingsMessage::ApiKeyChanged(v))
+        });
 
     let save_button = TextButton::action(t!("settings_save").to_string(), theme::INPUT_TEXT_SIZE)
         .on_press(Message::Settings(SettingsMessage::Save))
@@ -1096,6 +1110,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 
     // ── Per-task LLM settings ────────────────────────────────────────
     let task_section_amplify = task_settings_section(
+        palette,
         t!("settings_task_amplify").to_string(),
         TaskKind::Amplify,
         &settings.task_drafts.amplify,
@@ -1104,6 +1119,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         settings.user_prompt_hints_expanded.contains(&TaskKind::Amplify),
     );
     let task_section_distill = task_settings_section(
+        palette,
         t!("settings_task_distill").to_string(),
         TaskKind::Distill,
         &settings.task_drafts.distill,
@@ -1112,6 +1128,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         settings.user_prompt_hints_expanded.contains(&TaskKind::Distill),
     );
     let task_section_atomize = task_settings_section(
+        palette,
         t!("settings_task_atomize").to_string(),
         TaskKind::Atomize,
         &settings.task_drafts.atomize,
@@ -1120,6 +1137,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         settings.user_prompt_hints_expanded.contains(&TaskKind::Atomize),
     );
     let task_section_probe = task_settings_section(
+        palette,
         t!("settings_task_probe").to_string(),
         TaskKind::Probe,
         &settings.task_drafts.probe,
@@ -1144,12 +1162,14 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         paths_title,
         column![
             path_row(
+                palette,
                 data_file_label,
                 data_path_display,
                 copy_path_label.clone(),
                 data_path.map(|path| Message::Settings(SettingsMessage::CopyPath(path))),
             ),
             path_row(
+                palette,
                 llm_config_label,
                 config_path_display,
                 copy_path_label,
@@ -1197,13 +1217,11 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 /// A labeled text input field.
 /// Takes owned strings so the returned element does not borrow from the view.
 fn labeled_input(
-    label: String, value: &str, placeholder: String, on_input: impl Fn(String) -> Message + 'static,
+    palette: &'static theme::Palette, label: String, value: &str, placeholder: String,
+    on_input: impl Fn(String) -> Message + 'static,
 ) -> Element<'static, Message> {
     column![
-        text(label)
-            .size(theme::LABEL_TEXT_SIZE)
-            .font(theme::INTER)
-            .color(theme::LIGHT.accent_muted),
+        text(label).size(theme::LABEL_TEXT_SIZE).font(theme::INTER).color(palette.accent_muted),
         text_input(placeholder.as_str(), value)
             .on_input(on_input)
             .size(theme::INPUT_TEXT_SIZE)
@@ -1214,12 +1232,11 @@ fn labeled_input(
 }
 
 /// A labeled read-only text display (used for preset base URLs).
-fn labeled_readonly(label: String, value: &str) -> Element<'static, Message> {
+fn labeled_readonly(
+    palette: &'static theme::Palette, label: String, value: &str,
+) -> Element<'static, Message> {
     column![
-        text(label)
-            .size(theme::LABEL_TEXT_SIZE)
-            .font(theme::INTER)
-            .color(theme::LIGHT.accent_muted),
+        text(label).size(theme::LABEL_TEXT_SIZE).font(theme::INTER).color(palette.accent_muted),
         text(value.to_string()).size(theme::INPUT_TEXT_SIZE),
     ]
     .spacing(theme::INLINE_GAP)
@@ -1280,8 +1297,8 @@ fn task_section(
 /// Each section lets the user independently select a provider, model,
 /// and token limit for one [`TaskKind`].
 fn task_settings_section(
-    title: String, kind: TaskKind, draft: &TaskDraft, provider_names: &[String],
-    system_hint_expanded: bool, user_hint_expanded: bool,
+    palette: &'static theme::Palette, title: String, kind: TaskKind, draft: &TaskDraft,
+    provider_names: &[String], system_hint_expanded: bool, user_hint_expanded: bool,
 ) -> Element<'static, Message> {
     let provider_label = t!("settings_task_provider").to_string();
     let model_label = t!("settings_model").to_string();
@@ -1300,7 +1317,7 @@ fn task_settings_section(
         text(provider_label)
             .size(theme::LABEL_TEXT_SIZE)
             .font(theme::INTER)
-            .color(theme::LIGHT.accent_muted)
+            .color(palette.accent_muted)
             .width(Fill),
         provider_picker.width(Length::FillPortion(3))
     ]
@@ -1318,7 +1335,7 @@ fn task_settings_section(
         text(model_label)
             .size(theme::LABEL_TEXT_SIZE)
             .font(theme::INTER)
-            .color(theme::LIGHT.accent_muted)
+            .color(palette.accent_muted)
             .width(Fill),
         model_input.width(Length::FillPortion(3))
     ]
@@ -1357,7 +1374,7 @@ fn task_settings_section(
         text(token_label)
             .size(theme::LABEL_TEXT_SIZE)
             .font(theme::INTER)
-            .color(theme::LIGHT.accent_muted)
+            .color(palette.accent_muted)
             .width(Fill),
         row![input_field, unlimited_checkbox]
             .spacing(theme::FORM_SECTION_GAP)
@@ -1376,15 +1393,18 @@ fn task_settings_section(
         .padding(theme::PANEL_PAD_V);
 
     let system_default_hint = llm::default_system_prompt_hint(kind);
-    let system_hint_toggle =
-        foldable_hint_row("Default", &system_default_hint, system_hint_expanded, move || {
-            Message::Settings(SettingsMessage::ToggleSystemPromptHintExpanded(kind))
-        });
+    let system_hint_toggle = foldable_hint_row(
+        palette,
+        &t!("settings_default_label"),
+        &system_default_hint,
+        system_hint_expanded,
+        move || Message::Settings(SettingsMessage::ToggleSystemPromptHintExpanded(kind)),
+    );
     let system_prompt_row = column![
         text(system_prompt_label)
             .size(theme::LABEL_TEXT_SIZE)
             .font(theme::INTER)
-            .color(theme::LIGHT.accent_muted),
+            .color(palette.accent_muted),
         system_prompt_input,
         system_hint_toggle,
     ]
@@ -1398,15 +1418,18 @@ fn task_settings_section(
         .padding(theme::PANEL_PAD_V);
 
     let user_default_hint = llm::default_user_prompt_hint(kind);
-    let user_hint_toggle =
-        foldable_hint_row("Default", user_default_hint, user_hint_expanded, move || {
-            Message::Settings(SettingsMessage::ToggleUserPromptHintExpanded(kind))
-        });
+    let user_hint_toggle = foldable_hint_row(
+        palette,
+        &t!("settings_default_label"),
+        user_default_hint,
+        user_hint_expanded,
+        move || Message::Settings(SettingsMessage::ToggleUserPromptHintExpanded(kind)),
+    );
     let user_prompt_row = column![
         text(user_prompt_label)
             .size(theme::LABEL_TEXT_SIZE)
             .font(theme::INTER)
-            .color(theme::LIGHT.accent_muted),
+            .color(palette.accent_muted),
         user_prompt_input,
         user_hint_toggle,
     ]
@@ -1422,7 +1445,7 @@ fn task_settings_section(
 
 /// A foldable row: clickable label with chevron, optional content when expanded.
 fn foldable_hint_row<F>(
-    label: &'static str, content: &str, expanded: bool, on_toggle: F,
+    palette: &'static theme::Palette, label: &str, content: &str, expanded: bool, on_toggle: F,
 ) -> Element<'static, Message>
 where
     F: Fn() -> Message + 'static,
@@ -1441,14 +1464,14 @@ where
     let label_text = text(label.to_string())
         .size(theme::LABEL_TEXT_SIZE)
         .font(theme::INTER)
-        .color(theme::LIGHT.accent_muted);
+        .color(palette.accent_muted);
     let header =
         row![chevron, label_text].spacing(theme::INLINE_GAP).align_y(iced::Alignment::Center);
     let clickable = button(header).style(theme::action_button).on_press(on_toggle());
     let content_text = text(content.to_string())
         .size(theme::SMALL_TEXT_SIZE)
         .font(theme::INTER)
-        .color(theme::LIGHT.accent_muted);
+        .color(palette.accent_muted);
     let col = if expanded && !content.is_empty() {
         column![clickable, content_text].spacing(theme::INLINE_GAP)
     } else {
@@ -1462,12 +1485,13 @@ where
 /// Optionally appends a copy action button when a concrete path exists.
 /// All values are owned so the row can outlive local temporaries.
 fn path_row(
-    label: String, path: String, copy_tooltip: String, copy_message: Option<Message>,
+    palette: &'static theme::Palette, label: String, path: String, copy_tooltip: String,
+    copy_message: Option<Message>,
 ) -> Element<'static, Message> {
     let label_text = text(label)
         .size(theme::LABEL_TEXT_SIZE)
         .font(theme::INTER)
-        .color(theme::LIGHT.accent_muted)
+        .color(palette.accent_muted)
         .width(Length::Fixed(theme::PATH_LABEL_WIDTH));
     let path_text = text(path).size(theme::LABEL_TEXT_SIZE).width(Fill);
 

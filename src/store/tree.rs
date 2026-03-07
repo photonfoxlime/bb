@@ -144,17 +144,7 @@ impl BlockStore {
         let mut removed_ids = Vec::new();
         self.collect_subtree_ids(block_id, &mut removed_ids);
         for id in &removed_ids {
-            self.nodes.remove(id);
-            self.points.remove(id);
-            self.amplification_drafts.remove(id);
-            self.atomization_drafts.remove(id);
-            self.distillation_drafts.remove(id);
-            self.instruction_drafts.remove(id);
-            self.probe_drafts.remove(id);
-            self.view_collapsed.remove(id);
-            self.friend_blocks.remove(id);
-            self.block_panel_state.remove(id);
-            self.mount_table.remove_origin(*id);
+            self.remove_block_metadata(id);
         }
         self.remove_friend_block_references(&removed_ids);
 
@@ -185,17 +175,7 @@ impl BlockStore {
         let mut removed_ids = Vec::new();
         self.collect_subtree_ids(block_id, &mut removed_ids);
         for id in &removed_ids {
-            self.nodes.remove(id);
-            self.points.remove(id);
-            self.amplification_drafts.remove(id);
-            self.atomization_drafts.remove(id);
-            self.distillation_drafts.remove(id);
-            self.instruction_drafts.remove(id);
-            self.probe_drafts.remove(id);
-            self.view_collapsed.remove(id);
-            self.friend_blocks.remove(id);
-            self.block_panel_state.remove(id);
-            self.mount_table.remove_origin(*id);
+            self.remove_block_metadata(id);
         }
         self.remove_friend_block_references(&removed_ids);
 
@@ -356,6 +336,8 @@ impl BlockStore {
         Some(next_id)
     }
 
+    /// Find the mount point that owns `anchor_id`, either because the anchor
+    /// itself is a mount point or because it was loaded from a mounted file.
     pub(crate) fn inherited_mount_point_for_anchor(&self, anchor_id: &BlockId) -> Option<BlockId> {
         if self.mount_table.entry(*anchor_id).is_some() {
             return Some(*anchor_id);
@@ -367,6 +349,7 @@ impl BlockStore {
         }
     }
 
+    /// Recursively collect all block ids in the subtree rooted at `current`.
     pub(crate) fn collect_subtree_ids(&self, current: &BlockId, out: &mut Vec<BlockId>) {
         let Some(node) = self.node(current) else {
             return;
@@ -404,6 +387,8 @@ impl BlockStore {
         }
     }
 
+    /// Walk the tree from `current` toward `target`, collecting each node's
+    /// display text into `out`. Returns `true` if `target` was found.
     pub(crate) fn collect_lineage_points(
         &self, current: &BlockId, target: &BlockId, out: &mut Vec<String>,
     ) -> bool {
@@ -429,6 +414,7 @@ impl BlockStore {
         false
     }
 
+    /// Remove all friend-block entries that reference any id in `removed_ids`.
     pub(crate) fn remove_friend_block_references(&mut self, removed_ids: &[BlockId]) {
         if removed_ids.is_empty() || self.friend_blocks.is_empty() {
             return;
