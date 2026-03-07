@@ -41,6 +41,10 @@ impl BlockStore {
     pub(crate) fn load_from_path(path: &Path) -> Result<Self, StoreLoadError> {
         match fs::read_to_string(path) {
             | Ok(contents) => serde_json::from_str(&contents)
+                .map(|mut store: Self| {
+                    store.rebuild_parent_index();
+                    store
+                })
                 .map_err(|source| StoreLoadError::Parse { path: path.to_path_buf(), source }),
             | Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(Self::default()),
             | Err(source) => Err(StoreLoadError::Read { path: path.to_path_buf(), source }),

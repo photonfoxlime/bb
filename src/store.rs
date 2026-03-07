@@ -117,6 +117,12 @@ pub struct BlockStore {
     /// re-expanding [`BlockNode::Mount`] nodes after deserialization.
     #[serde(skip)]
     pub mount_table: MountTable,
+    /// Cached child-to-parent mapping for O(1) parent lookups.
+    ///
+    /// Rebuilt after every structural mutation via [`Self::rebuild_parent_index`].
+    /// Not serialized; derived from `roots` and `nodes`.
+    #[serde(skip)]
+    parent_index: FxHashMap<BlockId, BlockId>,
     /// Persisted per-block amplification drafts (rewrite + suggested children).
     ///
     /// Invariant: keys should reference existing blocks in [`Self::nodes`].
@@ -174,54 +180,34 @@ impl BlockStore {
         points: FxHashMap<BlockId, String>,
     ) -> Self {
         let typed_points = Self::convert_string_points(&nodes, points);
-        Self::new_with_drafts(
-            roots,
-            vec![],
-            nodes,
-            typed_points,
-            FxHashMap::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
-            FxHashMap::default(),
-            None,
-        )
+        Self::new_with_drafts(BlockStoreBuilder::new(roots, nodes, typed_points))
     }
 
     /// Internal constructor accepting fully-typed [`PointContent`] points.
     ///
-    /// Used by projection/rekey paths that already operate on `PointContent`.
-    pub(crate) fn new_with_drafts(
-        roots: Vec<BlockId>, archive: Vec<BlockId>, nodes: FxHashMap<BlockId, BlockNode>,
-        points: FxHashMap<BlockId, PointContent>,
-        amplification_drafts: FxHashMap<BlockId, AmplificationDraftRecord>,
-        atomization_drafts: FxHashMap<BlockId, AtomizationDraftRecord>,
-        distillation_drafts: FxHashMap<BlockId, DistillationDraftRecord>,
-        instruction_drafts: FxHashMap<BlockId, InstructionDraftRecord>,
-        probe_drafts: FxHashMap<BlockId, ProbeDraftRecord>,
-        view_collapsed: FxHashMap<BlockId, bool>,
-        friend_blocks: FxHashMap<BlockId, Vec<FriendBlock>>,
-        block_panel_state: FxHashMap<BlockId, BlockPanelBarState>, hint: Option<String>,
-    ) -> Self {
-        Self {
-            roots,
-            archive,
-            nodes,
-            points,
+    /// Prefer [`BlockStoreBuilder`] for constructing stores with optional draft
+    /// and metadata fields — it makes each field's role explicit and lets
+    /// omitted fields default to empty.
+    pub(crate) fn new_with_drafts(builder: BlockStoreBuilder) -> Self {
+        let mut store = Self {
+            roots: builder.roots,
+            archive: builder.archive,
+            nodes: builder.nodes,
+            points: builder.points,
             mount_table: MountTable::new(),
-            amplification_drafts,
-            atomization_drafts,
-            distillation_drafts,
-            instruction_drafts,
-            probe_drafts,
-            view_collapsed,
-            friend_blocks,
-            block_panel_state,
-            hint,
-        }
+            parent_index: FxHashMap::default(),
+            amplification_drafts: builder.amplification_drafts,
+            atomization_drafts: builder.atomization_drafts,
+            distillation_drafts: builder.distillation_drafts,
+            instruction_drafts: builder.instruction_drafts,
+            probe_drafts: builder.probe_drafts,
+            view_collapsed: builder.view_collapsed,
+            friend_blocks: builder.friend_blocks,
+            block_panel_state: builder.block_panel_state,
+            hint: builder.hint,
+        };
+        store.rebuild_parent_index();
+        store
     }
 
     /// Allocate a fresh block id that is not present in `nodes`.
@@ -307,16 +293,25 @@ impl BlockStore {
     }
 
     /// Return the parent of a block, if any.
+    ///
+    /// Uses the cached `parent_index` for O(1) lookup.
+    /// Root blocks have no parent and return `None`.
     pub fn parent(&self, child: &BlockId) -> Option<BlockId> {
-        if self.roots.contains(child) {
-            return None;
-        }
+        self.parent_index.get(child).copied()
+    }
+
+    /// Rebuild the child-to-parent index from scratch.
+    ///
+    /// Must be called after any operation that changes the parent-child
+    /// topology (node insertions, removals, moves, mount expand/collapse).
+    /// Cost: O(N) where N is the total number of nodes.
+    pub(crate) fn rebuild_parent_index(&mut self) {
+        self.parent_index.clear();
         for (parent_id, node) in &self.nodes {
-            if node.children().contains(child) {
-                return Some(*parent_id);
+            for child_id in node.children() {
+                self.parent_index.insert(*child_id, *parent_id);
             }
         }
-        None
     }
 
     /// Return the children of a block, or an empty slice if unknown or a mount.
@@ -413,6 +408,117 @@ impl BlockStore {
     }
 }
 
+/// Builder for constructing a [`BlockStore`] with optional draft and metadata
+/// fields.
+///
+/// Required fields (`roots`, `nodes`, `points`) are provided via [`Self::new`].
+/// Optional fields default to empty and can be set via `with_*` chainable
+/// methods. Finalize with [`Self::build`].
+pub(crate) struct BlockStoreBuilder {
+    roots: Vec<BlockId>,
+    archive: Vec<BlockId>,
+    nodes: FxHashMap<BlockId, BlockNode>,
+    points: FxHashMap<BlockId, PointContent>,
+    amplification_drafts: FxHashMap<BlockId, AmplificationDraftRecord>,
+    atomization_drafts: FxHashMap<BlockId, AtomizationDraftRecord>,
+    distillation_drafts: FxHashMap<BlockId, DistillationDraftRecord>,
+    instruction_drafts: FxHashMap<BlockId, InstructionDraftRecord>,
+    probe_drafts: FxHashMap<BlockId, ProbeDraftRecord>,
+    view_collapsed: FxHashMap<BlockId, bool>,
+    friend_blocks: FxHashMap<BlockId, Vec<FriendBlock>>,
+    block_panel_state: FxHashMap<BlockId, BlockPanelBarState>,
+    hint: Option<String>,
+}
+
+impl BlockStoreBuilder {
+    /// Create a builder with the three required fields.
+    pub fn new(
+        roots: Vec<BlockId>, nodes: FxHashMap<BlockId, BlockNode>,
+        points: FxHashMap<BlockId, PointContent>,
+    ) -> Self {
+        Self {
+            roots,
+            nodes,
+            points,
+            archive: Vec::new(),
+            amplification_drafts: FxHashMap::default(),
+            atomization_drafts: FxHashMap::default(),
+            distillation_drafts: FxHashMap::default(),
+            instruction_drafts: FxHashMap::default(),
+            probe_drafts: FxHashMap::default(),
+            view_collapsed: FxHashMap::default(),
+            friend_blocks: FxHashMap::default(),
+            block_panel_state: FxHashMap::default(),
+            hint: None,
+        }
+    }
+
+    /// Finalize the builder, producing a [`BlockStore`].
+    pub fn build(self) -> BlockStore {
+        BlockStore::new_with_drafts(self)
+    }
+
+    pub fn with_archive(mut self, archive: Vec<BlockId>) -> Self {
+        self.archive = archive;
+        self
+    }
+
+    pub fn with_amplification_drafts(
+        mut self, drafts: FxHashMap<BlockId, AmplificationDraftRecord>,
+    ) -> Self {
+        self.amplification_drafts = drafts;
+        self
+    }
+
+    pub fn with_atomization_drafts(
+        mut self, drafts: FxHashMap<BlockId, AtomizationDraftRecord>,
+    ) -> Self {
+        self.atomization_drafts = drafts;
+        self
+    }
+
+    pub fn with_distillation_drafts(
+        mut self, drafts: FxHashMap<BlockId, DistillationDraftRecord>,
+    ) -> Self {
+        self.distillation_drafts = drafts;
+        self
+    }
+
+    pub fn with_instruction_drafts(
+        mut self, drafts: FxHashMap<BlockId, InstructionDraftRecord>,
+    ) -> Self {
+        self.instruction_drafts = drafts;
+        self
+    }
+
+    pub fn with_probe_drafts(mut self, drafts: FxHashMap<BlockId, ProbeDraftRecord>) -> Self {
+        self.probe_drafts = drafts;
+        self
+    }
+
+    pub fn with_view_collapsed(mut self, view_collapsed: FxHashMap<BlockId, bool>) -> Self {
+        self.view_collapsed = view_collapsed;
+        self
+    }
+
+    pub fn with_friend_blocks(
+        mut self, friend_blocks: FxHashMap<BlockId, Vec<FriendBlock>>,
+    ) -> Self {
+        self.friend_blocks = friend_blocks;
+        self
+    }
+
+    pub fn with_block_panel_state(mut self, state: FxHashMap<BlockId, BlockPanelBarState>) -> Self {
+        self.block_panel_state = state;
+        self
+    }
+
+    pub fn with_hint(mut self, hint: Option<String>) -> Self {
+        self.hint = hint;
+        self
+    }
+}
+
 impl Default for BlockStore {
     fn default() -> Self {
         Self::default_store()
@@ -420,47 +526,23 @@ impl Default for BlockStore {
 }
 
 impl PartialEq for BlockStore {
+    /// Compare two stores for equality.
+    ///
+    /// Note: `mount_table` and `hint` are excluded because they are transient
+    /// runtime state, not persisted data.
     fn eq(&self, other: &Self) -> bool {
         self.roots == other.roots
             && self.archive == other.archive
-            && self.nodes.len() == other.nodes.len()
-            && self.nodes.iter().all(|(id, node)| other.nodes.get(id) == Some(node))
-            && self.points.len() == other.points.len()
-            && self.points.iter().all(|(id, pt)| other.points.get(id) == Some(pt))
-            && self.amplification_drafts.len() == other.amplification_drafts.len()
-            && self
-                .amplification_drafts
-                .iter()
-                .all(|(id, draft)| other.amplification_drafts.get(id) == Some(draft))
-            && self.atomization_drafts.len() == other.atomization_drafts.len()
-            && self
-                .atomization_drafts
-                .iter()
-                .all(|(id, draft)| other.atomization_drafts.get(id) == Some(draft))
-            && self.distillation_drafts.len() == other.distillation_drafts.len()
-            && self
-                .distillation_drafts
-                .iter()
-                .all(|(id, draft)| other.distillation_drafts.get(id) == Some(draft))
-            && self.instruction_drafts.len() == other.instruction_drafts.len()
-            && self
-                .instruction_drafts
-                .iter()
-                .all(|(id, draft)| other.instruction_drafts.get(id) == Some(draft))
-            && self.probe_drafts.len() == other.probe_drafts.len()
-            && self.probe_drafts.iter().all(|(id, draft)| other.probe_drafts.get(id) == Some(draft))
-            && self.view_collapsed.len() == other.view_collapsed.len()
-            && self.view_collapsed.iter().all(|(id, _)| other.view_collapsed.contains_key(id))
-            && self.friend_blocks.len() == other.friend_blocks.len()
-            && self
-                .friend_blocks
-                .iter()
-                .all(|(id, blocks)| other.friend_blocks.get(id) == Some(blocks))
-            && self.block_panel_state.len() == other.block_panel_state.len()
-            && self
-                .block_panel_state
-                .iter()
-                .all(|(id, state)| other.block_panel_state.get(id) == Some(state))
+            && self.nodes == other.nodes
+            && self.points == other.points
+            && self.amplification_drafts == other.amplification_drafts
+            && self.atomization_drafts == other.atomization_drafts
+            && self.distillation_drafts == other.distillation_drafts
+            && self.instruction_drafts == other.instruction_drafts
+            && self.probe_drafts == other.probe_drafts
+            && self.view_collapsed == other.view_collapsed
+            && self.friend_blocks == other.friend_blocks
+            && self.block_panel_state == other.block_panel_state
     }
 }
 

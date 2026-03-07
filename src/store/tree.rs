@@ -31,6 +31,7 @@ impl BlockStore {
         {
             children.push(child_id);
         }
+        self.rebuild_parent_index();
         Some(child_id)
     }
 
@@ -65,6 +66,7 @@ impl BlockStore {
             self.roots[index] = parent_block_id;
         }
 
+        self.rebuild_parent_index();
         Some(parent_block_id)
     }
 
@@ -93,6 +95,7 @@ impl BlockStore {
         } else {
             self.roots.insert(index + 1, sibling_id);
         }
+        self.rebuild_parent_index();
         Some(sibling_id)
     }
 
@@ -117,6 +120,7 @@ impl BlockStore {
         } else {
             self.roots.insert(index + 1, duplicate_id);
         }
+        self.rebuild_parent_index();
         Some(duplicate_id)
     }
 
@@ -154,6 +158,7 @@ impl BlockStore {
             self.roots.push(root_id);
         }
 
+        self.rebuild_parent_index();
         Some(removed_ids)
     }
 
@@ -179,6 +184,7 @@ impl BlockStore {
         }
         self.remove_friend_block_references(&removed_ids);
 
+        self.rebuild_parent_index();
         Some(removed_ids)
     }
 
@@ -220,6 +226,7 @@ impl BlockStore {
 
         let mut subtree_ids = Vec::new();
         self.collect_subtree_ids(block_id, &mut subtree_ids);
+        self.rebuild_parent_index();
         Some(subtree_ids)
     }
 
@@ -286,6 +293,7 @@ impl BlockStore {
             }
         }
 
+        self.rebuild_parent_index();
         Some(())
     }
 
@@ -306,17 +314,18 @@ impl BlockStore {
     ///
     /// Returns `(None, index)` if the block is a root, or
     /// `(Some(parent_id), index)` if it is a child.
+    ///
+    /// Uses the cached `parent_index` for O(1) parent lookup,
+    /// then O(C) position scan within the parent's children.
     pub(crate) fn parent_and_index_of(&self, target: &BlockId) -> Option<(Option<BlockId>, usize)> {
         if let Some(index) = self.roots.iter().position(|id| id == target) {
             return Some((None, index));
         }
 
-        for (parent_id, node) in &self.nodes {
-            if let Some(index) = node.children().iter().position(|id| id == target) {
-                return Some((Some(*parent_id), index));
-            }
-        }
-        None
+        let parent_id = self.parent_index.get(target)?;
+        let node = self.nodes.get(parent_id)?;
+        let index = node.children().iter().position(|id| id == target)?;
+        Some((Some(*parent_id), index))
     }
 
     fn clone_subtree_with_new_ids(&mut self, source_id: &BlockId) -> Option<BlockId> {

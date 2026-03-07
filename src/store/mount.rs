@@ -29,7 +29,9 @@
 //! [`snapshot_for_save`](BlockStore::snapshot_for_save),
 //! [`extract_mount_store`](BlockStore::extract_mount_store).
 
-use super::{BlockId, BlockNode, BlockStore, FriendBlock, MountProjection, PointContent};
+use super::{
+    BlockId, BlockNode, BlockStore, BlockStoreBuilder, FriendBlock, MountProjection, PointContent,
+};
 use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -62,8 +64,12 @@ pub enum MountError {
     #[error("failed to parse mount file {path}: {source}")]
     Parse { path: PathBuf, source: serde_json::Error },
     /// Failed to parse a Markdown mount file.
-    #[error("failed to parse markdown mount file {path}: {reason}")]
-    MarkdownParse { path: PathBuf, reason: String },
+    #[error("failed to parse markdown mount file {path}: {source}")]
+    MarkdownParse {
+        path: PathBuf,
+        #[source]
+        source: super::markdown::MarkdownParseError,
+    },
 }
 
 /// Identifies which file owns a block.
@@ -262,7 +268,7 @@ impl BlockStore {
             | MountFormat::Json => serde_json::from_str(&contents)
                 .map_err(|e| MountError::Parse { path: resolved.clone(), source: e })?,
             | MountFormat::Markdown => Self::parse_markdown_mount_store(&contents)
-                .map_err(|reason| MountError::MarkdownParse { path: resolved.clone(), reason })?,
+                .map_err(|source| MountError::MarkdownParse { path: resolved.clone(), source })?,
         };
 
         // tracing::trace!(mount_point = ?mount_point, "expanding mount");
@@ -290,6 +296,7 @@ impl BlockStore {
         self.view_collapsed.remove(mount_point);
         self.friend_blocks.remove(mount_point);
 
+        self.rebuild_parent_index();
         Ok(new_roots)
     }
 
@@ -326,6 +333,7 @@ impl BlockStore {
         if let Some(node) = self.nodes.get_mut(mount_point) {
             *node = BlockNode::with_path_and_format(entry.rel_path, entry.format);
         }
+        self.rebuild_parent_index();
         Some(())
     }
 
@@ -570,6 +578,7 @@ impl BlockStore {
             *node = BlockNode::with_path_and_format(rel_path, format);
         }
 
+        self.rebuild_parent_index();
         Ok(())
     }
 
@@ -642,21 +651,18 @@ impl BlockStore {
         remap_friend_blocks(&self.friend_blocks, &id_map, &mut sub_friend_blocks);
         remap_per_block_map(&self.block_panel_state, &id_map, &mut sub_block_panel_state);
 
-        BlockStore::new_with_drafts(
-            sub_roots,
-            sub_archive,
-            sub_nodes,
-            sub_points,
-            sub_amplification_drafts,
-            sub_atomization_drafts,
-            sub_distillation_drafts,
-            sub_instruction_drafts,
-            sub_probe_drafts,
-            sub_view_collapsed,
-            sub_friend_blocks,
-            sub_block_panel_state,
-            hint,
-        )
+        BlockStoreBuilder::new(sub_roots, sub_nodes, sub_points)
+            .with_archive(sub_archive)
+            .with_amplification_drafts(sub_amplification_drafts)
+            .with_atomization_drafts(sub_atomization_drafts)
+            .with_distillation_drafts(sub_distillation_drafts)
+            .with_instruction_drafts(sub_instruction_drafts)
+            .with_probe_drafts(sub_probe_drafts)
+            .with_view_collapsed(sub_view_collapsed)
+            .with_friend_blocks(sub_friend_blocks)
+            .with_block_panel_state(sub_block_panel_state)
+            .with_hint(hint)
+            .build()
     }
 
     /// Re-key all blocks from `sub_store` into this store with fresh ids.
