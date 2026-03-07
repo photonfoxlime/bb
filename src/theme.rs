@@ -152,7 +152,7 @@ pub const ROW_GAP: f32 = 6.0;
 /// Horizontal gap between action buttons.
 pub const ACTION_GAP: f32 = 6.0;
 /// Horizontal gap between buttons inside draft panels.
-pub const PANEL_BUTTON_GAP: f32 = 8.0;
+pub const PANEL_BUTTON_GAP: f32 = 0.0;
 /// Internal spacing for draft panel content.
 pub const PANEL_INNER_GAP: f32 = 6.0;
 /// Vertical spacing between diff lines.
@@ -195,7 +195,7 @@ pub const SETTINGS_APPEARANCE_SLIDER_WIDTH: f32 = 220.0;
 pub const SETTINGS_TOKEN_INPUT_WIDTH: f32 = 80.0;
 /// Vertical/horizontal padding inside draft panels.
 pub const PANEL_PAD_V: f32 = 8.0;
-pub const PANEL_PAD_H: f32 = 16.0;
+pub const PANEL_PAD_H: f32 = 8.0;
 /// Horizontal padding for diff highlight spans.
 pub const DIFF_HIGHLIGHT_PAD_H: f32 = 2.0;
 /// Vertical padding for diff highlight spans.
