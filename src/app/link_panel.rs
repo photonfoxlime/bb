@@ -42,14 +42,14 @@
 use std::path::{Path, PathBuf};
 
 use iced::widget::{
-    Id, button, column, container,
+    Id, button, column,
     operation::{focus, move_cursor_to_end},
-    row, scrollable, text, text_input,
+    scrollable, text, text_input,
 };
-use iced::{Alignment, Element, Length, Padding, Task};
+use iced::{Element, Length, Task};
 
 use crate::app::{AppState, DocumentMode, EditMessage, LinkModeMessage, Message};
-use crate::component::floating_panel;
+use crate::component::floating_panel::{self, PanelHeader, SelectableRow};
 use crate::store::PointLink;
 use crate::theme;
 use rust_i18n::t;
@@ -258,10 +258,7 @@ fn append_file_link(state: &mut AppState, block_id: crate::store::BlockId, path:
 /// the mode is not [`DocumentMode::LinkInput`].
 pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     if !matches!(state.ui().document_mode, DocumentMode::LinkInput) {
-        return container(iced::widget::Space::new())
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into();
+        return floating_panel::invisible_spacer();
     }
 
     let panel = &state.ui().link_panel;
@@ -274,9 +271,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     let close_btn = button(text(t!("link_panel_close")).size(theme::FIND_RESULT_META_SIZE))
         .style(theme::action_button)
         .on_press(Message::LinkMode(LinkModeMessage::Cancel));
-    let title_row =
-        row![title, container(iced::widget::Space::new()).width(Length::Fill), close_btn]
-            .align_y(Alignment::Center);
+    let title_row = PanelHeader::new(title, close_btn);
 
     // --- Search input ---
     let input = text_input(&t!("link_panel_placeholder"), &panel.query)
@@ -291,25 +286,12 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
 
     for (i, path) in panel.candidates.iter().enumerate() {
         let display = filesystem.abbreviate_path(path);
-        let is_selected = i == panel.selected_index;
-
         let label = text(display).size(theme::FIND_RESULT_POINT_SIZE);
-        let row_container = container(label)
-            .width(Length::Fill)
-            .padding(Padding::from([theme::FIND_RESULT_PAD_V, theme::FIND_RESULT_PAD_H]));
-        let row_container = if is_selected {
-            row_container.style(theme::friend_picker_hover)
-        } else {
-            row_container
-        };
-
-        rows = rows.push(
-            button(row_container)
-                .style(theme::action_button)
-                .padding(Padding::ZERO)
-                .width(Length::Fill)
-                .on_press(Message::LinkMode(LinkModeMessage::ConfirmCandidate(i))),
-        );
+        rows = rows.push(SelectableRow::new(
+            label,
+            i == panel.selected_index,
+            Message::LinkMode(LinkModeMessage::ConfirmCandidate(i)),
+        ));
     }
 
     let result_list = scrollable(rows).height(Length::Fixed(theme::LINK_PANEL_LIST_HEIGHT));

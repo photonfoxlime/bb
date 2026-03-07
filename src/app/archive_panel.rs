@@ -9,7 +9,7 @@
 //! Escape closes it via the global escape chain in `app.rs`.
 
 use crate::app::{AppState, DocumentMode, Message};
-use crate::component::floating_panel;
+use crate::component::floating_panel::{self, PanelHeader};
 use crate::component::text_button::TextButton;
 use crate::text::truncate_for_display;
 use crate::theme;
@@ -65,20 +65,13 @@ pub fn handle(state: &mut AppState, message: ArchivePanelMessage) -> Task<Messag
 /// the overlay participates in the `stack!` without consuming events.
 pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     if state.ui().document_mode != DocumentMode::Archive {
-        return container(iced::widget::Space::new())
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into();
+        return floating_panel::invisible_spacer();
     }
 
     let title = text(t!("ui_archive").to_string()).font(theme::INTER).size(theme::FIND_TITLE_SIZE);
     let close_btn = TextButton::action(t!("ui_close").to_string(), theme::FIND_META_SIZE)
         .on_press(Message::Archive(ArchivePanelMessage::Close));
-    let header = row![
-        title,
-        container(close_btn).width(Length::Fill).align_x(iced::alignment::Horizontal::Right)
-    ]
-    .align_y(Alignment::Center);
+    let header = PanelHeader::new(title, close_btn);
 
     let archive_ids = state.store.archive().to_vec();
 

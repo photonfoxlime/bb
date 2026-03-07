@@ -6,15 +6,13 @@
 //! to avoid running expensive searches while users are still typing.
 
 use crate::app::{AppState, DocumentMode, Message, friends_panel::FriendPanelMessage};
-use crate::component::floating_panel;
+use crate::component::floating_panel::{self, PanelHeader, SelectableRow};
 use crate::component::text_button::TextButton;
 use crate::store::BlockId;
 use crate::text::truncate_for_display;
 use crate::theme;
-use iced::widget::{
-    Id, button, column, container, operation::focus, row, scrollable, text, text_input,
-};
-use iced::{Alignment, Element, Length, Padding, Task, keyboard};
+use iced::widget::{Id, column, container, operation::focus, row, scrollable, text, text_input};
+use iced::{Element, Length, Padding, Task, keyboard};
 use rust_i18n::t;
 use std::time::Duration;
 
@@ -241,10 +239,7 @@ pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
 /// Render the floating find overlay.
 pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     if state.ui().document_mode != DocumentMode::Find {
-        return container(iced::widget::Space::new())
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .into();
+        return floating_panel::invisible_spacer();
     }
 
     let title = text(t!("ui_find").to_string()).font(theme::INTER).size(theme::FIND_TITLE_SIZE);
@@ -256,7 +251,6 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
 
     let controls = row![]
         .spacing(theme::PANEL_BUTTON_GAP)
-        .align_y(Alignment::Center)
         .push(text(count_label).size(theme::FIND_META_SIZE).style(theme::spine_text))
         .push(
             TextButton::action(t!("find_prev").to_string(), theme::FIND_META_SIZE)
@@ -308,22 +302,11 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
                 );
             }
 
-            let row_container = container(row_content)
-                .width(Length::Fill)
-                .padding(Padding::from([theme::FIND_RESULT_PAD_V, theme::FIND_RESULT_PAD_H]));
-            let row_container = if state.ui().find_ui.selected_index() == Some(index) {
-                row_container.style(theme::friend_picker_hover)
-            } else {
-                row_container
-            };
-
-            rows = rows.push(
-                button(row_container)
-                    .style(theme::action_button)
-                    .padding(Padding::ZERO)
-                    .width(Length::Fill)
-                    .on_press(Message::Find(FindMessage::JumpToIndex(index))),
-            );
+            rows = rows.push(SelectableRow::new(
+                row_content,
+                state.ui().find_ui.selected_index() == Some(index),
+                Message::Find(FindMessage::JumpToIndex(index)),
+            ));
         }
 
         scrollable(rows).height(Length::Fixed(theme::FIND_RESULT_LIST_HEIGHT)).into()
@@ -334,13 +317,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
 
     let content = column![]
         .spacing(theme::PANEL_INNER_GAP)
-        .push(
-            row![
-                title,
-                container(controls).width(Length::Fill).align_x(iced::alignment::Horizontal::Right)
-            ]
-            .align_y(Alignment::Center),
-        )
+        .push(PanelHeader::new(title, controls))
         .push(query_input)
         .push(result_list);
 
