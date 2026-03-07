@@ -2,7 +2,7 @@
 //!
 //! Renders home button + separator + clickable layer labels for drill-down
 //! navigation. Uses theme constants; labels are passed in from the parent.
-//! The bar renders on an opaque surface so document content behind the overlay
+//! The bar renders on an opaque overlay surface so document content behind it
 //! does not compete with the navigation controls.
 
 use crate::theme;
@@ -71,8 +71,8 @@ impl Breadcrumbs {
         }
 
         container(crumbs)
-            .padding([theme::BREADCRUMB_BAR_PAD_V, theme::BREADCRUMB_BAR_PAD_H])
-            .style(theme::breadcrumb_bar)
+            .padding([theme::OVERLAY_BAR_PAD_V, theme::OVERLAY_BAR_PAD_H])
+            .style(theme::overlay_bar)
             .into()
     }
 }

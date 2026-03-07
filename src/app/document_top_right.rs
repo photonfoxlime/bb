@@ -2,6 +2,8 @@
 //!
 //! Renders undo, redo, shortcut help, and settings buttons.
 //! Uses theme constants; delegates to IconButton.
+//! The controls sit on an opaque overlay surface so document content scrolling
+//! underneath cannot interfere with legibility.
 
 use super::overlay::OverlayMessage;
 use super::undo_redo::UndoRedoMessage;
@@ -60,6 +62,10 @@ pub fn view<'a>(vm: DocumentTopRightVm) -> Element<'a, Message> {
 
     let buttons =
         row![undo_button, redo_button, help_button, gear_button].spacing(theme::ACTION_GAP);
+
+    let buttons = container(buttons)
+        .padding([theme::OVERLAY_BAR_PAD_V, theme::OVERLAY_BAR_PAD_H])
+        .style(theme::overlay_bar);
 
     container(
         container(buttons)

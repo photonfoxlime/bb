@@ -2,6 +2,8 @@
 //!
 //! Renders top-left mode buttons (Normal, Find, Link, Multiselect, Archive)
 //! and multiselect count badge. Uses theme constants; delegates to IconButton.
+//! The controls sit on an opaque overlay surface so document content scrolling
+//! underneath cannot interfere with legibility.
 
 use super::archive_panel::ArchivePanelMessage;
 use super::{DocumentMode, FindMessage, Message};
@@ -87,6 +89,10 @@ pub fn view<'a>(vm: DocumentToolbarVm) -> Element<'a, Message> {
     ]
     .spacing(theme::ACTION_GAP)
     .align_y(iced::Alignment::Center);
+
+    let toolbar = container(toolbar)
+        .padding([theme::OVERLAY_BAR_PAD_V, theme::OVERLAY_BAR_PAD_H])
+        .style(theme::overlay_bar);
 
     container(toolbar)
         .align_y(iced::alignment::Vertical::Top)
