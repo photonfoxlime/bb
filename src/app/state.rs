@@ -27,7 +27,7 @@ pub enum DocumentMode {
     Multiselect,
     /// Link input mode: searching the filesystem for a path to link.
     ///
-    /// Entered by directly typing `@` in an empty point editor. The mode
+    /// Entered by directly typing `@` at the end of a point editor. The mode
     /// shows a floating panel with fuzzy filesystem search. Selecting a
     /// candidate converts the block's point to a
     /// [`PointLink`](crate::store::PointLink).

@@ -459,29 +459,47 @@ fn is_alt_movement_shortcut_editor_action(
     )
 }
 
-/// Return true when the editor text has no user-visible content.
+/// Normalize editor text into persisted point text.
 ///
 /// Iced serializes a single empty line with a trailing newline sentinel, so
-/// shortcut predicates must normalize that representation before checking
-/// whether the point is empty.
-fn is_effectively_empty_editor_text(text: &str) -> bool {
-    text.strip_suffix('\n').unwrap_or(text).is_empty()
+/// point-edit helpers must normalize that representation before comparing or
+/// persisting text.
+fn point_text_from_editor_text(text: &str) -> String {
+    text.strip_suffix('\n').filter(|text| text.is_empty()).unwrap_or(text).to_string()
+}
+
+/// Return true when the cursor is already at the end of the point editor.
+fn is_cursor_at_end_of_editor(content: &text_editor::Content) -> bool {
+    if point_text_from_editor_text(&content.text()).is_empty() {
+        return true;
+    }
+
+    let cursor = content.cursor().position;
+    let final_line = last_addressable_line_index(content);
+    if cursor.line != final_line {
+        return false;
+    }
+
+    content
+        .line(final_line)
+        .map(|line| cursor.column >= line.text.len())
+        .unwrap_or(cursor.column == 0)
 }
 
 /// Return true when an editor action should enter link mode.
 ///
-/// Link mode is keyed off a direct `Insert('@')` action on an empty point.
-/// This keeps the behavior tied to an actual keystroke instead of any later
-/// buffer shape, so programmatic buffer synchronization for the double-`@`
-/// escape path cannot immediately re-trigger link mode.
+/// Link mode is keyed off a direct `Insert('@')` action at the end of the
+/// current point editor. This keeps the behavior tied to an actual keystroke
+/// instead of any later buffer shape, so programmatic buffer synchronization
+/// for the double-`@` escape path cannot immediately re-trigger link mode.
 ///
 /// Note: paste and other non-insert mutations intentionally do not enter link
 /// mode, even if they make the buffer text equal to `@`.
 fn should_enter_link_mode_from_action(
-    text_before_action: &str, action: &text_editor::Action,
+    content: &text_editor::Content, action: &text_editor::Action,
 ) -> bool {
     matches!(action, text_editor::Action::Edit(text_editor::Edit::Insert('@')))
-        && is_effectively_empty_editor_text(text_before_action)
+        && is_cursor_at_end_of_editor(content)
 }
 
 /// Returns whether the cursor is at the end of a one-line point.
@@ -874,9 +892,8 @@ pub fn handle_point_edited(
     // adjacent visible block and restore the same preferred char column.
     let mut navigate_to: Option<(BlockId, VerticalDir, usize)> = None;
     if let Some(content) = state.editor_buffers.get_mut(&block_id) {
-        let text_before_action = content.text();
-        let should_enter_link_mode =
-            should_enter_link_mode_from_action(&text_before_action, &action);
+        let point_text_before_action = point_text_from_editor_text(&content.text());
+        let should_enter_link_mode = should_enter_link_mode_from_action(content, &action);
         let cursor_before = content.cursor().position;
         let preferred_char_column = vertical_direction.map(|_| {
             let current_char_column = content
@@ -946,13 +963,14 @@ pub fn handle_point_edited(
             // so the editor can still be cleared in the same event-loop turn
             // with no visible flash.
             if should_enter_link_mode {
-                // Clear the editor back to empty so no `@` remains visible.
+                // Restore the point text before the trigger keystroke so the
+                // inserted `@` is consumed purely as a link-mode shortcut.
                 content.perform(iced::widget::text_editor::Action::SelectAll);
                 content.perform(iced::widget::text_editor::Action::Edit(
-                    iced::widget::text_editor::Edit::Paste(String::new().into()),
+                    iced::widget::text_editor::Edit::Paste(point_text_before_action.clone().into()),
                 ));
-                state.store.update_point(&block_id, String::new());
-                state.persist_with_context("clear for link mode");
+                state.store.update_point(&block_id, point_text_before_action);
+                state.persist_with_context("remove trigger @ for link mode");
                 return Task::done(Message::LinkMode(LinkModeMessage::Enter(block_id)));
             }
 
@@ -1035,26 +1053,88 @@ mod tests {
 
     #[test]
     fn insert_at_into_empty_point_is_link_mode_trigger() {
+        let (mut state, root) = AppState::test_state();
+        state.store.update_point(&root, String::new());
+        state.editor_buffers.set_text(&root, "");
+        let content = state.editor_buffers.get(&root).expect("editor content exists");
+
         assert!(should_enter_link_mode_from_action(
-            "\n",
+            content,
             &text_editor::Action::Edit(text_editor::Edit::Insert('@')),
         ));
     }
 
     #[test]
-    fn insert_at_requires_empty_point_before_action() {
+    fn insert_at_at_editor_end_is_link_mode_trigger() {
+        let (mut state, root) = AppState::test_state();
+        state.store.update_point(&root, "existing".to_string());
+        state.editor_buffers.set_text(&root, "existing");
+        if let Some(content) = state.editor_buffers.get_mut(&root) {
+            content.move_to(text_editor::Cursor {
+                position: text_editor::Position { line: 0, column: 8 },
+                selection: None,
+            });
+        }
+        let content = state.editor_buffers.get(&root).expect("editor content exists");
+
+        assert!(should_enter_link_mode_from_action(
+            content,
+            &text_editor::Action::Edit(text_editor::Edit::Insert('@')),
+        ));
+    }
+
+    #[test]
+    fn insert_at_in_middle_of_point_does_not_trigger_link_mode() {
+        let (mut state, root) = AppState::test_state();
+        state.store.update_point(&root, "existing".to_string());
+        state.editor_buffers.set_text(&root, "existing");
+        if let Some(content) = state.editor_buffers.get_mut(&root) {
+            content.move_to(text_editor::Cursor {
+                position: text_editor::Position { line: 0, column: 3 },
+                selection: None,
+            });
+        }
+        let content = state.editor_buffers.get(&root).expect("editor content exists");
+
         assert!(!should_enter_link_mode_from_action(
-            "existing\n",
+            content,
             &text_editor::Action::Edit(text_editor::Edit::Insert('@')),
         ));
     }
 
     #[test]
     fn paste_at_into_empty_point_does_not_trigger_link_mode() {
+        let (mut state, root) = AppState::test_state();
+        state.editor_buffers.ensure_block(&state.store, &root);
+        let content = state.editor_buffers.get(&root).expect("editor content exists");
+
         assert!(!should_enter_link_mode_from_action(
-            "\n",
+            content,
             &text_editor::Action::Edit(text_editor::Edit::Paste(String::from("@").into())),
         ));
+    }
+
+    #[test]
+    fn at_trigger_preserves_existing_point_text() {
+        let (mut state, root) = AppState::test_state();
+        state.store.update_point(&root, "existing".to_string());
+        state.editor_buffers.set_text(&root, "existing");
+        if let Some(content) = state.editor_buffers.get_mut(&root) {
+            content.move_to(text_editor::Cursor {
+                position: text_editor::Position { line: 0, column: 8 },
+                selection: None,
+            });
+        }
+
+        let _ = handle_point_edited(
+            &mut state,
+            root,
+            text_editor::Action::Edit(text_editor::Edit::Insert('@')),
+        );
+
+        assert_eq!(state.store.point(&root).as_deref(), Some("existing"));
+        let text = state.editor_buffers.get(&root).expect("editor content exists").text();
+        assert_eq!(text, "existing");
     }
 
     #[test]

@@ -1,9 +1,9 @@
 //! Link-input panel for searching the filesystem and appending a [`PointLink`]
 //! to a block's point.
 //!
-//! Entered by directly typing `@` in an empty point editor, or by pressing the
-//! "Add Link" button in the action bar / context menu. Shows a floating panel
-//! with fuzzy filesystem search starting from `$HOME`.
+//! Entered by directly typing `@` at the end of a point editor, or by pressing
+//! the "Add Link" button in the action bar / context menu. Shows a floating
+//! panel with fuzzy filesystem search starting from `$HOME`.
 //!
 //! Confirming a directory drills into that directory (file-explorer style).
 //! Confirming a file appends a new link chip via [`PointLink::infer`]; the
@@ -11,10 +11,11 @@
 //!
 //! # User interaction flow
 //!
-//! 1. User focuses a block and types `@` into an empty point editor, or presses
-//!    the "Add Link" action.
+//! 1. User focuses a block and types `@` at the end of a point editor, or
+//!    presses the "Add Link" action.
 //! 2. The `@` is detected in [`crate::app::edit`] (PointEdited handler),
-//!    which clears the editor and emits [`LinkModeMessage::Enter`].
+//!    which removes the trigger character from the editor and emits
+//!    [`LinkModeMessage::Enter`].
 //! 3. The panel opens, showing `$HOME` entries. The search input is focused.
 //! 4. Typing narrows the candidates via filesystem-backed path completion.
 //! 5. **Confirm** (Enter or click):
@@ -23,7 +24,7 @@
 //!    The text editor is unaffected.
 //! 6. **Cancel** (Escape): exits link mode with no changes.
 //! 7. **Double-`@`**: typing `@` as the first character in the search input
-//!    exits link mode and inserts a literal `@` into the block's point editor.
+//!    exits link mode and appends a literal `@` to the block's point editor.
 //!    Because link entry is keyed off the original insert action, this buffer
 //!    synchronization does not immediately re-open the panel.
 //!
@@ -79,13 +80,15 @@ pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
         }
         | LinkModeMessage::QueryChanged(query) => {
             // Double-@ escape: typing `@` as the first character in the link
-            // panel query exits link mode and inserts a literal `@` into the
+            // panel query exits link mode and appends a literal `@` to the
             // block's point editor without re-triggering link mode.
             if query == "@" {
                 if let Some(block_id) = state.ui().link_panel.block_id {
-                    state.store.update_point(&block_id, "@".to_string());
-                    state.editor_buffers.set_text(&block_id, "@");
-                    state.persist_with_context("insert literal @");
+                    let mut point_text = state.store.point(&block_id).unwrap_or_default();
+                    point_text.push('@');
+                    state.store.update_point(&block_id, point_text.clone());
+                    state.editor_buffers.set_text(&block_id, &point_text);
+                    state.persist_with_context("append literal @");
                     exit_link_mode(state);
                     return refocus_point_editor_at_end(state, block_id);
                 }
@@ -560,7 +563,8 @@ mod tests {
     #[test]
     fn double_at_escape_refocuses_point_editor_at_end() {
         let (mut state, root) = AppState::test_state();
-        state.editor_buffers.ensure_block(&state.store, &root);
+        state.store.update_point(&root, String::new());
+        state.editor_buffers.set_text(&root, "");
 
         let _ = super::handle(&mut state, LinkModeMessage::Enter(root));
         let _ = super::handle(&mut state, LinkModeMessage::QueryChanged("@".to_string()));
@@ -573,6 +577,24 @@ mod tests {
             state.editor_buffers.get(&root).expect("editor content exists").cursor().position;
         assert_eq!(cursor.line, 0);
         assert_eq!(cursor.column, 1);
+    }
+
+    #[test]
+    fn double_at_escape_appends_literal_at_to_existing_point() {
+        let (mut state, root) = AppState::test_state();
+        state.store.update_point(&root, "existing".to_string());
+        state.editor_buffers.set_text(&root, "existing");
+
+        let _ = super::handle(&mut state, LinkModeMessage::Enter(root));
+        let _ = super::handle(&mut state, LinkModeMessage::QueryChanged("@".to_string()));
+
+        assert_eq!(state.ui().document_mode, DocumentMode::Normal);
+        assert_eq!(state.store.point(&root).as_deref(), Some("existing@"));
+
+        let cursor =
+            state.editor_buffers.get(&root).expect("editor content exists").cursor().position;
+        assert_eq!(cursor.line, 0);
+        assert_eq!(cursor.column, 9);
     }
 
     #[test]
