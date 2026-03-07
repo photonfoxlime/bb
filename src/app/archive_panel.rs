@@ -33,11 +33,7 @@ pub enum ArchivePanelMessage {
 pub fn handle(state: &mut AppState, message: ArchivePanelMessage) -> Task<Message> {
     match message {
         | ArchivePanelMessage::Toggle => {
-            if state.ui().document_mode == DocumentMode::Archive {
-                state.ui_mut().document_mode = DocumentMode::Normal;
-            } else {
-                state.ui_mut().document_mode = DocumentMode::Archive;
-            }
+            state.ui_mut().document_mode.toggle(DocumentMode::Archive);
             Task::none()
         }
         | ArchivePanelMessage::Close => {

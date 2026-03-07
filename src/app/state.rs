@@ -36,6 +36,16 @@ pub enum DocumentMode {
     Archive,
 }
 
+impl DocumentMode {
+    /// Toggle between `target` mode and [`Normal`](Self::Normal).
+    ///
+    /// If the current mode matches `target`, switches to `Normal`;
+    /// otherwise switches to `target`.
+    pub fn toggle(&mut self, target: Self) {
+        *self = if *self == target { Self::Normal } else { target };
+    }
+}
+
 /// Messages for the link-input panel.
 #[derive(Debug, Clone)]
 pub enum LinkModeMessage {
