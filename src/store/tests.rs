@@ -664,17 +664,39 @@ fn write_markdown_sub_store(
     (path, sub)
 }
 
+/// Build a [`BlockStore`] whose sole root is a JSON-format mount node.
+fn mount_store(filename: &str) -> (BlockStore, BlockId) {
+    let mut nodes = FxHashMap::default();
+    let mut points = FxHashMap::default();
+    let mount_id =
+        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from(filename)));
+    points.insert(mount_id, String::new());
+    let store = BlockStore::new(vec![mount_id], nodes, points);
+    (store, mount_id)
+}
+
+/// Build a [`BlockStore`] whose sole root is a Markdown-format mount node.
+fn mount_store_md(filename: &str) -> (BlockStore, BlockId) {
+    let mut nodes = FxHashMap::default();
+    let mut points = FxHashMap::default();
+    let mount_id = insert_node(
+        &mut nodes,
+        BlockNode::with_path_and_format(
+            std::path::PathBuf::from(filename),
+            super::mount::MountFormat::Markdown,
+        ),
+    );
+    points.insert(mount_id, String::new());
+    let store = BlockStore::new(vec![mount_id], nodes, points);
+    (store, mount_id)
+}
+
 #[test]
 fn expand_mount_loads_and_rekeys() {
     let tmp = tempfile::tempdir().unwrap();
     let (_, sub) = write_sub_store(tmp.path(), "sub.json");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("sub.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("sub.json");
 
     let new_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
 
@@ -695,12 +717,7 @@ fn expand_mount_preserves_points() {
     let tmp = tempfile::tempdir().unwrap();
     write_sub_store(tmp.path(), "sub.json");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("sub.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("sub.json");
 
     let new_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
     let root_point = store.point(&new_roots[0]);
@@ -712,14 +729,7 @@ fn expand_markdown_mount_loads_and_rekeys() {
     let tmp = tempfile::tempdir().unwrap();
     let (_, sub) = write_markdown_sub_store(tmp.path(), "sub.md");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id = insert_node(
-        &mut nodes,
-        BlockNode::with_path_and_format(std::path::PathBuf::from("sub.md"), MountFormat::Markdown),
-    );
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store_md("sub.md");
 
     let new_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
     assert_eq!(new_roots.len(), sub.roots().len());
@@ -731,14 +741,7 @@ fn expand_markdown_mount_clears_collapsed_state_for_mount_point() {
     let tmp = tempfile::tempdir().unwrap();
     write_markdown_sub_store(tmp.path(), "sub.md");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id = insert_node(
-        &mut nodes,
-        BlockNode::with_path_and_format(std::path::PathBuf::from("sub.md"), MountFormat::Markdown),
-    );
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store_md("sub.md");
     store.view_collapsed.insert(mount_id, true);
 
     let new_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
@@ -752,14 +755,7 @@ fn expand_markdown_mount_errors_on_invalid_text() {
     let tmp = tempfile::tempdir().unwrap();
     fs::write(tmp.path().join("sub.md"), "- \"missing preamble\"\n").unwrap();
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id = insert_node(
-        &mut nodes,
-        BlockNode::with_path_and_format(std::path::PathBuf::from("sub.md"), MountFormat::Markdown),
-    );
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store_md("sub.md");
 
     let result = store.expand_mount(&mount_id, tmp.path());
     assert!(matches!(result, Err(MountError::MarkdownParse { .. })));
@@ -774,12 +770,7 @@ fn expand_mount_errors_on_children_node() {
 
 #[test]
 fn expand_mount_errors_on_missing_file() {
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("nonexistent.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("nonexistent.json");
 
     let result = store.expand_mount(&mount_id, std::path::Path::new("."));
     assert!(result.is_err());
@@ -790,12 +781,7 @@ fn collapse_mount_restores_mount_node() {
     let tmp = tempfile::tempdir().unwrap();
     write_sub_store(tmp.path(), "sub.json");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("sub.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("sub.json");
 
     let new_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
     assert!(!new_roots.is_empty());
@@ -819,12 +805,7 @@ fn move_mount_file_updates_unexpanded_mount_path_and_moves_file() {
     let tmp = tempfile::tempdir().unwrap();
     write_sub_store(tmp.path(), "sub.json");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("sub.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("sub.json");
 
     let moved_path = tmp.path().join("moved").join("renamed.json");
     store.move_mount_file(&mount_id, &moved_path, tmp.path()).unwrap();
@@ -842,12 +823,7 @@ fn move_mount_file_rewrites_expanded_mount_and_updates_entry() {
     let tmp = tempfile::tempdir().unwrap();
     write_sub_store(tmp.path(), "sub.json");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("sub.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("sub.json");
 
     let roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
     store.update_point(&roots[0], "rewritten root".to_string());
@@ -882,12 +858,7 @@ fn inline_mount_shallow_keeps_nested_mount_nodes() {
     let outer_store = BlockStore::new(vec![outer_root], outer_nodes, outer_points);
     write_store(tmp.path(), "outer.json", &outer_store);
 
-    let mut main_nodes = FxHashMap::default();
-    let mut main_points = FxHashMap::default();
-    let outer_mount =
-        insert_node(&mut main_nodes, BlockNode::with_path(std::path::PathBuf::from("outer.json")));
-    main_points.insert(outer_mount, String::new());
-    let mut store = BlockStore::new(vec![outer_mount], main_nodes, main_points);
+    let (mut store, outer_mount) = mount_store("outer.json");
 
     store.inline_mount(&outer_mount, tmp.path()).unwrap();
 
@@ -924,12 +895,7 @@ fn inline_mount_recursive_inlines_nested_mounts_into_main_store() {
     let outer_store = BlockStore::new(vec![outer_root], outer_nodes, outer_points);
     write_store(tmp.path(), "outer.json", &outer_store);
 
-    let mut main_nodes = FxHashMap::default();
-    let mut main_points = FxHashMap::default();
-    let outer_mount =
-        insert_node(&mut main_nodes, BlockNode::with_path(std::path::PathBuf::from("outer.json")));
-    main_points.insert(outer_mount, String::new());
-    let mut store = BlockStore::new(vec![outer_mount], main_nodes, main_points);
+    let (mut store, outer_mount) = mount_store("outer.json");
 
     let inlined = store.inline_mount_recursive(&outer_mount, tmp.path()).unwrap();
     assert_eq!(inlined, 2);
@@ -954,12 +920,7 @@ fn snapshot_excludes_mounted_blocks() {
     let tmp = tempfile::tempdir().unwrap();
     write_sub_store(tmp.path(), "sub.json");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("sub.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("sub.json");
 
     store.expand_mount(&mount_id, tmp.path()).unwrap();
 
@@ -975,12 +936,7 @@ fn save_mounts_writes_updated_points() {
     let tmp = tempfile::tempdir().unwrap();
     write_sub_store(tmp.path(), "sub.json");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("sub.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("sub.json");
 
     let new_roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
     store.update_point(&new_roots[0], "modified root".to_string());
@@ -1094,12 +1050,7 @@ fn clone_preserves_mount_table_for_undo() {
     let tmp = tempfile::tempdir().unwrap();
     write_sub_store(tmp.path(), "sub.json");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("sub.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("sub.json");
 
     let snapshot = store.clone();
     assert!(snapshot.node(&mount_id).unwrap().mount_path().is_some());
@@ -1140,12 +1091,7 @@ fn nested_mount_expands_recursively() {
     let outer_store = BlockStore::new(vec![outer_root], outer_nodes, outer_points);
     write_store(tmp.path(), "outer.json", &outer_store);
 
-    let mut main_nodes = FxHashMap::default();
-    let mut main_points = FxHashMap::default();
-    let outer_mount =
-        insert_node(&mut main_nodes, BlockNode::with_path(std::path::PathBuf::from("outer.json")));
-    main_points.insert(outer_mount, String::new());
-    let mut store = BlockStore::new(vec![outer_mount], main_nodes, main_points);
+    let (mut store, outer_mount) = mount_store("outer.json");
 
     let outer_children = store.expand_mount(&outer_mount, tmp.path()).unwrap();
     assert_eq!(outer_children.len(), 1);
@@ -1184,14 +1130,7 @@ fn nested_mount_path_resolves_relative_to_parent_mount_file() {
     let outer_store = BlockStore::new(vec![outer_root], outer_nodes, outer_points);
     write_store(&nested_dir, "outer.json", &outer_store);
 
-    let mut main_nodes = FxHashMap::default();
-    let mut main_points = FxHashMap::default();
-    let outer_mount = insert_node(
-        &mut main_nodes,
-        BlockNode::with_path(std::path::PathBuf::from("nested/outer.json")),
-    );
-    main_points.insert(outer_mount, String::new());
-    let mut store = BlockStore::new(vec![outer_mount], main_nodes, main_points);
+    let (mut store, outer_mount) = mount_store("nested/outer.json");
 
     let outer_children = store.expand_mount(&outer_mount, tmp.path()).unwrap();
     let rekeyed_outer_root = outer_children[0];
@@ -1225,14 +1164,7 @@ fn save_mounts_preserves_nested_mount_nodes() {
     let outer_store = BlockStore::new(vec![outer_root], outer_nodes, outer_points);
     write_store(&nested_dir, "outer.json", &outer_store);
 
-    let mut main_nodes = FxHashMap::default();
-    let mut main_points = FxHashMap::default();
-    let outer_mount = insert_node(
-        &mut main_nodes,
-        BlockNode::with_path(std::path::PathBuf::from("nested/outer.json")),
-    );
-    main_points.insert(outer_mount, String::new());
-    let mut store = BlockStore::new(vec![outer_mount], main_nodes, main_points);
+    let (mut store, outer_mount) = mount_store("nested/outer.json");
 
     let outer_children = store.expand_mount(&outer_mount, tmp.path()).unwrap();
     let rekeyed_outer_root = outer_children[0];
@@ -1265,12 +1197,7 @@ fn mount_edit_save_collapse_remount_round_trip() {
     let tmp = tempfile::tempdir().unwrap();
     write_sub_store(tmp.path(), "sub.json");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("sub.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("sub.json");
 
     let roots_1 = store.expand_mount(&mount_id, tmp.path()).unwrap();
     store.update_point(&roots_1[0], "edited root".to_string());
@@ -1288,12 +1215,7 @@ fn mount_save_persists_new_deep_non_mounted_nodes() {
     let tmp = tempfile::tempdir().unwrap();
     write_sub_store(tmp.path(), "sub.json");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("sub.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("sub.json");
 
     let roots_1 = store.expand_mount(&mount_id, tmp.path()).unwrap();
     let root = roots_1[0];
@@ -1321,12 +1243,7 @@ fn mount_save_persists_new_sibling_under_mounted_subtree() {
     let tmp = tempfile::tempdir().unwrap();
     write_sub_store(tmp.path(), "sub.json");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("sub.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("sub.json");
 
     let roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
     let root = roots[0];
@@ -1349,12 +1266,7 @@ fn mount_save_persists_duplicated_subtree_under_mounted_subtree() {
     let tmp = tempfile::tempdir().unwrap();
     write_sub_store(tmp.path(), "sub.json");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("sub.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("sub.json");
 
     let roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
     let root = roots[0];
@@ -1378,12 +1290,7 @@ fn collapse_mount_discards_unsaved_new_descendants() {
     let tmp = tempfile::tempdir().unwrap();
     write_sub_store(tmp.path(), "sub.json");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("sub.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("sub.json");
 
     let roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
     let root = roots[0];
@@ -1421,14 +1328,7 @@ fn nested_mount_save_persists_new_descendants_in_inner_file() {
     let outer_store = BlockStore::new(vec![outer_root], outer_nodes, outer_points);
     write_store(&nested_dir, "outer.json", &outer_store);
 
-    let mut main_nodes = FxHashMap::default();
-    let mut main_points = FxHashMap::default();
-    let outer_mount = insert_node(
-        &mut main_nodes,
-        BlockNode::with_path(std::path::PathBuf::from("nested/outer.json")),
-    );
-    main_points.insert(outer_mount, String::new());
-    let mut store = BlockStore::new(vec![outer_mount], main_nodes, main_points);
+    let (mut store, outer_mount) = mount_store("nested/outer.json");
 
     let outer_children = store.expand_mount(&outer_mount, tmp.path()).unwrap();
     let rekeyed_outer_root = outer_children[0];
@@ -1468,12 +1368,7 @@ fn snapshot_excludes_new_nodes_under_expanded_mount() {
     let tmp = tempfile::tempdir().unwrap();
     write_sub_store(tmp.path(), "sub.json");
 
-    let mut nodes = FxHashMap::default();
-    let mut points = FxHashMap::default();
-    let mount_id =
-        insert_node(&mut nodes, BlockNode::with_path(std::path::PathBuf::from("sub.json")));
-    points.insert(mount_id, String::new());
-    let mut store = BlockStore::new(vec![mount_id], nodes, points);
+    let (mut store, mount_id) = mount_store("sub.json");
 
     let roots = store.expand_mount(&mount_id, tmp.path()).unwrap();
     let root = roots[0];
@@ -1503,12 +1398,7 @@ fn nested_self_reference_can_expand_lazily() {
     let self_store = BlockStore::new(vec![self_root], self_nodes, self_points);
     write_store(tmp.path(), "self.json", &self_store);
 
-    let mut main_nodes = FxHashMap::default();
-    let mut main_points = FxHashMap::default();
-    let main_mount =
-        insert_node(&mut main_nodes, BlockNode::with_path(std::path::PathBuf::from("self.json")));
-    main_points.insert(main_mount, String::new());
-    let mut store = BlockStore::new(vec![main_mount], main_nodes, main_points);
+    let (mut store, main_mount) = mount_store("self.json");
 
     let roots = store.expand_mount(&main_mount, tmp.path()).unwrap();
     let rekeyed_root = roots[0];
