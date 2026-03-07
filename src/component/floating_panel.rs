@@ -44,10 +44,7 @@ pub fn wrap<'a, M: 'a>(
 ///
 /// Used as the "hidden" state for conditional floating overlays in `stack!`.
 pub fn invisible_spacer<'a, M: 'a>() -> Element<'a, M> {
-    container(iced::widget::Space::new())
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .into()
+    container(iced::widget::Space::new()).width(Length::Fill).height(Length::Fill).into()
 }
 
 /// Title-left / controls-right header row for floating panels.
