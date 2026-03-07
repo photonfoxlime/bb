@@ -74,6 +74,7 @@ pub fn view<'a>(vm: DocumentTopRightVm) -> Element<'a, Message> {
             .align_x(iced::alignment::Horizontal::Right)
             .padding(
                 iced::Padding::new(theme::PANEL_PAD_H)
+                    .top(theme::CANVAS_TOP)
                     .right(theme::CANVAS_PAD)
                     .bottom(theme::PANEL_PAD_H),
             ),
