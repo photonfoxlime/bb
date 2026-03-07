@@ -122,7 +122,9 @@ use iced::{
     window,
 };
 use std::collections::{BTreeMap, BTreeSet};
+use std::path::Path;
 use std::time::Duration;
+use thiserror::Error;
 
 pub use config::AppConfig;
 
@@ -250,8 +252,7 @@ pub enum Message {
     LinkChipToggle(BlockId, usize),
     /// A link inside an expanded markdown preview was clicked.
     ///
-    /// Note: this is currently logged only; preview links do not trigger
-    /// navigation in-app yet.
+    /// Links are opened with the system-default handler (browser/file app).
     MarkdownPreviewLinkClicked(BlockId, String),
     /// Block clicked in multiselect mode. Modifiers at click time drive behavior.
     MultiselectBlockClicked(BlockId),
@@ -306,7 +307,21 @@ impl AppState {
                 Task::none()
             }
             | Message::MarkdownPreviewLinkClicked(block_id, uri) => {
-                tracing::debug!(?block_id, %uri, "markdown preview link clicked");
+                let target = self.resolve_markdown_preview_link_target(&block_id, &uri);
+                match open_target_with_system_default(&target) {
+                    | Ok(()) => {
+                        tracing::info!(?block_id, %uri, %target, "opened markdown preview link");
+                    }
+                    | Err(error) => {
+                        tracing::error!(
+                            ?block_id,
+                            %uri,
+                            %target,
+                            %error,
+                            "failed to open markdown preview link"
+                        );
+                    }
+                }
                 Task::none()
             }
             | Message::EscapePressed => {
@@ -714,6 +729,40 @@ impl AppState {
             .insert(block_id.clone(), markdown::parse(&markdown).collect());
     }
 
+    /// Resolve a clicked markdown URI to a concrete opener target.
+    ///
+    /// Absolute URIs (`https://`, `mailto:`, etc.) and absolute filesystem
+    /// paths are passed through unchanged.
+    ///
+    /// Relative links are resolved against the directory of the currently
+    /// expanded markdown link chip for `block_id`.
+    ///
+    /// Note: we intentionally keep unresolved relative links as-is when the
+    /// source markdown path cannot be derived; this preserves current behavior
+    /// instead of guessing a different base path.
+    fn resolve_markdown_preview_link_target(&self, block_id: &BlockId, uri: &str) -> String {
+        if uri_has_explicit_scheme(uri) || Path::new(uri).is_absolute() {
+            return uri.to_owned();
+        }
+
+        let Some(source_markdown_path) = self
+            .ui()
+            .expanded_links
+            .get(block_id)
+            .and_then(|index| {
+                self.store.point_content(block_id).and_then(|pc| pc.links.get(*index))
+            })
+            .map(|link| link.href.as_str())
+        else {
+            return uri.to_owned();
+        };
+
+        let Some(base_dir) = Path::new(source_markdown_path).parent() else {
+            return uri.to_owned();
+        };
+        base_dir.join(uri).to_string_lossy().into_owned()
+    }
+
     /// Persist all graph state.
     ///
     /// Write order is main-file first, then mounted files (`save` then
@@ -935,6 +984,78 @@ impl AppState {
         self.block_context_signature(block_id)
             .is_none_or(|current_signature| current_signature != request_signature)
     }
+}
+
+/// Errors returned while spawning a platform opener command.
+#[derive(Debug, Error)]
+enum OpenTargetError {
+    #[error("unsupported platform")]
+    UnsupportedPlatform,
+    #[error("failed to launch {command}: {source}")]
+    Launch {
+        command: &'static str,
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+/// Return `true` when `value` begins with an explicit URI scheme.
+///
+/// Examples: `https:`, `mailto:`, `file:`.
+///
+/// Note: Windows drive letters like `C:\` are excluded.
+fn uri_has_explicit_scheme(value: &str) -> bool {
+    let Some(colon_idx) = value.find(':') else {
+        return false;
+    };
+    if colon_idx == 1
+        && value.as_bytes().first().is_some_and(u8::is_ascii_alphabetic)
+        && value.as_bytes().get(2).is_some_and(|ch| *ch == b'\\' || *ch == b'/')
+    {
+        return false;
+    }
+
+    value[..colon_idx]
+        .bytes()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, b'+' | b'-' | b'.'))
+}
+
+/// Spawn the host-platform "open with default app" command.
+fn open_target_with_system_default(target: &str) -> Result<(), OpenTargetError> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(target)
+            .spawn()
+            .map_err(|source| OpenTargetError::Launch { command: "open", source })?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(target)
+            .spawn()
+            .map_err(|source| OpenTargetError::Launch { command: "xdg-open", source })?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        // `start` is a `cmd.exe` builtin. The empty title argument is
+        // required so paths are not interpreted as window titles.
+        std::process::Command::new("cmd")
+            .arg("/C")
+            .arg("start")
+            .arg("")
+            .arg(target)
+            .spawn()
+            .map_err(|source| OpenTargetError::Launch { command: "cmd /C start", source })?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Err(OpenTargetError::UnsupportedPlatform)
 }
 
 #[cfg(test)]
