@@ -459,6 +459,31 @@ fn is_alt_movement_shortcut_editor_action(
     )
 }
 
+/// Return true when the editor text has no user-visible content.
+///
+/// Iced serializes a single empty line with a trailing newline sentinel, so
+/// shortcut predicates must normalize that representation before checking
+/// whether the point is empty.
+fn is_effectively_empty_editor_text(text: &str) -> bool {
+    text.strip_suffix('\n').unwrap_or(text).is_empty()
+}
+
+/// Return true when an editor action should enter link mode.
+///
+/// Link mode is keyed off a direct `Insert('@')` action on an empty point.
+/// This keeps the behavior tied to an actual keystroke instead of any later
+/// buffer shape, so programmatic buffer synchronization for the double-`@`
+/// escape path cannot immediately re-trigger link mode.
+///
+/// Note: paste and other non-insert mutations intentionally do not enter link
+/// mode, even if they make the buffer text equal to `@`.
+fn should_enter_link_mode_from_action(
+    text_before_action: &str, action: &text_editor::Action,
+) -> bool {
+    matches!(action, text_editor::Action::Edit(text_editor::Edit::Insert('@')))
+        && is_effectively_empty_editor_text(text_before_action)
+}
+
 /// Returns whether the cursor is at the end of a one-line point.
 fn is_cursor_at_end_of_only_line(content: &text_editor::Content) -> bool {
     if content.line_count() != 1 {
@@ -849,6 +874,9 @@ pub fn handle_point_edited(
     // adjacent visible block and restore the same preferred char column.
     let mut navigate_to: Option<(BlockId, VerticalDir, usize)> = None;
     if let Some(content) = state.editor_buffers.get_mut(&block_id) {
+        let text_before_action = content.text();
+        let should_enter_link_mode =
+            should_enter_link_mode_from_action(&text_before_action, &action);
         let cursor_before = content.cursor().position;
         let preferred_char_column = vertical_direction.map(|_| {
             let current_char_column = content
@@ -911,17 +939,13 @@ pub fn handle_point_edited(
         if navigate_to.is_none() {
             let next_text = content.text();
 
-            // Detect `@` typed in an empty point: enter link mode.
+            // Detect a direct `@` keystroke in an empty point: enter link mode.
             //
-            // Note: detection happens AFTER `content.perform(action)` rather
-            // than in `editor_key_binding`, because the key binding callback
-            // does not have access to the editor's current text content.
-            // Checking here also avoids any visual flash — the editor is
-            // cleared in the same event-loop iteration before the next render.
-            //
-            // The iced text editor appends a trailing newline, so the buffer
-            // reads "@\n" when only `@` was typed.
-            if next_text.trim() == "@" {
+            // Note: the predicate is computed from the pre-edit text and the
+            // concrete action, then applied here after `content.perform(action)`
+            // so the editor can still be cleared in the same event-loop turn
+            // with no visible flash.
+            if should_enter_link_mode {
                 // Clear the editor back to empty so no `@` remains visible.
                 content.perform(iced::widget::text_editor::Action::SelectAll);
                 content.perform(iced::widget::text_editor::Action::Edit(
@@ -1008,6 +1032,30 @@ pub fn handle_point_edited(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn insert_at_into_empty_point_is_link_mode_trigger() {
+        assert!(should_enter_link_mode_from_action(
+            "\n",
+            &text_editor::Action::Edit(text_editor::Edit::Insert('@')),
+        ));
+    }
+
+    #[test]
+    fn insert_at_requires_empty_point_before_action() {
+        assert!(!should_enter_link_mode_from_action(
+            "existing\n",
+            &text_editor::Action::Edit(text_editor::Edit::Insert('@')),
+        ));
+    }
+
+    #[test]
+    fn paste_at_into_empty_point_does_not_trigger_link_mode() {
+        assert!(!should_enter_link_mode_from_action(
+            "\n",
+            &text_editor::Action::Edit(text_editor::Edit::Paste(String::from("@").into())),
+        ));
+    }
 
     #[test]
     fn command_shortcut_insert_keeps_focus_in_sync() {
