@@ -104,16 +104,18 @@ jobs:
           PKG="${{ secrets.AUR_PKGNAME || env.AUR_PKGNAME }}"
           git clone "ssh://aur@aur.archlinux.org/${PKG}.git" aur
 
-      - name: Update PKGBUILD (pkgver, pkgrel, source)
+      - name: Update PKGBUILD (pkgver, pkgrel, source, sha256)
         shell: bash
         run: |
           set -euo pipefail
 
           PKGVER="${{ steps.tag.outputs.pkgver }}"
           TAG="${{ steps.tag.outputs.tag }}"
+          SHA256="${{ steps.sha.outputs.sha256 }}"
           URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET_NAME}"
 
           cd aur
+
           sed -i -E "s/^pkgver=.*/pkgver=${PKGVER}/" PKGBUILD
           sed -i -E "s/^pkgrel=.*/pkgrel=1/" PKGBUILD
 
@@ -121,6 +123,15 @@ jobs:
             sed -i -E "s|^source_x86_64=\(.*\)|source_x86_64=(\"${URL}\")|" PKGBUILD
           else
             sed -i -E "s|^source=\(.*\)|source=(\"${URL}\")|" PKGBUILD
+          fi
+
+          if grep -qE '^sha256sums_x86_64=' PKGBUILD; then
+            sed -i -E "s|^sha256sums_x86_64=\(.*\)|sha256sums_x86_64=('${SHA256}')|" PKGBUILD
+          elif grep -qE '^sha256sums=' PKGBUILD; then
+            sed -i -E "s|^sha256sums=\(.*\)|sha256sums=('${SHA256}')|" PKGBUILD
+          else
+            echo "No sha256sums field found in PKGBUILD"
+            exit 1
           fi
 
       - name: Pre-create .SRCINFO (host)
