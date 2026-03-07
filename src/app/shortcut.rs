@@ -119,6 +119,8 @@ pub fn movement_shortcut_from_key(
 ///
 /// Note: this stays as an alias layer over existing movement variants so
 /// all execution paths (undo, tracing, and persistence) remain shared.
+/// Note: `keyboard::Modifiers::command()` aliases Control on non-macOS, so
+/// this parser must check the physical logo/command key explicitly.
 fn movement_shortcut_from_bracket_key(
     key: &keyboard::Key, modified_key: &keyboard::Key, physical_key: keyboard::key::Physical,
     modifiers: keyboard::Modifiers,
@@ -128,7 +130,7 @@ fn movement_shortcut_from_bracket_key(
         modifiers.command() && !modifiers.control() && !modifiers.alt() && !modifiers.shift();
     #[cfg(not(target_os = "macos"))]
     let has_bracket_modifier =
-        modifiers.control() && !modifiers.command() && !modifiers.alt() && !modifiers.shift();
+        modifiers.control() && !modifiers.logo() && !modifiers.alt() && !modifiers.shift();
 
     if !has_bracket_modifier {
         return None;
