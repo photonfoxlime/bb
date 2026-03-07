@@ -406,6 +406,41 @@ fn remove_returns_none_for_unknown() {
     assert_eq!(store.remove_block_subtree(&unknown), None);
 }
 
+// -- archived block restore --
+
+#[test]
+fn restore_archived_block_as_child_moves_block_under_target() {
+    let (mut store, root, child_a, child_b) = simple_store();
+
+    let archived_ids = store.archive_block(&child_a).expect("archive succeeds");
+    assert_eq!(archived_ids, vec![child_a]);
+
+    store.restore_archived_block_as_child(&child_a, &child_b).expect("restore succeeds");
+
+    assert!(store.archive().is_empty());
+    assert_eq!(store.children(&root), &[child_b]);
+    assert_eq!(store.children(&child_b), &[child_a]);
+}
+
+#[test]
+fn restore_archived_block_as_sibling_inserts_after_target() {
+    let (mut store, root, child_a, child_b) = simple_store();
+
+    store.archive_block(&child_a).expect("archive succeeds");
+    store.restore_archived_block_as_sibling(&child_a, &child_b).expect("restore succeeds");
+
+    assert!(store.archive().is_empty());
+    assert_eq!(store.children(&root), &[child_b, child_a]);
+}
+
+#[test]
+fn restore_archived_block_returns_none_for_non_archived_id() {
+    let (mut store, _root, child_a, child_b) = simple_store();
+
+    assert_eq!(store.restore_archived_block_as_child(&child_a, &child_b), None);
+    assert_eq!(store.restore_archived_block_as_sibling(&child_a, &child_b), None);
+}
+
 // -- lineage_points_for_id --
 
 #[test]

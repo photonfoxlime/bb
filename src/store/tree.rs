@@ -188,6 +188,65 @@ impl BlockStore {
         Some(removed_ids)
     }
 
+    /// Restore an archived block as the last child of `parent_id`.
+    ///
+    /// The archived subtree keeps its original ids and metadata; only the root
+    /// is removed from [`BlockStore::archive`] and reattached under the live
+    /// target parent.
+    ///
+    /// # Requires
+    /// - `block_id` must be present in `self.archive`.
+    /// - `parent_id` must be attached to the live tree.
+    /// - `parent_id` must not be a mount node.
+    ///
+    /// # Ensures
+    /// - Returns `Some(())` when the archived subtree is reattached.
+    /// - Removes `block_id` from `self.archive`.
+    pub fn restore_archived_block_as_child(
+        &mut self, block_id: &BlockId, parent_id: &BlockId,
+    ) -> Option<()> {
+        let archive_index = self.archive.iter().position(|id| id == block_id)?;
+        let _ = self.parent_and_index_of(parent_id)?;
+        let parent = self.nodes.get_mut(parent_id)?;
+        let children = parent.children_mut()?;
+        self.archive.remove(archive_index);
+        children.push(*block_id);
+        self.rebuild_parent_index();
+        Some(())
+    }
+
+    /// Restore an archived block as the next sibling after `target_id`.
+    ///
+    /// The archived subtree keeps its original ids and metadata; only the root
+    /// is removed from [`BlockStore::archive`] and reattached into the live
+    /// sibling/root order immediately after `target_id`.
+    ///
+    /// # Requires
+    /// - `block_id` must be present in `self.archive`.
+    /// - `target_id` must be attached to the live tree.
+    ///
+    /// # Ensures
+    /// - Returns `Some(())` when the archived subtree is reattached.
+    /// - Removes `block_id` from `self.archive`.
+    pub fn restore_archived_block_as_sibling(
+        &mut self, block_id: &BlockId, target_id: &BlockId,
+    ) -> Option<()> {
+        let archive_index = self.archive.iter().position(|id| id == block_id)?;
+        let (parent_id, target_index) = self.parent_and_index_of(target_id)?;
+        self.archive.remove(archive_index);
+
+        if let Some(parent_id) = parent_id {
+            let parent = self.nodes.get_mut(&parent_id)?;
+            let children = parent.children_mut()?;
+            children.insert(target_index + 1, *block_id);
+        } else {
+            self.roots.insert(target_index + 1, *block_id);
+        }
+
+        self.rebuild_parent_index();
+        Some(())
+    }
+
     /// Detach a block from its parent (or roots) and append its id to `archive`.
     ///
     /// The block and its entire subtree remain in the store (`nodes`, `points`,

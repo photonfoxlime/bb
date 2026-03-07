@@ -83,6 +83,8 @@ multiselect_count: "%{count} selected"
 # Archive panel
 archive_empty: "No archived blocks."
 archive_child_count: "%{count} child(ren)"
+archive_restore_as_child: "Restore as child"
+archive_restore_as_sibling: "Restore as sibling"
 # Find panel
 find_placeholder: "Find points..."
 find_hint_type: "Type to search"
