@@ -29,8 +29,7 @@
 //! - Empty state with placeholder makes the affordance discoverable without cluttering the UI.
 
 use crate::app::{AppState, DocumentMode, Message, StructureMessage};
-use crate::component::icon_button::IconButton;
-use crate::component::text_button::TextButton;
+use crate::component::{icon_button::IconButton, text_button::TextButton};
 use crate::store::{BlockId, BlockPanelBarState};
 use crate::text::truncate_for_display;
 use crate::theme;
@@ -231,31 +230,28 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             .on_press(Message::FriendPanel(FriendPanelMessage::StartFriendPicker(block_id))),
     );
 
-    // Show message based on state
-    if is_picker_mode {
-        header = header.push(
-            container(
-                text(rust_i18n::t!("doc_friend_picker_hint").to_string())
-                    .style(theme::spine_text)
-                    .font(theme::INTER)
-                    .size(theme::FRIEND_POINT_SIZE),
-            )
-            .align_y(iced::alignment::Alignment::Center)
-            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .width(Length::Fill),
-        );
+    let message_text = if is_picker_mode {
+        Some(rust_i18n::t!("doc_friend_picker_hint").to_string())
     } else if friends.is_empty() {
+        Some(rust_i18n::t!("doc_friend_empty_hint").to_string())
+    } else {
+        None
+    };
+    // Show message based on state
+    if let Some(message_text) = message_text {
         header = header.push(
             container(
-                text(rust_i18n::t!("doc_friend_empty_hint").to_string())
+                text(message_text)
                     .style(theme::spine_text)
                     .font(theme::INTER)
-                    .size(theme::FRIEND_POINT_SIZE),
+                    .size(theme::FRIEND_POINT_SIZE)
+                    .align_y(iced::alignment::Alignment::Center),
             )
             .align_y(iced::alignment::Alignment::Center)
             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .width(Length::Fill),
-        );
+            .width(Length::Fill)
+            .padding(Padding::ZERO.left(theme::FRIEND_ROW_GAP)),
+        )
     }
 
     let mut panel =
@@ -414,6 +410,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             .push(
                 row![]
                     .spacing(theme::FRIEND_TOGGLE_GAP)
+                    .padding(Padding::ZERO.left(theme::TOOLTIP_PAD))
                     .align_y(iced::alignment::Vertical::Center)
                     .push(
                         tooltip(
@@ -458,15 +455,14 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                         .style(theme::tooltip)
                         .padding(theme::TOOLTIP_PAD)
                         .gap(theme::TOOLTIP_GAP),
+                    ).push(
+                        TextButton::destructive(rust_i18n::t!("ui_remove").to_string(), theme::FRIEND_POINT_SIZE)
+                        .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+                        .padding(Padding::ZERO)
+                        .on_press(Message::Structure(
+                            StructureMessage::RemoveFriendBlock { target, friend_id },
+                        )),
                     ),
-            )
-            .push(
-                TextButton::destructive(rust_i18n::t!("ui_remove").to_string(), theme::FRIEND_POINT_SIZE)
-                .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-                .padding(Padding::ZERO)
-                .on_press(Message::Structure(
-                    StructureMessage::RemoveFriendBlock { target, friend_id },
-                )),
             );
         panel = panel.push(line);
     }
