@@ -10,10 +10,10 @@
 
 use crate::app::{AppState, DocumentMode, Message};
 use crate::component::floating_panel::{self, PanelHeader};
-use crate::component::text_button::TextButton;
+use crate::component::icon_button::IconButton;
 use crate::text::truncate_for_display;
 use crate::theme;
-use iced::widget::{column, container, row, scrollable, text};
+use iced::widget::{column, container, row, scrollable, text, tooltip};
 use iced::{Alignment, Element, Length, Padding, Task};
 use lucide_icons::iced as icons;
 use rust_i18n::t;
@@ -65,16 +65,27 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     }
 
     let title = text(t!("ui_archive").to_string()).font(theme::INTER).size(theme::FIND_TITLE_SIZE);
-    let close_btn = TextButton::action(t!("ui_close").to_string(), theme::FIND_META_SIZE)
-        .on_press(Message::Archive(ArchivePanelMessage::Close));
+    let close_btn = tooltip(
+        IconButton::action_with_size(
+            icons::icon_x().size(theme::FIND_CONTROL_ICON_SIZE).into(),
+            theme::FIND_CONTROL_BUTTON_SIZE,
+            theme::FIND_CONTROL_BUTTON_PAD,
+        )
+        .on_press(Message::Archive(ArchivePanelMessage::Close)),
+        text(t!("ui_close").to_string()).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
+        tooltip::Position::Bottom,
+    )
+    .style(theme::tooltip)
+    .padding(theme::TOOLTIP_PAD)
+    .gap(theme::TOOLTIP_GAP);
     let header = PanelHeader::new(title, close_btn);
 
     let archive_ids = state.store.archive().to_vec();
 
     let content: Element<'a, Message> = if archive_ids.is_empty() {
-        container(text(t!("archive_empty").to_string()).style(theme::spine_text))
-            .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
-            .width(Length::Fill)
+        text(t!("archive_empty").to_string())
+            .size(theme::FIND_RESULT_META_SIZE)
+            .style(theme::spine_text)
             .into()
     } else {
         let mut rows = column![].spacing(theme::PANEL_INNER_GAP);
@@ -119,7 +130,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     let viewport_width = state.ui().window_size.width;
     let viewport_height = state.ui().window_size.height;
 
-    let content = column![].spacing(theme::PANEL_INNER_GAP).push(header).push(content);
+    let content = column![].spacing(theme::FLOATING_PANEL_SECTION_GAP).push(header).push(content);
 
     floating_panel::wrap(content, viewport_width, viewport_height)
 }

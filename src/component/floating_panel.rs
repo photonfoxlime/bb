@@ -29,7 +29,7 @@ pub fn wrap<'a, M: 'a>(
 
     let panel = container(content)
         .style(theme::draft_panel)
-        .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
+        .padding(Padding::from([theme::FLOATING_PANEL_PAD_V, theme::FLOATING_PANEL_PAD_H]))
         .width(Length::Fixed(panel_width));
 
     container(container(panel).padding(Padding::new(theme::FLOATING_PANEL_MARGIN)))

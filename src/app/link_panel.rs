@@ -42,14 +42,15 @@
 use std::path::{Path, PathBuf};
 
 use iced::widget::{
-    Id, button, column,
+    Id, column,
     operation::{focus, move_cursor_to_end},
-    scrollable, text, text_input,
+    scrollable, text, text_input, tooltip,
 };
 use iced::{Element, Length, Task};
 
 use crate::app::{AppState, DocumentMode, EditMessage, LinkModeMessage, Message};
 use crate::component::floating_panel::{self, PanelHeader, SelectableRow};
+use crate::component::icon_button::IconButton;
 use crate::store::PointLink;
 use crate::theme;
 use rust_i18n::t;
@@ -268,9 +269,19 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
 
     // --- Title row ---
     let title = text(t!("link_panel_title")).size(theme::FIND_QUERY_SIZE);
-    let close_btn = button(text(t!("link_panel_close")).size(theme::FIND_RESULT_META_SIZE))
-        .style(theme::action_button)
-        .on_press(Message::LinkMode(LinkModeMessage::Cancel));
+    let close_btn = tooltip(
+        IconButton::action_with_size(
+            lucide_icons::iced::icon_x().size(theme::FIND_CONTROL_ICON_SIZE).into(),
+            theme::FIND_CONTROL_BUTTON_SIZE,
+            theme::FIND_CONTROL_BUTTON_PAD,
+        )
+        .on_press(Message::LinkMode(LinkModeMessage::Cancel)),
+        text(t!("ui_close").to_string()).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
+        tooltip::Position::Bottom,
+    )
+    .style(theme::tooltip)
+    .padding(theme::TOOLTIP_PAD)
+    .gap(theme::TOOLTIP_GAP);
     let title_row = PanelHeader::new(title, close_btn);
 
     // --- Search input ---
@@ -301,7 +312,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
         text(t!("link_panel_hint")).size(theme::FIND_RESULT_META_SIZE).style(theme::spine_text);
 
     let panel_content =
-        column![title_row, input, result_list, hint].spacing(theme::PANEL_INNER_GAP);
+        column![title_row, input, result_list, hint].spacing(theme::FLOATING_PANEL_SECTION_GAP);
 
     floating_panel::wrap(panel_content, viewport_width, viewport_height)
 }

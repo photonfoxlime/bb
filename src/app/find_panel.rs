@@ -7,12 +7,13 @@
 
 use crate::app::{AppState, DocumentMode, Message, friends_panel::FriendPanelMessage};
 use crate::component::floating_panel::{self, PanelHeader, SelectableRow};
-use crate::component::text_button::TextButton;
+use crate::component::icon_button::IconButton;
 use crate::store::BlockId;
 use crate::text::truncate_for_display;
 use crate::theme;
-use iced::widget::{Id, column, container, operation::focus, row, scrollable, text, text_input};
-use iced::{Element, Length, Padding, Task, keyboard};
+use iced::widget::{Id, column, operation::focus, row, scrollable, text, text_input, tooltip};
+use iced::{Element, Length, Task, keyboard};
+use lucide_icons::iced as icons;
 use rust_i18n::t;
 use std::time::Duration;
 
@@ -249,21 +250,55 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
         t!("find_results_count", count = state.ui().find_ui.matches().len()).to_string()
     };
 
+    let prev_btn = tooltip(
+        IconButton::action_with_size(
+            icons::icon_chevron_up().size(theme::FIND_CONTROL_ICON_SIZE).into(),
+            theme::FIND_CONTROL_BUTTON_SIZE,
+            theme::FIND_CONTROL_BUTTON_PAD,
+        )
+        .on_press(Message::Find(FindMessage::JumpPrevious)),
+        text(t!("find_prev").to_string()).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
+        tooltip::Position::Bottom,
+    )
+    .style(theme::tooltip)
+    .padding(theme::TOOLTIP_PAD)
+    .gap(theme::TOOLTIP_GAP);
+
+    let next_btn = tooltip(
+        IconButton::action_with_size(
+            icons::icon_chevron_down().size(theme::FIND_CONTROL_ICON_SIZE).into(),
+            theme::FIND_CONTROL_BUTTON_SIZE,
+            theme::FIND_CONTROL_BUTTON_PAD,
+        )
+        .on_press(Message::Find(FindMessage::JumpNext)),
+        text(t!("find_next").to_string()).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
+        tooltip::Position::Bottom,
+    )
+    .style(theme::tooltip)
+    .padding(theme::TOOLTIP_PAD)
+    .gap(theme::TOOLTIP_GAP);
+
+    let close_btn = tooltip(
+        IconButton::action_with_size(
+            icons::icon_x().size(theme::FIND_CONTROL_ICON_SIZE).into(),
+            theme::FIND_CONTROL_BUTTON_SIZE,
+            theme::FIND_CONTROL_BUTTON_PAD,
+        )
+        .on_press(Message::Find(FindMessage::Close)),
+        text(t!("ui_close").to_string()).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
+        tooltip::Position::Bottom,
+    )
+    .style(theme::tooltip)
+    .padding(theme::TOOLTIP_PAD)
+    .gap(theme::TOOLTIP_GAP);
+
     let controls = row![]
-        .spacing(theme::PANEL_BUTTON_GAP)
+        .spacing(theme::FLOATING_PANEL_CONTROL_GAP)
+        .align_y(iced::Alignment::Center)
         .push(text(count_label).size(theme::FIND_META_SIZE).style(theme::spine_text))
-        .push(
-            TextButton::action(t!("find_prev").to_string(), theme::FIND_META_SIZE)
-                .on_press(Message::Find(FindMessage::JumpPrevious)),
-        )
-        .push(
-            TextButton::action(t!("find_next").to_string(), theme::FIND_META_SIZE)
-                .on_press(Message::Find(FindMessage::JumpNext)),
-        )
-        .push(
-            TextButton::action(t!("ui_close").to_string(), theme::FIND_META_SIZE)
-                .on_press(Message::Find(FindMessage::Close)),
-        );
+        .push(prev_btn)
+        .push(next_btn)
+        .push(close_btn);
 
     let placeholder = t!("find_placeholder").to_string();
     let query_input = text_input(placeholder.as_str(), state.ui().find_ui.query())
@@ -274,14 +309,14 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
         .padding(theme::FIND_QUERY_PAD);
 
     let result_list: Element<'a, Message> = if state.ui().find_ui.query().trim().is_empty() {
-        container(text(t!("find_hint_empty").to_string()).style(theme::spine_text))
-            .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
-            .width(Length::Fill)
+        text(t!("find_hint_empty").to_string())
+            .size(theme::FIND_RESULT_META_SIZE)
+            .style(theme::spine_text)
             .into()
     } else if state.ui().find_ui.matches().is_empty() {
-        container(text(t!("find_no_results").to_string()).style(theme::spine_text))
-            .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
-            .width(Length::Fill)
+        text(t!("find_no_results").to_string())
+            .size(theme::FIND_RESULT_META_SIZE)
+            .style(theme::spine_text)
             .into()
     } else {
         let mut rows = column![].spacing(theme::PANEL_INNER_GAP);
@@ -316,7 +351,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     let viewport_height = state.ui().window_size.height;
 
     let content = column![]
-        .spacing(theme::PANEL_INNER_GAP)
+        .spacing(theme::FLOATING_PANEL_SECTION_GAP)
         .push(PanelHeader::new(title, controls))
         .push(query_input)
         .push(result_list);

@@ -122,6 +122,14 @@ pub const CANVAS_SCROLL_TAIL_RATIO: f32 = 0.5;
 pub const FLOATING_PANEL_MARGIN: f32 = 16.0;
 /// Maximum width for floating panels.
 pub const FLOATING_PANEL_MAX_WIDTH: f32 = 680.0;
+/// Vertical padding inside floating overlay panels.
+pub const FLOATING_PANEL_PAD_V: f32 = 14.0;
+/// Horizontal padding inside floating overlay panels.
+pub const FLOATING_PANEL_PAD_H: f32 = 16.0;
+/// Vertical spacing between sections (header, input, result list) in floating panels.
+pub const FLOATING_PANEL_SECTION_GAP: f32 = 10.0;
+/// Horizontal gap between control buttons in floating panel headers.
+pub const FLOATING_PANEL_CONTROL_GAP: f32 = 6.0;
 
 // --- Link panel ---
 /// Fixed height for the link panel candidate list.
@@ -283,6 +291,12 @@ pub const FRIEND_TOGGLE_GAP: f32 = 8.0;
 pub const FIND_TITLE_SIZE: f32 = 14.0;
 /// Font size for find panel metadata and controls.
 pub const FIND_META_SIZE: f32 = 12.0;
+/// Square footprint for compact icon buttons in the find panel controls row.
+pub const FIND_CONTROL_BUTTON_SIZE: f32 = 20.0;
+/// Icon glyph size inside find panel control buttons.
+pub const FIND_CONTROL_ICON_SIZE: f32 = 12.0;
+/// Internal padding for find panel control icon buttons.
+pub const FIND_CONTROL_BUTTON_PAD: f32 = 2.0;
 /// Font size for the find query text input.
 pub const FIND_QUERY_SIZE: f32 = 14.0;
 /// Padding for the find query text input.
