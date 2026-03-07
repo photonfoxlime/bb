@@ -117,6 +117,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          gh release upload "${{ steps.meta.outputs.tag }}" \
-            "${{ steps.msi.outputs.msi_path }}" \
-            --clobber
+          gh release upload "${{ steps.meta.outputs.tag }}" "${{ steps.msi.outputs.msi_path }}" --clobber
