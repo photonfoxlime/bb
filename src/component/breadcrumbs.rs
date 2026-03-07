@@ -2,6 +2,8 @@
 //!
 //! Renders home button + separator + clickable layer labels for drill-down
 //! navigation. Uses theme constants; labels are passed in from the parent.
+//! The bar renders on an opaque surface so document content behind the overlay
+//! does not compete with the navigation controls.
 
 use crate::theme;
 use iced::{
@@ -13,7 +15,9 @@ use lucide_icons::iced as icons;
 /// One breadcrumb layer: display label and whether it is the current (non-clickable) layer.
 #[derive(Debug, Clone)]
 pub struct BreadcrumbLayer {
+    /// Label shown for this navigation layer.
     pub label: String,
+    /// Whether this layer is the current location and therefore not clickable.
     pub is_current: bool,
 }
 
@@ -66,6 +70,9 @@ impl Breadcrumbs {
             }
         }
 
-        crumbs.into()
+        container(crumbs)
+            .padding([theme::BREADCRUMB_BAR_PAD_V, theme::BREADCRUMB_BAR_PAD_H])
+            .style(theme::breadcrumb_bar)
+            .into()
     }
 }

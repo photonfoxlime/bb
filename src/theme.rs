@@ -175,6 +175,10 @@ pub const RULE_WIDTH: f32 = 1.0;
 
 /// Padding inside buttons and tooltips.
 pub const BUTTON_PAD: f32 = 4.0;
+/// Vertical padding inside the breadcrumb navigation bar surface.
+pub const BREADCRUMB_BAR_PAD_V: f32 = 6.0;
+/// Horizontal padding inside the breadcrumb navigation bar surface.
+pub const BREADCRUMB_BAR_PAD_H: f32 = 8.0;
 /// Vertical offset applied to the current breadcrumb label to align with nav controls.
 pub const BREADCRUMB_CURRENT_TEXT_TOP_PAD: f32 = 1.0;
 /// Truncation budget for breadcrumb layer labels.
@@ -678,6 +682,20 @@ pub fn shortcut_help_banner(theme: &Theme) -> container::Style {
         border: border::rounded(BORDER_RADIUS_BANNER)
             .width(1)
             .color(Color { a: SHORTCUT_HELP_BORDER_OPACITY, ..p.accent }),
+        text_color: Some(p.ink),
+        ..Default::default()
+    }
+}
+
+/// Breadcrumb navigation bar container.
+///
+/// Note: this surface stays fully opaque so the scrollable document content
+/// behind the bottom-left overlay cannot reduce breadcrumb legibility.
+pub fn breadcrumb_bar(theme: &Theme) -> container::Style {
+    let p = focused_palette(theme);
+    container::Style {
+        background: Some(p.paper.into()),
+        border: border::rounded(BORDER_RADIUS_BANNER).width(0),
         text_color: Some(p.ink),
         ..Default::default()
     }
