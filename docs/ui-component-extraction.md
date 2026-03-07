@@ -85,10 +85,33 @@ Could be a method on `DocumentMode` or a small helper.
 Both render icon button rows with `ACTION_GAP` spacing. Could share a builder,
 but the files are small so the win is mostly consistency.
 
-## Implementation Phases
+## Implementation Status
 
-| Phase | Extract | Impact |
-|-------|---------|--------|
-| 1 | `FloatingSearchPanel<T>` + `SearchState<T>` | ~480 LOC saved, 3 files simplified |
-| 2 | `InlineEditor` + `ListItemRow` | ~180 LOC saved, enables future reuse |
-| 3 | `DraftPanelContainer` + toggle helpers | Consistency, ~40 LOC |
+### Done
+
+**Floating panel components** (added to `src/component/floating_panel.rs`):
+
+- `invisible_spacer()` — replaces 3 identical visibility-gate spacers
+  (link_panel, find_panel, archive_panel).
+- `PanelHeader::new(title, controls)` — replaces 3 ad-hoc title/close header rows.
+- `SelectableRow::new(content, selected, on_press)` — replaces 2 identical
+  10-line container+highlight+button blocks (link_panel, find_panel).
+
+**DocumentMode::toggle** (added to `src/app/state.rs`):
+
+- `toggle(&mut self, target)` — used in archive_panel; find_panel toggle has
+  extra open-path logic so it stays manual.
+
+### Deferred (insufficient duplication to justify now)
+
+- **InlineEditor**: only one instance (friends_panel perspective editing).
+  Extract when a second use case appears.
+- **ListItemRow**: only one remaining instance (archive_panel delete row)
+  after `SelectableRow` captured the common pattern.
+- **DraftPanelContainer**: padding varies across callers
+  (`COMPACT_PAD_V` vs `PANEL_PAD_V`), so a shared wrapper would need
+  parameters that offer little over the current inline code.
+- **SearchState<T>**: `FindUiState` and `LinkPanelState` differ enough
+  (debounce revisions, wrapping vs clamped navigation, typed candidates)
+  that a shared generic would be forced. Revisit if a third search panel appears.
+- **Toolbar builder**: files are small (~100 LOC each), win is marginal.
