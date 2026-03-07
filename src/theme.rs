@@ -8,7 +8,7 @@
 //! when the system appearance changes.
 
 use iced::theme::{Base, Mode};
-use iced::widget::{button, container, rule, text, text_editor};
+use iced::widget::{button, container, markdown, rule, text, text_editor};
 use iced::{Color, Font, Theme, border};
 use std::time::Duration;
 
@@ -366,6 +366,30 @@ pub const LINK_CHIP_BG_HOVER_MULT: f32 = 2.0;
 pub const LINK_CHIP_BG_PRESSED_MULT: f32 = 3.0;
 /// Link chip background opacity multiplier when disabled.
 pub const LINK_CHIP_BG_DISABLED_MULT: f32 = 0.5;
+/// Base text size used by inline markdown previews under expanded link chips.
+pub const LINK_MARKDOWN_PREVIEW_TEXT_SIZE: f32 = 13.0;
+
+/// Build markdown renderer settings for inline link-chip previews.
+///
+/// Note: previews follow app typography (`DEFAULT_FONT`) instead of the
+/// markdown widget defaults so mixed-script documents keep a consistent look.
+pub(crate) fn markdown_preview_settings(is_dark: bool) -> markdown::Settings {
+    let palette = palette_for_mode(is_dark);
+    let mut style = markdown::Style::from_palette(iced::theme::Palette {
+        background: palette.paper,
+        text: palette.ink,
+        primary: palette.accent,
+        success: palette.success,
+        danger: palette.danger,
+        warning: palette.warning,
+    });
+    style.font = DEFAULT_FONT;
+    style.inline_code_font = DEFAULT_FONT;
+    style.code_block_font = DEFAULT_FONT;
+    style.inline_code_color = palette.ink;
+    style.inline_code_highlight.background = palette.tint.into();
+    markdown::Settings::with_text_size(LINK_MARKDOWN_PREVIEW_TEXT_SIZE, style)
+}
 
 // ── Style tokens (used by style functions) ────────────────────────────
 

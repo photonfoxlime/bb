@@ -550,6 +550,7 @@ impl<'a> TreeView<'a> {
             editor_content,
             self.state.editor_buffers.widget_id(block_id),
             self.state.ui().cursor_position.unwrap_or(Point::ORIGIN),
+            self.state.is_dark_mode(),
             expanded_link_index,
             expanded_markdown_preview,
         );

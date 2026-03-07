@@ -45,11 +45,10 @@ use super::action_bar::{ActionId, shortcut_to_action};
 use super::{ContextMenuMessage, EditMessage, Message, ShortcutMessage};
 use crate::store::{BlockId, LinkKind, PointLink};
 use crate::theme;
-use frostmark::{MarkState, MarkWidget};
 use iced::{
     Element, Fill, Length, Point,
     keyboard::{Key, key::Named},
-    widget::{self, button, column, container, mouse_area, row, text, text_editor},
+    widget::{self, button, column, container, markdown, mouse_area, row, text, text_editor},
 };
 use lucide_icons::iced as icons;
 use rust_i18n::t;
@@ -78,12 +77,13 @@ pub struct PointTextEditor<'a, Message> {
     pub editor_content: Option<&'a text_editor::Content>,
     pub widget_id: Option<&'a widget::Id>,
     pub cursor_position: Point,
+    pub is_dark_mode: bool,
     /// Which link chip index is currently expanded (showing inline preview), if any.
     pub expanded_link_index: Option<usize>,
-    /// Frostmark state for the currently expanded markdown link preview.
+    /// Parsed markdown items for the currently expanded markdown link preview.
     ///
     /// Note: this is optional because expanded chips can also be image/path.
-    pub expanded_markdown_preview: Option<&'a MarkState>,
+    pub expanded_markdown_preview: Option<&'a [markdown::Item]>,
     pub placeholder: String,
     /// Message to emit when a link chip is pressed (toggle expand).
     ///
@@ -102,6 +102,8 @@ pub struct PointTextEditor<'a, Message> {
     /// Called first in the key-binding pipeline; return `Some(msg)` to
     /// intercept the key press, `None` to fall through.
     pub on_shortcut_key: fn(BlockId, &text_editor::KeyPress) -> Option<Message>,
+    /// Message to emit when a link inside markdown preview is clicked.
+    pub on_markdown_preview_link: fn(BlockId, String) -> Message,
 }
 
 impl<'a, Message: Clone + 'static + 'a> PointTextEditor<'a, Message> {
@@ -115,6 +117,7 @@ impl<'a, Message: Clone + 'static + 'a> PointTextEditor<'a, Message> {
             editor_content,
             widget_id,
             cursor_position,
+            is_dark_mode,
             expanded_link_index,
             expanded_markdown_preview,
             placeholder,
@@ -124,6 +127,7 @@ impl<'a, Message: Clone + 'static + 'a> PointTextEditor<'a, Message> {
             on_edit_action,
             on_word_move,
             on_shortcut_key,
+            on_markdown_preview_link,
         } = self;
 
         if is_plain_text {
@@ -180,11 +184,12 @@ impl<'a, Message: Clone + 'static + 'a> PointTextEditor<'a, Message> {
                     }
                     | LinkKind::Markdown => {
                         if let Some(markdown_preview) = expanded_markdown_preview {
-                            let markdown_widget: Element<'a, Message> =
-                                MarkWidget::new(markdown_preview)
-                                    .font(theme::DEFAULT_FONT)
-                                    .text_size(theme::FIND_RESULT_POINT_SIZE)
-                                    .into();
+                            let markdown_widget: Element<'a, Message> = markdown::view(
+                                markdown_preview,
+                                theme::markdown_preview_settings(is_dark_mode),
+                            )
+                            .map(move |uri| on_markdown_preview_link(block_id, uri))
+                            .into();
                             chip_col = chip_col.push(
                                 container(markdown_widget)
                                     .padding(theme::LINK_CHIP_PAD)
@@ -286,8 +291,8 @@ pub fn word_cursor_direction_for_key_press(
 pub(super) fn view<'a>(
     block_id: BlockId, is_plain_text: bool, point_text: String, links: &'a [PointLink],
     editor_content: Option<&'a text_editor::Content>, widget_id: Option<&'a widget::Id>,
-    cursor_position: Point, expanded_link_index: Option<usize>,
-    expanded_markdown_preview: Option<&'a MarkState>,
+    cursor_position: Point, is_dark_mode: bool, expanded_link_index: Option<usize>,
+    expanded_markdown_preview: Option<&'a [markdown::Item]>,
 ) -> Element<'a, Message> {
     PointTextEditor {
         block_id,
@@ -297,6 +302,7 @@ pub(super) fn view<'a>(
         editor_content,
         widget_id,
         cursor_position,
+        is_dark_mode,
         expanded_link_index,
         expanded_markdown_preview,
         placeholder: t!("doc_placeholder_point").to_string(),
@@ -314,6 +320,7 @@ pub(super) fn view<'a>(
             Message::Edit(EditMessage::MoveCursorByWord { block_id: bid, direction })
         },
         on_shortcut_key: shortcut_key,
+        on_markdown_preview_link: |bid, uri| Message::MarkdownPreviewLinkClicked(bid, uri),
     }
     .view()
 }

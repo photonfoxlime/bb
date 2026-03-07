@@ -116,14 +116,12 @@ use crate::{
     store::{BlockId, BlockPanelBarState, BlockStore, LinkKind, StoreLoadError},
     undo::UndoHistory,
 };
-use frostmark::MarkState;
 use iced::{
     Element, Event, Subscription, Task, event, keyboard, system,
-    widget::{self, text_editor},
+    widget::{self, markdown, text_editor},
     window,
 };
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::Arc;
 use std::time::Duration;
 
 pub use config::AppConfig;
@@ -200,14 +198,14 @@ pub struct AppState {
     /// This keeps call sites consistent and centralizes expectations for
     /// non-persisted UI state usage.
     transient_ui: TransientUiState,
-    /// Cached frostmark state for the currently expanded markdown link chip per block.
+    /// Cached parsed markdown preview content for the expanded link chip per block.
     ///
-    /// This cache exists because `frostmark::MarkWidget` borrows a long-lived
-    /// [`MarkState`]. We refresh entries only when a chip is expanded.
+    /// We parse once when a chip is expanded and reuse the parsed items while
+    /// it stays open.
     ///
     /// Note: the cache key is only `BlockId` because at most one link chip can
     /// be expanded per block (`TransientUiState::expanded_links` invariant).
-    expanded_markdown_previews: BTreeMap<BlockId, Arc<MarkState>>,
+    expanded_markdown_previews: BTreeMap<BlockId, Vec<markdown::Item>>,
     /// Edit session: block currently coalescing point edits into a single undo entry.
     edit_session: Option<BlockId>,
     /// Navigation stack: tracks drill-down path through block subtrees.
@@ -250,6 +248,11 @@ pub enum Message {
     /// Toggling the same index collapses it; toggling a different index
     /// replaces the previously expanded chip.
     LinkChipToggle(BlockId, usize),
+    /// A link inside an expanded markdown preview was clicked.
+    ///
+    /// Note: this is currently logged only; preview links do not trigger
+    /// navigation in-app yet.
+    MarkdownPreviewLinkClicked(BlockId, String),
     /// Block clicked in multiselect mode. Modifiers at click time drive behavior.
     MultiselectBlockClicked(BlockId),
     /// Plain Backspace in multiselect mode: delete selection. Handled globally
@@ -300,6 +303,10 @@ impl AppState {
                     self.ui_mut().expanded_links.insert(block_id.clone(), index);
                     self.refresh_expanded_markdown_preview(&block_id, index);
                 }
+                Task::none()
+            }
+            | Message::MarkdownPreviewLinkClicked(block_id, uri) => {
+                tracing::debug!(?block_id, %uri, "markdown preview link clicked");
                 Task::none()
             }
             | Message::EscapePressed => {
@@ -633,9 +640,11 @@ impl AppState {
         &mut self.transient_ui
     }
 
-    /// Return the cached expanded markdown preview state for a block, if any.
-    pub(crate) fn expanded_markdown_preview(&self, block_id: &BlockId) -> Option<&MarkState> {
-        self.expanded_markdown_previews.get(block_id).map(Arc::as_ref)
+    /// Return cached parsed markdown preview items for a block, if any.
+    pub(crate) fn expanded_markdown_preview(
+        &self, block_id: &BlockId,
+    ) -> Option<&[markdown::Item]> {
+        self.expanded_markdown_previews.get(block_id).map(Vec::as_slice)
     }
 
     /// Drop any cached expanded markdown preview for `block_id`.
@@ -673,7 +682,7 @@ impl AppState {
         }
     }
 
-    /// Load (or clear) the frostmark state for a newly expanded link chip.
+    /// Load (or clear) parsed markdown items for a newly expanded link chip.
     ///
     /// For non-markdown links, this clears any stale cached markdown preview.
     ///
@@ -702,7 +711,7 @@ impl AppState {
             }
         };
         self.expanded_markdown_previews
-            .insert(block_id.clone(), Arc::new(MarkState::with_markdown_only(&markdown)));
+            .insert(block_id.clone(), markdown::parse(&markdown).collect());
     }
 
     /// Persist all graph state.
