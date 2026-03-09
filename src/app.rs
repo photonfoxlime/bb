@@ -266,18 +266,6 @@ pub enum Message {
 impl AppState {
     /// Process one message and return a follow-up task (if any).
     pub fn update(&mut self, message: Message) -> Task<Message> {
-        let keep_inline_confirmation =
-            matches!(&message, Message::MountFile(MountFileMessage::InlineMountAll(_)));
-        if !keep_inline_confirmation {
-            self.ui_mut().pending_inline_mount_confirmation = None;
-        }
-
-        let keep_mount_action_overflow =
-            matches!(&message, Message::Overlay(OverlayMessage::ToggleMountActionsOverflow(_)));
-        if !keep_mount_action_overflow {
-            self.ui_mut().mount_action_overflow_block = None;
-        }
-
         match message {
             | Message::UndoRedo(message) => undo_redo::handle(self, message),
             | Message::Shortcut(message) => shortcut::handle(self, message),
