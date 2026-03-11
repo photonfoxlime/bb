@@ -51,26 +51,6 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "pkgver=${PKGVER}" >> "$GITHUB_OUTPUT"
 
-      - name: Download release asset and compute sha256
-        id: sha
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          TAG="${{ steps.tag.outputs.tag }}"
-          PKGVER="${{ steps.tag.outputs.pkgver }}"
-          ASSET="${ASSET_NAME}"
-
-          URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
-          echo "Downloading: $URL"
-
-          curl -fL --retry 5 --retry-delay 2 -o "$ASSET" "$URL"
-          SHA="$(sha256sum "$ASSET" | awk '{print $1}')"
-
-          echo "url=${URL}" >> "$GITHUB_OUTPUT"
-          echo "sha256=${SHA}" >> "$GITHUB_OUTPUT"
-          echo "pkgver=${PKGVER}" >> "$GITHUB_OUTPUT"
-
       - name: Setup SSH for AUR
         shell: bash
         env:
@@ -104,14 +84,13 @@ jobs:
           PKG="${{ secrets.AUR_PKGNAME || env.AUR_PKGNAME }}"
           git clone "ssh://aur@aur.archlinux.org/${PKG}.git" aur
 
-      - name: Update PKGBUILD (pkgver, pkgrel, source, sha256)
+      - name: Update PKGBUILD (pkgver, pkgrel, source)
         shell: bash
         run: |
           set -euo pipefail
 
           PKGVER="${{ steps.tag.outputs.pkgver }}"
           TAG="${{ steps.tag.outputs.tag }}"
-          SHA256="${{ steps.sha.outputs.sha256 }}"
           URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET_NAME}"
 
           cd aur
@@ -125,22 +104,13 @@ jobs:
             sed -i -E "s|^source=\(.*\)|source=(\"${URL}\")|" PKGBUILD
           fi
 
-          if grep -qE '^sha256sums_x86_64=' PKGBUILD; then
-            sed -i -E "s|^sha256sums_x86_64=\(.*\)|sha256sums_x86_64=('${SHA256}')|" PKGBUILD
-          elif grep -qE '^sha256sums=' PKGBUILD; then
-            sed -i -E "s|^sha256sums=\(.*\)|sha256sums=('${SHA256}')|" PKGBUILD
-          else
-            echo "No sha256sums field found in PKGBUILD"
-            exit 1
-          fi
-
       - name: Pre-create .SRCINFO (host)
         shell: bash
         run: |
           set -euo pipefail
           : > aur/.SRCINFO
 
-      - name: Regenerate .SRCINFO (Arch container, match host UID/GID)
+      - name: Update checksums & regenerate .SRCINFO (Arch container)
         uses: addnab/docker-run-action@v3
         with:
           image: archlinux:latest
@@ -148,7 +118,7 @@ jobs:
             -v ${{ github.workspace }}/aur:/pkg
           run: |
             set -euo pipefail
-            pacman -Sy --noconfirm --needed base-devel
+            pacman -Sy --noconfirm --needed base-devel pacman-contrib
 
             # Match the bind-mount owner from the host (GitHub runner)
             HOST_UID="$(stat -c '%u' /pkg)"
@@ -162,7 +132,7 @@ jobs:
             touch /pkg/.SRCINFO
 
             # Generate as the matched non-root user
-            su - hostuser -c 'cd /pkg && makepkg --printsrcinfo > .SRCINFO'
+            su - hostuser -c 'cd /pkg && updpkgsums && makepkg --printsrcinfo > .SRCINFO'
 
       - name: Commit & push to AUR (PKGBUILD + .SRCINFO)
         shell: bash
