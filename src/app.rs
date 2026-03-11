@@ -313,8 +313,12 @@ impl AppState {
                 Task::none()
             }
             | Message::EscapePressed => {
-                // Highest priority: close context menu if open
-                if self.ui().context_menu.is_some() {
+                // Top-level screens own Escape before document-only overlays so
+                // hidden document state cannot trap the user inside settings.
+                if self.ui().active_view == ViewMode::Settings {
+                    settings::handle(self, SettingsMessage::Close)
+                } else if self.ui().context_menu.is_some() {
+                    // Highest priority inside the document view: close context menu if open.
                     self.ui_mut().context_menu = None;
                     Task::none()
                 } else if matches!(self.ui().document_mode, DocumentMode::LinkInput) {
@@ -1163,5 +1167,17 @@ mod tests {
         let _ = state.update(Message::SystemThemeChanged(iced::theme::Mode::Light));
 
         assert!(state.ui().is_dark);
+    }
+
+    #[test]
+    fn escape_closes_settings_view() {
+        let (mut state, _root) = test_state();
+        state.ui_mut().active_view = ViewMode::Settings;
+        state.ui_mut().document_mode = DocumentMode::LinkInput;
+
+        let _ = state.update(Message::EscapePressed);
+
+        assert_eq!(state.ui().active_view, ViewMode::Document);
+        assert_eq!(state.ui().document_mode, DocumentMode::LinkInput);
     }
 }
