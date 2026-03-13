@@ -33,7 +33,7 @@ impl Commands {
             | Commands::Roots(_) => query::execute_roots(store),
             | Commands::Show(cmd) => query::execute_show(store, &cmd),
             | Commands::Find(cmd) => query::execute_find(store, &cmd),
-            | Commands::Point(cmd) => point::execute_point(store, &cmd),
+            | Commands::Point(cmd) => point::execute(store, cmd),
             | Commands::Tree(cmd) => tree::execute(store, cmd),
             | Commands::Nav(cmd) => nav::execute(store, cmd),
             | Commands::Draft(cmd) => draft::execute(store, cmd),

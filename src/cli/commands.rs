@@ -61,7 +61,7 @@ pub use super::friend::FriendCommands;
 pub use super::mount::MountCommands;
 pub use super::nav::NavCommands;
 pub use super::panel::PanelCommands;
-pub use super::point::EditPointCommand;
+pub use super::point::PointCommands;
 pub use super::query::{FindCommand, RootCommand, ShowCommand};
 pub use super::tree::TreeCommands;
 
@@ -115,8 +115,9 @@ pub enum Commands {
     Show(ShowCommand),
     /// Search blocks by point text using mixed-language matching.
     Find(FindCommand),
-    /// Edit the text content of a block.
-    Point(EditPointCommand),
+    /// Edit a block's point content (text and links).
+    #[command(subcommand)]
+    Point(PointCommands),
     /// Structural tree editing operations.
     #[command(subcommand)]
     Tree(TreeCommands),

@@ -103,7 +103,8 @@ All commands support these global flags:
 
 - `--store <PATH>`: Path to the block store file (defaults to app data path)
 - `--verbose`: Enable verbose output (currently reserved)
-- `--output <FORMAT>`: Output format - `table` (default) or `json`
+- `--json`: Output as JSON (default)
+- `--human`: Output as human-readable table
 
 ## Block ID Format
 
@@ -141,8 +142,8 @@ blooming-blockery tree move <SOURCE_ID> <TARGET_ID> --under
 
 ```bash
 blooming-blockery nav lineage <BLOCK_ID>
-blooming-blockery context <BLOCK_ID> --output json
-blooming-blockery friend list <BLOCK_ID> --output json
+blooming-blockery context <BLOCK_ID>
+blooming-blockery --human friend list <BLOCK_ID>
 ```
 
 ### 3) Keep cross-cutting references explicit
@@ -163,19 +164,26 @@ scope is needed for the specific LLM task.
 ```bash
 # List all root block IDs
 blooming-blockery roots
-blooming-blockery roots --output json
 
 # Show block details
 blooming-blockery show <BLOCK_ID>
-blooming-blockery show 1v1 --output json
+blooming-blockery --human show 1v1
 
 # Search blocks by text (case-insensitive substring)
 blooming-blockery find "search query"
 blooming-blockery find "TODO" --limit 10
 
-# Edit the text content of a block
-blooming-blockery point <BLOCK_ID> "New text content"
-blooming-blockery point 1v1 "Updated text"
+# Replace the plain text of a block (links are preserved)
+blooming-blockery point set <BLOCK_ID> "New text content"
+blooming-blockery point set 1v1 "Updated text"
+
+# Append a link to a block's link list
+blooming-blockery point link-add <BLOCK_ID> /path/to/file.png
+blooming-blockery point link-add <BLOCK_ID> /path/to/doc.md --label "Design doc" --perspective "key constraint"
+
+# Remove a link by its zero-based index
+blooming-blockery point link-remove <BLOCK_ID> 0
+blooming-blockery point link-remove 1v1 2
 ```
 
 ### Tree Structure Commands
@@ -358,12 +366,12 @@ When helping users author specs/docs, prefer these decisions:
 
 ## Practical Tips
 
-1. Use `--output json` for scripting and parsing results
+1. JSON is the default output format; use `--human` for readable table output
 2. Block IDs are case-insensitive
 3. Mount format defaults to `json` but supports `markdown`
    - `mount extract --format` overrides path-extension inference
 4. Batch-capable commands support comma-separated IDs:
-   - `show`, `point`
+   - `show`, `point set`, `point link-add`, `point link-remove`
    - `tree add-child|add-sibling|wrap|duplicate|delete|move`
    - `nav next|prev|lineage`
    - `friend add|remove`
