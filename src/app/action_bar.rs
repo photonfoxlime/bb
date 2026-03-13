@@ -634,47 +634,15 @@ fn accept_all_message_for_block(state: &AppState, block_id: &BlockId) -> Option<
 }
 
 fn cancel_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
-    if state.llm_requests.is_amplifying(*block_id) {
-        return Some(Message::Patch(PatchMessage::Cancel {
-            kind: PatchKind::Amplify,
-            block_id: *block_id,
-        }));
-    }
-    if state.llm_requests.is_distilling(*block_id) {
-        return Some(Message::Patch(PatchMessage::Cancel {
-            kind: PatchKind::Distill,
-            block_id: *block_id,
-        }));
-    }
-    if state.llm_requests.is_atomizing(*block_id) {
-        return Some(Message::Patch(PatchMessage::Cancel {
-            kind: PatchKind::Atomize,
-            block_id: *block_id,
-        }));
-    }
-    None
+    PatchKind::all()
+        .find(|kind| kind.is_active_for(&state.llm_requests, *block_id))
+        .map(|kind| Message::Patch(PatchMessage::Cancel { kind, block_id: *block_id }))
 }
 
 fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
-    if state.llm_requests.has_amplify_error(*block_id) {
-        return Some(Message::Patch(PatchMessage::Start {
-            kind: PatchKind::Amplify,
-            block_id: *block_id,
-        }));
-    }
-    if state.llm_requests.has_distill_error(*block_id) {
-        return Some(Message::Patch(PatchMessage::Start {
-            kind: PatchKind::Distill,
-            block_id: *block_id,
-        }));
-    }
-    if state.llm_requests.has_atomize_error(*block_id) {
-        return Some(Message::Patch(PatchMessage::Start {
-            kind: PatchKind::Atomize,
-            block_id: *block_id,
-        }));
-    }
-    None
+    PatchKind::all()
+        .find(|kind| kind.has_error_for(&state.llm_requests, *block_id))
+        .map(|kind| Message::Patch(PatchMessage::Start { kind, block_id: *block_id }))
 }
 
 /// Apply the standard toolbar icon size and line height to a lucide icon.

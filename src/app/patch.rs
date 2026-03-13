@@ -8,7 +8,7 @@
 //! (stale-check, stage draft) → apply/reject and child suggestions.
 
 use super::error::{AppError, UiError};
-use super::llm_requests::RequestSignature;
+use super::llm_requests::{LlmRequests, RequestSignature};
 use super::patch_panel::{
     ChildItem, ChildrenSection, PanelButton, PanelButtonStyle, RewriteSection,
 };
@@ -34,6 +34,31 @@ pub enum PatchKind {
     Atomize,
     /// Distill: replacement + delete-children draft.
     Distill,
+}
+
+impl PatchKind {
+    /// Iterate all three patch kinds in canonical order (Amplify, Distill, Atomize).
+    pub fn all() -> impl Iterator<Item = Self> {
+        [Self::Amplify, Self::Distill, Self::Atomize].into_iter()
+    }
+
+    /// Return true if this kind has an active loading request for `block_id`.
+    pub fn is_active_for(self, requests: &LlmRequests, block_id: BlockId) -> bool {
+        match self {
+            | Self::Amplify => requests.is_amplifying(block_id),
+            | Self::Distill => requests.is_distilling(block_id),
+            | Self::Atomize => requests.is_atomizing(block_id),
+        }
+    }
+
+    /// Return true if this kind has a recorded error for `block_id`.
+    pub fn has_error_for(self, requests: &LlmRequests, block_id: BlockId) -> bool {
+        match self {
+            | Self::Amplify => requests.has_amplify_error(block_id),
+            | Self::Distill => requests.has_distill_error(block_id),
+            | Self::Atomize => requests.has_atomize_error(block_id),
+        }
+    }
 }
 
 /// Unified patch message; carries [`PatchKind`] where branching is required.
