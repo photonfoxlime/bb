@@ -99,7 +99,7 @@ pub fn handle(state: &mut AppState, message: EditMessage) -> Task<Message> {
         | EditMessage::RemoveLink { block_id, index } => {
             state.store.remove_link_from_point(&block_id, index);
             // Collapse any expanded chip for this block whose index is now stale.
-            state.ui_mut().expanded_links.remove(&block_id);
+            state.ui_mut().reference_panel.expanded_links.remove(&block_id);
             state.clear_expanded_markdown_preview(&block_id);
             state.persist_with_context("remove link");
             Task::none()
@@ -560,7 +560,7 @@ fn should_add_first_child_on_enter(
 /// Existing point text is left unchanged; the new child is focused with the
 /// cursor at the start of its empty text.
 fn add_empty_first_child_from_enter(state: &mut AppState, block_id: BlockId) -> Task<Message> {
-    state.ui_mut().hovered_friend_block = None;
+    state.ui_mut().reference_panel.hovered_friend_block = None;
 
     if state.ui().document_mode == DocumentMode::PickFriend {
         return Task::none();
@@ -804,7 +804,7 @@ pub fn handle_point_edited(
     state: &mut AppState, block_id: BlockId, action: text_editor::Action,
 ) -> Task<Message> {
     // Clear friend hover state when editing
-    state.ui_mut().hovered_friend_block = None;
+    state.ui_mut().reference_panel.hovered_friend_block = None;
     let vertical_direction = vertical_direction_for_action(&action);
     if let Some(dir) = vertical_direction {
         tracing::debug!(

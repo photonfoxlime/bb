@@ -81,6 +81,43 @@ pub struct LinkPanelState {
     pub selected_index: usize,
 }
 
+/// Transient UI state owned by friend and link reference surfaces.
+///
+/// The Friends panel and the link-input panel are converging toward a shared
+/// inline reference workflow, so their hover/edit/search/preview state lives in
+/// one subtree instead of being scattered across [`TransientUiState`].
+///
+/// Note: these fields must remain transient. They provide interaction affordances
+/// only and have no durable document meaning.
+#[derive(Debug, Clone, Default)]
+pub struct ReferencePanelUiState {
+    /// The friend block currently being hovered in the Friends panel.
+    ///
+    /// When `Some`, the corresponding block in the document tree is highlighted
+    /// to help users identify the friend's location. The highlight is cleared
+    /// when hover exits or the friend panel is closed.
+    ///
+    /// # Visibility Constraint
+    ///
+    /// The highlight is only applied if the friend block is currently visible
+    /// in the document tree (not collapsed and within the current navigation layer).
+    /// If the friend is hidden, no visual feedback is shown to avoid confusing
+    /// the user with a highlight that points to nothing visible.
+    pub hovered_friend_block: Option<BlockId>,
+    /// `(target_block_id, friend_block_id)` currently being edited inline.
+    pub editing_friend_perspective: Option<(BlockId, BlockId)>,
+    /// Current text input value for friend perspective inline editing.
+    pub editing_friend_perspective_input: Option<String>,
+    /// State for the link-input panel (filesystem search).
+    pub link_panel: LinkPanelState,
+    /// Per-block expanded link chip index (showing inline preview).
+    ///
+    /// Maps a block id to the index of its currently expanded link chip.
+    /// At most one chip per block can be expanded at a time.
+    /// Transient: not persisted, reset on restart.
+    pub expanded_links: BTreeMap<BlockId, usize>,
+}
+
 /// Which top-level screen is active.
 ///
 /// The document view is the default; settings is reached via a gear icon button
@@ -189,19 +226,6 @@ pub struct TransientUiState {
     /// system appearance. Runtime system theme-change events only apply while
     /// no persisted override exists.
     pub is_dark: bool,
-    /// The friend block currently being hovered in the Friends Panel.
-    ///
-    /// When `Some`, the corresponding block in the document tree is highlighted
-    /// to help users identify the friend's location. The highlight is cleared
-    /// when hover exits or the friend panel is closed.
-    ///
-    /// # Visibility Constraint
-    ///
-    /// The highlight is only applied if the friend block is currently visible
-    /// in the document tree (not collapsed and within the current navigation layer).
-    /// If the friend is hidden, no visual feedback is shown to avoid confusing
-    /// the user with a highlight that points to nothing visible.
-    pub hovered_friend_block: Option<BlockId>,
     /// Mount block id waiting for inline-all confirmation.
     ///
     /// The first click on "Inline all" arms this confirmation state for one
@@ -213,20 +237,10 @@ pub struct TransientUiState {
     /// This drives the mount-header overflow UI (move/inline/inline-all).
     /// Only one mount overflow is open at a time.
     pub mount_action_overflow_block: Option<BlockId>,
-    /// (target_block_id, friend_block_id) currently being edited inline.
-    pub editing_friend_perspective: Option<(BlockId, BlockId)>,
-    /// Current text input value for friend perspective inline editing.
-    pub editing_friend_perspective_input: Option<String>,
     /// Context menu state: (block_id, position) when visible.
     pub context_menu: Option<(BlockId, iced::Point)>,
     /// Last known cursor position for context menu placement.
     pub cursor_position: Option<iced::Point>,
-    /// State for the link-input panel (filesystem search).
-    pub link_panel: LinkPanelState,
-    /// Per-block expanded link chip index (showing inline preview).
-    ///
-    /// Maps a block id to the index of its currently expanded link chip.
-    /// At most one chip per block can be expanded at a time.
-    /// Transient: not persisted, reset on restart.
-    pub expanded_links: BTreeMap<BlockId, usize>,
+    /// Transient state for friend and link reference panels.
+    pub reference_panel: ReferencePanelUiState,
 }

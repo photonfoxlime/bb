@@ -164,8 +164,9 @@ pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
                 return Task::none();
             }
 
-            let friend_escape_active = state.ui().editing_friend_perspective.is_some()
-                || state.ui().document_mode == DocumentMode::PickFriend;
+            let friend_escape_active =
+                state.ui().reference_panel.editing_friend_perspective.is_some()
+                    || state.ui().document_mode == DocumentMode::PickFriend;
             if friend_escape_active {
                 return AppState::update(
                     state,

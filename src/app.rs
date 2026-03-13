@@ -207,7 +207,8 @@ pub struct AppState {
     /// it stays open.
     ///
     /// Note: the cache key is only `BlockId` because at most one link chip can
-    /// be expanded per block (`TransientUiState::expanded_links` invariant).
+    /// be expanded per block (`TransientUiState::reference_panel.expanded_links`
+    /// invariant).
     expanded_markdown_previews: BTreeMap<BlockId, Vec<markdown::Item>>,
     /// Edit session: block currently coalescing point edits into a single undo entry.
     edit_session: Option<BlockId>,
@@ -286,11 +287,11 @@ impl AppState {
             | Message::ContextMenu(message) => context_menu::handle(self, message),
             | Message::LinkMode(message) => link_panel::handle(self, message),
             | Message::LinkChipToggle(block_id, index) => {
-                if self.ui().expanded_links.get(&block_id) == Some(&index) {
-                    self.ui_mut().expanded_links.remove(&block_id);
+                if self.ui().reference_panel.expanded_links.get(&block_id) == Some(&index) {
+                    self.ui_mut().reference_panel.expanded_links.remove(&block_id);
                     self.clear_expanded_markdown_preview(&block_id);
                 } else {
-                    self.ui_mut().expanded_links.insert(block_id.clone(), index);
+                    self.ui_mut().reference_panel.expanded_links.insert(block_id, index);
                     self.refresh_expanded_markdown_preview(&block_id, index);
                 }
                 Task::none()
@@ -340,7 +341,7 @@ impl AppState {
             }
             | Message::DocumentMode(mode) => {
                 // Clear friend hover state when changing document modes
-                self.ui_mut().hovered_friend_block = None;
+                self.ui_mut().reference_panel.hovered_friend_block = None;
 
                 match mode {
                     | DocumentMode::Multiselect => {
@@ -740,6 +741,7 @@ impl AppState {
 
         let Some(source_markdown_path) = self
             .ui()
+            .reference_panel
             .expanded_links
             .get(block_id)
             .and_then(|index| {
@@ -933,7 +935,7 @@ impl AppState {
 
         self.store.set_block_panel_state(&block_id, None);
         if panel_state == BlockPanelBarState::Friends {
-            self.ui_mut().hovered_friend_block = None;
+            self.ui_mut().reference_panel.hovered_friend_block = None;
         }
         self.persist_with_context("after closing focused block panel");
         tracing::info!(block_id = ?block_id, panel = ?panel_state, "closed focused panel");

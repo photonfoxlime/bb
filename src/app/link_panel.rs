@@ -70,7 +70,7 @@ pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
         | LinkModeMessage::Enter(block_id) => {
             let filesystem = LinkFilesystem::new();
             state.ui_mut().document_mode = DocumentMode::LinkInput;
-            state.ui_mut().link_panel = crate::app::LinkPanelState {
+            state.ui_mut().reference_panel.link_panel = crate::app::LinkPanelState {
                 block_id: Some(block_id),
                 query: String::new(),
                 candidates: filesystem.list_home_entries(),
@@ -84,7 +84,7 @@ pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
             // panel query exits link mode and appends a literal `@` to the
             // block's point editor without re-triggering link mode.
             if query == "@" {
-                if let Some(block_id) = state.ui().link_panel.block_id {
+                if let Some(block_id) = state.ui().reference_panel.link_panel.block_id {
                     let mut point_text = state.store.point(&block_id).unwrap_or_default();
                     point_text.push('@');
                     state.store.update_point(&block_id, point_text.clone());
@@ -99,20 +99,20 @@ pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
 
             let filesystem = LinkFilesystem::new();
             let candidates = filesystem.search(&query);
-            state.ui_mut().link_panel.selected_index = 0;
-            state.ui_mut().link_panel.candidates = candidates;
-            state.ui_mut().link_panel.query = query;
+            state.ui_mut().reference_panel.link_panel.selected_index = 0;
+            state.ui_mut().reference_panel.link_panel.candidates = candidates;
+            state.ui_mut().reference_panel.link_panel.query = query;
             Task::none()
         }
         | LinkModeMessage::SelectPrevious => {
-            let panel = &mut state.ui_mut().link_panel;
+            let panel = &mut state.ui_mut().reference_panel.link_panel;
             if panel.selected_index > 0 {
                 panel.selected_index -= 1;
             }
             Task::none()
         }
         | LinkModeMessage::SelectNext => {
-            let panel = &mut state.ui_mut().link_panel;
+            let panel = &mut state.ui_mut().reference_panel.link_panel;
             if !panel.candidates.is_empty() {
                 panel.selected_index = (panel.selected_index + 1).min(panel.candidates.len() - 1);
             }
@@ -130,7 +130,7 @@ pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
 /// Reset link panel state and return to normal document mode.
 fn exit_link_mode(state: &mut AppState) {
     state.ui_mut().document_mode = DocumentMode::Normal;
-    state.ui_mut().link_panel = crate::app::LinkPanelState::default();
+    state.ui_mut().reference_panel.link_panel = crate::app::LinkPanelState::default();
 }
 
 /// Restore focus to a point editor and place the caret at the end.
@@ -181,7 +181,7 @@ fn refocus_point_editor_at_end(
 /// added as links.
 fn confirm_selection(state: &mut AppState, requested_index: Option<usize>) -> Task<Message> {
     let (block_id, query, candidates, selected_index) = {
-        let panel = &state.ui().link_panel;
+        let panel = &state.ui().reference_panel.link_panel;
         (panel.block_id, panel.query.clone(), panel.candidates.clone(), panel.selected_index)
     };
 
@@ -236,7 +236,7 @@ fn open_directory(
 ) -> Task<Message> {
     let query = filesystem.directory_query(directory);
     let candidates = filesystem.search(&query);
-    let panel = &mut state.ui_mut().link_panel;
+    let panel = &mut state.ui_mut().reference_panel.link_panel;
     panel.query = query;
     panel.candidates = candidates;
     panel.selected_index = 0;
@@ -262,7 +262,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
         return floating_panel::invisible_spacer();
     }
 
-    let panel = &state.ui().link_panel;
+    let panel = &state.ui().reference_panel.link_panel;
     let filesystem = LinkFilesystem::new();
     let viewport_width = state.ui().window_size.width;
     let viewport_height = state.ui().window_size.height;

@@ -26,7 +26,7 @@ pub enum OverlayMessage {
 /// Process one overlay message and return a follow-up task (if any).
 pub fn handle(state: &mut AppState, message: OverlayMessage) -> Task<Message> {
     // Clear friend hover state when interacting with overlays
-    state.ui_mut().hovered_friend_block = None;
+    state.ui_mut().reference_panel.hovered_friend_block = None;
 
     match message {
         | OverlayMessage::ToggleOverflow(block_id) => {
