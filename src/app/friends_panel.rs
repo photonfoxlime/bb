@@ -29,15 +29,14 @@
 //! - Empty state with placeholder makes the affordance discoverable without cluttering the UI.
 
 use crate::app::{AppState, DocumentMode, Message, StructureMessage};
-use crate::component::{icon_button::IconButton, text_button::TextButton};
-use crate::store::{BlockId, BlockPanelBarState};
-use crate::text::truncate_for_display;
-use crate::theme;
-use iced::widget::{
-    Id, button, column, container, operation::focus, row, text, text_input, tooltip,
+use crate::component::{
+    friend_row::{FriendRow, friend_perspective_input_id},
+    text_button::TextButton,
 };
+use crate::store::{BlockId, BlockPanelBarState};
+use crate::theme;
+use iced::widget::{column, container, operation::focus, row, text};
 use iced::{Element, Length, Padding, Task};
-use lucide_icons::iced as icons;
 
 /// Message types for friends panel interactions.
 #[derive(Debug, Clone)]
@@ -111,8 +110,7 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             state.ui_mut().editing_friend_perspective = Some((target, friend_id));
             state.ui_mut().editing_friend_perspective_input = Some(current_perspective);
             // Focus the text input
-            let input_id = Id::new("friend-perspective-input");
-            focus(input_id)
+            focus(friend_perspective_input_id())
         }
         | FriendPanelMessage::CancelEditingFriendPerspective => {
             // Clear editing state regardless of what's being edited
@@ -265,206 +263,58 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
 
         let is_editing_this = state.ui().editing_friend_perspective == Some((target, friend_id));
         let placeholder = rust_i18n::t!("doc_friend_perspective_placeholder").to_string();
+        let relation_label = rust_i18n::t!("doc_friend_as").to_string();
+        let parent_toggle_tooltip = rust_i18n::t!("doc_friend_telescope_parent").to_string();
+        let children_toggle_tooltip = rust_i18n::t!("doc_friend_telescope_children").to_string();
+        let remove_label = rust_i18n::t!("ui_remove").to_string();
+        let current_input = state.ui().editing_friend_perspective_input.clone().unwrap_or_default();
 
-        // Layout: "[start of point text] as [perspective]"
-        let truncated_point = truncate_for_display(&point_text, theme::FRIEND_POINT_TRUNCATE);
-
-        let content: Element<'a, Message> = if is_editing_this {
-            // Inline editing for perspective with accept/cancel buttons
-            let current_input =
-                state.ui().editing_friend_perspective_input.as_deref().unwrap_or("");
-            // Create a unique ID for this text input
-            let input_id = Id::new("friend-perspective-input");
-            let input_field = text_input(&placeholder, current_input)
-                .id(input_id)
-                .font(theme::INTER)
-                .size(theme::FRIEND_PERSPECTIVE_SIZE)
-                .padding(Padding::ZERO)
-                .width(Length::Fill)
-                .on_input(|s| {
-                    Message::FriendPanel(FriendPanelMessage::UpdateFriendPerspectiveInput(s))
-                })
-                .on_submit(Message::Structure(StructureMessage::SetFriendPerspective {
+        panel = panel.push(
+            FriendRow {
+                point_text,
+                perspective_label: perspective_label.to_string(),
+                is_editing: is_editing_this,
+                current_input,
+                parent_lineage_telescope: friend.parent_lineage_telescope,
+                children_telescope: friend.children_telescope,
+                perspective_placeholder: placeholder,
+                relation_label,
+                parent_toggle_tooltip,
+                children_toggle_tooltip,
+                remove_label,
+                on_press_point: Message::FriendPanel(FriendPanelMessage::HoverFriend(friend_id)),
+                on_start_editing: Message::FriendPanel(
+                    FriendPanelMessage::StartEditingFriendPerspective { target, friend_id },
+                ),
+                on_clear_perspective: Message::FriendPanel(
+                    FriendPanelMessage::ClearFriendPerspective { target, friend_id },
+                ),
+                on_accept_perspective: Message::FriendPanel(
+                    FriendPanelMessage::AcceptFriendPerspective { target, friend_id },
+                ),
+                on_submit_input: Message::Structure(StructureMessage::SetFriendPerspective {
                     target,
                     friend_id,
                     perspective: Some(
                         state.ui().editing_friend_perspective_input.clone().unwrap_or_default(),
                     ),
-                }));
-
-            let accept_btn = IconButton::action_with_size(
-                icons::icon_check().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE).into(),
-                theme::FRIEND_PERSPECTIVE_HEIGHT,
-                theme::FRIEND_PERSPECTIVE_BUTTON_PAD,
-            )
-            .on_press(Message::FriendPanel(
-                FriendPanelMessage::AcceptFriendPerspective { target, friend_id },
-            ));
-
-            let cancel_btn = IconButton::destructive_with_size(
-                icons::icon_x().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE).into(),
-                theme::FRIEND_PERSPECTIVE_HEIGHT,
-                theme::FRIEND_PERSPECTIVE_BUTTON_PAD,
-            )
-            .on_press(Message::FriendPanel(
-                FriendPanelMessage::ClearFriendPerspective { target, friend_id },
-            ));
-
-            row![]
-                .spacing(theme::INLINE_GAP)
-                .push(input_field)
-                .push(accept_btn)
-                .push(cancel_btn)
-                .into()
-        } else if perspective_label.is_empty() {
-            button(
-                text(rust_i18n::t!("doc_friend_perspective_placeholder").to_string())
-                    .font(theme::INTER)
-                    .size(theme::FRIEND_PERSPECTIVE_SIZE)
-                    .style(theme::spine_text),
-            )
-            .style(theme::action_button)
-            .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-            .width(Length::Fill)
-            .padding(Padding::ZERO)
-            .on_press(Message::FriendPanel(FriendPanelMessage::StartEditingFriendPerspective {
-                target,
-                friend_id,
-            }))
-            .into()
-        } else {
-            row![]
-                .spacing(theme::FRIEND_ROW_GAP)
-                .push(
-                    button(
-                        text(perspective_label)
-                            .font(theme::INTER)
-                            .size(theme::FRIEND_PERSPECTIVE_SIZE)
-                            .style(theme::spine_text),
-                    )
-                    .style(theme::action_button)
-                    .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-                    .width(Length::Fill)
-                    .padding(Padding::ZERO)
-                    .on_press(Message::FriendPanel(
-                        FriendPanelMessage::StartEditingFriendPerspective { target, friend_id },
-                    )),
-                )
-                .push(
-                    IconButton::destructive_with_size(
-                        icons::icon_x().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE).into(),
-                        theme::FRIEND_PERSPECTIVE_HEIGHT,
-                        theme::FRIEND_PERSPECTIVE_BUTTON_PAD,
-                    )
-                    .on_press(Message::FriendPanel(
-                        FriendPanelMessage::ClearFriendPerspective { target, friend_id },
-                    )),
-                )
-                .into()
-        };
-
-        let point_text_element: Element<'a, Message> = {
-            // Use button with hover style to indicate interactivity
-            // Click to highlight the friend block in the document tree
-            button(text(truncated_point).font(theme::INTER).size(theme::FRIEND_POINT_SIZE))
-                .style(move |theme, status| {
-                    let p = theme::focused_palette(theme);
-                    button::Style {
-                        background: if matches!(status, button::Status::Hovered) {
-                            Some(p.tint.into())
-                        } else {
-                            None
-                        },
-                        text_color: p.ink,
-                        border: iced::Border::default(),
-                        shadow: Default::default(),
-                        snap: false,
-                    }
-                })
-                .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-                .padding(Padding::ZERO)
-                .on_press(Message::FriendPanel(FriendPanelMessage::HoverFriend(friend_id)))
-                .into()
-        };
-
-        let line = row![]
-            .spacing(theme::PANEL_BUTTON_GAP)
-            .align_y(iced::alignment::Vertical::Top)
-            .push(
-                row![]
-                    .spacing(theme::FRIEND_ROW_GAP)
-                    .align_y(iced::alignment::Vertical::Top)
-                    .push(point_text_element)
-                    .push(iced::widget::Space::new().width(Length::Fixed(theme::FRIEND_AS_GAP)))
-                    .push(
-                        text(rust_i18n::t!("doc_friend_as").to_string())
-                            .style(theme::spine_text)
-                            .font(theme::INTER)
-                            .size(theme::FRIEND_POINT_SIZE),
-                    )
-                    .push(iced::widget::Space::new().width(Length::Fixed(theme::FRIEND_AS_GAP)))
-                    .push(container(content))
-                    .width(Length::Fill),
-            )
-            // Visibility toggles: lineage and children
-            .push(
-                row![]
-                    .spacing(theme::FRIEND_TOGGLE_GAP)
-                    .padding(Padding::ZERO.left(theme::TOOLTIP_PAD))
-                    .align_y(iced::alignment::Vertical::Center)
-                    .push(
-                        tooltip(
-                            IconButton::toggle_with_size(
-                                icons::icon_corner_up_left()
-                                    .size(theme::FRIEND_TOGGLE_ICON_SIZE)
-                                    .into(),
-                                friend.parent_lineage_telescope,
-                                theme::FRIEND_TOGGLE_SIZE,
-                                0.0,
-                            )
-                            .on_press(Message::FriendPanel(
-                                FriendPanelMessage::ToggleParentLineageTelescope { target, friend_id },
-                            )),
-                            text(rust_i18n::t!("doc_friend_telescope_parent").to_string())
-                                .size(theme::SMALL_TEXT_SIZE)
-                                .font(theme::INTER),
-                            tooltip::Position::Bottom,
-                        )
-                        .style(theme::tooltip)
-                        .padding(theme::TOOLTIP_PAD)
-                        .gap(theme::TOOLTIP_GAP),
-                    )
-                    .push(
-                        tooltip(
-                            IconButton::toggle_with_size(
-                                icons::icon_corner_down_right()
-                                    .size(theme::FRIEND_TOGGLE_ICON_SIZE)
-                                    .into(),
-                                friend.children_telescope,
-                                theme::FRIEND_TOGGLE_SIZE,
-                                0.0,
-                            )
-                            .on_press(Message::FriendPanel(
-                                FriendPanelMessage::ToggleChildrenTelescope { target, friend_id },
-                            )),
-                            text(rust_i18n::t!("doc_friend_telescope_children").to_string())
-                                .size(theme::SMALL_TEXT_SIZE)
-                                .font(theme::INTER),
-                            tooltip::Position::Bottom,
-                        )
-                        .style(theme::tooltip)
-                        .padding(theme::TOOLTIP_PAD)
-                        .gap(theme::TOOLTIP_GAP),
-                    ).push(
-                        TextButton::destructive(rust_i18n::t!("ui_remove").to_string(), theme::FRIEND_POINT_SIZE)
-                        .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-                        .padding(Padding::ZERO)
-                        .on_press(Message::Structure(
-                            StructureMessage::RemoveFriendBlock { target, friend_id },
-                        )),
-                    ),
-            );
-        panel = panel.push(line);
+                }),
+                on_toggle_parent_lineage: Message::FriendPanel(
+                    FriendPanelMessage::ToggleParentLineageTelescope { target, friend_id },
+                ),
+                on_toggle_children: Message::FriendPanel(
+                    FriendPanelMessage::ToggleChildrenTelescope { target, friend_id },
+                ),
+                on_remove_friend: Message::Structure(StructureMessage::RemoveFriendBlock {
+                    target,
+                    friend_id,
+                }),
+                on_update_input: |s| {
+                    Message::FriendPanel(FriendPanelMessage::UpdateFriendPerspectiveInput(s))
+                },
+            }
+            .view(),
+        );
     }
 
     container(panel)
