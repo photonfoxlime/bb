@@ -34,13 +34,14 @@
 use crate::app::{AppState, DocumentMode, EditMessage, LinkModeMessage, Message, StructureMessage};
 use crate::component::{
     friend_row::{FriendRow, friend_perspective_input_id},
-    point_link_list::PointLinkList,
+    reference_list_row::ReferenceListRow,
     text_button::TextButton,
 };
-use crate::store::{BlockId, BlockPanelBarState};
+use crate::store::{BlockId, BlockPanelBarState, LinkKind, PointLink};
 use crate::theme;
-use iced::widget::{column, container, operation::focus, row, text};
+use iced::widget::{column, container, markdown, operation::focus, row, text};
 use iced::{Element, Length, Padding, Task};
+use lucide_icons::iced as icons;
 
 /// Message types for reference panel interactions.
 #[derive(Debug, Clone)]
@@ -276,24 +277,15 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
     let mut panel =
         column![].spacing(theme::PANEL_INNER_GAP).push(container(link_header).width(Length::Fill));
 
-    if !links.is_empty() {
-        panel = panel.push(
-            PointLinkList {
-                block_id: target_block_id,
-                links,
-                expanded_link_index,
-                expanded_markdown_preview,
-                is_dark_mode: state.is_dark_mode(),
-                on_link_chip_toggle: |block_id, index| Message::LinkChipToggle(block_id, index),
-                on_remove_link: |block_id, index| {
-                    Message::Edit(EditMessage::RemoveLink { block_id, index })
-                },
-                on_markdown_preview_link: |block_id, uri| {
-                    Message::MarkdownPreviewLinkClicked(block_id, uri)
-                },
-            }
-            .view(),
-        );
+    for (index, link) in links.iter().enumerate() {
+        panel = panel.push(view_link_row(
+            target_block_id,
+            index,
+            link,
+            expanded_link_index,
+            expanded_markdown_preview,
+            state.is_dark_mode(),
+        ));
     }
 
     panel = panel.push(container(friend_header).width(Length::Fill));
@@ -373,4 +365,99 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
         .padding(iced::Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
         .style(theme::draft_panel)
         .into()
+}
+
+/// Render one point-link row using the same shell as friend rows.
+fn view_link_row<'a>(
+    target_block_id: BlockId, index: usize, link: &'a PointLink,
+    expanded_link_index: Option<usize>, expanded_markdown_preview: Option<&'a [markdown::Item]>,
+    is_dark_mode: bool,
+) -> Element<'a, Message> {
+    let primary = ReferenceListRow::summary_button(
+        row![]
+            .spacing(theme::FRIEND_ROW_GAP)
+            .align_y(iced::alignment::Vertical::Center)
+            .push(link_kind_icon(link.kind))
+            .push(
+                text(link.display_text().to_owned())
+                    .font(theme::INTER)
+                    .size(theme::FRIEND_POINT_SIZE),
+            ),
+        Message::LinkChipToggle(target_block_id, index),
+    );
+
+    let detail = container(
+        text(link_kind_label(link.kind))
+            .style(theme::spine_text)
+            .font(theme::INTER)
+            .size(theme::FRIEND_PERSPECTIVE_SIZE),
+    )
+    .width(Length::Fill)
+    .into();
+
+    let controls =
+        TextButton::destructive(rust_i18n::t!("ui_remove").to_string(), theme::FRIEND_POINT_SIZE)
+            .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+            .padding(Padding::ZERO)
+            .on_press(Message::Edit(EditMessage::RemoveLink { block_id: target_block_id, index }))
+            .into();
+
+    let row = ReferenceListRow { primary, relation_label: None, detail, controls }.view();
+
+    if expanded_link_index == Some(index) {
+        return column![
+            row,
+            view_link_preview(target_block_id, link, expanded_markdown_preview, is_dark_mode)
+        ]
+        .spacing(theme::INLINE_GAP)
+        .into();
+    }
+
+    row
+}
+
+/// Render the expanded inline preview for a link row.
+fn view_link_preview<'a>(
+    target_block_id: BlockId, link: &'a PointLink,
+    expanded_markdown_preview: Option<&'a [markdown::Item]>, is_dark_mode: bool,
+) -> Element<'a, Message> {
+    match link.kind {
+        | LinkKind::Image => {
+            iced::widget::image(iced::widget::image::Handle::from_path(&link.href))
+                .width(Length::Fill)
+                .into()
+        }
+        | LinkKind::Markdown => {
+            if let Some(markdown_preview) = expanded_markdown_preview {
+                let markdown_widget: Element<'a, Message> = markdown::view(
+                    markdown_preview,
+                    theme::markdown_preview_settings(is_dark_mode),
+                )
+                .map(move |uri| Message::MarkdownPreviewLinkClicked(target_block_id, uri))
+                .into();
+                container(markdown_widget).padding(theme::LINK_CHIP_PAD).width(Length::Fill).into()
+            } else {
+                iced::widget::Space::new().height(Length::Shrink).into()
+            }
+        }
+        | LinkKind::Path => iced::widget::Space::new().height(Length::Shrink).into(),
+    }
+}
+
+/// Render the icon corresponding to a link kind.
+fn link_kind_icon(kind: LinkKind) -> Element<'static, Message> {
+    match kind {
+        | LinkKind::Image => icons::icon_image().size(theme::LINK_CHIP_ICON_SIZE).into(),
+        | LinkKind::Markdown => icons::icon_file_text().size(theme::LINK_CHIP_ICON_SIZE).into(),
+        | LinkKind::Path => icons::icon_link().size(theme::LINK_CHIP_ICON_SIZE).into(),
+    }
+}
+
+/// Return the localized display label for a point-link kind.
+fn link_kind_label(kind: LinkKind) -> String {
+    match kind {
+        | LinkKind::Image => rust_i18n::t!("link_kind_image").to_string(),
+        | LinkKind::Markdown => rust_i18n::t!("link_kind_markdown").to_string(),
+        | LinkKind::Path => rust_i18n::t!("link_kind_path").to_string(),
+    }
 }

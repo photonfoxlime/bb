@@ -6,6 +6,7 @@
 //! message/state routing, which is the seam needed for future merged
 //! friend-plus-link panel work.
 
+use crate::component::reference_list_row::ReferenceListRow;
 use crate::component::{icon_button::IconButton, text_button::TextButton};
 use crate::text::truncate_for_display;
 use crate::theme;
@@ -120,51 +121,22 @@ impl<Message: Clone + 'static> FriendRow<Message> {
             on_remove_friend,
         );
 
-        row![]
-            .spacing(theme::PANEL_BUTTON_GAP)
-            .align_y(iced::alignment::Vertical::Top)
-            .push(
-                row![]
-                    .spacing(theme::FRIEND_ROW_GAP)
-                    .align_y(iced::alignment::Vertical::Top)
-                    .push(point_text_element)
-                    .push(iced::widget::Space::new().width(Length::Fixed(theme::FRIEND_AS_GAP)))
-                    .push(
-                        text(relation_label)
-                            .style(theme::spine_text)
-                            .font(theme::INTER)
-                            .size(theme::FRIEND_POINT_SIZE),
-                    )
-                    .push(iced::widget::Space::new().width(Length::Fixed(theme::FRIEND_AS_GAP)))
-                    .push(relation_content)
-                    .width(Length::Fill),
-            )
-            .push(controls)
-            .into()
+        ReferenceListRow {
+            primary: point_text_element,
+            relation_label: Some(relation_label),
+            detail: relation_content,
+            controls,
+        }
+        .view()
     }
 
     /// Render the clickable summary of the referenced friend block.
     fn view_point_button(point_text: &str, on_press: Message) -> Element<'static, Message> {
         let truncated_point = truncate_for_display(point_text, theme::FRIEND_POINT_TRUNCATE);
-        button(text(truncated_point).font(theme::INTER).size(theme::FRIEND_POINT_SIZE))
-            .style(move |theme, status| {
-                let palette = theme::focused_palette(theme);
-                button::Style {
-                    background: if matches!(status, button::Status::Hovered) {
-                        Some(palette.tint.into())
-                    } else {
-                        None
-                    },
-                    text_color: palette.ink,
-                    border: iced::Border::default(),
-                    shadow: Default::default(),
-                    snap: false,
-                }
-            })
-            .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-            .padding(Padding::ZERO)
-            .on_press(on_press)
-            .into()
+        ReferenceListRow::summary_button(
+            text(truncated_point).font(theme::INTER).size(theme::FRIEND_POINT_SIZE),
+            on_press,
+        )
     }
 
     /// Render the perspective area in either read or edit mode.
