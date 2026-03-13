@@ -79,10 +79,9 @@ use super::{
         ViewportBucket, action_i18n_key, action_icon, action_to_message, build_action_bar_vm,
         project_for_viewport, status_error_i18n_key,
     },
-    archive_panel, find_panel,
-    friends_panel::{self, FriendPanelMessage},
-    instruction_panel::{self, InstructionPanelMessage},
-    link_panel, point_editor,
+    archive_panel,
+    block_panel_host::BlockPanelHost,
+    find_panel, link_panel, point_editor,
 };
 use crate::{
     component::breadcrumbs::{BreadcrumbLayer, Breadcrumbs},
@@ -90,8 +89,7 @@ use crate::{
     component::error_banner_view::{ErrorBannerContent, ErrorBannerEntry, ErrorBannerView},
     component::icon_button::IconButton,
     component::status_chip::StatusChip,
-    component::text_button::TextButton,
-    store::{BlockId, BlockPanelBarState},
+    store::BlockId,
     text::truncate_for_display,
     theme,
 };
@@ -570,7 +568,8 @@ impl<'a> TreeView<'a> {
             .push(container(point_editor).id(point_editor_container_id(*block_id)));
 
         // Panel bar (left) and action bar (right) in one row
-        let panel_bar = self.render_panel_bar_only(block_id, is_focused);
+        let panel_host = BlockPanelHost::new(self.state, *block_id, is_focused);
+        let panel_bar = panel_host.bar();
         let bar_row = row![]
             .spacing(theme::ROW_GAP)
             .width(Fill)
@@ -578,7 +577,7 @@ impl<'a> TreeView<'a> {
             .push(action_buttons);
 
         // Panel row (shown only when a panel is open)
-        let panel_row = self.render_panel_row(block_id, is_focused);
+        let panel_row = panel_host.body();
 
         let head_row: Element<'a, Message> = if let Some(mount_path) = mount_display_path {
             column![
@@ -785,133 +784,6 @@ impl<'a> TreeView<'a> {
             | None => return Element::from(iced::widget::Space::new()),
         };
         StatusChip::view(label)
-    }
-
-    /// Renders the panel bar containing toggle buttons for overlay panels.
-    ///
-    /// This component lives in the bar row and provides toggles for panels
-    /// that appear in the panel row below.
-    ///
-    /// The toggle buttons reflect panel-open state independently:
-    /// - `Friends` is highlighted only when [`BlockPanelBarState::Friends`] is open.
-    /// - `Instruction` is highlighted only when [`BlockPanelBarState::Instruction`] is open.
-    fn render_panel_bar_only(&self, block_id: &BlockId, is_focused: bool) -> Element<'a, Message> {
-        if !is_focused {
-            return column![].into();
-        }
-
-        let friends_panel_open = matches!(
-            self.state.store.block_panel_state(block_id),
-            Some(BlockPanelBarState::Friends)
-        );
-        let instruction_panel_open = matches!(
-            self.state.store.block_panel_state(block_id),
-            Some(BlockPanelBarState::Instruction)
-        );
-
-        let button_row = row![]
-            .spacing(theme::PANEL_BUTTON_GAP)
-            .push(
-                TextButton::panel_toggle(
-                    t!("ui_friends").to_string(),
-                    theme::LABEL_TEXT_SIZE,
-                    friends_panel_open,
-                )
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::FriendPanel(FriendPanelMessage::Toggle(*block_id))),
-            )
-            .push(
-                TextButton::panel_toggle(
-                    t!("ui_instruction").to_string(),
-                    theme::LABEL_TEXT_SIZE,
-                    instruction_panel_open,
-                )
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(*block_id, InstructionPanelMessage::Toggle)),
-            );
-
-        container(button_row).padding(Padding::ZERO.right(theme::INDENT)).into()
-    }
-
-    /// Renders the overlay panel row containing the active panel content.
-    ///
-    /// This component lives in the panel row below the bar row.
-    /// Only renders content when a panel is open.
-    fn render_panel_row(&self, block_id: &BlockId, is_focused: bool) -> Element<'a, Message> {
-        if !is_focused {
-            return column![].into();
-        }
-
-        match self.state.store.block_panel_state(block_id) {
-            | Some(BlockPanelBarState::Friends) => {
-                container(friends_panel::view(self.state)).width(Length::Fill).into()
-            }
-            | Some(BlockPanelBarState::Instruction) => {
-                container(instruction_panel::view(self.state)).width(Length::Fill).into()
-            }
-            | None => column![].into(),
-        }
-    }
-
-    #[allow(dead_code)]
-    /// Renders the overlay panel bar containing toggle buttons for overlay panels.
-    ///
-    /// This component lives below each block's editor and provides toggles for panels
-    /// that can be shown inline (as opposed to draft panels which appear below).
-    ///
-    /// The toggle buttons reflect panel-open state independently:
-    /// - `Friends` is highlighted only when [`BlockPanelBarState::Friends`] is open.
-    /// - `Instruction` is highlighted only when [`BlockPanelBarState::Instruction`] is open.
-    fn render_overlay_panel_bar(
-        &self, block_id: &BlockId, is_focused: bool,
-    ) -> Element<'a, Message> {
-        if !is_focused {
-            return column![].into();
-        }
-
-        let friends_panel_open = matches!(
-            self.state.store.block_panel_state(block_id),
-            Some(BlockPanelBarState::Friends)
-        );
-        let instruction_panel_open = matches!(
-            self.state.store.block_panel_state(block_id),
-            Some(BlockPanelBarState::Instruction)
-        );
-
-        let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
-        button_row = button_row.push(
-            TextButton::panel_toggle(
-                t!("ui_friends").to_string(),
-                theme::LABEL_TEXT_SIZE,
-                friends_panel_open,
-            )
-            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::FriendPanel(FriendPanelMessage::Toggle(*block_id))),
-        );
-        button_row = button_row.push(
-            TextButton::panel_toggle(
-                t!("ui_instruction").to_string(),
-                theme::LABEL_TEXT_SIZE,
-                instruction_panel_open,
-            )
-            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(*block_id, InstructionPanelMessage::Toggle)),
-        );
-
-        let mut col =
-            column![].push(container(button_row).padding(Padding::ZERO.right(theme::INDENT)));
-
-        match self.state.store.block_panel_state(block_id) {
-            | Some(BlockPanelBarState::Friends) => {
-                col = col.push(container(friends_panel::view(self.state)).width(Length::Fill));
-            }
-            | Some(BlockPanelBarState::Instruction) => {
-                col = col.push(container(instruction_panel::view(self.state)).width(Length::Fill));
-            }
-            | None => {}
-        }
-
-        col.into()
     }
 
     fn render_action_buttons(&self, block_id: &BlockId, vm: &ActionBarVm) -> Element<'a, Message> {
