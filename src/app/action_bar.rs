@@ -584,7 +584,7 @@ pub fn action_to_message_by_id(
         | ActionId::AddLink => Some(Message::LinkMode(LinkModeMessage::Enter(*block_id))),
         | ActionId::AddChild => Some(Message::Structure(StructureMessage::AddChild(*block_id))),
         | ActionId::AddParent => Some(Message::Structure(StructureMessage::AddParent(*block_id))),
-        | ActionId::AcceptAll => accept_all_message_for_block(state, block_id),
+        | ActionId::AcceptAll => Some(Message::Patch(PatchMessage::AcceptAllChildren(*block_id))),
         | ActionId::Cancel => cancel_message_for_block(state, block_id),
         | ActionId::Retry => retry_message_for_block(state, block_id),
         | ActionId::DismissDraft => {
@@ -624,13 +624,6 @@ pub fn action_to_message_by_id(
         }
         | ActionId::CollapseBranch | ActionId::ExpandBranch => None,
     }
-}
-
-fn accept_all_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
-    if state.store.atomization_draft(block_id).is_some() {
-        return Some(Message::Patch(PatchMessage::AcceptAllChildren(*block_id)));
-    }
-    Some(Message::Patch(PatchMessage::AcceptAllChildren(*block_id)))
 }
 
 fn cancel_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Message> {
