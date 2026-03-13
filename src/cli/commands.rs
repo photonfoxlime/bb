@@ -57,7 +57,6 @@ use clap::Parser;
 pub use super::context::ContextCommand;
 pub use super::draft::DraftCommands;
 pub use super::fold::FoldCommands;
-pub use super::friend::FriendCommands;
 pub use super::mount::MountCommands;
 pub use super::nav::NavCommands;
 pub use super::panel::PanelCommands;
@@ -130,9 +129,6 @@ pub enum Commands {
     /// Fold/collapse block visibility.
     #[command(subcommand)]
     Fold(FoldCommands),
-    /// Friend block (cross-reference) management.
-    #[command(subcommand)]
-    Friend(FriendCommands),
     /// External file mount operations.
     #[command(subcommand)]
     Mount(MountCommands),

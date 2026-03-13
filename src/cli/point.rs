@@ -5,7 +5,8 @@
 //! targets exactly one part.
 
 use super::{
-    BlockId, execute,
+    BlockId, execute, friend,
+    friend::FriendCommands,
     results::{BatchError, BatchOutput, CliResult},
 };
 use crate::store::{BlockStore, PointLink};
@@ -26,6 +27,10 @@ pub enum PointCommands {
     /// Remove a link from a block by its zero-based index.
     #[command(name = "link-remove")]
     LinkRemove(LinkRemoveCommand),
+
+    /// Friend block (cross-reference) management.
+    #[command(subcommand)]
+    Friend(FriendCommands),
 }
 
 /// Replace the plain text of a block.
@@ -86,6 +91,7 @@ pub fn execute(store: BlockStore, cmd: PointCommands) -> (BlockStore, CliResult)
         | PointCommands::Set(cmd) => execute_set(store, cmd),
         | PointCommands::LinkAdd(cmd) => execute_link_add(store, cmd),
         | PointCommands::LinkRemove(cmd) => execute_link_remove(store, cmd),
+        | PointCommands::Friend(cmd) => friend::execute(store, cmd),
     }
 }
 

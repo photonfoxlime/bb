@@ -78,7 +78,7 @@ Some content is inherently cross-cutting and does not fit cleanly under one
 single parent branch. In those cases:
 
 - Keep the main tree logically clean.
-- Use `blooming-blockery friend add <TARGET_ID> <FRIEND_ID>` for remote references.
+- Use `blooming-blockery point friend add <TARGET_ID> <FRIEND_ID>` for remote references.
 - Add `--perspective` to explain why the remote block matters to the target.
 - Enable telescope flags only when extra friend lineage/children are truly
   needed.
@@ -143,13 +143,13 @@ blooming-blockery tree move <SOURCE_ID> <TARGET_ID> --under
 ```bash
 blooming-blockery nav lineage <BLOCK_ID>
 blooming-blockery context <BLOCK_ID>
-blooming-blockery --human friend list <BLOCK_ID>
+blooming-blockery --human point friend list <BLOCK_ID>
 ```
 
 ### 3) Keep cross-cutting references explicit
 
 ```bash
-blooming-blockery friend add <TARGET_ID> <FRIEND_ID> \
+blooming-blockery point friend add <TARGET_ID> <FRIEND_ID> \
   --perspective "reference architecture constraint" \
   --telescope-lineage
 ```
@@ -274,14 +274,14 @@ blooming-blockery fold status <BLOCK_ID>
 
 ```bash
 # Add friend block with optional perspective
-blooming-blockery friend add <TARGET_ID> <FRIEND_ID> --perspective "Related design"
-blooming-blockery friend add <TARGET_ID> <FRIEND_ID> --telescope-lineage --telescope-children
+blooming-blockery point friend add <TARGET_ID> <FRIEND_ID> --perspective "Related design"
+blooming-blockery point friend add <TARGET_ID> <FRIEND_ID> --telescope-lineage --telescope-children
 
 # Remove friend
-blooming-blockery friend remove <TARGET_ID> <FRIEND_ID>
+blooming-blockery point friend remove <TARGET_ID> <FRIEND_ID>
 
 # List friends
-blooming-blockery friend list <TARGET_ID>
+blooming-blockery point friend list <TARGET_ID>
 ```
 
 ### Mount (External File) Commands
@@ -374,7 +374,7 @@ When helping users author specs/docs, prefer these decisions:
    - `show`, `point set`, `point link-add`, `point link-remove`
    - `tree add-child|add-sibling|wrap|duplicate|delete|move`
    - `nav next|prev|lineage`
-   - `friend add|remove`
+   - `point friend add|remove`
    - `fold toggle|status`
    - `draft instruction|probe|list|clear`
    - `mount set|expand|collapse|move|extract|inline|inline-recursive|info`

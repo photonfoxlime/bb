@@ -16,15 +16,15 @@ pub enum FriendCommands {
     /// the target block. They are not children but related blocks with
     /// optional perspective framing.
     /// Fails if either ID is unknown or if `target_id` equals `friend_id`.
-    /// Example: `bb friend add 1v1 2v1 --perspective "Related design"`.
+    /// Example: `bb point friend add 1v1 2v1 --perspective "Related design"`.
     Add(AddFriendCommand),
 
     /// Remove a friend block.
-    /// Example: `bb friend remove 1v1 2v1`.
+    /// Example: `bb point friend remove 1v1 2v1`.
     Remove(RemoveFriendCommand),
 
     /// List friend blocks for a target.
-    /// Example: `bb friend list 1v1 --output json`.
+    /// Example: `bb point friend list 1v1`.
     List(ListFriendCommand),
 }
 
