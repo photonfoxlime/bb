@@ -15,13 +15,11 @@ use lucide_icons::iced as icons;
 /// Invariant: icon-only controls use square footprints and centered glyphs.
 /// This keeps row controls, toolbars, and compact action clusters visually
 /// consistent across the application.
-pub(crate) struct IconButton;
+pub struct IconButton;
 
 impl IconButton {
     /// Build a standard action-style icon button with default square footprint.
-    pub(crate) fn action<'a, Message: 'a>(
-        icon: Element<'a, Message>,
-    ) -> button::Button<'a, Message> {
+    pub fn action<'a, Message: 'a>(icon: Element<'a, Message>) -> button::Button<'a, Message> {
         button(Self::frame(icon, theme::ICON_BUTTON_SIZE, theme::BUTTON_PAD))
             .style(theme::action_button)
             .padding(iced::Padding::ZERO)
@@ -30,9 +28,7 @@ impl IconButton {
     }
 
     /// Build a standard destructive-style icon button with default footprint.
-    pub(crate) fn destructive<'a, Message: 'a>(
-        icon: Element<'a, Message>,
-    ) -> button::Button<'a, Message> {
+    pub fn destructive<'a, Message: 'a>(icon: Element<'a, Message>) -> button::Button<'a, Message> {
         button(Self::frame(icon, theme::ICON_BUTTON_SIZE, theme::BUTTON_PAD))
             .style(theme::destructive_button)
             .padding(iced::Padding::ZERO)
@@ -41,7 +37,7 @@ impl IconButton {
     }
 
     /// Build a mode-selector icon button using mode active/inactive styling.
-    pub(crate) fn mode<'a, Message: 'a>(
+    pub fn mode<'a, Message: 'a>(
         icon: Element<'a, Message>, is_active: bool,
     ) -> button::Button<'a, Message> {
         button(Self::frame(icon, theme::ICON_BUTTON_SIZE, theme::BUTTON_PAD))
@@ -52,7 +48,7 @@ impl IconButton {
     }
 
     /// Build a toggle-style icon button with custom footprint and padding.
-    pub(crate) fn toggle_with_size<'a, Message: 'a>(
+    pub fn toggle_with_size<'a, Message: 'a>(
         icon: Element<'a, Message>, is_on: bool, button_size: f32, icon_padding: f32,
     ) -> button::Button<'a, Message> {
         button(Self::frame(icon, button_size, icon_padding))
@@ -63,7 +59,7 @@ impl IconButton {
     }
 
     /// Build an action-style icon button with custom footprint and padding.
-    pub(crate) fn action_with_size<'a, Message: 'a>(
+    pub fn action_with_size<'a, Message: 'a>(
         icon: Element<'a, Message>, button_size: f32, icon_padding: f32,
     ) -> button::Button<'a, Message> {
         button(Self::frame(icon, button_size, icon_padding))
@@ -77,19 +73,30 @@ impl IconButton {
     ///
     /// Note: centralizing this keeps close affordances visually consistent
     /// across floating panels, inline probe panels, and compact header rows.
-    pub(crate) fn close_with_size<'a, Message: 'a>(
+    pub fn close_with_size<'a, Message: 'a>(
         icon_size: f32, button_size: f32, icon_padding: f32,
     ) -> button::Button<'a, Message> {
-        Self::action_with_size(icons::icon_x().size(icon_size).into(), button_size, icon_padding)
+        Self::action_with_size(
+            icons::icon_x()
+                .size(icon_size)
+                .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                .into(),
+            button_size,
+            icon_padding,
+        )
     }
 
-    /// Build a standard close button with the default icon-button footprint.
-    pub(crate) fn close<'a, Message: 'a>(icon_size: f32) -> button::Button<'a, Message> {
-        Self::close_with_size(icon_size, theme::ICON_BUTTON_SIZE, theme::BUTTON_PAD)
+    /// Build the standard compact close control used by panel headers.
+    pub fn panel_close<'a, Message: 'a>() -> button::Button<'a, Message> {
+        Self::close_with_size(
+            theme::FIND_CONTROL_ICON_SIZE,
+            theme::FIND_CONTROL_BUTTON_SIZE,
+            theme::FIND_CONTROL_BUTTON_PAD,
+        )
     }
 
     /// Build a destructive-style icon button with custom footprint and padding.
-    pub(crate) fn destructive_with_size<'a, Message: 'a>(
+    pub fn destructive_with_size<'a, Message: 'a>(
         icon: Element<'a, Message>, button_size: f32, icon_padding: f32,
     ) -> button::Button<'a, Message> {
         button(Self::frame(icon, button_size, icon_padding))

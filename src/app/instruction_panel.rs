@@ -613,11 +613,10 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
                 .size(theme::INSTRUCTION_BUTTON_SIZE),
         )
         .padding(iced::Padding::from([theme::COMPACT_PAD_V, theme::COMPACT_PAD_H]));
-        let close_btn =
-            IconButton::close(theme::TOOLBAR_ICON_SIZE).on_press(Message::InstructionPanel(
-                target_block_id,
-                InstructionPanelMessage::ClosePanel { panel_id: panel.id },
-            ));
+        let close_btn = IconButton::panel_close().on_press(Message::InstructionPanel(
+            target_block_id,
+            InstructionPanelMessage::ClosePanel { panel_id: panel.id },
+        ));
         let header = PanelHeader::new(title, close_btn);
 
         let editor = container(

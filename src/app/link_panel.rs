@@ -270,12 +270,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     // --- Title row ---
     let title = text(t!("link_panel_title")).size(theme::FIND_QUERY_SIZE);
     let close_btn = tooltip(
-        IconButton::close_with_size(
-            theme::FIND_CONTROL_ICON_SIZE,
-            theme::FIND_CONTROL_BUTTON_SIZE,
-            theme::FIND_CONTROL_BUTTON_PAD,
-        )
-        .on_press(Message::LinkMode(LinkModeMessage::Cancel)),
+        IconButton::panel_close().on_press(Message::LinkMode(LinkModeMessage::Cancel)),
         text(t!("ui_close").to_string()).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
         tooltip::Position::Bottom,
     )
