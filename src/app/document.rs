@@ -551,10 +551,14 @@ impl<'a> TreeView<'a> {
         let is_target_block =
             is_pick_friend_mode && self.state.focus().is_some_and(|s| s.block_id != *block_id);
 
-        // Check if this block should be highlighted due to reference panel hover.
-        let is_hovered_friend =
-            self.state.ui().reference_panel.hovered_friend_block.is_some_and(|hovered_id| {
-                hovered_id == *block_id
+        // Check if this block should be highlighted from the reference panel.
+        let is_highlighted_friend = self
+            .state
+            .ui()
+            .reference_panel
+            .highlighted_friend_block
+            .is_some_and(|highlighted_id| {
+                highlighted_id == *block_id
                     && self.state.store.is_visible(block_id)
                     && self.state.navigation.is_in_current_view(&self.state.store, block_id)
             });
@@ -671,8 +675,8 @@ impl<'a> TreeView<'a> {
                     | DocumentMode::LinkInput
                     | DocumentMode::Archive,
                     _,
-                ) if is_hovered_friend => {
-                    // Highlight block when the reference panel hovers over it
+                ) if is_highlighted_friend => {
+                    // Highlight block when the reference panel selects it.
                     container(block).style(theme::friend_picker_hover).into()
                 }
                 | (

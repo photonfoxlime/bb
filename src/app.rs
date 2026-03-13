@@ -340,8 +340,8 @@ impl AppState {
                 Task::none()
             }
             | Message::DocumentMode(mode) => {
-                // Clear friend hover state when changing document modes
-                self.ui_mut().reference_panel.hovered_friend_block = None;
+                // Clear any reference-panel friend highlight when changing modes.
+                self.ui_mut().reference_panel.highlighted_friend_block = None;
 
                 match mode {
                     | DocumentMode::Multiselect => {
@@ -944,7 +944,7 @@ impl AppState {
 
         self.store.set_block_panel_state(&block_id, None);
         if panel_state == BlockPanelBarState::References {
-            self.ui_mut().reference_panel.hovered_friend_block = None;
+            self.ui_mut().reference_panel.highlighted_friend_block = None;
         }
         self.persist_with_context("after closing focused block panel");
         tracing::info!(block_id = ?block_id, panel = ?panel_state, "closed focused panel");

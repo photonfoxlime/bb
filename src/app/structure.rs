@@ -37,8 +37,8 @@ pub enum StructureMessage {
 
 /// Process one structure message and return a follow-up task (if any).
 pub fn handle(state: &mut AppState, message: StructureMessage) -> Task<Message> {
-    // Clear friend hover state on any structure action
-    state.ui_mut().reference_panel.hovered_friend_block = None;
+    // Clear any reference-panel friend highlight on structure actions.
+    state.ui_mut().reference_panel.highlighted_friend_block = None;
 
     match message {
         | StructureMessage::AddChild(block_id) => {

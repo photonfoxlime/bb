@@ -190,18 +190,22 @@ impl ReferencePerspectiveEditState {
 /// Transient UI state owned by friend and link reference surfaces.
 ///
 /// The References panel and the link-input panel are converging toward a shared
-/// inline reference workflow, so their hover/edit/search/preview state lives in
-/// one subtree instead of being scattered across [`TransientUiState`].
+/// inline reference workflow, so their highlight/edit/search/preview state
+/// lives in one subtree instead of being scattered across [`TransientUiState`].
 ///
 /// Note: these fields must remain transient. They provide interaction affordances
 /// only and have no durable document meaning.
 #[derive(Debug, Clone, Default)]
 pub struct ReferencePanelUiState {
-    /// The friend block currently being hovered in the References panel.
+    /// The friend block currently highlighted from the References panel.
     ///
     /// When `Some`, the corresponding block in the document tree is highlighted
     /// to help users identify the friend's location. The highlight is cleared
-    /// when hover exits or the references panel is closed.
+    /// when the selection is cleared or the references panel is closed.
+    ///
+    /// Note: this is driven by a click on the friend row, not true pointer
+    /// hover. The state is named after the visible effect so call sites do not
+    /// imply hover semantics that the current UI does not provide.
     ///
     /// # Visibility Constraint
     ///
@@ -209,7 +213,7 @@ pub struct ReferencePanelUiState {
     /// in the document tree (not collapsed and within the current navigation layer).
     /// If the friend is hidden, no visual feedback is shown to avoid confusing
     /// the user with a highlight that points to nothing visible.
-    pub hovered_friend_block: Option<BlockId>,
+    pub highlighted_friend_block: Option<BlockId>,
     /// The currently active inline perspective editor, if any.
     pub editing_perspective: Option<ReferencePerspectiveEditState>,
     /// State for the link-input panel (filesystem search).
@@ -256,7 +260,7 @@ pub struct FocusState {
 
 /// UI singleton state: transient interaction state not persisted with the document.
 ///
-/// This struct groups ephemeral UI-only state such as focus, hover feedback,
+/// This struct groups ephemeral UI-only state such as focus, highlight feedback,
 /// inline editor buffers, and temporary confirmation/overflow toggles.
 /// It is intentionally excluded from undo snapshots and on-disk persistence.
 ///

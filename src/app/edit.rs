@@ -567,7 +567,7 @@ fn should_add_first_child_on_enter(
 /// Existing point text is left unchanged; the new child is focused with the
 /// cursor at the start of its empty text.
 fn add_empty_first_child_from_enter(state: &mut AppState, block_id: BlockId) -> Task<Message> {
-    state.ui_mut().reference_panel.hovered_friend_block = None;
+    state.ui_mut().reference_panel.highlighted_friend_block = None;
 
     if state.ui().document_mode == DocumentMode::PickFriend {
         return Task::none();
@@ -810,8 +810,8 @@ fn delete_multiselect_selection_on_backspace(
 pub fn handle_point_edited(
     state: &mut AppState, block_id: BlockId, action: text_editor::Action,
 ) -> Task<Message> {
-    // Clear friend hover state when editing
-    state.ui_mut().reference_panel.hovered_friend_block = None;
+    // Clear any reference-panel friend highlight while editing text.
+    state.ui_mut().reference_panel.highlighted_friend_block = None;
     let vertical_direction = vertical_direction_for_action(&action);
     if let Some(dir) = vertical_direction {
         tracing::debug!(

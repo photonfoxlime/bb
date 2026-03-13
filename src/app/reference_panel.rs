@@ -70,15 +70,15 @@ pub enum ReferencePanelMessage {
     ToggleParentLineageTelescope { target: BlockId, friend_id: BlockId },
     /// Toggle whether children telescope is enabled for a friend in LLM context.
     ToggleChildrenTelescope { target: BlockId, friend_id: BlockId },
-    /// Friend block clicked in panel - highlights the friend in the document tree.
+    /// Highlight the selected friend in the document tree.
     ///
-    /// Note: Currently triggered on click rather than hover due to iced's closure
-    /// type system limitations with `mouse_area`. Future implementation may use
-    /// subscriptions for true hover detection.
-    HoverFriend(BlockId),
-    /// Friend click exited - clears the highlight (reserved for future hover implementation).
+    /// Note: this is triggered by clicking the friend summary row. The message
+    /// intentionally describes the current visible effect instead of implying
+    /// true pointer hover semantics that the UI does not currently implement.
+    HighlightFriend(BlockId),
+    /// Clear the active friend highlight.
     #[allow(dead_code)]
-    UnhoverFriend,
+    ClearHighlightedFriend,
 }
 
 /// Handle reference panel messages.
@@ -90,8 +90,8 @@ pub fn handle(state: &mut AppState, msg: ReferencePanelMessage) -> Task<Message>
                 match current_state {
                     | Some(BlockPanelBarState::References) => {
                         state.store.set_block_panel_state(&block_id, None);
-                        // Clear hover state when closing the references panel.
-                        state.ui_mut().reference_panel.hovered_friend_block = None;
+                        // Clear friend highlight when closing the references panel.
+                        state.ui_mut().reference_panel.highlighted_friend_block = None;
                         state.ui_mut().reference_panel.editing_perspective = None;
                     }
                     | _ => {
@@ -258,12 +258,12 @@ pub fn handle(state: &mut AppState, msg: ReferencePanelMessage) -> Task<Message>
             });
             Task::none()
         }
-        | ReferencePanelMessage::HoverFriend(friend_id) => {
-            state.ui_mut().reference_panel.hovered_friend_block = Some(friend_id);
+        | ReferencePanelMessage::HighlightFriend(friend_id) => {
+            state.ui_mut().reference_panel.highlighted_friend_block = Some(friend_id);
             Task::none()
         }
-        | ReferencePanelMessage::UnhoverFriend => {
-            state.ui_mut().reference_panel.hovered_friend_block = None;
+        | ReferencePanelMessage::ClearHighlightedFriend => {
+            state.ui_mut().reference_panel.highlighted_friend_block = None;
             Task::none()
         }
     }
@@ -379,7 +379,7 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
             ReferenceRow {
                 primary: ReferenceRow::text_summary_button(
                     truncate_for_display(&point_text, theme::FRIEND_POINT_TRUNCATE),
-                    Message::ReferencePanel(ReferencePanelMessage::HoverFriend(friend_id)),
+                    Message::ReferencePanel(ReferencePanelMessage::HighlightFriend(friend_id)),
                 ),
                 perspective_label: perspective_label.to_string(),
                 is_editing: is_editing_this,
