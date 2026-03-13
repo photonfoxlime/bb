@@ -89,7 +89,7 @@ use crate::{
     component::error_banner_view::{ErrorBannerContent, ErrorBannerEntry, ErrorBannerView},
     component::icon_button::IconButton,
     component::status_chip::StatusChip,
-    store::BlockId,
+    store::{BlockId, BlockPanelBarState},
     text::truncate_for_display,
     theme,
 };
@@ -539,6 +539,11 @@ impl<'a> TreeView<'a> {
 
         let links =
             self.state.store.point_content(block_id).map(|pc| pc.links.as_slice()).unwrap_or(&[]);
+        let reference_panel_open = is_focused
+            && matches!(
+                self.state.store.block_panel_state(block_id),
+                Some(BlockPanelBarState::Friends)
+            );
         let expanded_link_index =
             self.state.ui().reference_panel.expanded_links.get(block_id).copied();
         let expanded_markdown_preview = self.state.expanded_markdown_preview(block_id);
@@ -546,7 +551,7 @@ impl<'a> TreeView<'a> {
             block_id_for_edit,
             is_target_block || is_multiselect_mode,
             self.state.store.point(block_id).unwrap_or_default(),
-            links,
+            if reference_panel_open { &[] } else { links },
             editor_content,
             self.state.editor_buffers.widget_id(block_id),
             self.state.ui().cursor_position.unwrap_or(Point::ORIGIN),

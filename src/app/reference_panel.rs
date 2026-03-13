@@ -1,4 +1,4 @@
-//! Friend blocks panel for displaying user-selected related blocks.
+//! Reference panel for block-local related context.
 //!
 //! Please use or create constants in `theme.rs` for all UI numeric values
 //! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
@@ -6,10 +6,13 @@
 //! All user-facing text must be internationalized via `rust_i18n::t!`. Never
 //! hardcode UI strings; add keys to the locale files instead.
 //!
-//! Friend blocks are shown per block that has at least one friend:
-//! - A "Friends" panel is rendered below the block row (same pattern as
-//!   expansion/reduction draft panels), listing each friend's point text and
-//!   optional perspective, with a remove button per friend.
+//! The panel currently contains two sections:
+//! - point links attached to the block,
+//! - friend relations used as additional context.
+//!
+//! Note: the naming is intentionally broader than the current behavior because
+//! point links are expected to converge here as part of the reference-panel
+//! merge.
 //!
 //! ## Inline Perspective Editor
 //!
@@ -28,9 +31,10 @@
 //! - Immediate save on blur provides instant feedback without requiring explicit save actions.
 //! - Empty state with placeholder makes the affordance discoverable without cluttering the UI.
 
-use crate::app::{AppState, DocumentMode, Message, StructureMessage};
+use crate::app::{AppState, DocumentMode, EditMessage, LinkModeMessage, Message, StructureMessage};
 use crate::component::{
     friend_row::{FriendRow, friend_perspective_input_id},
+    point_link_list::PointLinkList,
     text_button::TextButton,
 };
 use crate::store::{BlockId, BlockPanelBarState};
@@ -38,10 +42,10 @@ use crate::theme;
 use iced::widget::{column, container, operation::focus, row, text};
 use iced::{Element, Length, Padding, Task};
 
-/// Message types for friends panel interactions.
+/// Message types for reference panel interactions.
 #[derive(Debug, Clone)]
-pub enum FriendPanelMessage {
-    /// Toggle friends panel visibility for the given block.
+pub enum ReferencePanelMessage {
+    /// Toggle the reference panel visibility for the given block.
     Toggle(BlockId),
     /// Start picking a friend for the given target block.
     StartFriendPicker(BlockId),
@@ -70,10 +74,10 @@ pub enum FriendPanelMessage {
     UnhoverFriend,
 }
 
-/// Handle friends panel messages.
-pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
+/// Handle reference panel messages.
+pub fn handle(state: &mut AppState, msg: ReferencePanelMessage) -> Task<Message> {
     match msg {
-        | FriendPanelMessage::Toggle(block_id) => {
+        | ReferencePanelMessage::Toggle(block_id) => {
             let current_state = state.store.block_panel_state(&block_id).copied();
             if state.focus().is_some_and(|s| s.block_id == block_id) {
                 match current_state {
@@ -94,12 +98,12 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             state.persist_with_context("after toggling friends panel");
             Task::none()
         }
-        | FriendPanelMessage::StartFriendPicker(_block_id) => {
+        | ReferencePanelMessage::StartFriendPicker(_block_id) => {
             state.set_overflow_open(false);
             state.ui_mut().document_mode = DocumentMode::PickFriend;
             Task::none()
         }
-        | FriendPanelMessage::StartEditingFriendPerspective { target, friend_id } => {
+        | ReferencePanelMessage::StartEditingFriendPerspective { target, friend_id } => {
             let current_perspective = state
                 .store
                 .friend_blocks_for(&target)
@@ -113,7 +117,7 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             // Focus the text input
             focus(friend_perspective_input_id())
         }
-        | FriendPanelMessage::CancelEditingFriendPerspective => {
+        | ReferencePanelMessage::CancelEditingFriendPerspective => {
             // Clear editing state regardless of what's being edited
             state.ui_mut().reference_panel.editing_friend_perspective = None;
             state.ui_mut().reference_panel.editing_friend_perspective_input = None;
@@ -122,11 +126,11 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             }
             Task::none()
         }
-        | FriendPanelMessage::UpdateFriendPerspectiveInput(text) => {
+        | ReferencePanelMessage::UpdateFriendPerspectiveInput(text) => {
             state.ui_mut().reference_panel.editing_friend_perspective_input = Some(text);
             Task::none()
         }
-        | FriendPanelMessage::ClearFriendPerspective { target, friend_id } => {
+        | ReferencePanelMessage::ClearFriendPerspective { target, friend_id } => {
             // Clear the perspective in the store
             state.mutate_with_undo_and_persist("after clearing friend perspective", |state| {
                 let mut friends = state.store.friend_blocks_for(&target).to_vec();
@@ -145,7 +149,7 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             state.ui_mut().reference_panel.editing_friend_perspective_input = None;
             Task::none()
         }
-        | FriendPanelMessage::AcceptFriendPerspective { target, friend_id } => {
+        | ReferencePanelMessage::AcceptFriendPerspective { target, friend_id } => {
             // Get current input value
             let perspective = state.ui().reference_panel.editing_friend_perspective_input.clone();
             // Save to store
@@ -166,7 +170,7 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             state.ui_mut().reference_panel.editing_friend_perspective_input = None;
             Task::none()
         }
-        | FriendPanelMessage::ToggleParentLineageTelescope { target, friend_id } => {
+        | ReferencePanelMessage::ToggleParentLineageTelescope { target, friend_id } => {
             state.mutate_with_undo_and_persist("after toggling friend parent lineage visibility", |state| {
                 let mut friends = state.store.friend_blocks_for(&target).to_vec();
                 let friend = friends.iter_mut().find(|f| f.block_id == friend_id);
@@ -182,7 +186,7 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             });
             Task::none()
         }
-        | FriendPanelMessage::ToggleChildrenTelescope { target, friend_id } => {
+        | ReferencePanelMessage::ToggleChildrenTelescope { target, friend_id } => {
             state.mutate_with_undo_and_persist("after toggling friend children visibility", |state| {
                 let mut friends = state.store.friend_blocks_for(&target).to_vec();
                 let friend = friends.iter_mut().find(|f| f.block_id == friend_id);
@@ -198,11 +202,11 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
             });
             Task::none()
         }
-        | FriendPanelMessage::HoverFriend(friend_id) => {
+        | ReferencePanelMessage::HoverFriend(friend_id) => {
             state.ui_mut().reference_panel.hovered_friend_block = Some(friend_id);
             Task::none()
         }
-        | FriendPanelMessage::UnhoverFriend => {
+        | ReferencePanelMessage::UnhoverFriend => {
             state.ui_mut().reference_panel.hovered_friend_block = None;
             Task::none()
         }
@@ -219,14 +223,30 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
         Some(BlockPanelBarState::Friends)
     );
 
+    let links = state
+        .store
+        .point_content(&target_block_id)
+        .map(|content| content.links.as_slice())
+        .unwrap_or(&[]);
+    let expanded_link_index =
+        state.ui().reference_panel.expanded_links.get(&target_block_id).copied();
+    let expanded_markdown_preview = state.expanded_markdown_preview(&target_block_id);
     let friends = state.store.friend_blocks_for(&target_block_id);
 
+    let link_header = row![].spacing(theme::PANEL_BUTTON_GAP).push(
+        TextButton::action(rust_i18n::t!("action_add_link").to_string(), theme::FRIEND_POINT_SIZE)
+            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::LinkMode(LinkModeMessage::Enter(target_block_id))),
+    );
+
     // Header with "+" button to start friend picker
-    let mut header = row![].spacing(theme::PANEL_BUTTON_GAP);
-    header = header.push(
+    let mut friend_header = row![].spacing(theme::PANEL_BUTTON_GAP);
+    friend_header = friend_header.push(
         TextButton::action(rust_i18n::t!("ui_add").to_string(), theme::FRIEND_POINT_SIZE)
             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::FriendPanel(FriendPanelMessage::StartFriendPicker(target_block_id))),
+            .on_press(Message::ReferencePanel(ReferencePanelMessage::StartFriendPicker(
+                target_block_id,
+            ))),
     );
 
     let message_text = if is_picker_mode {
@@ -238,7 +258,7 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
     };
     // Show message based on state
     if let Some(message_text) = message_text {
-        header = header.push(
+        friend_header = friend_header.push(
             container(
                 text(message_text)
                     .style(theme::spine_text)
@@ -254,7 +274,29 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
     }
 
     let mut panel =
-        column![].spacing(theme::PANEL_INNER_GAP).push(container(header).width(Length::Fill));
+        column![].spacing(theme::PANEL_INNER_GAP).push(container(link_header).width(Length::Fill));
+
+    if !links.is_empty() {
+        panel = panel.push(
+            PointLinkList {
+                block_id: target_block_id,
+                links,
+                expanded_link_index,
+                expanded_markdown_preview,
+                is_dark_mode: state.is_dark_mode(),
+                on_link_chip_toggle: |block_id, index| Message::LinkChipToggle(block_id, index),
+                on_remove_link: |block_id, index| {
+                    Message::Edit(EditMessage::RemoveLink { block_id, index })
+                },
+                on_markdown_preview_link: |block_id, uri| {
+                    Message::MarkdownPreviewLinkClicked(block_id, uri)
+                },
+            }
+            .view(),
+        );
+    }
+
+    panel = panel.push(container(friend_header).width(Length::Fill));
 
     for friend in friends {
         let point_text = state.store.point(&friend.block_id).unwrap_or_default();
@@ -285,15 +327,17 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
                 parent_toggle_tooltip,
                 children_toggle_tooltip,
                 remove_label,
-                on_press_point: Message::FriendPanel(FriendPanelMessage::HoverFriend(friend_id)),
-                on_start_editing: Message::FriendPanel(
-                    FriendPanelMessage::StartEditingFriendPerspective { target, friend_id },
+                on_press_point: Message::ReferencePanel(ReferencePanelMessage::HoverFriend(
+                    friend_id,
+                )),
+                on_start_editing: Message::ReferencePanel(
+                    ReferencePanelMessage::StartEditingFriendPerspective { target, friend_id },
                 ),
-                on_clear_perspective: Message::FriendPanel(
-                    FriendPanelMessage::ClearFriendPerspective { target, friend_id },
+                on_clear_perspective: Message::ReferencePanel(
+                    ReferencePanelMessage::ClearFriendPerspective { target, friend_id },
                 ),
-                on_accept_perspective: Message::FriendPanel(
-                    FriendPanelMessage::AcceptFriendPerspective { target, friend_id },
+                on_accept_perspective: Message::ReferencePanel(
+                    ReferencePanelMessage::AcceptFriendPerspective { target, friend_id },
                 ),
                 on_submit_input: Message::Structure(StructureMessage::SetFriendPerspective {
                     target,
@@ -307,18 +351,18 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
                             .unwrap_or_default(),
                     ),
                 }),
-                on_toggle_parent_lineage: Message::FriendPanel(
-                    FriendPanelMessage::ToggleParentLineageTelescope { target, friend_id },
+                on_toggle_parent_lineage: Message::ReferencePanel(
+                    ReferencePanelMessage::ToggleParentLineageTelescope { target, friend_id },
                 ),
-                on_toggle_children: Message::FriendPanel(
-                    FriendPanelMessage::ToggleChildrenTelescope { target, friend_id },
+                on_toggle_children: Message::ReferencePanel(
+                    ReferencePanelMessage::ToggleChildrenTelescope { target, friend_id },
                 ),
                 on_remove_friend: Message::Structure(StructureMessage::RemoveFriendBlock {
                     target,
                     friend_id,
                 }),
                 on_update_input: |s| {
-                    Message::FriendPanel(FriendPanelMessage::UpdateFriendPerspectiveInput(s))
+                    Message::ReferencePanel(ReferencePanelMessage::UpdateFriendPerspectiveInput(s))
                 },
             }
             .view(),

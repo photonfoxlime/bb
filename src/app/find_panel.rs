@@ -5,7 +5,7 @@
 //! navigation (`Cmd/Ctrl+F`, `Cmd/Ctrl+G`, `Esc`). Query updates are debounced
 //! to avoid running expensive searches while users are still typing.
 
-use crate::app::{AppState, DocumentMode, Message, friends_panel::FriendPanelMessage};
+use crate::app::{AppState, DocumentMode, Message, reference_panel::ReferencePanelMessage};
 use crate::component::floating_panel::{self, PanelHeader, SelectableRow};
 use crate::component::icon_button::IconButton;
 use crate::store::BlockId;
@@ -170,7 +170,7 @@ pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
             if friend_escape_active {
                 return AppState::update(
                     state,
-                    Message::FriendPanel(FriendPanelMessage::CancelEditingFriendPerspective),
+                    Message::ReferencePanel(ReferencePanelMessage::CancelEditingFriendPerspective),
                 );
             }
 

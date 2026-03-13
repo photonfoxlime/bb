@@ -68,7 +68,7 @@ pub(crate) mod diff;
 mod overlay;
 // Panel Views
 mod archive_panel;
-mod friends_panel;
+mod reference_panel;
 mod instruction_panel;
 // Actions and LLM Requests
 mod action_bar;
@@ -96,13 +96,13 @@ use self::{
     error::{AppError, ErrorMessage, UiError},
     error_banner::ErrorBanner,
     find_panel::FindMessage,
-    friends_panel::FriendPanelMessage,
     instruction_panel::InstructionPanelMessage,
     llm_requests::{LlmRequests, RequestSignature},
     mount_file::MountFileMessage,
     navigation::{NavigationMessage, NavigationStack},
     overlay::OverlayMessage,
     patch::PatchMessage,
+    reference_panel::ReferencePanelMessage,
     settings::{SettingsMessage, SettingsState},
     shortcut::ShortcutMessage,
     state::{
@@ -236,7 +236,7 @@ pub enum Message {
     Archive(ArchivePanelMessage),
     Overlay(OverlayMessage),
     MountFile(MountFileMessage),
-    FriendPanel(FriendPanelMessage),
+    ReferencePanel(ReferencePanelMessage),
     InstructionPanel(BlockId, InstructionPanelMessage),
     Settings(SettingsMessage),
     WindowResized(WindowSize),
@@ -277,7 +277,7 @@ impl AppState {
             | Message::Find(message) => find_panel::handle(self, message),
             | Message::Archive(message) => archive_panel::handle(self, message),
             | Message::Overlay(message) => overlay::handle(self, message),
-            | Message::FriendPanel(message) => friends_panel::handle(self, message),
+            | Message::ReferencePanel(message) => reference_panel::handle(self, message),
             | Message::Structure(message) => structure::handle(self, message),
             | Message::MountFile(message) => mount_file::handle(self, message),
             | Message::InstructionPanel(target, message) => {

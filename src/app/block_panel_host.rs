@@ -10,8 +10,8 @@
 
 use super::{
     AppState, Message,
-    friends_panel::{self, FriendPanelMessage},
     instruction_panel::{self, InstructionPanelMessage},
+    reference_panel::{self, ReferencePanelMessage},
 };
 use crate::{
     component::text_button::TextButton,
@@ -68,7 +68,7 @@ impl<'a> BlockPanelHost<'a> {
                     friends_panel_open,
                 )
                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::FriendPanel(FriendPanelMessage::Toggle(self.block_id))),
+                .on_press(Message::ReferencePanel(ReferencePanelMessage::Toggle(self.block_id))),
             )
             .push(
                 TextButton::panel_toggle(
@@ -97,7 +97,9 @@ impl<'a> BlockPanelHost<'a> {
 
         match self.state.store.block_panel_state(&self.block_id) {
             | Some(BlockPanelBarState::Friends) => {
-                container(friends_panel::view(self.state, self.block_id)).width(Length::Fill).into()
+                container(reference_panel::view(self.state, self.block_id))
+                    .width(Length::Fill)
+                    .into()
             }
             | Some(BlockPanelBarState::Instruction) => {
                 container(instruction_panel::view(self.state, self.block_id))
