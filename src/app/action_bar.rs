@@ -501,30 +501,7 @@ pub fn project_for_viewport(mut vm: ActionBarVm, bucket: ViewportBucket) -> Acti
 /// shortcuts. `Cmd/Ctrl+Backspace` is left to editor-native deletion semantics
 /// to avoid accidental structural mutation.
 pub fn shortcut_to_action(key: Key, modifiers: Modifiers) -> Option<ActionId> {
-    // `text_editor` key events may report the Command key via `control()` on
-    // some platforms/input backends. Accept either modifier flag so keyboard
-    // shortcuts resolve consistently regardless of event source.
-    if !(modifiers.command() || modifiers.control()) {
-        return None;
-    }
-
-    if modifiers.shift() {
-        match key {
-            | Key::Named(Named::Enter) => return Some(ActionId::AddSibling),
-            | Key::Character(value) if value.eq_ignore_ascii_case("a") => {
-                return Some(ActionId::AcceptAll);
-            }
-            | _ => {}
-        }
-    }
-
-    match key {
-        | Key::Character(value) if value == "." => Some(ActionId::Amplify),
-        | Key::Character(value) if value == "/" => Some(ActionId::Atomize),
-        | Key::Character(value) if value == "," => Some(ActionId::Distill),
-        | Key::Named(Named::Enter) => Some(ActionId::AddChild),
-        | _ => None,
-    }
+    super::shortcut::action_shortcut_from_key(key, modifiers)
 }
 
 /// Convert an action descriptor to a message, returning `None` if disabled.

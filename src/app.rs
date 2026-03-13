@@ -489,27 +489,10 @@ impl AppState {
                         return Some(Message::Shortcut(shortcut));
                     }
 
-                    if modifiers.command() {
-                        match &key {
-                            | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("f") => {
-                                return Some(Message::Find(FindMessage::Toggle));
-                            }
-                            | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("g") => {
-                                return if modifiers.shift() {
-                                    Some(Message::Find(FindMessage::JumpPrevious))
-                                } else {
-                                    Some(Message::Find(FindMessage::JumpNext))
-                                };
-                            }
-                            | keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") => {
-                                return if modifiers.shift() {
-                                    Some(Message::UndoRedo(UndoRedoMessage::Redo))
-                                } else {
-                                    Some(Message::UndoRedo(UndoRedoMessage::Undo))
-                                };
-                            }
-                            | _ => {}
-                        }
+                    if let Some(global_shortcut) =
+                        shortcut::global_shortcut_message_from_key(&key, modifiers)
+                    {
+                        return Some(global_shortcut);
                     }
 
                     let action_shortcut = action_bar::shortcut_to_action(key, modifiers)

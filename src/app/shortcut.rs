@@ -158,10 +158,12 @@ impl ShortcutChord {
     }
 }
 
-/// One banner row specification in the shortcut-help registry.
+/// One shortcut row specification in the shared shortcut registry.
 ///
-/// The spec keeps only stable identity, grouping, and display metadata.
-/// Runtime dispatch continues to live in the existing key-routing code.
+/// The spec keeps stable identity, grouping, and display metadata. Runtime
+/// dispatch resolves through the same [`ShortcutId`] inventory, but key-matching
+/// rules still live in dedicated helper functions below because several rows
+/// intentionally share one display label while differing in event-path scope.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct ShortcutSpec {
     /// Stable row identifier used by tests and future dispatch convergence.
@@ -196,14 +198,16 @@ pub(crate) struct ShortcutSectionVm {
     pub rows: Vec<ShortcutRowVm>,
 }
 
-/// Namespace for the banner-first shortcut metadata registry.
+/// Namespace for the shared shortcut metadata registry.
 ///
-/// `ShortcutCatalog` currently exists to drive the shortcut-help banner only.
-/// `movement_shortcut_from_key()` and the global key handlers remain the
-/// runtime source of truth for actual dispatch.
+/// The catalog drives both the shortcut-help banner and the runtime lookup
+/// helpers in this module. Display metadata remains declarative in
+/// [`ShortcutSpec`], while the matching helpers encode the remaining
+/// event-source details that are not yet practical to express as static data.
 ///
-/// Note: keeping the catalog in this module makes the next convergence step
-/// mechanical instead of architectural.
+/// Note: multiselect click gestures and the backspace behavior rows remain
+/// display-only because they are described in the banner but dispatched through
+/// specialized non-shortcut event paths.
 pub(crate) struct ShortcutCatalog;
 
 impl ShortcutCatalog {
@@ -399,6 +403,194 @@ impl ShortcutCatalog {
     }
 }
 
+impl ShortcutId {
+    /// Return the structure action carried by this shortcut id, if any.
+    fn action_id(self) -> Option<ActionId> {
+        match self {
+            | Self::Action(action_id) => Some(action_id),
+            | _ => None,
+        }
+    }
+
+    /// Convert one movement shortcut id into the runtime movement enum.
+    fn movement_shortcut(self) -> Option<MovementShortcut> {
+        match self {
+            | Self::MovementFocus => None,
+            | Self::MovementReorder => None,
+            | Self::MovementWordCursor => None,
+            | Self::MovementOutdent => Some(MovementShortcut::MoveAfterParent),
+            | Self::MovementIndent => Some(MovementShortcut::MoveToPreviousSiblingFirstChild),
+            | _ => None,
+        }
+    }
+
+    /// Convert a movement row plus arrow direction into the runtime movement enum.
+    fn movement_shortcut_for_arrow(self, key: &keyboard::Key) -> Option<MovementShortcut> {
+        match (self, key) {
+            | (Self::MovementFocus, keyboard::Key::Named(keyboard::key::Named::ArrowUp)) => {
+                Some(MovementShortcut::FocusSiblingPrevious)
+            }
+            | (Self::MovementFocus, keyboard::Key::Named(keyboard::key::Named::ArrowDown)) => {
+                Some(MovementShortcut::FocusSiblingNext)
+            }
+            | (Self::MovementFocus, keyboard::Key::Named(keyboard::key::Named::ArrowLeft)) => {
+                Some(MovementShortcut::FocusParent)
+            }
+            | (Self::MovementFocus, keyboard::Key::Named(keyboard::key::Named::ArrowRight)) => {
+                Some(MovementShortcut::FocusFirstChild)
+            }
+            | (Self::MovementReorder, keyboard::Key::Named(keyboard::key::Named::ArrowUp)) => {
+                Some(MovementShortcut::MoveSiblingPrevious)
+            }
+            | (Self::MovementReorder, keyboard::Key::Named(keyboard::key::Named::ArrowDown)) => {
+                Some(MovementShortcut::MoveSiblingNext)
+            }
+            | _ => self.movement_shortcut(),
+        }
+    }
+
+    /// Convert one global shortcut id into the emitted application message.
+    fn global_message(self) -> Option<Message> {
+        match self {
+            | Self::GlobalToggleFind => Some(Message::Find(FindMessage::Toggle)),
+            | Self::GlobalFindNext => Some(Message::Find(FindMessage::JumpNext)),
+            | Self::GlobalFindPrevious => Some(Message::Find(FindMessage::JumpPrevious)),
+            | Self::GlobalUndo => Some(Message::UndoRedo(UndoRedoMessage::Undo)),
+            | Self::GlobalRedo => Some(Message::UndoRedo(UndoRedoMessage::Redo)),
+            | _ => None,
+        }
+    }
+}
+
+/// Resolve a structure action shortcut from a key press.
+///
+/// The action inventory comes from [`ShortcutCatalog`] so the help banner and
+/// runtime dispatch stay aligned. The matching policy remains unchanged:
+/// `Cmd` and `Ctrl` are both accepted to tolerate backend differences in editor
+/// key events.
+pub fn action_shortcut_from_key(
+    key: keyboard::Key, modifiers: keyboard::Modifiers,
+) -> Option<ActionId> {
+    action_shortcut_id_from_key(&key, modifiers).and_then(ShortcutId::action_id)
+}
+
+/// Resolve a global non-row-specific shortcut from a key press.
+///
+/// Note: this intentionally excludes `Escape`, multiselect click gestures, and
+/// the backspace behavior rows because those are handled by specialized event
+/// paths rather than one shared shortcut dispatch entry point.
+pub fn global_shortcut_message_from_key(
+    key: &keyboard::Key, modifiers: keyboard::Modifiers,
+) -> Option<Message> {
+    global_shortcut_id_from_key(key, modifiers).and_then(ShortcutId::global_message)
+}
+
+fn action_shortcut_id_from_key(
+    key: &keyboard::Key, modifiers: keyboard::Modifiers,
+) -> Option<ShortcutId> {
+    ShortcutCatalog::banner_specs().iter().find_map(|spec| match spec.id {
+        | ShortcutId::Action(_) if action_shortcut_id_matches_key(spec.id, key, modifiers) => {
+            Some(spec.id)
+        }
+        | _ => None,
+    })
+}
+
+fn global_shortcut_id_from_key(
+    key: &keyboard::Key, modifiers: keyboard::Modifiers,
+) -> Option<ShortcutId> {
+    ShortcutCatalog::banner_specs().iter().find_map(|spec| match spec.id {
+        | ShortcutId::GlobalToggleFind
+        | ShortcutId::GlobalFindNext
+        | ShortcutId::GlobalFindPrevious
+        | ShortcutId::GlobalUndo
+        | ShortcutId::GlobalRedo
+            if global_shortcut_id_matches_key(spec.id, key, modifiers) =>
+        {
+            Some(spec.id)
+        }
+        | _ => None,
+    })
+}
+
+fn action_shortcut_id_matches_key(
+    id: ShortcutId, key: &keyboard::Key, modifiers: keyboard::Modifiers,
+) -> bool {
+    match id {
+        | ShortcutId::Action(ActionId::Amplify) => {
+            matches_command_or_ctrl_character(key, modifiers, ".", false)
+        }
+        | ShortcutId::Action(ActionId::Distill) => {
+            matches_command_or_ctrl_character(key, modifiers, ",", false)
+        }
+        | ShortcutId::Action(ActionId::Atomize) => {
+            matches_command_or_ctrl_character(key, modifiers, "/", false)
+        }
+        | ShortcutId::Action(ActionId::AddChild) => {
+            matches_command_or_ctrl_named(key, modifiers, keyboard::key::Named::Enter, false)
+        }
+        | ShortcutId::Action(ActionId::AddSibling) => {
+            matches_command_or_ctrl_named(key, modifiers, keyboard::key::Named::Enter, true)
+        }
+        | ShortcutId::Action(ActionId::AcceptAll) => {
+            matches_command_or_ctrl_character(key, modifiers, "a", true)
+        }
+        | ShortcutId::Action(_) | _ => false,
+    }
+}
+
+fn global_shortcut_id_matches_key(
+    id: ShortcutId, key: &keyboard::Key, modifiers: keyboard::Modifiers,
+) -> bool {
+    match id {
+        | ShortcutId::GlobalToggleFind => matches_command_character(key, modifiers, "f", false),
+        | ShortcutId::GlobalFindNext => matches_command_character(key, modifiers, "g", false),
+        | ShortcutId::GlobalFindPrevious => matches_command_character(key, modifiers, "g", true),
+        | ShortcutId::GlobalUndo => matches_command_character(key, modifiers, "z", false),
+        | ShortcutId::GlobalRedo => matches_command_character(key, modifiers, "z", true),
+        | _ => false,
+    }
+}
+
+fn matches_command_or_ctrl_character(
+    key: &keyboard::Key, modifiers: keyboard::Modifiers, value: &str, shifted: bool,
+) -> bool {
+    if !(modifiers.command() || modifiers.control()) {
+        return false;
+    }
+    if modifiers.shift() != shifted {
+        return false;
+    }
+
+    matches!(key, keyboard::Key::Character(candidate) if candidate.eq_ignore_ascii_case(value))
+}
+
+fn matches_command_or_ctrl_named(
+    key: &keyboard::Key, modifiers: keyboard::Modifiers, named: keyboard::key::Named, shifted: bool,
+) -> bool {
+    if !(modifiers.command() || modifiers.control()) {
+        return false;
+    }
+    if modifiers.shift() != shifted {
+        return false;
+    }
+
+    matches!(key, keyboard::Key::Named(candidate) if *candidate == named)
+}
+
+fn matches_command_character(
+    key: &keyboard::Key, modifiers: keyboard::Modifiers, value: &str, shifted: bool,
+) -> bool {
+    if !modifiers.command() {
+        return false;
+    }
+    if modifiers.shift() != shifted {
+        return false;
+    }
+
+    matches!(key, keyboard::Key::Character(candidate) if candidate.eq_ignore_ascii_case(value))
+}
+
 /// Direction for sibling traversal and reordering helpers.
 ///
 /// Both directions use cyclic (wrap-around) semantics within one sibling
@@ -422,10 +614,10 @@ pub fn movement_shortcut_from_key(
     key: &keyboard::Key, modified_key: &keyboard::Key, physical_key: keyboard::key::Physical,
     modifiers: keyboard::Modifiers,
 ) -> Option<ShortcutMessage> {
-    if let Some(shortcut) =
-        movement_shortcut_from_bracket_key(key, modified_key, physical_key, modifiers)
+    if let Some(shortcut_id) =
+        movement_shortcut_id_from_bracket_key(key, modified_key, physical_key, modifiers)
     {
-        return Some(ShortcutMessage::Movement(shortcut));
+        return shortcut_id.movement_shortcut_for_arrow(key).map(ShortcutMessage::Movement);
     }
 
     #[cfg(target_os = "macos")]
@@ -437,39 +629,35 @@ pub fn movement_shortcut_from_key(
         return None;
     }
 
-    let shortcut = match key {
-        | keyboard::Key::Named(keyboard::key::Named::ArrowUp) => {
-            if modifiers.shift() {
-                MovementShortcut::MoveSiblingPrevious
-            } else {
-                MovementShortcut::FocusSiblingPrevious
-            }
-        }
+    let shortcut_id = match key {
+        | keyboard::Key::Named(keyboard::key::Named::ArrowUp)
         | keyboard::Key::Named(keyboard::key::Named::ArrowDown) => {
             if modifiers.shift() {
-                MovementShortcut::MoveSiblingNext
+                ShortcutId::MovementReorder
             } else {
-                MovementShortcut::FocusSiblingNext
+                ShortcutId::MovementFocus
             }
         }
-        | keyboard::Key::Named(keyboard::key::Named::ArrowLeft) => {
-            if modifiers.shift() {
-                MovementShortcut::MoveAfterParent
-            } else {
-                MovementShortcut::FocusParent
-            }
-        }
+        | keyboard::Key::Named(keyboard::key::Named::ArrowLeft)
         | keyboard::Key::Named(keyboard::key::Named::ArrowRight) => {
             if modifiers.shift() {
-                MovementShortcut::MoveToPreviousSiblingFirstChild
+                match key {
+                    | keyboard::Key::Named(keyboard::key::Named::ArrowLeft) => {
+                        ShortcutId::MovementOutdent
+                    }
+                    | keyboard::Key::Named(keyboard::key::Named::ArrowRight) => {
+                        ShortcutId::MovementIndent
+                    }
+                    | _ => unreachable!("left/right match arm already filtered the key"),
+                }
             } else {
-                MovementShortcut::FocusFirstChild
+                ShortcutId::MovementFocus
             }
         }
         | _ => return None,
     };
 
-    Some(ShortcutMessage::Movement(shortcut))
+    shortcut_id.movement_shortcut_for_arrow(key).map(ShortcutMessage::Movement)
 }
 
 /// Parse bracket aliases for structural movement shortcuts.
@@ -480,10 +668,10 @@ pub fn movement_shortcut_from_key(
 /// all execution paths (undo, tracing, and persistence) remain shared.
 /// Note: `keyboard::Modifiers::command()` aliases Control on non-macOS, so
 /// this parser must check the physical logo/command key explicitly.
-fn movement_shortcut_from_bracket_key(
+fn movement_shortcut_id_from_bracket_key(
     key: &keyboard::Key, modified_key: &keyboard::Key, physical_key: keyboard::key::Physical,
     modifiers: keyboard::Modifiers,
-) -> Option<MovementShortcut> {
+) -> Option<ShortcutId> {
     #[cfg(target_os = "macos")]
     let has_bracket_modifier =
         modifiers.command() && !modifiers.control() && !modifiers.alt() && !modifiers.shift();
@@ -495,41 +683,35 @@ fn movement_shortcut_from_bracket_key(
         return None;
     }
 
-    movement_shortcut_from_bracket_logical_key(key)
-        .or_else(|| movement_shortcut_from_bracket_logical_key(modified_key))
-        .or_else(|| movement_shortcut_from_bracket_physical_key(physical_key))
+    movement_shortcut_id_from_bracket_logical_key(key)
+        .or_else(|| movement_shortcut_id_from_bracket_logical_key(modified_key))
+        .or_else(|| movement_shortcut_id_from_bracket_physical_key(physical_key))
 }
 
-fn movement_shortcut_from_bracket_logical_key(key: &keyboard::Key) -> Option<MovementShortcut> {
+fn movement_shortcut_id_from_bracket_logical_key(key: &keyboard::Key) -> Option<ShortcutId> {
     match key {
-        | keyboard::Key::Character(value) if value == "[" => {
-            Some(MovementShortcut::MoveAfterParent)
-        }
-        | keyboard::Key::Character(value) if value == "]" => {
-            Some(MovementShortcut::MoveToPreviousSiblingFirstChild)
-        }
+        | keyboard::Key::Character(value) if value == "[" => Some(ShortcutId::MovementOutdent),
+        | keyboard::Key::Character(value) if value == "]" => Some(ShortcutId::MovementIndent),
         // Some backends can resolve command+bracket chords to browser-history
         // logical keys instead of the literal bracket character.
         | keyboard::Key::Named(keyboard::key::Named::BrowserBack)
-        | keyboard::Key::Named(keyboard::key::Named::GoBack) => {
-            Some(MovementShortcut::MoveAfterParent)
-        }
+        | keyboard::Key::Named(keyboard::key::Named::GoBack) => Some(ShortcutId::MovementOutdent),
         | keyboard::Key::Named(keyboard::key::Named::BrowserForward) => {
-            Some(MovementShortcut::MoveToPreviousSiblingFirstChild)
+            Some(ShortcutId::MovementIndent)
         }
         | _ => None,
     }
 }
 
-fn movement_shortcut_from_bracket_physical_key(
+fn movement_shortcut_id_from_bracket_physical_key(
     physical_key: keyboard::key::Physical,
-) -> Option<MovementShortcut> {
+) -> Option<ShortcutId> {
     match physical_key {
         | keyboard::key::Physical::Code(keyboard::key::Code::BracketLeft) => {
-            Some(MovementShortcut::MoveAfterParent)
+            Some(ShortcutId::MovementOutdent)
         }
         | keyboard::key::Physical::Code(keyboard::key::Code::BracketRight) => {
-            Some(MovementShortcut::MoveToPreviousSiblingFirstChild)
+            Some(ShortcutId::MovementIndent)
         }
         | _ => None,
     }
@@ -971,6 +1153,33 @@ mod tests {
         {
             keyboard::Modifiers::CTRL
         }
+    }
+
+    #[test]
+    fn global_shortcut_registry_resolves_find_toggle() {
+        let message = global_shortcut_message_from_key(
+            &keyboard::Key::Character("f".into()),
+            keyboard::Modifiers::COMMAND,
+        );
+        assert!(matches!(message, Some(Message::Find(FindMessage::Toggle))));
+    }
+
+    #[test]
+    fn global_shortcut_registry_resolves_redo() {
+        let message = global_shortcut_message_from_key(
+            &keyboard::Key::Character("z".into()),
+            keyboard::Modifiers::COMMAND | keyboard::Modifiers::SHIFT,
+        );
+        assert!(matches!(message, Some(Message::UndoRedo(UndoRedoMessage::Redo))));
+    }
+
+    #[test]
+    fn action_shortcut_registry_resolves_accept_all() {
+        let action = action_shortcut_from_key(
+            keyboard::Key::Character("a".into()),
+            keyboard::Modifiers::COMMAND | keyboard::Modifiers::SHIFT,
+        );
+        assert_eq!(action, Some(ActionId::AcceptAll));
     }
 
     #[test]
