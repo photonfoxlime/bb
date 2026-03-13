@@ -1,8 +1,13 @@
 //! Inline panel host for focused block-local panels.
 //!
 //! This module owns the chrome around block-local panels such as References and
-//! Probe: the toggle bar that appears below the block row and the active
-//! panel body shown beneath it.
+//! Probe: the toggle bar that appears below the block row and the panel bodies
+//! shown beneath it.
+//!
+//! References still use the persisted single-select `BlockPanelBarState`,
+//! whereas probe panels are transient and may coexist with the references
+//! panel. The host therefore renders these surfaces independently instead of
+//! assuming a single active body.
 //!
 //! Keeping this host separate from `document.rs` narrows the future merge seam
 //! for reference-style panels. `DocumentView` can treat the panel area as one
@@ -66,27 +71,33 @@ impl<'a> BlockPanelHost<'a> {
         container(button_row).padding(Padding::ZERO.right(theme::INDENT)).into()
     }
 
-    /// Render the currently active panel body.
+    /// Render the currently visible panel bodies.
     ///
     /// Returns an empty element for non-focused rows or when no block-local
-    /// panel is open.
+    /// panel is open. Probe panels are rendered independently from the
+    /// persisted reference-panel selection so they can stack together.
     pub fn body(&self) -> Element<'a, Message> {
         if !self.is_focused {
             return column![].into();
         }
 
-        match self.state.store.block_panel_state(&self.block_id) {
-            | Some(BlockPanelBarState::References) => {
-                container(reference_panel::view(self.state, self.block_id))
-                    .width(Length::Fill)
-                    .into()
-            }
-            | Some(BlockPanelBarState::Probe) => {
-                container(instruction_panel::view(self.state, self.block_id))
-                    .width(Length::Fill)
-                    .into()
-            }
-            | None => column![].into(),
+        let mut body = column![].spacing(theme::PANEL_INNER_GAP);
+
+        if matches!(
+            self.state.store.block_panel_state(&self.block_id),
+            Some(BlockPanelBarState::References)
+        ) {
+            body = body.push(
+                container(reference_panel::view(self.state, self.block_id)).width(Length::Fill),
+            );
         }
+
+        if self.state.ui().probe_panels.contains_key(&self.block_id) {
+            body = body.push(
+                container(instruction_panel::view(self.state, self.block_id)).width(Length::Fill),
+            );
+        }
+
+        body.into()
     }
 }

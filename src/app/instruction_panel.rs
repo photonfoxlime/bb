@@ -11,6 +11,11 @@
 //! toggle surface: once created, a panel is only closed by actions inside that
 //! panel.
 //!
+//! Probe panels are intentionally decoupled from the persisted block-panel bar
+//! selection. The reference panel still uses that single-select persisted slot,
+//! while probe panels stack independently so opening a probe never collapses an
+//! already-open reference panel.
+//!
 //! A panel's visible context is the union of:
 //! - the block point itself,
 //! - the full parent chain (root -> target),
@@ -50,7 +55,7 @@
 //! exists, that header close affordance is intentionally hidden so dismissing
 //! the result remains an explicit action.
 
-use crate::app::{AppState, BlockPanelBarState, Message, RequestSignature};
+use crate::app::{AppState, Message, RequestSignature};
 use crate::component::floating_panel::PanelHeader;
 use crate::component::icon_button::IconButton;
 use crate::component::text_button::TextButton;
@@ -126,7 +131,6 @@ pub fn handle(
                 .entry(target_block_id)
                 .or_default()
                 .push(ProbePanelState::new(panel_id));
-            state.store.set_block_panel_state(&target_block_id, Some(BlockPanelBarState::Probe));
             state.persist_with_context("after opening probe panel");
             iced::Task::none()
         }
@@ -450,7 +454,6 @@ fn remove_probe_panel(state: &mut AppState, block_id: BlockId, panel_id: ProbePa
 
     if became_empty {
         state.ui_mut().probe_panels.remove(&block_id);
-        state.store.set_block_panel_state(&block_id, None);
         state.persist_with_context("after removing last probe panel");
     }
 }
@@ -471,12 +474,7 @@ fn panel_response(state: &AppState, block_id: BlockId, panel_id: ProbePanelId) -
 
 /// Render all probe panels for `target_block_id`.
 pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Message> {
-    use crate::store::BlockPanelBarState;
     use iced::widget::{column, row, scrollable};
-
-    if !matches!(state.store.block_panel_state(&target_block_id), Some(BlockPanelBarState::Probe)) {
-        return container(iced::widget::Text::new("")).into();
-    }
 
     let Some(panels) = state.ui().probe_panels.get(&target_block_id) else {
         return container(iced::widget::Text::new("")).into();
@@ -710,7 +708,6 @@ mod tests {
 
         assert_ne!(first, second);
         assert_eq!(state.ui().probe_panels[&root].len(), 2);
-        assert_eq!(state.store.block_panel_state(&root).copied(), Some(BlockPanelBarState::Probe));
     }
 
     #[test]
@@ -734,7 +731,7 @@ mod tests {
     }
 
     #[test]
-    fn close_last_panel_clears_probe_panel_state() {
+    fn close_last_panel_clears_last_transient_probe_panel() {
         let (mut state, root) = test_state();
         state.set_focus(root);
         let panel_id = open_panel(&mut state, root);
@@ -745,7 +742,20 @@ mod tests {
         );
 
         assert!(state.ui().probe_panels.get(&root).is_none());
-        assert_eq!(state.store.block_panel_state(&root).copied(), None);
+    }
+
+    #[test]
+    fn opening_probe_panel_preserves_reference_panel_selection() {
+        let (mut state, root) = test_state();
+        state.set_focus(root);
+        state.store.set_block_panel_state(&root, Some(BlockPanelBarState::References));
+
+        let _ = open_panel(&mut state, root);
+
+        assert_eq!(
+            state.store.block_panel_state(&root).copied(),
+            Some(BlockPanelBarState::References)
+        );
     }
 
     #[test]
