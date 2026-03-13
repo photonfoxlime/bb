@@ -43,14 +43,14 @@
 
 use super::action_bar::{ActionId, shortcut_to_action};
 use super::{ContextMenuMessage, EditMessage, Message, ShortcutMessage};
-use crate::store::{BlockId, LinkKind, PointLink};
+use crate::component::point_link_list::PointLinkList;
+use crate::store::{BlockId, PointLink};
 use crate::theme;
 use iced::{
     Element, Fill, Length, Point,
     keyboard::{Key, key::Named},
-    widget::{self, button, column, container, markdown, mouse_area, row, text, text_editor},
+    widget::{self, column, container, markdown, mouse_area, text, text_editor},
 };
-use lucide_icons::iced as icons;
 use rust_i18n::t;
 
 /// Horizontal cursor movement direction for word-step shortcuts.
@@ -136,75 +136,20 @@ impl<'a, Message: Clone + 'static + 'a> PointTextEditor<'a, Message> {
             return container(text(point_text)).width(Fill).height(Length::Shrink).into();
         }
 
-        // Build link chips column (empty when no links attached).
         let mut outer_col = column![].width(Fill);
-
-        for (i, link) in links.iter().enumerate() {
-            let kind_icon: Element<'a, Message> = match link.kind {
-                | LinkKind::Image => icons::icon_image().size(theme::LINK_CHIP_ICON_SIZE).into(),
-                | LinkKind::Markdown => {
-                    icons::icon_file_text().size(theme::LINK_CHIP_ICON_SIZE).into()
-                }
-                | LinkKind::Path => icons::icon_link().size(theme::LINK_CHIP_ICON_SIZE).into(),
-            };
-            let label_text = link.display_text().to_owned();
-
-            let expand_btn = button(
-                row![kind_icon, text(label_text).size(theme::LINK_CHIP_TEXT_SIZE)]
-                    .spacing(theme::LINK_CHIP_ICON_GAP)
-                    .align_y(iced::Alignment::Center),
-            )
-            .style(theme::link_chip_button)
-            .padding(theme::LINK_CHIP_PAD)
-            .on_press(on_link_chip_toggle(block_id, i));
-
-            let remove_btn = button(
-                icons::icon_x()
-                    .size(theme::LINK_CHIP_ICON_SIZE)
-                    .line_height(iced::widget::text::LineHeight::Relative(1.0)),
-            )
-            .style(theme::link_chip_button)
-            .padding(theme::LINK_CHIP_PAD)
-            .on_press(on_remove_link(block_id, i));
-
-            let chip_row = row![expand_btn, remove_btn]
-                .spacing(theme::LINK_CHIP_ICON_GAP)
-                .align_y(iced::Alignment::Center);
-
-            let mut chip_col = column![chip_row];
-
-            // Inline preview when this chip is expanded.
-            if expanded_link_index == Some(i) {
-                match link.kind {
-                    | LinkKind::Image => {
-                        let img =
-                            iced::widget::image(iced::widget::image::Handle::from_path(&link.href))
-                                .width(Fill);
-                        chip_col = chip_col.push(img);
-                    }
-                    | LinkKind::Markdown => {
-                        if let Some(markdown_preview) = expanded_markdown_preview {
-                            let markdown_widget: Element<'a, Message> = markdown::view(
-                                markdown_preview,
-                                theme::markdown_preview_settings(is_dark_mode),
-                            )
-                            .map(move |uri| on_markdown_preview_link(block_id, uri))
-                            .into();
-                            chip_col = chip_col.push(
-                                container(markdown_widget)
-                                    .padding(theme::LINK_CHIP_PAD)
-                                    .width(Fill),
-                            );
-                        }
-                    }
-                    | LinkKind::Path => {
-                        // No preview for generic paths.
-                    }
-                }
+        outer_col = outer_col.push(
+            PointLinkList {
+                block_id,
+                links,
+                expanded_link_index,
+                expanded_markdown_preview,
+                is_dark_mode,
+                on_link_chip_toggle,
+                on_remove_link,
+                on_markdown_preview_link,
             }
-
-            outer_col = outer_col.push(chip_col);
-        }
+            .view(),
+        );
 
         // Text editor — always rendered.
         // Safety: editor_content is always Some for non-plain-text blocks.
