@@ -394,27 +394,25 @@ fn sync_instruction_panel_from_store(state: &mut AppState, target_block_id: &Blo
     state.editor_buffers.set_instruction_text(&instruction);
 }
 
-/// Render the instruction panel for the focused block.
-pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
+/// Render the instruction panel for `target_block_id`.
+///
+/// The target is explicit so the inline block panel host can decide which row
+/// owns the panel without relying on global focus reads here.
+pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Message> {
     use crate::store::BlockPanelBarState;
     use iced::Padding;
     use iced::widget::{column, row, scrollable};
 
-    let block_id = match state.focus().map(|s| s.block_id) {
-        | Some(id)
-            if matches!(
-                state.store.block_panel_state(&id),
-                Some(BlockPanelBarState::Instruction)
-            ) =>
-        {
-            id
-        }
-        | _ => return container(iced::widget::Text::new("")).into(),
-    };
+    if !matches!(
+        state.store.block_panel_state(&target_block_id),
+        Some(BlockPanelBarState::Instruction)
+    ) {
+        return container(iced::widget::Text::new("")).into();
+    }
 
     let instruction_content = state.editor_buffers.instruction_content();
-    let inquiry_result = state.store.probe_draft(&block_id);
-    let is_probing = state.llm_requests.is_probing(block_id);
+    let inquiry_result = state.store.probe_draft(&target_block_id);
+    let is_probing = state.llm_requests.is_probing(target_block_id);
 
     let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
 
@@ -456,7 +454,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                     .height(theme::INSTRUCTION_EDITOR_HEIGHT)
                     .on_action(move |action| {
                         Message::InstructionPanel(
-                            block_id,
+                            target_block_id,
                             InstructionPanelMessage::TextEdited(action),
                         )
                     }),
@@ -473,7 +471,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             )
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
             .on_press(Message::InstructionPanel(
-                block_id,
+                target_block_id,
                 InstructionPanelMessage::AmplifyWithInstruction,
             )),
         );
@@ -485,7 +483,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             )
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
             .on_press(Message::InstructionPanel(
-                block_id,
+                target_block_id,
                 InstructionPanelMessage::DistillWithInstruction,
             )),
         );
@@ -493,7 +491,10 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         button_row = button_row.push(
             TextButton::action(t!("instruction_probe").to_string(), theme::INSTRUCTION_BUTTON_SIZE)
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::Probe)),
+                .on_press(Message::InstructionPanel(
+                    target_block_id,
+                    InstructionPanelMessage::Probe,
+                )),
         );
 
         instruction_section = instruction_section.push(button_row);
@@ -515,7 +516,10 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
             )
             .style(theme::destructive_button)
             .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(block_id, InstructionPanelMessage::CancelProbe)),
+            .on_press(Message::InstructionPanel(
+                target_block_id,
+                InstructionPanelMessage::CancelProbe,
+            )),
         );
         panel = panel.push(button_row);
     }
@@ -538,7 +542,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                         label: t!("instruction_apply_rewrite").to_string(),
                         style: PanelButtonStyle::Action,
                         on_press: Message::InstructionPanel(
-                            block_id,
+                            target_block_id,
                             InstructionPanelMessage::ApplyInstructionRewrite,
                         ),
                     },
@@ -546,7 +550,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                         label: t!("instruction_append_block").to_string(),
                         style: PanelButtonStyle::Action,
                         on_press: Message::InstructionPanel(
-                            block_id,
+                            target_block_id,
                             InstructionPanelMessage::AppendInstructionResponse,
                         ),
                     },
@@ -554,7 +558,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                         label: t!("instruction_add_child").to_string(),
                         style: PanelButtonStyle::Action,
                         on_press: Message::InstructionPanel(
-                            block_id,
+                            target_block_id,
                             InstructionPanelMessage::AddInstructionResponseAsChild,
                         ),
                     },
@@ -562,7 +566,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
                         label: t!("ui_discard").to_string(),
                         style: PanelButtonStyle::Destructive,
                         on_press: Message::InstructionPanel(
-                            block_id,
+                            target_block_id,
                             InstructionPanelMessage::Dismiss,
                         ),
                     },

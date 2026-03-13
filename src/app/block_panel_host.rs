@@ -97,10 +97,12 @@ impl<'a> BlockPanelHost<'a> {
 
         match self.state.store.block_panel_state(&self.block_id) {
             | Some(BlockPanelBarState::Friends) => {
-                container(friends_panel::view(self.state)).width(Length::Fill).into()
+                container(friends_panel::view(self.state, self.block_id)).width(Length::Fill).into()
             }
             | Some(BlockPanelBarState::Instruction) => {
-                container(instruction_panel::view(self.state)).width(Length::Fill).into()
+                container(instruction_panel::view(self.state, self.block_id))
+                    .width(Length::Fill)
+                    .into()
             }
             | None => column![].into(),
         }

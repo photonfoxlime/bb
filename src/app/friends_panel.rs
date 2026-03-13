@@ -208,24 +208,24 @@ pub fn handle(state: &mut AppState, msg: FriendPanelMessage) -> Task<Message> {
     }
 }
 
-/// Render the friends panel for the focused block.
-pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
-    let block_id = match state.focus().map(|s| s.block_id) {
-        | Some(id) => id,
-        | None => return column![].into(),
-    };
+/// Render the friends panel for `target_block_id`.
+///
+/// Note: the target is explicit so document-level panel hosts can decide which
+/// block owns the panel without requiring this view to read global focus.
+pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Message> {
+    let is_picker_mode = matches!(
+        state.store.block_panel_state(&target_block_id),
+        Some(BlockPanelBarState::Friends)
+    );
 
-    let is_picker_mode =
-        matches!(state.store.block_panel_state(&block_id), Some(BlockPanelBarState::Friends));
-
-    let friends = state.store.friend_blocks_for(&block_id);
+    let friends = state.store.friend_blocks_for(&target_block_id);
 
     // Header with "+" button to start friend picker
     let mut header = row![].spacing(theme::PANEL_BUTTON_GAP);
     header = header.push(
         TextButton::action(rust_i18n::t!("ui_add").to_string(), theme::FRIEND_POINT_SIZE)
             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::FriendPanel(FriendPanelMessage::StartFriendPicker(block_id))),
+            .on_press(Message::FriendPanel(FriendPanelMessage::StartFriendPicker(target_block_id))),
     );
 
     let message_text = if is_picker_mode {
@@ -259,7 +259,7 @@ pub fn view<'a>(state: &'a AppState) -> Element<'a, Message> {
         let point_text = state.store.point(&friend.block_id).unwrap_or_default();
         let perspective_label = friend.perspective.as_deref().unwrap_or("").trim();
         let friend_id = friend.block_id;
-        let target = block_id;
+        let target = target_block_id;
 
         let is_editing_this = state.ui().editing_friend_perspective == Some((target, friend_id));
         let placeholder = rust_i18n::t!("doc_friend_perspective_placeholder").to_string();
