@@ -414,6 +414,10 @@ pub const BUTTON_DANGER_BG_HOVER_OPACITY: f32 = 0.08;
 pub const BUTTON_DANGER_BORDER_HOVER_OPACITY: f32 = 0.3;
 /// Danger background opacity on destructive button press.
 pub const BUTTON_DANGER_BG_PRESSED_OPACITY: f32 = 0.14;
+/// Danger background opacity on close-button hover.
+pub const BUTTON_CLOSE_BG_HOVER_OPACITY: f32 = 0.05;
+/// Danger border opacity on close-button hover.
+pub const BUTTON_CLOSE_BORDER_HOVER_OPACITY: f32 = 0.18;
 /// Error banner background opacity.
 pub const ERROR_BANNER_BG_OPACITY: f32 = 0.15;
 /// Error banner border opacity.
@@ -590,6 +594,45 @@ pub fn destructive_button(theme: &Theme, status: button::Status) -> button::Styl
                 )
             },
             background: Some(Color { a: BUTTON_DANGER_BG_PRESSED_OPACITY, ..p.danger }.into()),
+            ..base
+        },
+        | button::Status::Disabled => button::Style { text_color: p.spine, ..base },
+    }
+}
+
+/// Close-button variant with a softer red hover than destructive actions.
+pub fn close_button(theme: &Theme, status: button::Status) -> button::Style {
+    let p = focused_palette(theme);
+    let base = button::Style {
+        background: None,
+        text_color: p.accent_muted,
+        border: border::rounded(BORDER_RADIUS_BUTTON).width(0).color(Color::TRANSPARENT),
+        shadow: Default::default(),
+        snap: false,
+    };
+    match status {
+        | button::Status::Active => base,
+        | button::Status::Hovered => button::Style {
+            text_color: p.danger,
+            background: Some(Color { a: BUTTON_CLOSE_BG_HOVER_OPACITY, ..p.danger }.into()),
+            border: border::rounded(BORDER_RADIUS_BUTTON)
+                .width(1)
+                .color(Color { a: BUTTON_CLOSE_BORDER_HOVER_OPACITY, ..p.danger }),
+            ..base
+        },
+        | button::Status::Pressed => button::Style {
+            text_color: Color {
+                a: 1.0,
+                ..Color::from_rgb(
+                    DESTRUCTIVE_PRESSED_R,
+                    DESTRUCTIVE_PRESSED_G,
+                    DESTRUCTIVE_PRESSED_B,
+                )
+            },
+            background: Some(Color { a: BUTTON_DANGER_BG_PRESSED_OPACITY, ..p.danger }.into()),
+            border: border::rounded(BORDER_RADIUS_BUTTON)
+                .width(1)
+                .color(Color { a: BUTTON_DANGER_BORDER_HOVER_OPACITY, ..p.danger }),
             ..base
         },
         | button::Status::Disabled => button::Style { text_color: p.spine, ..base },

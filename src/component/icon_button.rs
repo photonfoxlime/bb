@@ -76,14 +76,18 @@ impl IconButton {
     pub fn close_with_size<'a, Message: 'a>(
         icon_size: f32, button_size: f32, icon_padding: f32,
     ) -> button::Button<'a, Message> {
-        Self::action_with_size(
+        button(Self::frame(
             icons::icon_x()
                 .size(icon_size)
                 .line_height(iced::widget::text::LineHeight::Relative(1.0))
                 .into(),
             button_size,
             icon_padding,
-        )
+        ))
+        .style(theme::close_button)
+        .padding(iced::Padding::ZERO)
+        .width(Length::Fixed(button_size))
+        .height(Length::Fixed(button_size))
     }
 
     /// Build the standard compact close control used by panel headers.

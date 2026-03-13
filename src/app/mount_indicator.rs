@@ -101,17 +101,32 @@ pub fn view<'a>(vm: MountIndicatorVm<'a>) -> Element<'a, Message> {
     };
 
     let overflow_toggle_btn: Element<'a, Message> = {
-        let (icon, tooltip_label) = if vm.is_overflow_open {
-            (icons::icon_x(), t!("ui_close").to_string())
+        let (btn, tooltip_label) = if vm.is_overflow_open {
+            (
+                IconButton::close_with_size(
+                    theme::TOOLBAR_ICON_SIZE,
+                    theme::ICON_BUTTON_SIZE,
+                    theme::BUTTON_PAD,
+                )
+                .on_press(Message::Overlay(
+                    OverlayMessage::ToggleMountActionsOverflow(vm.block_id),
+                )),
+                t!("ui_close").to_string(),
+            )
         } else {
-            (icons::icon_ellipsis(), t!("ui_more").to_string())
+            (
+                IconButton::action(
+                    icons::icon_ellipsis()
+                        .size(theme::TOOLBAR_ICON_SIZE)
+                        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+                        .into(),
+                )
+                .on_press(Message::Overlay(
+                    OverlayMessage::ToggleMountActionsOverflow(vm.block_id),
+                )),
+                t!("ui_more").to_string(),
+            )
         };
-        let btn = IconButton::action(
-            icon.size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
-        )
-        .on_press(Message::Overlay(OverlayMessage::ToggleMountActionsOverflow(vm.block_id)));
         tooltip(
             btn,
             text(tooltip_label).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
@@ -124,11 +139,10 @@ pub fn view<'a>(vm: MountIndicatorVm<'a>) -> Element<'a, Message> {
     };
 
     let confirm_close_btn: Element<'a, Message> = {
-        let btn = IconButton::action(
-            icons::icon_x()
-                .size(theme::TOOLBAR_ICON_SIZE)
-                .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                .into(),
+        let btn = IconButton::close_with_size(
+            theme::TOOLBAR_ICON_SIZE,
+            theme::ICON_BUTTON_SIZE,
+            theme::BUTTON_PAD,
         )
         .on_press(Message::MountFile(MountFileMessage::CancelInlineMountAllConfirm(vm.block_id)));
         tooltip(

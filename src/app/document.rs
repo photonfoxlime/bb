@@ -797,11 +797,10 @@ impl<'a> TreeView<'a> {
                 for descriptor in &vm.overflow {
                     actions_row = actions_row.push(self.render_action_button(block_id, descriptor));
                 }
-                let btn = IconButton::action(
-                    icons::icon_x()
-                        .size(theme::TOOLBAR_ICON_SIZE)
-                        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-                        .into(),
+                let btn = IconButton::close_with_size(
+                    theme::TOOLBAR_ICON_SIZE,
+                    theme::ICON_BUTTON_SIZE,
+                    theme::BUTTON_PAD,
                 )
                 .on_press(Message::Overlay(OverlayMessage::ToggleOverflow(*block_id)));
 
