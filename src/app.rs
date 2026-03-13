@@ -13,7 +13,7 @@
 //! The iced runtime is organized around two top-level screens:
 //!
 //! - `Document` renders the tree editor, action bar, breadcrumbs, mount
-//!   controls, friend/instruction panels, and floating find/link/help overlays.
+//!   controls, friend/probe panels, and floating find/link/help overlays.
 //! - `Settings` renders provider management, per-task LLM settings, locale and
 //!   appearance preferences, and resolved data/config paths.
 //!

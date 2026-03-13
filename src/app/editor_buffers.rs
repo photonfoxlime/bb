@@ -7,7 +7,7 @@
 //! hardcode UI strings; add keys to the locale files instead.
 //!
 //! Manages text editor buffers for each block in the tree, plus a shared
-//! buffer for the instruction panel in the overlay panel bar.
+//! buffer for the inline probe panel.
 
 use crate::store::{BlockId, BlockStore};
 use crate::text::{WordTokenSpan, WordTokenizationCache};
@@ -26,7 +26,7 @@ pub(crate) struct EditorBuffers {
     widget_ids: FxHashMap<BlockId, widget::Id>,
     /// Per-block cache of line tokenization for word-motion cursor shortcuts.
     word_token_cache: FxHashMap<BlockId, WordTokenizationCache>,
-    /// Text editor content for the instruction panel draft.
+    /// Text editor content for the probe-panel instruction draft.
     ///
     /// This buffer is independent from per-block point editors and is consumed
     /// by expand / reduce / atomize / inquire instruction submissions.
@@ -141,17 +141,17 @@ impl EditorBuffers {
         self.widget_ids.get(block_id)
     }
 
-    /// Get the instruction panel text editor content.
+    /// Get the probe-panel text editor content.
     pub(crate) fn instruction_content(&self) -> &text_editor::Content {
         &self.instruction_content
     }
 
-    /// Get mutable reference to instruction panel text editor content.
+    /// Get mutable reference to probe-panel text editor content.
     pub(crate) fn instruction_content_mut(&mut self) -> &mut text_editor::Content {
         &mut self.instruction_content
     }
 
-    /// Set instruction panel draft text.
+    /// Set probe-panel draft text.
     pub(crate) fn set_instruction_text(&mut self, text: &str) {
         self.instruction_content = text_editor::Content::with_text(text);
     }

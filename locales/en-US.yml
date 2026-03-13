@@ -104,7 +104,7 @@ error_title_single: "%{prefix}: %{message}"
 error_title_multi: "%{prefix} (%{total} total): %{message}"
 error_earlier: "Earlier: %{message}"
 error_older_count: "...and %{count} older error(s)"
-# Instruction panel
+# Probe panel
 instruction_placeholder: "Enter instruction..."
 instruction_probing: "Probing..."
 instruction_probe: "Probe"
@@ -137,6 +137,7 @@ settings_model_placeholder: "gpt-5.2"
 action_amplify: "Amplify"
 action_atomize: "Atomize"
 action_distill: "Distill"
+action_probe: "Probe"
 action_add_link: "Add link"
 link_kind_image: "Image"
 link_kind_markdown: "Markdown"
@@ -195,7 +196,7 @@ settings_custom_system_prompt: "System Prompt"
 settings_custom_user_prompt: "User Prompt"
 settings_custom_prompt_hint: "Leave empty to use default"
 
-# Instruction panel (additional)
+# Probe panel (additional)
 instruction_additional: "Additional instruction: %{instruction}"
 
 

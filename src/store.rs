@@ -156,7 +156,7 @@ pub struct BlockStore {
     pub friend_blocks: FxHashMap<BlockId, Vec<FriendBlock>>,
     /// Persisted per-block block panel bar state (which panel is open).
     ///
-    /// Stores whether the References or Instruction panel is open for each block.
+    /// Stores whether the References or Probe panel is open for each block.
     /// This survives reloads so the UI remembers which panel was last open.
     #[serde(default)]
     pub block_panel_state: FxHashMap<BlockId, BlockPanelBarState>,

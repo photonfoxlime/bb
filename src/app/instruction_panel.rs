@@ -1,4 +1,4 @@
-//! Instruction panel for LLM interactions.
+//! Probe panel for instruction-driven LLM interactions.
 //!
 //! Please use or create constants in `theme.rs` for all UI numeric values
 //! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
@@ -7,7 +7,9 @@
 //! hardcode UI strings; add keys to the locale files instead.
 //!
 //! This module defines the behavior contract for instruction-driven operations
-//! from one focused block. A block's visible context is the union of:
+//! from one focused block. The toolbar opens this panel via the dedicated
+//! `Probe` action instead of a secondary toggle strip button. A block's visible
+//! context is the union of:
 //! - the block point itself,
 //! - the full parent chain (root -> target),
 //! - all direct children of the target,
@@ -40,8 +42,14 @@
 //! - replace target point with response,
 //! - append response to target point,
 //! - add response as a new child under the target.
+//!
+//! Note: the editor phase has an explicit close button that clears the current
+//! input draft. Once a probe request is pending or a probe result exists, that
+//! header close affordance is intentionally hidden so dismissing the result
+//! remains an explicit action.
 
 use crate::app::{AppState, BlockPanelBarState, Message, RequestSignature};
+use crate::component::icon_button::IconButton;
 use crate::component::text_button::TextButton;
 use crate::llm;
 use crate::store::BlockId;
@@ -55,12 +63,14 @@ use std::time::Duration;
 
 const LLM_REQUEST_TIMEOUT: Duration = theme::INSTRUCTION_LLM_TIMEOUT;
 
-/// Message types for instruction panel interactions.
+/// Message types for probe-panel interactions.
 #[derive(Debug, Clone)]
 pub enum InstructionPanelMessage {
-    /// Toggle instruction panel visibility for the focused block.
+    /// Toggle probe panel visibility for the focused block.
     Toggle,
-    /// Text edited in the instruction panel.
+    /// Close the editor phase and discard the current instruction input draft.
+    CloseEditor,
+    /// Text edited in the probe panel.
     TextEdited(iced::widget::text_editor::Action),
     /// Send probe to LLM with the instruction.
     Probe,
@@ -90,8 +100,11 @@ pub enum InstructionPanelMessage {
     Dismiss,
 }
 
-/// Handle instruction panel messages.
-/// The block_id parameter is only needed for Toggle to check focus match.
+/// Handle probe-panel messages.
+///
+/// Note: `Toggle` preserves the current input buffer and persisted drafts so the
+/// toolbar action can behave as a reversible visibility toggle. `CloseEditor`
+/// is the destructive close path used by the editor-phase header button.
 pub fn handle(
     state: &mut AppState, target_block_id: BlockId, msg: InstructionPanelMessage,
 ) -> iced::Task<Message> {
@@ -100,15 +113,22 @@ pub fn handle(
     match msg {
         | InstructionPanelMessage::Toggle => {
             let current_state = state.store.block_panel_state(&target_block_id).copied();
-            if matches!(current_state, Some(BlockPanelBarState::Instruction)) {
+            if matches!(current_state, Some(BlockPanelBarState::Probe)) {
                 state.store.set_block_panel_state(&target_block_id, None);
             } else {
                 state
                     .store
-                    .set_block_panel_state(&target_block_id, Some(BlockPanelBarState::Instruction));
+                    .set_block_panel_state(&target_block_id, Some(BlockPanelBarState::Probe));
                 sync_instruction_panel_from_store(state, &target_block_id);
             }
-            state.persist_with_context("after toggling instruction panel");
+            state.persist_with_context("after toggling probe panel");
+            iced::Task::none()
+        }
+        | InstructionPanelMessage::CloseEditor => {
+            state.editor_buffers.set_instruction_text("");
+            state.store.remove_instruction_draft(&target_block_id);
+            state.store.set_block_panel_state(&target_block_id, None);
+            state.persist_with_context("after closing probe panel editor");
             iced::Task::none()
         }
         | InstructionPanelMessage::TextEdited(action) => {
@@ -137,7 +157,7 @@ pub fn handle(
             state.store.remove_instruction_draft(&target_block_id);
             state.persist_with_context("after storing inquiry and consuming instruction draft");
             state.editor_buffers.set_instruction_text("");
-            tracing::info!(block_id = ?target_block_id, "instruction inquiry started");
+            tracing::info!(block_id = ?target_block_id, "probe panel inquiry started");
             let probe_max_tokens = state.config.tasks.probe.token_limit.as_api_param();
             let prompt_config = llm::TaskPromptConfig::probe(
                 &state.config.tasks.probe.system_prompt,
@@ -280,7 +300,7 @@ pub fn handle(
             state.persist_with_context("after persisting instruction draft for amplify");
             state.editor_buffers.set_instruction_text("");
             state.store.set_block_panel_state(&target_block_id, None);
-            state.persist_with_context("after closing instruction panel");
+            state.persist_with_context("after closing probe panel");
             crate::app::AppState::update(
                 state,
                 Message::Patch(PatchMessage::Start {
@@ -298,7 +318,7 @@ pub fn handle(
             state.persist_with_context("after persisting instruction draft for distill");
             state.editor_buffers.set_instruction_text("");
             state.store.set_block_panel_state(&target_block_id, None);
-            state.persist_with_context("after closing instruction panel");
+            state.persist_with_context("after closing probe panel");
             crate::app::AppState::update(
                 state,
                 Message::Patch(PatchMessage::Start {
@@ -394,7 +414,11 @@ fn sync_instruction_panel_from_store(state: &mut AppState, target_block_id: &Blo
     state.editor_buffers.set_instruction_text(&instruction);
 }
 
-/// Render the instruction panel for `target_block_id`.
+fn is_showing_probe_result_phase(is_probing: bool, has_probe_draft: bool) -> bool {
+    is_probing || has_probe_draft
+}
+
+/// Render the probe panel for `target_block_id`.
 ///
 /// The target is explicit so the inline block panel host can decide which row
 /// owns the panel without relying on global focus reads here.
@@ -403,20 +427,19 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
     use iced::Padding;
     use iced::widget::{column, row, scrollable};
 
-    if !matches!(
-        state.store.block_panel_state(&target_block_id),
-        Some(BlockPanelBarState::Instruction)
-    ) {
+    if !matches!(state.store.block_panel_state(&target_block_id), Some(BlockPanelBarState::Probe)) {
         return container(iced::widget::Text::new("")).into();
     }
 
     let instruction_content = state.editor_buffers.instruction_content();
     let inquiry_result = state.store.probe_draft(&target_block_id);
     let is_probing = state.llm_requests.is_probing(target_block_id);
+    let is_showing_result_phase =
+        is_showing_probe_result_phase(is_probing, inquiry_result.is_some());
 
     let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
 
-    if is_probing || inquiry_result.is_some() {
+    if is_showing_result_phase {
         let inquiry_text = inquiry_result.as_ref().map(|r| r.inquiry.as_str()).unwrap_or_default();
 
         let inquiry_section = column![].spacing(theme::PANEL_INNER_GAP).push(
@@ -439,7 +462,25 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
         panel = panel.push(inquiry_section);
         panel = panel.push(inquiry_content);
     } else {
-        let mut instruction_section = column![].spacing(theme::PANEL_INNER_GAP);
+        let close_button = IconButton::action(
+            icons::icon_x().size(theme::TOOLBAR_ICON_SIZE).into(),
+        )
+        .on_press(Message::InstructionPanel(target_block_id, InstructionPanelMessage::CloseEditor));
+
+        let header = row![]
+            .spacing(theme::PANEL_BUTTON_GAP)
+            .align_y(iced::Alignment::Center)
+            .push(
+                container(
+                    text(t!("action_probe").to_string())
+                        .font(theme::INTER)
+                        .size(theme::INSTRUCTION_BUTTON_SIZE),
+                )
+                .width(iced::Length::Fill),
+            )
+            .push(close_button);
+
+        let mut instruction_section = column![header].spacing(theme::PANEL_INNER_GAP);
 
         instruction_section = instruction_section.push(
             container(
@@ -613,10 +654,7 @@ mod tests {
             Message::InstructionPanel(root, InstructionPanelMessage::Toggle),
         );
 
-        assert_eq!(
-            state.store.block_panel_state(&root).copied(),
-            Some(BlockPanelBarState::Instruction)
-        );
+        assert_eq!(state.store.block_panel_state(&root).copied(), Some(BlockPanelBarState::Probe));
         assert_eq!(state.editor_buffers.instruction_content().text(), "keep this instruction");
     }
 
@@ -643,7 +681,7 @@ mod tests {
     fn instruction_toggle_closes_panel_and_preserves_draft_state() {
         let (mut state, root) = test_state();
         state.set_focus(root);
-        state.store.set_block_panel_state(&root, Some(BlockPanelBarState::Instruction));
+        state.store.set_block_panel_state(&root, Some(BlockPanelBarState::Probe));
         state.store.set_instruction_draft(root, "prompt".to_string());
         state.store.set_probe_response(root, "result".to_string());
         let signature = state.block_context_signature(&root).expect("root has request signature");
@@ -663,6 +701,26 @@ mod tests {
         assert_eq!(state.store.probe_draft(&root).map(|r| r.response.as_str()), Some("result"));
         assert!(state.llm_requests.is_probing(root));
         assert_eq!(state.editor_buffers.instruction_content().text(), "keep me");
+    }
+
+    #[test]
+    fn close_editor_clears_instruction_input_and_persisted_draft_only() {
+        let (mut state, root) = test_state();
+        state.set_focus(root);
+        state.store.set_block_panel_state(&root, Some(BlockPanelBarState::Probe));
+        state.store.set_instruction_draft(root, "prompt".to_string());
+        state.store.set_probe_response(root, "result".to_string());
+        state.editor_buffers.set_instruction_text("keep me");
+
+        let _ = AppState::update(
+            &mut state,
+            Message::InstructionPanel(root, InstructionPanelMessage::CloseEditor),
+        );
+
+        assert_eq!(state.store.block_panel_state(&root).copied(), None);
+        assert!(state.store.instruction_draft(&root).is_none());
+        assert_eq!(state.editor_buffers.instruction_content().text(), "");
+        assert_eq!(state.store.probe_draft(&root).map(|r| r.response.as_str()), Some("result"));
     }
 
     #[test]
@@ -886,5 +944,12 @@ mod tests {
         );
 
         assert!(state.store.probe_draft(&root).is_none());
+    }
+
+    #[test]
+    fn result_phase_hides_editor_close_button() {
+        assert!(!is_showing_probe_result_phase(false, false));
+        assert!(is_showing_probe_result_phase(true, false));
+        assert!(is_showing_probe_result_phase(false, true));
     }
 }

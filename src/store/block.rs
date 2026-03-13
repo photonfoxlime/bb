@@ -81,12 +81,18 @@ pub enum Direction {
 ///
 /// This is stored per-block so each block remembers its own panel state
 /// across app restarts. Unlike runtime UI state, this survives save/load.
+///
+/// Note: the probe panel used to be serialized as `instruction`. Keep a
+/// deserialization alias so older persisted stores still load cleanly while new
+/// saves emit `probe`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlockPanelBarState {
     /// References panel - shows point links and friend relations for a block.
+    #[serde(rename = "references", alias = "References")]
     References,
-    /// Instruction panel - text editor for LLM instructions.
-    Instruction,
+    /// Probe panel - text editor for probe/amplify/distill instructions.
+    #[serde(rename = "probe", alias = "Probe", alias = "instruction", alias = "Instruction")]
+    Probe,
 }
 
 /// One node in the block tree.
@@ -168,4 +174,16 @@ impl BlockNode {
 pub struct MountProjection {
     pub path: std::path::PathBuf,
     pub format: MountFormat,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::BlockPanelBarState;
+
+    #[test]
+    fn probe_panel_state_deserializes_legacy_instruction_alias() {
+        let parsed: BlockPanelBarState =
+            serde_json::from_str("\"instruction\"").expect("legacy alias should deserialize");
+        assert_eq!(parsed, BlockPanelBarState::Probe);
+    }
 }

@@ -261,11 +261,11 @@ pub const COMPACT_PAD_H: f32 = 10.0;
 /// Fixed width for path labels in settings.
 pub const PATH_LABEL_WIDTH: f32 = 90.0;
 
-/// Font size for instruction panel button text.
+/// Font size for probe panel button text.
 pub const INSTRUCTION_BUTTON_SIZE: f32 = 13.0;
-/// Height for instruction editor in the instruction panel.
+/// Height for the instruction editor in the probe panel.
 pub const INSTRUCTION_EDITOR_HEIGHT: f32 = 80.0;
-/// Timeout for LLM requests in instruction panel.
+/// Timeout for LLM requests started from the probe panel.
 pub const INSTRUCTION_LLM_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Point text truncation length in the references panel.

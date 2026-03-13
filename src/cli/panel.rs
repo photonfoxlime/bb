@@ -9,7 +9,7 @@ use clap::Parser;
 pub enum PanelCommands {
     /// Set the block panel state for a block.
     ///
-    /// Persists which panel (References or Instruction) is open for a block.
+    /// Persists which panel (References or Probe) is open for a block.
     /// Example: `bb panel set 1v1 references`.
     Set(SetPanelCommand),
 
@@ -31,8 +31,8 @@ pub struct SetPanelCommand {
 
     /// Panel to show.
     ///
-    /// Use `references` to show the references panel or `instruction` to show the
-    /// instruction editor.
+    /// Use `references` to show the references panel or `probe` to show the
+    /// probe editor.
     #[arg(value_name = "PANEL")]
     pub panel: BlockPanelBarStateCli,
 }
@@ -84,7 +84,7 @@ fn execute_get(store: BlockStore, cmd: &GetPanelCommand) -> (BlockStore, CliResu
         | Some(block_id) => {
             let state = store.block_panel_state(&block_id).map(|s| match s {
                 | BlockPanelBarState::References => "references",
-                | BlockPanelBarState::Instruction => "instruction",
+                | BlockPanelBarState::Probe => "probe",
             });
             (store, CliResult::BlockPanelState(state.map(String::from)))
         }

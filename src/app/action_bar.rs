@@ -32,8 +32,7 @@ use lucide_icons::iced as icons;
 /// - **Amplify**: Add detail, examples, context; produces rewrite + children.
 /// - **Distill**: Summarize; may mark children redundant.
 /// - **Atomize**: Break into distinct information points.
-///
-/// Probe (instruction-based questions) is in the instruction panel, not the bar.
+/// - **Probe**: Open the inline probe panel for instruction-driven LLM actions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ActionId {
     /// Amplify: add detail, examples, context; rewrite + child suggestions.
@@ -42,6 +41,8 @@ pub enum ActionId {
     Distill,
     /// Atomize: break text into distinct information points.
     Atomize,
+    /// Probe: open the inline probe panel.
+    Probe,
     Cancel,
     /// Append a link to the block's point via the link-input panel.
     AddLink,
@@ -122,6 +123,7 @@ pub fn action_i18n_key(id: ActionId) -> &'static str {
         | ActionId::Amplify => "action_amplify",
         | ActionId::Distill => "action_distill",
         | ActionId::Atomize => "action_atomize",
+        | ActionId::Probe => "action_probe",
         | ActionId::AddLink => "action_add_link",
         | ActionId::AddChild => "action_add_child",
         | ActionId::AddParent => "action_add_parent",
@@ -321,6 +323,11 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
     vm.primary.push(ActionDescriptor::new(
         ActionId::Atomize,
         atomize_availability,
+        ActionPriority::Pinned,
+    ));
+    vm.primary.push(ActionDescriptor::new(
+        ActionId::Probe,
+        ActionAvailability::Enabled,
         ActionPriority::Pinned,
     ));
     vm.primary.push(ActionDescriptor::new(
@@ -551,6 +558,10 @@ pub fn action_to_message_by_id(
             kind: PatchKind::Distill,
             block_id: *block_id,
         })),
+        | ActionId::Probe => Some(Message::InstructionPanel(
+            *block_id,
+            super::instruction_panel::InstructionPanelMessage::Toggle,
+        )),
         | ActionId::AddLink => Some(Message::LinkMode(LinkModeMessage::Enter(*block_id))),
         | ActionId::AddChild => Some(Message::Structure(StructureMessage::AddChild(*block_id))),
         | ActionId::AddParent => Some(Message::Structure(StructureMessage::AddParent(*block_id))),
@@ -653,6 +664,7 @@ pub fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
         | ActionId::Amplify => icons::icon_maximize_2(),
         | ActionId::Distill => icons::icon_minimize_2(),
         | ActionId::Atomize => icons::icon_maximize(),
+        | ActionId::Probe => icons::icon_search(),
         | ActionId::Cancel => icons::icon_circle_x(),
         | ActionId::AddLink => icons::icon_link_2(),
         | ActionId::AddChild => icons::icon_corner_down_right(),
@@ -706,6 +718,7 @@ mod tests {
                 ActionId::Amplify,
                 ActionId::Distill,
                 ActionId::Atomize,
+                ActionId::Probe,
                 ActionId::AddLink,
                 ActionId::AddChild,
             ]
@@ -841,6 +854,7 @@ mod tests {
         assert!(visible.iter().any(|action| action.id == ActionId::Amplify));
         assert!(visible.iter().any(|action| action.id == ActionId::Atomize));
         assert!(visible.iter().any(|action| action.id == ActionId::Distill));
+        assert!(visible.iter().any(|action| action.id == ActionId::Probe));
         assert!(visible.iter().any(|action| action.id == ActionId::AddChild));
         assert!(visible.iter().any(|action| action.id == ActionId::DismissDraft));
         assert!(visible.iter().all(|action| action.priority != ActionPriority::OverflowOnly));
@@ -882,6 +896,7 @@ mod tests {
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::Amplify));
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::Atomize));
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::Distill));
+        assert!(projected.overflow.iter().any(|action| action.id == ActionId::Probe));
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::AddChild));
         assert!(projected.overflow.iter().any(|action| action.id == ActionId::AddParent));
     }
@@ -901,7 +916,7 @@ mod tests {
         let projected = project_for_viewport(vm, ViewportBucket::Wide);
 
         assert_eq!(projected.primary.len(), original_count);
-        assert_eq!(projected.primary.len(), 5);
+        assert_eq!(projected.primary.len(), 6);
     }
 
     #[test]

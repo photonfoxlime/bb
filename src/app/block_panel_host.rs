@@ -1,7 +1,7 @@
 //! Inline panel host for focused block-local panels.
 //!
 //! This module owns the chrome around block-local panels such as References and
-//! Instruction: the toggle bar that appears below the block row and the active
+//! Probe: the toggle bar that appears below the block row and the active
 //! panel body shown beneath it.
 //!
 //! Keeping this host separate from `document.rs` narrows the future merge seam
@@ -9,8 +9,7 @@
 //! composable block instead of owning panel-specific button wiring.
 
 use super::{
-    AppState, Message,
-    instruction_panel::{self, InstructionPanelMessage},
+    AppState, Message, instruction_panel,
     reference_panel::{self, ReferencePanelMessage},
 };
 use crate::{
@@ -54,34 +53,15 @@ impl<'a> BlockPanelHost<'a> {
             self.state.store.block_panel_state(&self.block_id),
             Some(BlockPanelBarState::References)
         );
-        let instruction_panel_open = matches!(
-            self.state.store.block_panel_state(&self.block_id),
-            Some(BlockPanelBarState::Instruction)
-        );
-
-        let button_row = row![]
-            .spacing(theme::PANEL_BUTTON_GAP)
-            .push(
-                TextButton::panel_toggle(
-                    t!("ui_references").to_string(),
-                    theme::LABEL_TEXT_SIZE,
-                    references_panel_open,
-                )
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::ReferencePanel(ReferencePanelMessage::Toggle(self.block_id))),
+        let button_row = row![].spacing(theme::PANEL_BUTTON_GAP).push(
+            TextButton::panel_toggle(
+                t!("ui_references").to_string(),
+                theme::LABEL_TEXT_SIZE,
+                references_panel_open,
             )
-            .push(
-                TextButton::panel_toggle(
-                    t!("ui_instruction").to_string(),
-                    theme::LABEL_TEXT_SIZE,
-                    instruction_panel_open,
-                )
-                .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-                .on_press(Message::InstructionPanel(
-                    self.block_id,
-                    InstructionPanelMessage::Toggle,
-                )),
-            );
+            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+            .on_press(Message::ReferencePanel(ReferencePanelMessage::Toggle(self.block_id))),
+        );
 
         container(button_row).padding(Padding::ZERO.right(theme::INDENT)).into()
     }
@@ -101,7 +81,7 @@ impl<'a> BlockPanelHost<'a> {
                     .width(Length::Fill)
                     .into()
             }
-            | Some(BlockPanelBarState::Instruction) => {
+            | Some(BlockPanelBarState::Probe) => {
                 container(instruction_panel::view(self.state, self.block_id))
                     .width(Length::Fill)
                     .into()

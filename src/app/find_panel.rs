@@ -637,7 +637,7 @@ mod tests {
     fn escape_closes_focused_panel_when_no_other_action_is_triggered() {
         let (mut state, root) = test_state();
         state.set_focus(root);
-        state.store.set_block_panel_state(&root, Some(BlockPanelBarState::Instruction));
+        state.store.set_block_panel_state(&root, Some(BlockPanelBarState::Probe));
 
         let _ = AppState::update(&mut state, Message::Find(FindMessage::Escape));
 
