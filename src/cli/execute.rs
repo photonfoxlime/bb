@@ -7,7 +7,7 @@
 use super::{
     BlockId,
     commands::Commands,
-    context, draft, fold, mount, nav, panel, point, query,
+    context, draft, fold, mount, nav, point, query,
     results::{BatchError, BatchOutput, BatchResult},
     tree,
 };
@@ -39,7 +39,6 @@ impl Commands {
             | Commands::Draft(cmd) => draft::execute(store, cmd),
             | Commands::Fold(cmd) => fold::execute(store, cmd),
             | Commands::Mount(cmd) => mount::execute(store, cmd, base_dir),
-            | Commands::Panel(cmd) => panel::execute(store, cmd),
             | Commands::Context(cmd) => context::execute(store, &cmd),
         }
     }

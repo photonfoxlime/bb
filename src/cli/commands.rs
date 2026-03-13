@@ -59,7 +59,6 @@ pub use super::draft::DraftCommands;
 pub use super::fold::FoldCommands;
 pub use super::mount::MountCommands;
 pub use super::nav::NavCommands;
-pub use super::panel::PanelCommands;
 pub use super::point::PointCommands;
 pub use super::query::{FindCommand, RootCommand, ShowCommand};
 pub use super::tree::TreeCommands;
@@ -132,9 +131,6 @@ pub enum Commands {
     /// External file mount operations.
     #[command(subcommand)]
     Mount(MountCommands),
-    /// Panel sidebar state management.
-    #[command(subcommand)]
-    Panel(PanelCommands),
     /// Get block context for LLM requests.
     Context(ContextCommand),
 }

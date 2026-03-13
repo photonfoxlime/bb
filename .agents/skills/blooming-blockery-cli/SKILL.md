@@ -318,20 +318,6 @@ blooming-blockery mount save
 blooming-blockery mount info <BLOCK_ID>
 ```
 
-### Panel Commands
-
-```bash
-# Set block panel state
-blooming-blockery panel set <BLOCK_ID> friends
-blooming-blockery panel set <BLOCK_ID> instruction
-
-# Get block panel state
-blooming-blockery panel get <BLOCK_ID>
-
-# Clear block panel state
-blooming-blockery panel clear <BLOCK_ID>
-```
-
 ### Context Command
 
 ```bash
@@ -382,7 +368,6 @@ When helping users author specs/docs, prefer these decisions:
    - For `mount set|move|extract` batch mode, pass a directory-like path
      (`existing/dir` or a path without extension), and each target will use
      `<BLOCK_ID>.<ext>` under that directory.
-5. Panel states are `friends` or `instruction`
-6. Run `blooming-blockery` without subcommands for GUI; with subcommands for CLI
+5. Run `blooming-blockery` without subcommands for GUI; with subcommands for CLI
 7. If users report low-quality LLM responses, first fix tree placement and
    friend/telescope scope before rewriting prompts
