@@ -4,8 +4,7 @@
 //! directory.  On save, expanded mount points are restored to `Mount` nodes and
 //! mounted descendants are excluded from the snapshot.
 
-use super::{BlockStore, MountFormat};
-use crate::paths::AppPaths;
+use super::{BlockStore, MountFormat, StorePaths};
 use std::path::Path;
 use std::{fs, io};
 use thiserror::Error;
@@ -29,7 +28,7 @@ impl BlockStore {
     ///
     /// Returns an empty store if the file does not exist yet.
     pub fn load() -> Result<Self, StoreLoadError> {
-        let Some(path) = AppPaths::data_file() else {
+        let Some(path) = StorePaths::data_file() else {
             return Err(StoreLoadError::PathUnavailable);
         };
         Self::load_from_path(&path)
@@ -38,7 +37,7 @@ impl BlockStore {
     /// Load the block store from a specific file path.
     ///
     /// Returns an empty store if the file does not exist (not-found).
-    pub(crate) fn load_from_path(path: &Path) -> Result<Self, StoreLoadError> {
+    pub fn load_from_path(path: &Path) -> Result<Self, StoreLoadError> {
         match fs::read_to_string(path) {
             | Ok(contents) => serde_json::from_str(&contents)
                 .map(|mut store: Self| {
@@ -62,7 +61,7 @@ impl BlockStore {
     /// Note: Returns `Ok(())` with a warning log when the data file path
     /// cannot be determined, since this can happen on unsupported platforms.
     pub fn save(&self) -> io::Result<()> {
-        let Some(path) = AppPaths::data_file() else {
+        let Some(path) = StorePaths::data_file() else {
             tracing::warn!("data file path unavailable, skipping save");
             return Ok(());
         };

@@ -84,7 +84,7 @@ use crate::component::floating_panel::PanelHeader;
 use crate::component::icon_button::IconButton;
 use crate::component::text_button::TextButton;
 use crate::llm;
-use crate::store::BlockId;
+use crate::store::{BlockId, BlockStoreNavigateExt as _};
 use crate::theme;
 use rust_i18n::t;
 

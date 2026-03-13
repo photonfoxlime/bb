@@ -1,0 +1,20 @@
+[package]
+name = "blooming-blockery-store"
+version = "0.0.27"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/photonfoxlime/bb"
+homepage = "https://github.com/photonfoxlime/bb"
+description = "Document model and file-backed persistence for Blooming Blockery."
+
+[dependencies]
+directories = { workspace = true }
+rustc-hash = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

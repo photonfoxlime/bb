@@ -4,10 +4,15 @@
 //! context builders that gather lineage, children, and friend-block text
 //! for LLM requests.
 
-use super::{BlockId, BlockStore, FriendBlock};
 use crate::{llm, text::extract_search_phrases};
+use blooming_blockery_store::{BlockId, BlockStore, FriendBlock};
 
-impl BlockStore {
+/// App-local navigation and context helpers layered on top of the persisted
+/// [`BlockStore`] model.
+///
+/// Import this trait anywhere method-style access is needed:
+/// `use crate::store::BlockStoreNavigateExt as _;`
+pub trait BlockStoreNavigateExt {
     /// Find blocks whose point text matches a user query.
     ///
     /// Matching strategy:
@@ -16,7 +21,31 @@ impl BlockStore {
     ///
     /// Result order is deterministic DFS order across all roots.
     /// Empty queries match all blocks.
-    pub fn find_block_point(&self, query: &str) -> Vec<BlockId> {
+    fn find_block_point(&self, query: &str) -> Vec<BlockId>;
+
+    /// Return lineage points from one root to the target id.
+    fn lineage_points_for_id(&self, target: &BlockId) -> llm::LineageContext;
+
+    /// Build a [`llm::BlockContext`] for the given block from all visible context.
+    fn block_context_for_id(&self, target: &BlockId) -> llm::BlockContext;
+
+    /// Build a [`llm::BlockContext`] with user-selected friend blocks.
+    fn block_context_for_id_with_friend_blocks(
+        &self, target: &BlockId, friend_block_ids: &[FriendBlock],
+    ) -> llm::BlockContext;
+
+    /// Return the next block in visible DFS order, skipping collapsed subtrees.
+    fn next_visible_in_dfs(&self, current: &BlockId) -> Option<BlockId>;
+
+    /// Return the previous block in visible DFS order, skipping collapsed subtrees.
+    fn prev_visible_in_dfs(&self, current: &BlockId) -> Option<BlockId>;
+
+    /// Check if a block is visible in the current view.
+    fn is_visible(&self, block_id: &BlockId) -> bool;
+}
+
+impl BlockStoreNavigateExt for BlockStore {
+    fn find_block_point(&self, query: &str) -> Vec<BlockId> {
         let normalized_query = query.trim();
 
         let query_lower = normalized_query.to_lowercase();
@@ -31,7 +60,7 @@ impl BlockStore {
 
         let mut matched = Vec::new();
         for root in &self.roots {
-            self.find_block_point_in_subtree(root, &query_lower, &query_terms, &mut matched);
+            find_block_point_in_subtree(self, root, &query_lower, &query_terms, &mut matched);
         }
 
         tracing::debug!(
@@ -43,37 +72,26 @@ impl BlockStore {
         matched
     }
 
-    fn find_block_point_in_subtree(
-        &self, current: &BlockId, query_lower: &str, query_terms: &[String], out: &mut Vec<BlockId>,
-    ) {
-        let point = self.points.get(current).map(|pc| pc.display_text()).unwrap_or_default();
-        let point_lower = point.to_lowercase();
-        let is_match = point_lower.contains(query_lower)
-            || query_terms.iter().any(|phrase| point_lower.contains(phrase));
-        if is_match {
-            out.push(*current);
-        }
-
-        for child in self.children(current) {
-            self.find_block_point_in_subtree(child, query_lower, query_terms, out);
-        }
-    }
-
-    /// Return lineage points from one root to the target id (DFS).
+    /// Return lineage points from one root to the target id.
     ///
     /// # Requires
     /// - `target` must exist in the store.
     ///
     /// # Ensures
     /// - Returns a `Lineage` containing all ancestor point texts from root to target.
-    pub fn lineage_points_for_id(&self, target: &BlockId) -> llm::LineageContext {
-        for root in &self.roots {
-            let mut collected = Vec::new();
-            if self.collect_lineage_points(root, target, &mut collected) {
-                return llm::LineageContext::from_points(collected);
-            }
+    fn lineage_points_for_id(&self, target: &BlockId) -> llm::LineageContext {
+        let mut current = match self.node(target) {
+            | Some(_) => *target,
+            | None => return llm::LineageContext::from_points(vec![]),
+        };
+
+        let mut collected = vec![self.point(&current).unwrap_or_default()];
+        while let Some(parent) = self.parent(&current) {
+            collected.push(self.point(&parent).unwrap_or_default());
+            current = parent;
         }
-        llm::LineageContext::from_points(vec![])
+        collected.reverse();
+        llm::LineageContext::from_points(collected)
     }
 
     /// Build a [`llm::BlockContext`] for the given block from all visible context.
@@ -86,8 +104,8 @@ impl BlockStore {
     ///
     /// Used by amplify/distill/atomize/probe handlers so all four operations read the
     /// same context envelope.
-    pub fn block_context_for_id(&self, target: &BlockId) -> llm::BlockContext {
-        let friend_ids = self.friend_blocks.get(target).cloned().unwrap_or_default();
+    fn block_context_for_id(&self, target: &BlockId) -> llm::BlockContext {
+        let friend_ids = self.friend_blocks_for(target).to_vec();
         self.block_context_for_id_with_friend_blocks(target, &friend_ids)
     }
 
@@ -95,7 +113,7 @@ impl BlockStore {
     ///
     /// Friend blocks are extra readable blocks outside the target's direct
     /// children and may include an optional per-friend perspective.
-    pub fn block_context_for_id_with_friend_blocks(
+    fn block_context_for_id_with_friend_blocks(
         &self, target: &BlockId, friend_block_ids: &[FriendBlock],
     ) -> llm::BlockContext {
         let lineage = self.lineage_points_for_id(target);
@@ -139,11 +157,11 @@ impl BlockStore {
 
     /// Return the next block in visible DFS order, skipping collapsed subtrees.
     ///
-    /// Uses [`Self::view_collapsed`] to determine which blocks are folded.
+    /// Uses [`BlockStore::is_collapsed`] to determine which blocks are folded.
     /// Returns `None` when `current` is the last visible block.
-    pub fn next_visible_in_dfs(&self, current: &BlockId) -> Option<BlockId> {
+    fn next_visible_in_dfs(&self, current: &BlockId) -> Option<BlockId> {
         // If current has visible children, descend into the first child.
-        if !self.view_collapsed.contains_key(current) {
+        if !self.is_collapsed(current) {
             let children = self.children(current);
             if let Some(&first) = children.first() {
                 return Some(first);
@@ -152,7 +170,7 @@ impl BlockStore {
         // Otherwise walk up ancestors looking for a next sibling.
         let mut target = *current;
         loop {
-            let (parent, index) = self.parent_and_index_of(&target)?;
+            let (parent, index) = parent_and_index_of(self, &target)?;
             let siblings = match parent {
                 | Some(pid) => self.children(&pid),
                 | None => self.roots(),
@@ -170,10 +188,10 @@ impl BlockStore {
 
     /// Return the previous block in visible DFS order, skipping collapsed subtrees.
     ///
-    /// Uses [`Self::view_collapsed`] to determine which blocks are folded.
+    /// Uses [`BlockStore::is_collapsed`] to determine which blocks are folded.
     /// Returns `None` when `current` is the first visible block.
-    pub fn prev_visible_in_dfs(&self, current: &BlockId) -> Option<BlockId> {
-        let (parent, index) = self.parent_and_index_of(current)?;
+    fn prev_visible_in_dfs(&self, current: &BlockId) -> Option<BlockId> {
+        let (parent, index) = parent_and_index_of(self, current)?;
         if index == 0 {
             // No previous sibling; go to parent (None for root-0 means we are first).
             return parent;
@@ -185,7 +203,7 @@ impl BlockStore {
         // Previous sibling's deepest visible descendant.
         let mut target = siblings[index - 1];
         loop {
-            if self.view_collapsed.contains_key(&target) {
+            if self.is_collapsed(&target) {
                 return Some(target);
             }
             let children = self.children(&target);
@@ -209,18 +227,48 @@ impl BlockStore {
     /// # Returns
     /// - `true` if the block exists and all ancestors are expanded
     /// - `false` if the block does not exist or any ancestor is collapsed
-    pub fn is_visible(&self, block_id: &BlockId) -> bool {
+    fn is_visible(&self, block_id: &BlockId) -> bool {
         if self.node(block_id).is_none() {
             return false;
         }
-        // Walk up the ancestor chain; if any ancestor is collapsed, return false
+        // Walk up the ancestor chain; if any ancestor is collapsed, return false.
         let mut current = *block_id;
         while let Some(parent) = self.parent(&current) {
-            if self.view_collapsed.contains_key(&parent) {
+            if self.is_collapsed(&parent) {
                 return false;
             }
             current = parent;
         }
         true
     }
+}
+
+fn find_block_point_in_subtree(
+    store: &BlockStore, current: &BlockId, query_lower: &str, query_terms: &[String],
+    out: &mut Vec<BlockId>,
+) {
+    let point = store.points.get(current).map(|pc| pc.display_text()).unwrap_or_default();
+    let point_lower = point.to_lowercase();
+    let is_match = point_lower.contains(query_lower)
+        || query_terms.iter().any(|phrase| point_lower.contains(phrase));
+    if is_match {
+        out.push(*current);
+    }
+
+    for child in store.children(current) {
+        find_block_point_in_subtree(store, child, query_lower, query_terms, out);
+    }
+}
+
+/// Compute a block's parent and index using only public `BlockStore` queries.
+///
+/// Note: the core store crate keeps this helper private because it is an
+/// implementation detail of app-local traversal logic.
+fn parent_and_index_of(store: &BlockStore, target: &BlockId) -> Option<(Option<BlockId>, usize)> {
+    if let Some(parent) = store.parent(target) {
+        let index = store.children(&parent).iter().position(|child| child == target)?;
+        return Some((Some(parent), index));
+    }
+    let index = store.roots().iter().position(|root| root == target)?;
+    Some((None, index))
 }

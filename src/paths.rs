@@ -1,8 +1,11 @@
 //! Shared application directory paths.
 //!
-//! Uses the `directories` crate to resolve platform-appropriate data and config
-//! directories for Basic Block and Blooming Blockery.
+//! Uses the `directories` crate to resolve platform-appropriate config
+//! directories. Block-store data paths are delegated to
+//! [`blooming_blockery_store::StorePaths`] so the persistence crate remains the
+//! canonical owner of `blocks.json` path resolution.
 
+use blooming_blockery_store::StorePaths;
 use std::{path::PathBuf, sync::LazyLock};
 
 static PROJECT_DIRS: LazyLock<Option<directories::ProjectDirs>> =
@@ -19,13 +22,13 @@ pub struct AppPaths;
 impl AppPaths {
     /// Path to the block store JSON file: `<data_dir>/blocks.json`.
     pub fn data_file() -> Option<PathBuf> {
-        PROJECT_DIRS.as_ref().map(|p| p.data_dir().join("blocks.json"))
+        StorePaths::data_file()
     }
 
     /// Directory containing the main block store, used as the base for
     /// resolving relative mount paths.
     pub fn data_dir() -> Option<PathBuf> {
-        PROJECT_DIRS.as_ref().map(|p| p.data_dir().to_path_buf())
+        StorePaths::data_dir()
     }
 
     /// Path to the LLM configuration TOML: `<config_dir>/llm.toml`.

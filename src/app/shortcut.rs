@@ -798,6 +798,19 @@ fn sibling_slice<'a>(state: &'a AppState, parent: Option<BlockId>) -> &'a [Block
     }
 }
 
+/// Resolve a block's parent and sibling index using only public store queries.
+///
+/// Note: the store crate keeps this helper private because it only supports
+/// app-local shortcut behavior after the store extraction split.
+fn parent_and_index_of(state: &AppState, block_id: &BlockId) -> Option<(Option<BlockId>, usize)> {
+    if let Some(parent_id) = state.store.parent(block_id) {
+        let index = state.store.children(&parent_id).iter().position(|child| child == block_id)?;
+        return Some((Some(parent_id), index));
+    }
+    let index = state.store.roots().iter().position(|root| root == block_id)?;
+    Some((None, index))
+}
+
 /// Resolve sibling focus target with cyclic wrap-around.
 ///
 /// - Previous from index `0` wraps to the last sibling.
@@ -805,7 +818,7 @@ fn sibling_slice<'a>(state: &'a AppState, parent: Option<BlockId>) -> &'a [Block
 fn sibling_wrap_target(
     state: &AppState, block_id: BlockId, direction: SiblingDirection,
 ) -> Option<BlockId> {
-    let (parent, index) = state.store.parent_and_index_of(&block_id)?;
+    let (parent, index) = parent_and_index_of(state, &block_id)?;
     let siblings = sibling_slice(state, parent);
     if siblings.is_empty() {
         return None;
@@ -897,7 +910,7 @@ fn focus_sibling(
 fn move_block_within_siblings(
     state: &mut AppState, block_id: BlockId, direction: SiblingDirection,
 ) -> Task<Message> {
-    let Some((parent, index)) = state.store.parent_and_index_of(&block_id) else {
+    let Some((parent, index)) = parent_and_index_of(state, &block_id) else {
         return Task::none();
     };
     let siblings = sibling_slice(state, parent).to_vec();
@@ -952,7 +965,7 @@ fn move_block_after_parent(state: &mut AppState, block_id: BlockId) -> Task<Mess
 fn move_block_to_previous_sibling_first_child(
     state: &mut AppState, block_id: BlockId,
 ) -> Task<Message> {
-    let Some((parent, index)) = state.store.parent_and_index_of(&block_id) else {
+    let Some((parent, index)) = parent_and_index_of(state, &block_id) else {
         return Task::none();
     };
     if index == 0 {

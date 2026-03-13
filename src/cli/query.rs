@@ -4,7 +4,7 @@ use super::{
     BlockId, execute,
     results::{BatchError, BatchOutput, CliResult, Match, ShowResult},
 };
-use crate::store::BlockStore;
+use crate::store::{BlockStore, BlockStoreNavigateExt as _};
 use clap::Parser;
 
 /// Query root block IDs.
@@ -27,7 +27,8 @@ pub struct ShowCommand {
 pub struct FindCommand {
     /// Search query string.
     ///
-    /// Matching uses `BlockStore::find_block_point` with case-insensitive
+    /// Matching uses [`crate::store::BlockStoreNavigateExt::find_block_point`]
+    /// with case-insensitive
     /// substring matching and mixed-language phrase-token matching.
     /// Empty query matches all blocks in deterministic DFS order.
     /// Example: `bb find "TODO"`.

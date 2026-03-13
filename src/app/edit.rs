@@ -33,6 +33,7 @@
 
 use super::point_editor::WordCursorDirection;
 use super::*;
+use crate::store::BlockStoreNavigateExt as _;
 
 /// Messages for point text editing.
 #[derive(Debug, Clone)]

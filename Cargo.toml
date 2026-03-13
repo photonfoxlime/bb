@@ -1,3 +1,34 @@
+[workspace]
+members = [".", "crates/store"]
+resolver = "2"
+
+[workspace.dependencies]
+anyhow = "1.0.102"
+blooming-blockery-store = { path = "crates/store" }
+clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
+dark-light = "2.0.0"
+directories = "6.0.0"
+iced = { version = "0.14", features = ["tokio", "image", "markdown", "highlighter"] }
+jieba-rs = "0.8"
+lucide-icons = { version = "0.575.0", features = ["iced"] }
+regex = "1"
+reqwest = { version = "0.13.2", features = ["json", "stream"] }
+rfd = "0.17.2"
+rust-i18n = "3.1.5"
+rustc-hash = "2.1"
+serde = { version = "1.0.218", features = ["derive"] }
+serde_json = "1.0.139"
+similar = "2.5"
+tempfile = "3"
+thiserror = "2.0.18"
+tokio = { version = "1", features = ["time"] }
+toml = "1.0.4"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+unicode-segmentation = "1"
+uuid = { version = "1.22.0", features = ["serde", "v7"] }
+
 [package]
 name = "blooming-blockery"
 version = "0.0.27"
@@ -34,35 +65,33 @@ log = ["dep:tracing-subscriber"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 [dependencies]
-iced = { version = "0.14", features = ["tokio", "image", "markdown", "highlighter"] }
-directories = "6.0.0"
-reqwest = { version = "0.13.2", features = ["json", "stream"] }
-serde = { version = "1.0.218", features = ["derive"] }
-serde_json = "1.0.139"
-thiserror = "2.0.18"
-anyhow = "1.0.102"
-clap = { version = "4", features = ["derive"] }
-clap_complete = "4"
-toml = "1.0.4"
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = [
-    "env-filter",
-    "fmt",
-], optional = true }
-rustc-hash = "2.1"
-uuid = { version = "1.22.0", features = ["serde", "v7"] }
-lucide-icons = { version = "0.575.0", features = ["iced"] }
-similar = "2.5"
-rfd = "0.17.2"
-dark-light = "2.0.0"
-tokio = { version = "1", features = ["time"] }
-rust-i18n = "3.1.5"
-jieba-rs = "0.8"
-unicode-segmentation = "1"
-regex = "1"
+blooming-blockery-store = { workspace = true }
+iced = { workspace = true }
+directories = { workspace = true }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+clap_complete = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, optional = true }
+rustc-hash = { workspace = true }
+uuid = { workspace = true }
+lucide-icons = { workspace = true }
+similar = { workspace = true }
+rfd = { workspace = true }
+dark-light = { workspace = true }
+tokio = { workspace = true }
+rust-i18n = { workspace = true }
+jieba-rs = { workspace = true }
+unicode-segmentation = { workspace = true }
+regex = { workspace = true }
 
 [dev-dependencies]
-tempfile = "3"
+tempfile = { workspace = true }
 
 # The profile that 'dist' will build with
 [profile.dist]

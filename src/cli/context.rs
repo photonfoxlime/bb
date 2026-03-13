@@ -4,7 +4,7 @@ use super::{
     BlockId, execute,
     results::{BatchError, BatchOutput, CliResult},
 };
-use crate::store::BlockStore;
+use crate::store::{BlockStore, BlockStoreNavigateExt as _};
 use clap::Parser;
 
 /// Get LLM context for a block.

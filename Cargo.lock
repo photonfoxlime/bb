@@ -644,6 +644,7 @@ name = "blooming-blockery"
 version = "0.0.27"
 dependencies = [
  "anyhow",
+ "blooming-blockery-store",
  "clap",
  "clap_complete",
  "dark-light",
@@ -666,6 +667,20 @@ dependencies = [
  "tracing",
  "tracing-subscriber",
  "unicode-segmentation",
+ "uuid",
+]
+
+[[package]]
+name = "blooming-blockery-store"
+version = "0.0.27"
+dependencies = [
+ "directories",
+ "rustc-hash 2.1.1",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tracing",
  "uuid",
 ]
 

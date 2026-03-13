@@ -455,33 +455,6 @@ impl BlockStore {
         }
     }
 
-    /// Walk the tree from `current` toward `target`, collecting each node's
-    /// display text into `out`. Returns `true` if `target` was found.
-    pub(crate) fn collect_lineage_points(
-        &self, current: &BlockId, target: &BlockId, out: &mut Vec<String>,
-    ) -> bool {
-        if !self.nodes.contains_key(current) {
-            return false;
-        }
-
-        let point =
-            self.points.get(current).map(|pc| pc.display_text().to_owned()).unwrap_or_default();
-        out.push(point);
-        if current == target {
-            return true;
-        }
-
-        let children = self.node(current).map(|n| n.children().to_vec()).unwrap_or_default();
-        for child in &children {
-            if self.collect_lineage_points(child, target, out) {
-                return true;
-            }
-        }
-
-        out.pop();
-        false
-    }
-
     /// Remove all friend-block entries that reference any id in `removed_ids`.
     pub(crate) fn remove_friend_block_references(&mut self, removed_ids: &[BlockId]) {
         if removed_ids.is_empty() || self.friend_blocks.is_empty() {

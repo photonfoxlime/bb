@@ -229,7 +229,8 @@ impl NavigationStack {
     /// - The block is a descendant of the current navigation layer's block
     ///
     /// This check is structural (based on parent-child relationships) and does
-    /// not consider fold state. Use `BlockStore::is_visible` to check fold state.
+    /// not consider fold state. Use
+    /// [`crate::store::BlockStoreNavigateExt::is_visible`] to check fold state.
     ///
     /// # Arguments
     ///

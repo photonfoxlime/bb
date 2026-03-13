@@ -110,7 +110,7 @@ use crate::{
     component::error_banner_view::{ErrorBannerContent, ErrorBannerEntry, ErrorBannerView},
     component::icon_button::IconButton,
     component::status_chip::StatusChip,
-    store::BlockId,
+    store::{BlockId, BlockStoreNavigateExt as _},
     text::truncate_for_display,
     theme,
 };

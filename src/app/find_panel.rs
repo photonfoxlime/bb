@@ -1,14 +1,14 @@
 //! Global find overlay for searching and jumping to block points.
 //!
 //! This panel is transient UI state (not persisted). It provides phrase-aware
-//! search via [`crate::store::BlockStore::find_block_point`] and fast keyboard
+//! search via [`crate::store::BlockStoreNavigateExt::find_block_point`] and fast keyboard
 //! navigation (`Cmd/Ctrl+F`, `Cmd/Ctrl+G`, `Esc`). Query updates are debounced
 //! to avoid running expensive searches while users are still typing.
 
 use crate::app::{AppState, DocumentMode, Message, reference_panel::ReferencePanelMessage};
 use crate::component::floating_panel::{self, FloatingPanelLayout, PanelHeader, SelectableRow};
 use crate::component::icon_button::IconButton;
-use crate::store::BlockId;
+use crate::store::{BlockId, BlockStoreNavigateExt as _};
 use crate::text::truncate_for_display;
 use crate::theme;
 use iced::widget::{Id, column, operation::focus, row, scrollable, text, text_input, tooltip};

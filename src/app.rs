@@ -114,7 +114,10 @@ use self::{
 };
 use crate::{
     i18n, llm,
-    store::{BlockId, BlockPanelBarState, BlockStore, LinkKind, StoreLoadError},
+    store::{
+        BlockId, BlockPanelBarState, BlockStore, BlockStoreNavigateExt as _, LinkKind,
+        StoreLoadError,
+    },
     undo::UndoHistory,
 };
 use iced::{

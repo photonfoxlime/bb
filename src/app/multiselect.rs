@@ -10,7 +10,7 @@
 //! - **Shift+click**: Range select from anchor to clicked block (DFS order).
 
 use super::AppState;
-use crate::store::BlockId;
+use crate::store::{BlockId, BlockStoreNavigateExt as _};
 
 /// Handle a block click in multiselect mode.
 ///

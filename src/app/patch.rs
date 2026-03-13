@@ -15,7 +15,8 @@ use super::patch_panel::{
 use super::{AppState, LLM_REQUEST_TIMEOUT, Message};
 use crate::llm;
 use crate::store::{
-    AmplificationDraftRecord, AtomizationDraftRecord, BlockId, DistillationDraftRecord,
+    AmplificationDraftRecord, AtomizationDraftRecord, BlockId, BlockStoreNavigateExt as _,
+    DistillationDraftRecord,
 };
 use iced::{Element, Task};
 use rust_i18n::t;
