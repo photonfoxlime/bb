@@ -290,6 +290,16 @@ pub enum RowUiState {
     ErrorAtomize,
 }
 
+impl RowUiState {
+    pub fn is_any_busy(self) -> bool {
+        matches!(self, Self::BusyAmplify | Self::BusyAtomize | Self::BusyDistill)
+    }
+
+    pub fn is_any_error(self) -> bool {
+        matches!(self, Self::ErrorAmplify | Self::ErrorAtomize | Self::ErrorDistill)
+    }
+}
+
 impl RowContext {
     pub fn ui_state(&self) -> RowUiState {
         if self.is_amplifying {
@@ -336,19 +346,13 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
 
     let distill_availability = if ctx.is_empty_point() {
         ActionAvailability::DisabledEmptyPoint
-    } else if matches!(
-        row_state,
-        RowUiState::BusyAmplify | RowUiState::BusyAtomize | RowUiState::BusyDistill
-    ) {
+    } else if row_state.is_any_busy() {
         ActionAvailability::DisabledBusy
     } else {
         ActionAvailability::Enabled
     };
 
-    let amplify_availability = if matches!(
-        row_state,
-        RowUiState::BusyAmplify | RowUiState::BusyAtomize | RowUiState::BusyDistill
-    ) {
+    let amplify_availability = if row_state.is_any_busy() {
         ActionAvailability::DisabledBusy
     } else {
         ActionAvailability::Enabled
@@ -356,10 +360,7 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
 
     let atomize_availability = if ctx.is_empty_point() {
         ActionAvailability::DisabledEmptyPoint
-    } else if matches!(
-        row_state,
-        RowUiState::BusyAmplify | RowUiState::BusyAtomize | RowUiState::BusyDistill
-    ) {
+    } else if row_state.is_any_busy() {
         ActionAvailability::DisabledBusy
     } else {
         ActionAvailability::Enabled
@@ -411,10 +412,7 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
         ));
     }
 
-    if matches!(
-        row_state,
-        RowUiState::ErrorAmplify | RowUiState::ErrorAtomize | RowUiState::ErrorDistill
-    ) {
+    if row_state.is_any_error() {
         vm.contextual.push(ActionDescriptor::new(
             ActionId::Retry,
             ActionAvailability::Enabled,
@@ -422,10 +420,7 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
         ));
     }
 
-    if matches!(
-        row_state,
-        RowUiState::BusyAmplify | RowUiState::BusyAtomize | RowUiState::BusyDistill
-    ) && !ctx.has_draft
+    if row_state.is_any_busy() && !ctx.has_draft
     {
         vm.contextual.push(ActionDescriptor::new(
             ActionId::Cancel,
