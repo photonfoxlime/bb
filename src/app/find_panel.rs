@@ -634,14 +634,14 @@ mod tests {
     }
 
     #[test]
-    fn escape_closes_focused_panel_when_no_other_action_is_triggered() {
+    fn escape_does_not_close_probe_panels() {
         let (mut state, root) = test_state();
         state.set_focus(root);
         state.store.set_block_panel_state(&root, Some(BlockPanelBarState::Probe));
 
         let _ = AppState::update(&mut state, Message::Find(FindMessage::Escape));
 
-        assert_eq!(state.store.block_panel_state(&root).copied(), None);
+        assert_eq!(state.store.block_panel_state(&root).copied(), Some(BlockPanelBarState::Probe));
     }
 
     #[test]

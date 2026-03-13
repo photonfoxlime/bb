@@ -933,6 +933,10 @@ impl AppState {
             return false;
         };
 
+        if panel_state == BlockPanelBarState::Probe {
+            return false;
+        }
+
         self.store.set_block_panel_state(&block_id, None);
         if panel_state == BlockPanelBarState::References {
             self.ui_mut().reference_panel.hovered_friend_block = None;

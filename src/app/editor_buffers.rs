@@ -6,8 +6,7 @@
 //! All user-facing text must be internationalized via `rust_i18n::t!`. Never
 //! hardcode UI strings; add keys to the locale files instead.
 //!
-//! Manages text editor buffers for each block in the tree, plus a shared
-//! buffer for the inline probe panel.
+//! Manages text editor buffers for each block in the tree.
 
 use crate::store::{BlockId, BlockStore};
 use crate::text::{WordTokenSpan, WordTokenizationCache};
@@ -26,11 +25,6 @@ pub(crate) struct EditorBuffers {
     widget_ids: FxHashMap<BlockId, widget::Id>,
     /// Per-block cache of line tokenization for word-motion cursor shortcuts.
     word_token_cache: FxHashMap<BlockId, WordTokenizationCache>,
-    /// Text editor content for the probe-panel instruction draft.
-    ///
-    /// This buffer is independent from per-block point editors and is consumed
-    /// by expand / reduce / atomize / inquire instruction submissions.
-    instruction_content: text_editor::Content,
 }
 
 impl Default for EditorBuffers {
@@ -39,7 +33,6 @@ impl Default for EditorBuffers {
             buffers: FxHashMap::default(),
             widget_ids: FxHashMap::default(),
             word_token_cache: FxHashMap::default(),
-            instruction_content: text_editor::Content::new(),
         }
     }
 }
@@ -139,20 +132,5 @@ impl EditorBuffers {
     /// Get the `widget::Id` for a block's text editor (for programmatic focus).
     pub(crate) fn widget_id(&self, block_id: &BlockId) -> Option<&widget::Id> {
         self.widget_ids.get(block_id)
-    }
-
-    /// Get the probe-panel text editor content.
-    pub(crate) fn instruction_content(&self) -> &text_editor::Content {
-        &self.instruction_content
-    }
-
-    /// Get mutable reference to probe-panel text editor content.
-    pub(crate) fn instruction_content_mut(&mut self) -> &mut text_editor::Content {
-        &mut self.instruction_content
-    }
-
-    /// Set probe-panel draft text.
-    pub(crate) fn set_instruction_text(&mut self, text: &str) {
-        self.instruction_content = text_editor::Content::with_text(text);
     }
 }

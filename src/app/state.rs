@@ -5,6 +5,7 @@
 
 use crate::store::BlockId;
 use iced::keyboard;
+use iced::widget::text_editor;
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use super::find_panel::FindUiState;
@@ -79,6 +80,51 @@ pub struct LinkPanelState {
     pub candidates: Vec<std::path::PathBuf>,
     /// Index of the currently highlighted candidate.
     pub selected_index: usize,
+}
+
+/// Stable identifier for one transient probe panel instance.
+///
+/// Each click on the `Probe` toolbar action allocates a fresh id so repeated
+/// clicks can append multiple independent probe panels under the same block.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ProbePanelId(pub u64);
+
+/// Transient lifecycle state for one inline probe panel instance.
+///
+/// Probe panels are intentionally transient UI objects rather than persisted
+/// store data. This keeps repeated toolbar clicks cheap and allows multiple
+/// panels to coexist for the same block without complicating on-disk draft
+/// schemas.
+#[derive(Debug, Clone)]
+pub struct ProbePanelState {
+    /// Stable id used to route panel-local messages and streamed probe results.
+    pub id: ProbePanelId,
+    /// Editor buffer for the instruction input shown in the panel header/body.
+    pub instruction: text_editor::Content,
+    /// The submitted probe question, when this panel has entered result phase.
+    pub inquiry: Option<String>,
+    /// Incrementally built or completed probe response text.
+    pub response: String,
+    /// Whether this panel currently owns the in-flight probe request for its block.
+    pub is_probing: bool,
+}
+
+impl ProbePanelState {
+    /// Create a fresh editor-phase probe panel.
+    pub fn new(id: ProbePanelId) -> Self {
+        Self {
+            id,
+            instruction: text_editor::Content::new(),
+            inquiry: None,
+            response: String::new(),
+            is_probing: false,
+        }
+    }
+
+    /// Whether the panel has left editor phase and is showing probe progress or result.
+    pub fn is_result_phase(&self) -> bool {
+        self.is_probing || self.inquiry.is_some()
+    }
 }
 
 /// Active inline perspective editor in the reference panel.
@@ -286,4 +332,8 @@ pub struct TransientUiState {
     pub cursor_position: Option<iced::Point>,
     /// Transient state for friend and link reference panels.
     pub reference_panel: ReferencePanelUiState,
+    /// Transient probe panels keyed by owning block.
+    pub probe_panels: BTreeMap<BlockId, Vec<ProbePanelState>>,
+    /// Monotonic id source for allocating new probe panels.
+    pub next_probe_panel_id: u64,
 }

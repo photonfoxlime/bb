@@ -1,4 +1,4 @@
-//! Probe panel for instruction-driven LLM interactions.
+//! Probe panels for instruction-driven LLM interactions.
 //!
 //! Please use or create constants in `theme.rs` for all UI numeric values
 //! (sizes, padding, gaps, colors). Avoid hardcoding magic numbers in this module.
@@ -6,10 +6,12 @@
 //! All user-facing text must be internationalized via `rust_i18n::t!`. Never
 //! hardcode UI strings; add keys to the locale files instead.
 //!
-//! This module defines the behavior contract for instruction-driven operations
-//! from one focused block. The toolbar opens this panel via the dedicated
-//! `Probe` action instead of a secondary toggle strip button. A block's visible
-//! context is the union of:
+//! Each click on the toolbar `Probe` action creates a fresh transient panel for
+//! the target block. This matches the patch-panel lifecycle more closely than a
+//! toggle surface: once created, a panel is only closed by actions inside that
+//! panel.
+//!
+//! A panel's visible context is the union of:
 //! - the block point itself,
 //! - the full parent chain (root -> target),
 //! - all direct children of the target,
@@ -17,8 +19,8 @@
 //!
 //! # Instruction Draft Lifecycle
 //!
-//! The instruction editor is treated as a short-lived draft buffer whose text is
-//! authored before submission through one of three actions:
+//! The instruction editor is treated as a short-lived panel-local draft buffer
+//! whose text is authored before submission through one of three actions:
 //! - **Probe**: Ask targeted questions to clarify meaning, fill gaps, or challenge
 //!   assumptions. Returns a free-form response draft for user-directed insertion.
 //! - **Amplify**: Add detail, examples, and context; draft injected as extra guidance.
@@ -44,9 +46,9 @@
 //! - add response as a new child under the target.
 //!
 //! Note: the editor phase has an explicit close button that clears the current
-//! input draft. Once a probe request is pending or a probe result exists, that
-//! header close affordance is intentionally hidden so dismissing the result
-//! remains an explicit action.
+//! panel-local input draft. Once a probe request is pending or a probe result
+//! exists, that header close affordance is intentionally hidden so dismissing
+//! the result remains an explicit action.
 
 use crate::app::{AppState, BlockPanelBarState, Message, RequestSignature};
 use crate::component::icon_button::IconButton;
@@ -61,87 +63,89 @@ use iced::widget::{button, container, text, text_editor};
 use lucide_icons::iced as icons;
 use std::time::Duration;
 
+use super::state::{ProbePanelId, ProbePanelState};
+
 const LLM_REQUEST_TIMEOUT: Duration = theme::INSTRUCTION_LLM_TIMEOUT;
 
 /// Message types for probe-panel interactions.
 #[derive(Debug, Clone)]
 pub enum InstructionPanelMessage {
-    /// Toggle probe panel visibility for the focused block.
-    Toggle,
-    /// Close the editor phase and discard the current instruction input draft.
-    CloseEditor,
-    /// Text edited in the probe panel.
-    TextEdited(iced::widget::text_editor::Action),
-    /// Send probe to LLM with the instruction.
-    Probe,
+    /// Append a new probe panel instance for the target block.
+    OpenPanel,
+    /// Close the editor phase and discard the current panel-local input draft.
+    ClosePanel { panel_id: ProbePanelId },
+    /// Text edited in one probe panel.
+    TextEdited { panel_id: ProbePanelId, action: iced::widget::text_editor::Action },
+    /// Send probe to LLM with the current panel instruction.
+    Probe { panel_id: ProbePanelId },
     /// One probe response chunk arrived.
-    ProbeChunk { block_id: BlockId, request_signature: RequestSignature, chunk: String },
+    ProbeChunk {
+        block_id: BlockId,
+        panel_id: ProbePanelId,
+        request_signature: RequestSignature,
+        chunk: String,
+    },
     /// Probe stream reported an error.
     ProbeFailed {
         block_id: BlockId,
+        panel_id: ProbePanelId,
         request_signature: RequestSignature,
         reason: crate::app::UiError,
     },
     /// Probe request completed (successfully or with error).
-    ProbeFinished { block_id: BlockId, request_signature: RequestSignature },
+    ProbeFinished { block_id: BlockId, panel_id: ProbePanelId, request_signature: RequestSignature },
     /// Cancel an in-flight probe request.
-    CancelProbe,
-    /// Amplify with instruction as system prompt.
-    AmplifyWithInstruction,
-    /// Distill with instruction as system prompt.
-    DistillWithInstruction,
-    /// Apply rewrite from inquiry result.
-    ApplyInstructionRewrite,
-    /// Append inquiry result to the target block point.
-    AppendInstructionResponse,
-    /// Add inquiry result as a new child under the target block.
-    AddInstructionResponseAsChild,
-    /// Dismiss inquiry result.
-    Dismiss,
+    CancelProbe { panel_id: ProbePanelId },
+    /// Amplify with the panel instruction as extra prompt guidance.
+    AmplifyWithInstruction { panel_id: ProbePanelId },
+    /// Distill with the panel instruction as extra prompt guidance.
+    DistillWithInstruction { panel_id: ProbePanelId },
+    /// Apply rewrite from one probe result.
+    ApplyInstructionRewrite { panel_id: ProbePanelId },
+    /// Append probe result to the target block point.
+    AppendInstructionResponse { panel_id: ProbePanelId },
+    /// Add probe result as a new child under the target block.
+    AddInstructionResponseAsChild { panel_id: ProbePanelId },
+    /// Dismiss one probe result panel.
+    Dismiss { panel_id: ProbePanelId },
 }
 
 /// Handle probe-panel messages.
-///
-/// Note: `Toggle` preserves the current input buffer and persisted drafts so the
-/// toolbar action can behave as a reversible visibility toggle. `CloseEditor`
-/// is the destructive close path used by the editor-phase header button.
 pub fn handle(
     state: &mut AppState, target_block_id: BlockId, msg: InstructionPanelMessage,
 ) -> iced::Task<Message> {
     use super::patch::{PatchKind, PatchMessage};
 
     match msg {
-        | InstructionPanelMessage::Toggle => {
-            let current_state = state.store.block_panel_state(&target_block_id).copied();
-            if matches!(current_state, Some(BlockPanelBarState::Probe)) {
-                state.store.set_block_panel_state(&target_block_id, None);
-            } else {
-                state
-                    .store
-                    .set_block_panel_state(&target_block_id, Some(BlockPanelBarState::Probe));
-                sync_instruction_panel_from_store(state, &target_block_id);
-            }
-            state.persist_with_context("after toggling probe panel");
+        | InstructionPanelMessage::OpenPanel => {
+            let panel_id = next_panel_id(state);
+            state
+                .ui_mut()
+                .probe_panels
+                .entry(target_block_id)
+                .or_default()
+                .push(ProbePanelState::new(panel_id));
+            state.store.set_block_panel_state(&target_block_id, Some(BlockPanelBarState::Probe));
+            state.persist_with_context("after opening probe panel");
             iced::Task::none()
         }
-        | InstructionPanelMessage::CloseEditor => {
-            state.editor_buffers.set_instruction_text("");
-            state.store.remove_instruction_draft(&target_block_id);
-            state.store.set_block_panel_state(&target_block_id, None);
-            state.persist_with_context("after closing probe panel editor");
+        | InstructionPanelMessage::ClosePanel { panel_id } => {
+            remove_probe_panel(state, target_block_id, panel_id);
             iced::Task::none()
         }
-        | InstructionPanelMessage::TextEdited(action) => {
-            state.editor_buffers.instruction_content_mut().perform(action);
-            if state.store.node(&target_block_id).is_none() {
-                let updated_text = state.editor_buffers.instruction_content().text().to_string();
-                state.store.set_instruction_draft(target_block_id, updated_text);
-                state.persist_with_context("after editing instruction draft");
+        | InstructionPanelMessage::TextEdited { panel_id, action } => {
+            if let Some(panel) = probe_panel_mut(state, target_block_id, panel_id) {
+                panel.instruction.perform(action);
             }
             iced::Task::none()
         }
-        | InstructionPanelMessage::Probe => {
-            let instruction = state.editor_buffers.instruction_content().text().trim().to_string();
+        | InstructionPanelMessage::Probe { panel_id } => {
+            if state.llm_requests.is_probing(target_block_id) {
+                return iced::Task::none();
+            }
+            let Some(instruction) = panel_instruction(state, target_block_id, panel_id) else {
+                return iced::Task::none();
+            };
             if instruction.is_empty() {
                 return iced::Task::none();
             }
@@ -152,12 +156,14 @@ pub fn handle(
             let Some(config) = state.llm_config_for_probe() else {
                 return iced::Task::none();
             };
+            if let Some(panel) = probe_panel_mut(state, target_block_id, panel_id) {
+                panel.inquiry = Some(instruction.clone());
+                panel.response.clear();
+                panel.is_probing = true;
+                panel.instruction = text_editor::Content::new();
+            }
             state.llm_requests.mark_probe_loading(target_block_id, request_signature);
-            state.store.set_probe_question(target_block_id, instruction.clone());
-            state.store.remove_instruction_draft(&target_block_id);
-            state.persist_with_context("after storing inquiry and consuming instruction draft");
-            state.editor_buffers.set_instruction_text("");
-            tracing::info!(block_id = ?target_block_id, "probe panel inquiry started");
+            tracing::info!(block_id = ?target_block_id, panel_id = panel_id.0, "probe panel inquiry started");
             let probe_max_tokens = state.config.tasks.probe.token_limit.as_api_param();
             let prompt_config = llm::TaskPromptConfig::probe(
                 &state.config.tasks.probe.system_prompt,
@@ -177,6 +183,7 @@ pub fn handle(
                         target_block_id,
                         InstructionPanelMessage::ProbeChunk {
                             block_id: target_block_id,
+                            panel_id,
                             request_signature,
                             chunk,
                         },
@@ -185,6 +192,7 @@ pub fn handle(
                         target_block_id,
                         InstructionPanelMessage::ProbeFailed {
                             block_id: target_block_id,
+                            panel_id,
                             request_signature,
                             reason: crate::app::UiError::from_message(err),
                         },
@@ -193,6 +201,7 @@ pub fn handle(
                         target_block_id,
                         InstructionPanelMessage::ProbeFinished {
                             block_id: target_block_id,
+                            panel_id,
                             request_signature,
                         },
                     ),
@@ -202,40 +211,50 @@ pub fn handle(
             state.llm_requests.replace_probe_handle(target_block_id, handle);
             request_task
         }
-        | InstructionPanelMessage::ProbeChunk { block_id, request_signature, chunk } => {
+        | InstructionPanelMessage::ProbeChunk { block_id, panel_id, request_signature, chunk } => {
             if state.store.node(&block_id).is_none() {
                 return iced::Task::none();
             }
             if state.is_stale_response(&block_id, request_signature) {
                 tracing::info!(
                     block_id = ?block_id,
-                    "discarded stale instruction inquiry chunk after context changed"
+                    panel_id = panel_id.0,
+                    "discarded stale probe panel chunk after context changed"
                 );
                 return iced::Task::none();
             }
-            state.store.append_inquiry_response_chunk(block_id, &chunk);
+            if let Some(panel) = probe_panel_mut(state, block_id, panel_id) {
+                panel.response.push_str(&chunk);
+            }
             iced::Task::none()
         }
-        | InstructionPanelMessage::ProbeFailed { block_id, request_signature, reason } => {
+        | InstructionPanelMessage::ProbeFailed {
+            block_id,
+            panel_id,
+            request_signature,
+            reason,
+        } => {
             if state.store.node(&block_id).is_none() {
                 return iced::Task::none();
             }
             if state.is_stale_response(&block_id, request_signature) {
                 tracing::info!(
                     block_id = ?block_id,
-                    "discarded stale instruction inquiry error after context changed"
+                    panel_id = panel_id.0,
+                    "discarded stale probe panel error after context changed"
                 );
                 return iced::Task::none();
             }
             tracing::error!(
                 block_id = ?block_id,
+                panel_id = panel_id.0,
                 reason = %reason.as_str(),
-                "instruction inquiry stream failed"
+                "probe panel stream failed"
             );
             state.llm_requests.set_probe_error(block_id, reason);
             iced::Task::none()
         }
-        | InstructionPanelMessage::ProbeFinished { block_id, request_signature } => {
+        | InstructionPanelMessage::ProbeFinished { block_id, panel_id, request_signature } => {
             let (pending_signature, pending_error) =
                 state.llm_requests.finish_probe_request(block_id);
             if state.store.node(&block_id).is_none() {
@@ -246,61 +265,72 @@ pub fn handle(
             {
                 tracing::info!(
                     block_id = ?block_id,
-                    "discarded stale instruction inquiry response after context changed"
+                    panel_id = panel_id.0,
+                    "discarded stale probe panel response after context changed"
                 );
                 return iced::Task::none();
             }
-            let response_len = state
-                .store
-                .probe_draft(&block_id)
-                .map(|record| record.response.trim())
+            let response_len = probe_panel(state, block_id, panel_id)
+                .map(|panel| panel.response.trim())
                 .filter(|response| !response.is_empty())
                 .map(str::len)
                 .unwrap_or(0);
             let had_stream_error = pending_error.is_some();
+
+            if let Some(panel) = probe_panel_mut(state, block_id, panel_id) {
+                panel.is_probing = false;
+                if response_len == 0 {
+                    panel.inquiry = None;
+                }
+            }
 
             if let Some(reason) = pending_error {
                 state.record_error(crate::app::AppError::Probe(reason));
             }
 
             if response_len > 0 {
-                tracing::info!(block_id = ?block_id, chars = response_len, "instruction probe completed");
+                tracing::info!(
+                    block_id = ?block_id,
+                    panel_id = panel_id.0,
+                    chars = response_len,
+                    "probe panel completed"
+                );
                 if !had_stream_error {
                     state.errors.retain(|err| !matches!(err, crate::app::AppError::Probe(_)));
                 }
-                state.persist_with_context("after persisting streamed instruction inquiry draft");
             } else if !had_stream_error {
                 state.record_error(crate::app::AppError::Probe(crate::app::UiError::from_message(
                     "probe returned no usable text",
                 )));
                 tracing::error!(
                     block_id = ?block_id,
-                    "instruction inquiry finished without usable response"
-                );
-            } else {
-                tracing::error!(
-                    block_id = ?block_id,
-                    "instruction inquiry finished after stream error"
+                    panel_id = panel_id.0,
+                    "probe panel finished without usable response"
                 );
             }
             iced::Task::none()
         }
-        | InstructionPanelMessage::CancelProbe => {
+        | InstructionPanelMessage::CancelProbe { panel_id } => {
             if state.llm_requests.cancel_probe(target_block_id) {
-                tracing::info!(block_id = ?target_block_id, "instruction inquiry cancelled");
+                if let Some(panel) = probe_panel_mut(state, target_block_id, panel_id) {
+                    panel.is_probing = false;
+                    if panel.response.trim().is_empty() {
+                        panel.inquiry = None;
+                    }
+                }
+                tracing::info!(block_id = ?target_block_id, panel_id = panel_id.0, "probe panel inquiry cancelled");
             }
             iced::Task::none()
         }
-        | InstructionPanelMessage::AmplifyWithInstruction => {
-            let instruction = state.editor_buffers.instruction_content().text().trim().to_string();
+        | InstructionPanelMessage::AmplifyWithInstruction { panel_id } => {
+            let Some(instruction) = panel_instruction(state, target_block_id, panel_id) else {
+                return iced::Task::none();
+            };
             if instruction.is_empty() {
                 return iced::Task::none();
             }
-            state.store.set_instruction_draft(target_block_id, instruction.clone());
-            state.persist_with_context("after persisting instruction draft for amplify");
-            state.editor_buffers.set_instruction_text("");
-            state.store.set_block_panel_state(&target_block_id, None);
-            state.persist_with_context("after closing probe panel");
+            state.store.set_instruction_draft(target_block_id, instruction);
+            remove_probe_panel(state, target_block_id, panel_id);
             crate::app::AppState::update(
                 state,
                 Message::Patch(PatchMessage::Start {
@@ -309,16 +339,15 @@ pub fn handle(
                 }),
             )
         }
-        | InstructionPanelMessage::DistillWithInstruction => {
-            let instruction = state.editor_buffers.instruction_content().text().trim().to_string();
+        | InstructionPanelMessage::DistillWithInstruction { panel_id } => {
+            let Some(instruction) = panel_instruction(state, target_block_id, panel_id) else {
+                return iced::Task::none();
+            };
             if instruction.is_empty() {
                 return iced::Task::none();
             }
-            state.store.set_instruction_draft(target_block_id, instruction.clone());
-            state.persist_with_context("after persisting instruction draft for distill");
-            state.editor_buffers.set_instruction_text("");
-            state.store.set_block_panel_state(&target_block_id, None);
-            state.persist_with_context("after closing probe panel");
+            state.store.set_instruction_draft(target_block_id, instruction);
+            remove_probe_panel(state, target_block_id, panel_id);
             crate::app::AppState::update(
                 state,
                 Message::Patch(PatchMessage::Start {
@@ -327,145 +356,255 @@ pub fn handle(
                 }),
             )
         }
-        | InstructionPanelMessage::ApplyInstructionRewrite => {
-            if state.store.probe_draft(&target_block_id).is_none() {
-                tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
+        | InstructionPanelMessage::ApplyInstructionRewrite { panel_id } => {
+            let Some(response) = panel_response(state, target_block_id, panel_id) else {
                 return iced::Task::none();
-            }
-            let block_id = target_block_id;
-            if let Some(probe_draft) = state.store.probe_draft(&block_id) {
-                let rewrite = probe_draft.response.clone();
-                state.mutate_with_undo_and_persist("after applying instruction rewrite", |state| {
-                    state.store.update_point(&block_id, rewrite.clone());
-                    state.editor_buffers.set_text(&block_id, &rewrite);
-                    true
-                });
-                state.store.remove_probe_draft(&block_id);
-                state.persist_with_context("after clearing inquiry draft by rewrite apply");
-            }
+            };
+            state.mutate_with_undo_and_persist("after applying probe panel rewrite", |state| {
+                state.store.update_point(&target_block_id, response.clone());
+                state.editor_buffers.set_text(&target_block_id, &response);
+                true
+            });
+            remove_probe_panel(state, target_block_id, panel_id);
             iced::Task::none()
         }
-        | InstructionPanelMessage::AppendInstructionResponse => {
-            if state.store.probe_draft(&target_block_id).is_none() {
-                tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
+        | InstructionPanelMessage::AppendInstructionResponse { panel_id } => {
+            let Some(response) = panel_response(state, target_block_id, panel_id) else {
                 return iced::Task::none();
-            }
-            let block_id = target_block_id;
-            if let Some(probe_draft) = state.store.probe_draft(&block_id) {
-                let response = probe_draft.response.clone();
-                state.mutate_with_undo_and_persist(
-                    "after appending instruction inquiry response",
-                    |state| {
-                        let current = state.store.point(&block_id).unwrap_or_default();
-                        let next = if current.trim().is_empty() {
-                            response.clone()
-                        } else {
-                            format!("{current}\n\n{response}")
-                        };
-                        state.store.update_point(&block_id, next.clone());
-                        state.editor_buffers.set_text(&block_id, &next);
-                        true
-                    },
-                );
-                state.store.remove_probe_draft(&block_id);
-                state.persist_with_context("after clearing inquiry draft by append apply");
-            }
+            };
+            state.mutate_with_undo_and_persist("after appending probe panel response", |state| {
+                let current = state.store.point(&target_block_id).unwrap_or_default();
+                let next = if current.trim().is_empty() {
+                    response.clone()
+                } else {
+                    format!("{current}\n\n{response}")
+                };
+                state.store.update_point(&target_block_id, next.clone());
+                state.editor_buffers.set_text(&target_block_id, &next);
+                true
+            });
+            remove_probe_panel(state, target_block_id, panel_id);
             iced::Task::none()
         }
-        | InstructionPanelMessage::AddInstructionResponseAsChild => {
-            if state.store.probe_draft(&target_block_id).is_none() {
-                tracing::error!(block_id = ?target_block_id, "no inquiry draft found");
+        | InstructionPanelMessage::AddInstructionResponseAsChild { panel_id } => {
+            let Some(response) = panel_response(state, target_block_id, panel_id) else {
                 return iced::Task::none();
-            }
-            let block_id = target_block_id;
-            if let Some(probe_draft) = state.store.probe_draft(&block_id) {
-                let response = probe_draft.response.clone();
-                state.mutate_with_undo_and_persist(
-                    "after adding instruction inquiry response as child",
-                    |state| {
-                        if let Some(child_id) =
-                            state.store.append_child(&block_id, response.clone())
-                        {
-                            state.editor_buffers.set_text(&child_id, &response);
-                            return true;
-                        }
-                        false
-                    },
-                );
-                state.store.remove_probe_draft(&block_id);
-                state.persist_with_context("after clearing inquiry draft by add-child apply");
-            }
+            };
+            state.mutate_with_undo_and_persist(
+                "after adding probe panel response as child",
+                |state| {
+                    if let Some(child_id) =
+                        state.store.append_child(&target_block_id, response.clone())
+                    {
+                        state.editor_buffers.set_text(&child_id, &response);
+                        return true;
+                    }
+                    false
+                },
+            );
+            remove_probe_panel(state, target_block_id, panel_id);
             iced::Task::none()
         }
-        | InstructionPanelMessage::Dismiss => {
-            state.store.remove_probe_draft(&target_block_id);
-            state.persist_with_context("after dismissing inquiry draft");
+        | InstructionPanelMessage::Dismiss { panel_id } => {
+            remove_probe_panel(state, target_block_id, panel_id);
             iced::Task::none()
         }
     }
 }
 
-fn sync_instruction_panel_from_store(state: &mut AppState, target_block_id: &BlockId) {
-    let instruction = state
-        .store
-        .instruction_draft(target_block_id)
-        .map(|draft| draft.instruction.clone())
-        .unwrap_or_default();
-    state.editor_buffers.set_instruction_text(&instruction);
+fn next_panel_id(state: &mut AppState) -> ProbePanelId {
+    let next = ProbePanelId(state.ui().next_probe_panel_id);
+    state.ui_mut().next_probe_panel_id += 1;
+    next
 }
 
-fn is_showing_probe_result_phase(is_probing: bool, has_probe_draft: bool) -> bool {
-    is_probing || has_probe_draft
+fn probe_panel(
+    state: &AppState, block_id: BlockId, panel_id: ProbePanelId,
+) -> Option<&ProbePanelState> {
+    state
+        .ui()
+        .probe_panels
+        .get(&block_id)
+        .and_then(|panels| panels.iter().find(|panel| panel.id == panel_id))
 }
 
-/// Render the probe panel for `target_block_id`.
-///
-/// The target is explicit so the inline block panel host can decide which row
-/// owns the panel without relying on global focus reads here.
+fn probe_panel_mut(
+    state: &mut AppState, block_id: BlockId, panel_id: ProbePanelId,
+) -> Option<&mut ProbePanelState> {
+    state
+        .ui_mut()
+        .probe_panels
+        .get_mut(&block_id)
+        .and_then(|panels| panels.iter_mut().find(|panel| panel.id == panel_id))
+}
+
+fn remove_probe_panel(state: &mut AppState, block_id: BlockId, panel_id: ProbePanelId) {
+    let became_empty = {
+        let Some(panels) = state.ui_mut().probe_panels.get_mut(&block_id) else {
+            return;
+        };
+        panels.retain(|panel| panel.id != panel_id);
+        panels.is_empty()
+    };
+
+    if became_empty {
+        state.ui_mut().probe_panels.remove(&block_id);
+        state.store.set_block_panel_state(&block_id, None);
+        state.persist_with_context("after removing last probe panel");
+    }
+}
+
+fn panel_instruction(
+    state: &AppState, block_id: BlockId, panel_id: ProbePanelId,
+) -> Option<String> {
+    probe_panel(state, block_id, panel_id)
+        .map(|panel| panel.instruction.text().trim().to_string())
+        .filter(|instruction| !instruction.is_empty())
+}
+
+fn panel_response(state: &AppState, block_id: BlockId, panel_id: ProbePanelId) -> Option<String> {
+    probe_panel(state, block_id, panel_id)
+        .map(|panel| panel.response.trim().to_string())
+        .filter(|response| !response.is_empty())
+}
+
+/// Render all probe panels for `target_block_id`.
 pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Message> {
     use crate::store::BlockPanelBarState;
-    use iced::Padding;
     use iced::widget::{column, row, scrollable};
 
     if !matches!(state.store.block_panel_state(&target_block_id), Some(BlockPanelBarState::Probe)) {
         return container(iced::widget::Text::new("")).into();
     }
 
-    let instruction_content = state.editor_buffers.instruction_content();
-    let inquiry_result = state.store.probe_draft(&target_block_id);
-    let is_probing = state.llm_requests.is_probing(target_block_id);
-    let is_showing_result_phase =
-        is_showing_probe_result_phase(is_probing, inquiry_result.is_some());
+    let Some(panels) = state.ui().probe_panels.get(&target_block_id) else {
+        return container(iced::widget::Text::new("")).into();
+    };
 
-    let mut panel = column![].spacing(theme::PANEL_INNER_GAP);
-
-    if is_showing_result_phase {
-        let inquiry_text = inquiry_result.as_ref().map(|r| r.inquiry.as_str()).unwrap_or_default();
-
-        let inquiry_section = column![].spacing(theme::PANEL_INNER_GAP).push(
-            container(
-                text(t!("instruction_probe_label").to_string())
-                    .font(theme::INTER)
-                    .size(theme::INSTRUCTION_BUTTON_SIZE),
-            )
-            .width(iced::Length::Fill),
-        );
-
-        let inquiry_content = container(
-            scrollable(text(inquiry_text).font(theme::LXGW_WENKAI).size(theme::INPUT_TEXT_SIZE))
+    let mut content = column![].spacing(theme::PANEL_INNER_GAP);
+    for panel in panels {
+        if panel.is_result_phase() {
+            let inquiry_text = panel.inquiry.as_deref().unwrap_or_default();
+            let inquiry_section = column![].spacing(theme::PANEL_INNER_GAP).push(
+                container(
+                    text(t!("instruction_probe_label").to_string())
+                        .font(theme::INTER)
+                        .size(theme::INSTRUCTION_BUTTON_SIZE),
+                )
                 .width(iced::Length::Fill),
-        )
-        .padding(Padding::from([theme::COMPACT_PAD_V, theme::PANEL_PAD_V]))
-        .style(theme::draft_panel)
-        .width(iced::Length::Fill);
+            );
 
-        panel = panel.push(inquiry_section);
-        panel = panel.push(inquiry_content);
-    } else {
-        let close_button = IconButton::action(
-            icons::icon_x().size(theme::TOOLBAR_ICON_SIZE).into(),
-        )
-        .on_press(Message::InstructionPanel(target_block_id, InstructionPanelMessage::CloseEditor));
+            let inquiry_content = container(
+                scrollable(
+                    text(inquiry_text).font(theme::LXGW_WENKAI).size(theme::INPUT_TEXT_SIZE),
+                )
+                .width(iced::Length::Fill),
+            )
+            .padding(iced::Padding::from([theme::COMPACT_PAD_V, theme::PANEL_PAD_V]))
+            .style(theme::draft_panel)
+            .width(iced::Length::Fill);
+
+            let mut panel_content =
+                column![inquiry_section, inquiry_content].spacing(theme::PANEL_INNER_GAP);
+
+            if panel.is_probing {
+                let button_row = row![].spacing(theme::PANEL_BUTTON_GAP).push(
+                    button(
+                        row![]
+                            .spacing(theme::INLINE_GAP)
+                            .align_y(iced::Alignment::Center)
+                            .push(
+                                icons::icon_loader().size(theme::INSTRUCTION_BUTTON_SIZE).center(),
+                            )
+                            .push(
+                                text(t!("instruction_probing").to_string())
+                                    .font(theme::INTER)
+                                    .size(theme::INSTRUCTION_BUTTON_SIZE),
+                            ),
+                    )
+                    .style(theme::destructive_button)
+                    .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                    .on_press(Message::InstructionPanel(
+                        target_block_id,
+                        InstructionPanelMessage::CancelProbe { panel_id: panel.id },
+                    )),
+                );
+                panel_content = panel_content.push(button_row);
+            }
+
+            if !panel.response.trim().is_empty() {
+                use super::patch_panel::{PanelButton, PanelButtonStyle, RewriteSection};
+                let response = panel.response.as_str().to_string();
+                let response_content: iced::Element<'_, Message> = container(
+                    scrollable(
+                        text(response).font(theme::LXGW_WENKAI).size(theme::INPUT_TEXT_SIZE),
+                    )
+                    .width(iced::Length::Fill),
+                )
+                .width(iced::Length::Fill)
+                .into();
+                let buttons = if !panel.is_probing {
+                    vec![
+                        PanelButton {
+                            label: t!("instruction_apply_rewrite").to_string(),
+                            style: PanelButtonStyle::Action,
+                            on_press: Message::InstructionPanel(
+                                target_block_id,
+                                InstructionPanelMessage::ApplyInstructionRewrite {
+                                    panel_id: panel.id,
+                                },
+                            ),
+                        },
+                        PanelButton {
+                            label: t!("instruction_append_block").to_string(),
+                            style: PanelButtonStyle::Action,
+                            on_press: Message::InstructionPanel(
+                                target_block_id,
+                                InstructionPanelMessage::AppendInstructionResponse {
+                                    panel_id: panel.id,
+                                },
+                            ),
+                        },
+                        PanelButton {
+                            label: t!("instruction_add_child").to_string(),
+                            style: PanelButtonStyle::Action,
+                            on_press: Message::InstructionPanel(
+                                target_block_id,
+                                InstructionPanelMessage::AddInstructionResponseAsChild {
+                                    panel_id: panel.id,
+                                },
+                            ),
+                        },
+                        PanelButton {
+                            label: t!("ui_discard").to_string(),
+                            style: PanelButtonStyle::Destructive,
+                            on_press: Message::InstructionPanel(
+                                target_block_id,
+                                InstructionPanelMessage::Dismiss { panel_id: panel.id },
+                            ),
+                        },
+                    ]
+                } else {
+                    vec![]
+                };
+                panel_content = panel_content.push(super::patch_panel::view(
+                    state.is_dark_mode(),
+                    Some(RewriteSection::Content {
+                        title: t!("instruction_response").to_string(),
+                        content: response_content,
+                        buttons,
+                    }),
+                    None,
+                ));
+            }
+
+            content = content.push(
+                container(panel_content)
+                    .padding(iced::Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
+                    .style(theme::draft_panel),
+            );
+            continue;
+        }
 
         let header = row![]
             .spacing(theme::PANEL_BUTTON_GAP)
@@ -478,160 +617,78 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
                 )
                 .width(iced::Length::Fill),
             )
-            .push(close_button);
+            .push(
+                IconButton::action(icons::icon_x().size(theme::TOOLBAR_ICON_SIZE).into()).on_press(
+                    Message::InstructionPanel(
+                        target_block_id,
+                        InstructionPanelMessage::ClosePanel { panel_id: panel.id },
+                    ),
+                ),
+            );
 
-        let mut instruction_section = column![header].spacing(theme::PANEL_INNER_GAP);
+        let editor = container(
+            text_editor(&panel.instruction)
+                .placeholder(t!("instruction_placeholder").to_string())
+                .style(theme::point_editor)
+                .font(theme::DEFAULT_FONT)
+                .size(theme::INPUT_TEXT_SIZE)
+                .line_height(iced::widget::text::LineHeight::Absolute(
+                    (theme::INPUT_TEXT_SIZE * theme::EDITOR_LINE_HEIGHT).into(),
+                ))
+                .height(theme::INSTRUCTION_EDITOR_HEIGHT)
+                .on_action(move |action| {
+                    Message::InstructionPanel(
+                        target_block_id,
+                        InstructionPanelMessage::TextEdited { panel_id: panel.id, action },
+                    )
+                }),
+        )
+        .padding(iced::Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]));
 
-        instruction_section = instruction_section.push(
-            container(
-                text_editor(instruction_content)
-                    .placeholder(t!("instruction_placeholder").to_string())
-                    .style(theme::point_editor)
-                    .font(theme::DEFAULT_FONT)
-                    .size(theme::INPUT_TEXT_SIZE)
-                    .line_height(iced::widget::text::LineHeight::Absolute(
-                        (theme::INPUT_TEXT_SIZE * theme::EDITOR_LINE_HEIGHT).into(),
-                    ))
-                    .height(theme::INSTRUCTION_EDITOR_HEIGHT)
-                    .on_action(move |action| {
-                        Message::InstructionPanel(
-                            target_block_id,
-                            InstructionPanelMessage::TextEdited(action),
-                        )
-                    }),
-            )
-            .width(iced::Length::Fill),
-        );
-
-        let mut button_row = row![].spacing(theme::PANEL_BUTTON_GAP);
-
-        button_row = button_row.push(
-            TextButton::action(
-                t!("instruction_amplify").to_string(),
-                theme::INSTRUCTION_BUTTON_SIZE,
-            )
-            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(
-                target_block_id,
-                InstructionPanelMessage::AmplifyWithInstruction,
-            )),
-        );
-
-        button_row = button_row.push(
-            TextButton::action(
-                t!("instruction_distill").to_string(),
-                theme::INSTRUCTION_BUTTON_SIZE,
-            )
-            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(
-                target_block_id,
-                InstructionPanelMessage::DistillWithInstruction,
-            )),
-        );
-
-        button_row = button_row.push(
-            TextButton::action(t!("instruction_probe").to_string(), theme::INSTRUCTION_BUTTON_SIZE)
+        let actions = row![]
+            .spacing(theme::PANEL_BUTTON_GAP)
+            .push(
+                TextButton::action(
+                    t!("instruction_amplify").to_string(),
+                    theme::INSTRUCTION_BUTTON_SIZE,
+                )
                 .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .on_press(Message::InstructionPanel(
                     target_block_id,
-                    InstructionPanelMessage::Probe,
+                    InstructionPanelMessage::AmplifyWithInstruction { panel_id: panel.id },
                 )),
-        );
-
-        instruction_section = instruction_section.push(button_row);
-        panel = panel.push(instruction_section);
-    }
-
-    if is_probing {
-        let button_row = row![].spacing(theme::PANEL_BUTTON_GAP).push(
-            button(
-                row![]
-                    .spacing(theme::INLINE_GAP)
-                    .align_y(iced::Alignment::Center)
-                    .push(icons::icon_loader().size(theme::INSTRUCTION_BUTTON_SIZE).center())
-                    .push(
-                        text(t!("instruction_probing").to_string())
-                            .font(theme::INTER)
-                            .size(theme::INSTRUCTION_BUTTON_SIZE),
-                    ),
             )
-            .style(theme::destructive_button)
-            .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::InstructionPanel(
-                target_block_id,
-                InstructionPanelMessage::CancelProbe,
-            )),
-        );
-        panel = panel.push(button_row);
-    }
-
-    if let Some(result) = inquiry_result {
-        let response_text = result.response.as_str();
-        if !response_text.is_empty() {
-            use super::patch_panel::{PanelButton, PanelButtonStyle, RewriteSection};
-            let content: iced::Element<'_, Message> = container(
-                scrollable(
-                    text(response_text).font(theme::LXGW_WENKAI).size(theme::INPUT_TEXT_SIZE),
+            .push(
+                TextButton::action(
+                    t!("instruction_distill").to_string(),
+                    theme::INSTRUCTION_BUTTON_SIZE,
                 )
-                .width(iced::Length::Fill),
+                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::InstructionPanel(
+                    target_block_id,
+                    InstructionPanelMessage::DistillWithInstruction { panel_id: panel.id },
+                )),
             )
-            .width(iced::Length::Fill)
-            .into();
-            let buttons = if !is_probing {
-                vec![
-                    PanelButton {
-                        label: t!("instruction_apply_rewrite").to_string(),
-                        style: PanelButtonStyle::Action,
-                        on_press: Message::InstructionPanel(
-                            target_block_id,
-                            InstructionPanelMessage::ApplyInstructionRewrite,
-                        ),
-                    },
-                    PanelButton {
-                        label: t!("instruction_append_block").to_string(),
-                        style: PanelButtonStyle::Action,
-                        on_press: Message::InstructionPanel(
-                            target_block_id,
-                            InstructionPanelMessage::AppendInstructionResponse,
-                        ),
-                    },
-                    PanelButton {
-                        label: t!("instruction_add_child").to_string(),
-                        style: PanelButtonStyle::Action,
-                        on_press: Message::InstructionPanel(
-                            target_block_id,
-                            InstructionPanelMessage::AddInstructionResponseAsChild,
-                        ),
-                    },
-                    PanelButton {
-                        label: t!("ui_discard").to_string(),
-                        style: PanelButtonStyle::Destructive,
-                        on_press: Message::InstructionPanel(
-                            target_block_id,
-                            InstructionPanelMessage::Dismiss,
-                        ),
-                    },
-                ]
-            } else {
-                vec![]
-            };
-            let result_panel = super::patch_panel::view(
-                state.is_dark_mode(),
-                Some(RewriteSection::Content {
-                    title: t!("instruction_response").to_string(),
-                    content,
-                    buttons,
-                }),
-                None,
+            .push(
+                TextButton::action(
+                    t!("instruction_probe").to_string(),
+                    theme::INSTRUCTION_BUTTON_SIZE,
+                )
+                .height(iced::Length::Fixed(theme::ICON_BUTTON_SIZE))
+                .on_press(Message::InstructionPanel(
+                    target_block_id,
+                    InstructionPanelMessage::Probe { panel_id: panel.id },
+                )),
             );
-            panel = panel.push(result_panel);
-        }
+
+        content = content.push(
+            container(column![header, editor, actions].spacing(theme::PANEL_INNER_GAP))
+                .padding(iced::Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
+                .style(theme::draft_panel),
+        );
     }
 
-    container(panel)
-        .padding(Padding::from([theme::PANEL_PAD_V, theme::PANEL_PAD_H]))
-        .style(theme::draft_panel)
-        .into()
+    content.into()
 }
 
 #[cfg(test)]
@@ -642,85 +699,60 @@ mod tests {
         AppState::test_state()
     }
 
+    fn open_panel(state: &mut AppState, block_id: BlockId) -> ProbePanelId {
+        let _ = AppState::update(
+            state,
+            Message::InstructionPanel(block_id, InstructionPanelMessage::OpenPanel),
+        );
+        state.ui().probe_panels[&block_id].last().expect("panel created").id
+    }
+
     #[test]
-    fn instruction_toggle_opens_panel_without_clearing_input() {
+    fn open_panel_appends_multiple_probe_panels() {
         let (mut state, root) = test_state();
         state.set_focus(root);
-        state.editor_buffers.set_instruction_text("keep this instruction");
-        state.store.set_instruction_draft(root, "keep this instruction".to_string());
 
-        let _ = AppState::update(
-            &mut state,
-            Message::InstructionPanel(root, InstructionPanelMessage::Toggle),
-        );
+        let first = open_panel(&mut state, root);
+        let second = open_panel(&mut state, root);
 
+        assert_ne!(first, second);
+        assert_eq!(state.ui().probe_panels[&root].len(), 2);
         assert_eq!(state.store.block_panel_state(&root).copied(), Some(BlockPanelBarState::Probe));
-        assert_eq!(state.editor_buffers.instruction_content().text(), "keep this instruction");
     }
 
     #[test]
-    fn instruction_toggle_opens_panel_with_persisted_drafts() {
+    fn close_panel_removes_only_target_probe_panel() {
         let (mut state, root) = test_state();
         state.set_focus(root);
-        state.store.set_instruction_draft(root, "persisted instruction".to_string());
-        state.store.set_probe_response(root, "persisted inquiry".to_string());
+        let first = open_panel(&mut state, root);
+        let second = open_panel(&mut state, root);
 
         let _ = AppState::update(
             &mut state,
-            Message::InstructionPanel(root, InstructionPanelMessage::Toggle),
+            Message::InstructionPanel(
+                root,
+                InstructionPanelMessage::ClosePanel { panel_id: first },
+            ),
         );
 
-        assert_eq!(state.editor_buffers.instruction_content().text(), "persisted instruction");
-        assert_eq!(
-            state.store.probe_draft(&root).map(|r| r.response.as_str()),
-            Some("persisted inquiry")
-        );
+        let remaining = &state.ui().probe_panels[&root];
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, second);
     }
 
     #[test]
-    fn instruction_toggle_closes_panel_and_preserves_draft_state() {
+    fn close_last_panel_clears_probe_panel_state() {
         let (mut state, root) = test_state();
         state.set_focus(root);
-        state.store.set_block_panel_state(&root, Some(BlockPanelBarState::Probe));
-        state.store.set_instruction_draft(root, "prompt".to_string());
-        state.store.set_probe_response(root, "result".to_string());
-        let signature = state.block_context_signature(&root).expect("root has request signature");
-        state.llm_requests.mark_probe_loading(root, signature);
-        state.editor_buffers.set_instruction_text("keep me");
+        let panel_id = open_panel(&mut state, root);
 
         let _ = AppState::update(
             &mut state,
-            Message::InstructionPanel(root, InstructionPanelMessage::Toggle),
+            Message::InstructionPanel(root, InstructionPanelMessage::ClosePanel { panel_id }),
         );
 
+        assert!(state.ui().probe_panels.get(&root).is_none());
         assert_eq!(state.store.block_panel_state(&root).copied(), None);
-        assert_eq!(
-            state.store.instruction_draft(&root).map(|d| d.instruction.as_str()),
-            Some("prompt")
-        );
-        assert_eq!(state.store.probe_draft(&root).map(|r| r.response.as_str()), Some("result"));
-        assert!(state.llm_requests.is_probing(root));
-        assert_eq!(state.editor_buffers.instruction_content().text(), "keep me");
-    }
-
-    #[test]
-    fn close_editor_clears_instruction_input_and_persisted_draft_only() {
-        let (mut state, root) = test_state();
-        state.set_focus(root);
-        state.store.set_block_panel_state(&root, Some(BlockPanelBarState::Probe));
-        state.store.set_instruction_draft(root, "prompt".to_string());
-        state.store.set_probe_response(root, "result".to_string());
-        state.editor_buffers.set_instruction_text("keep me");
-
-        let _ = AppState::update(
-            &mut state,
-            Message::InstructionPanel(root, InstructionPanelMessage::CloseEditor),
-        );
-
-        assert_eq!(state.store.block_panel_state(&root).copied(), None);
-        assert!(state.store.instruction_draft(&root).is_none());
-        assert_eq!(state.editor_buffers.instruction_content().text(), "");
-        assert_eq!(state.store.probe_draft(&root).map(|r| r.response.as_str()), Some("result"));
     }
 
     #[test]
@@ -733,11 +765,18 @@ mod tests {
         state.store.update_point(&root, "root text".to_string());
         state.editor_buffers.set_text(&root, "root text");
         state.set_focus(sibling);
-        state.store.set_probe_response(sibling, "inquiry response".to_string());
+        let panel_id = open_panel(&mut state, sibling);
+        if let Some(panel) = probe_panel_mut(&mut state, sibling, panel_id) {
+            panel.inquiry = Some("question".to_string());
+            panel.response = "inquiry response".to_string();
+        }
 
         let _ = AppState::update(
             &mut state,
-            Message::InstructionPanel(sibling, InstructionPanelMessage::AppendInstructionResponse),
+            Message::InstructionPanel(
+                sibling,
+                InstructionPanelMessage::AppendInstructionResponse { panel_id },
+            ),
         );
 
         assert_eq!(
@@ -745,7 +784,6 @@ mod tests {
             Some("sibling text\n\ninquiry response")
         );
         assert_eq!(state.store.point(&root).as_deref(), Some("root text"));
-        assert!(state.store.probe_draft(&root).is_none());
     }
 
     #[test]
@@ -757,13 +795,17 @@ mod tests {
             .expect("append sibling succeeds");
         let before_len = state.store.children(&sibling).len();
         state.set_focus(sibling);
-        state.store.set_probe_response(sibling, "child from inquiry".to_string());
+        let panel_id = open_panel(&mut state, sibling);
+        if let Some(panel) = probe_panel_mut(&mut state, sibling, panel_id) {
+            panel.inquiry = Some("question".to_string());
+            panel.response = "child from inquiry".to_string();
+        }
 
         let _ = AppState::update(
             &mut state,
             Message::InstructionPanel(
                 sibling,
-                InstructionPanelMessage::AddInstructionResponseAsChild,
+                InstructionPanelMessage::AddInstructionResponseAsChild { panel_id },
             ),
         );
 
@@ -771,38 +813,46 @@ mod tests {
         assert_eq!(children.len(), before_len + 1);
         let child_id = *children.last().expect("new child added under sibling");
         assert_eq!(state.store.point(&child_id).as_deref(), Some("child from inquiry"));
-        assert!(state.store.probe_draft(&sibling).is_none());
     }
 
     #[test]
-    fn inquire_submission_consumes_instruction_editor_text() {
+    fn inquire_submission_consumes_panel_input() {
         let (mut state, root) = test_state();
         state.set_focus(root);
-        state.editor_buffers.set_instruction_text("ask this");
-        state.store.set_instruction_draft(root, "ask this".to_string());
+        let panel_id = open_panel(&mut state, root);
+        if let Some(panel) = probe_panel_mut(&mut state, root, panel_id) {
+            panel.instruction = text_editor::Content::with_text("ask this");
+        }
 
         let _ = AppState::update(
             &mut state,
-            Message::InstructionPanel(root, InstructionPanelMessage::Probe),
+            Message::InstructionPanel(root, InstructionPanelMessage::Probe { panel_id }),
         );
 
         assert!(state.llm_requests.is_probing(root));
-        assert!(state.editor_buffers.instruction_content().text().is_empty());
-        assert!(state.store.instruction_draft(&root).is_none());
+        let panel = probe_panel(&state, root, panel_id).expect("panel still present");
+        assert_eq!(panel.inquiry.as_deref(), Some("ask this"));
+        assert!(panel.instruction.text().is_empty());
     }
 
     #[test]
-    fn inquire_finished_persists_streamed_probe_draft() {
+    fn inquire_finished_persists_streamed_probe_draft_on_panel() {
         let (mut state, root) = test_state();
+        let panel_id = open_panel(&mut state, root);
         let request_signature =
             state.block_context_signature(&root).expect("root has request signature");
         state.llm_requests.mark_probe_loading(root, request_signature);
+        if let Some(panel) = probe_panel_mut(&mut state, root, panel_id) {
+            panel.inquiry = Some("question".to_string());
+            panel.is_probing = true;
+        }
         let _ = AppState::update(
             &mut state,
             Message::InstructionPanel(
                 root,
                 InstructionPanelMessage::ProbeChunk {
                     block_id: root,
+                    panel_id,
                     request_signature,
                     chunk: "persisted ".to_string(),
                 },
@@ -814,6 +864,7 @@ mod tests {
                 root,
                 InstructionPanelMessage::ProbeChunk {
                     block_id: root,
+                    panel_id,
                     request_signature,
                     chunk: "response".to_string(),
                 },
@@ -823,133 +874,77 @@ mod tests {
             &mut state,
             Message::InstructionPanel(
                 root,
-                InstructionPanelMessage::ProbeFinished { block_id: root, request_signature },
-            ),
-        );
-
-        assert_eq!(
-            state.store.probe_draft(&root).map(|draft| draft.response.as_str()),
-            Some("persisted response")
-        );
-    }
-
-    #[test]
-    fn inquire_with_invalid_provider_does_not_enter_loading() {
-        let (mut state, root) = test_state();
-        state.set_focus(root);
-        state.providers.update_preset(
-            crate::llm::PresetProvider::OpenAI,
-            crate::llm::PresetConfig { api_key: String::new() },
-        );
-        state.editor_buffers.set_instruction_text("ask this");
-
-        let _ = AppState::update(
-            &mut state,
-            Message::InstructionPanel(root, InstructionPanelMessage::Probe),
-        );
-
-        assert!(!state.llm_requests.is_probing(root));
-        assert!(
-            state.errors.iter().any(|err| matches!(err, crate::app::AppError::Configuration(_)))
-        );
-        assert_eq!(state.editor_buffers.instruction_content().text(), "ask this");
-        assert!(state.store.probe_draft(&root).is_none());
-    }
-
-    #[test]
-    fn inquire_finished_discards_stale_response_after_context_change() {
-        let (mut state, root) = test_state();
-        let request_signature =
-            state.block_context_signature(&root).expect("root has request signature");
-        state.llm_requests.mark_probe_loading(root, request_signature);
-        state.store.set_probe_question(root, "original inquiry".to_string());
-        state.store.update_point(&root, "changed context".to_string());
-
-        let _ = AppState::update(
-            &mut state,
-            Message::InstructionPanel(
-                root,
-                InstructionPanelMessage::ProbeChunk {
+                InstructionPanelMessage::ProbeFinished {
                     block_id: root,
+                    panel_id,
                     request_signature,
-                    chunk: "stale response".to_string(),
                 },
             ),
         );
-        let _ = AppState::update(
-            &mut state,
-            Message::InstructionPanel(
-                root,
-                InstructionPanelMessage::ProbeFinished { block_id: root, request_signature },
-            ),
-        );
 
-        assert_eq!(state.store.probe_draft(&root).map(|draft| draft.response.as_str()), Some(""));
+        let panel = probe_panel(&state, root, panel_id).expect("panel present");
+        assert_eq!(panel.response, "persisted response");
+        assert!(!panel.is_probing);
     }
 
     #[test]
-    fn inquire_stream_error_is_recorded_on_finish() {
-        let (mut state, root) = test_state();
-        let request_signature =
-            state.block_context_signature(&root).expect("root has request signature");
-        state.llm_requests.mark_probe_loading(root, request_signature);
-        state.store.set_probe_question(root, "question".to_string());
-
-        let _ = AppState::update(
-            &mut state,
-            Message::InstructionPanel(
-                root,
-                InstructionPanelMessage::ProbeFailed {
-                    block_id: root,
-                    request_signature,
-                    reason: crate::app::UiError::from_message("network failed"),
-                },
-            ),
-        );
-        let _ = AppState::update(
-            &mut state,
-            Message::InstructionPanel(
-                root,
-                InstructionPanelMessage::ProbeFinished { block_id: root, request_signature },
-            ),
-        );
-
-        assert!(state.errors.iter().any(|err| matches!(err, crate::app::AppError::Probe(_))));
-    }
-
-    #[test]
-    fn expand_with_instruction_consumes_persisted_instruction_draft() {
+    fn expand_with_instruction_closes_only_submitting_panel() {
         let (mut state, root) = test_state();
         state.set_focus(root);
-        state.store.set_instruction_draft(root, "expand this".to_string());
-        state.editor_buffers.set_instruction_text("expand this");
+        let first = open_panel(&mut state, root);
+        let second = open_panel(&mut state, root);
+        if let Some(panel) = probe_panel_mut(&mut state, root, first) {
+            panel.instruction = text_editor::Content::with_text("expand this");
+        }
 
         let _ = AppState::update(
             &mut state,
-            Message::InstructionPanel(root, InstructionPanelMessage::AmplifyWithInstruction),
+            Message::InstructionPanel(
+                root,
+                InstructionPanelMessage::AmplifyWithInstruction { panel_id: first },
+            ),
         );
 
-        assert!(state.store.instruction_draft(&root).is_none());
+        let remaining = &state.ui().probe_panels[&root];
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, second);
     }
 
     #[test]
-    fn dismiss_clears_persisted_probe_draft() {
+    fn dismiss_removes_only_target_result_panel() {
         let (mut state, root) = test_state();
-        state.set_focus(root);
-        state.store.set_probe_response(root, "draft".to_string());
+        let first = open_panel(&mut state, root);
+        let second = open_panel(&mut state, root);
+        if let Some(panel) = probe_panel_mut(&mut state, root, first) {
+            panel.inquiry = Some("q1".to_string());
+            panel.response = "r1".to_string();
+        }
+        if let Some(panel) = probe_panel_mut(&mut state, root, second) {
+            panel.inquiry = Some("q2".to_string());
+            panel.response = "r2".to_string();
+        }
 
         let _ = AppState::update(
             &mut state,
-            Message::InstructionPanel(root, InstructionPanelMessage::Dismiss),
+            Message::InstructionPanel(root, InstructionPanelMessage::Dismiss { panel_id: first }),
         );
 
-        assert!(state.store.probe_draft(&root).is_none());
+        let remaining = &state.ui().probe_panels[&root];
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].response, "r2");
     }
 
     #[test]
     fn result_phase_hides_editor_close_button() {
-        assert!(!is_showing_probe_result_phase(false, false));
-        assert!(is_showing_probe_result_phase(true, false));
-        assert!(is_showing_probe_result_phase(false, true));
+        let panel = ProbePanelState::new(ProbePanelId(1));
+        assert!(!panel.is_result_phase());
+
+        let mut probing = ProbePanelState::new(ProbePanelId(2));
+        probing.is_probing = true;
+        assert!(probing.is_result_phase());
+
+        let mut result = ProbePanelState::new(ProbePanelId(3));
+        result.inquiry = Some("question".to_string());
+        assert!(result.is_result_phase());
     }
 }

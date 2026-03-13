@@ -560,7 +560,7 @@ pub fn action_to_message_by_id(
         })),
         | ActionId::Probe => Some(Message::InstructionPanel(
             *block_id,
-            super::instruction_panel::InstructionPanelMessage::Toggle,
+            super::instruction_panel::InstructionPanelMessage::OpenPanel,
         )),
         | ActionId::AddLink => Some(Message::LinkMode(LinkModeMessage::Enter(*block_id))),
         | ActionId::AddChild => Some(Message::Structure(StructureMessage::AddChild(*block_id))),
@@ -664,7 +664,7 @@ pub fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
         | ActionId::Amplify => icons::icon_maximize_2(),
         | ActionId::Distill => icons::icon_minimize_2(),
         | ActionId::Atomize => icons::icon_maximize(),
-        | ActionId::Probe => icons::icon_search(),
+        | ActionId::Probe => icons::icon_message_circle(),
         | ActionId::Cancel => icons::icon_circle_x(),
         | ActionId::AddLink => icons::icon_link_2(),
         | ActionId::AddChild => icons::icon_corner_down_right(),
