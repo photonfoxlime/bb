@@ -8,6 +8,17 @@ Above all: consolidate key understandings and new findings as inline Rust docume
 Inline Rust documentation is the canonical documentation source for this repository.
 Write `/// Note: ` to explain why unusual design choices / compromises are made.
 
+## Design Priorities
+
+These priorities take precedence when changing the codebase:
+
+- Prefer cleaner code over compatibility with older structure or behavior.
+  If preserving compatibility would keep unnecessary complexity alive, simplify the design instead.
+- When a design has been simplified, do not preserve legacy behavior just because it existed before.
+  Remove overcomplicated logic whenever the new design makes that logic unnecessary.
+- Prefer dedicated types, traits, and other explicit abstractions over ad-hoc behavioral coupling.
+  Do not avoid new abstractions merely to keep the code flatter or more familiar.
+
 ## Documentation and Language
 
 Actively write documentation for the program. Make sure *all* public APIs are documented.
@@ -46,6 +57,12 @@ For examples,
 - Whenever a hashmap of strings is created, think twice.
   Is it really relying on string deduplication?
   Or it's actually a "dynamic object", that might be concluded by a few traits?
+
+Prefer code that becomes simpler after the change, even if that means intentionally dropping legacy behavior
+that only existed to support an older design. Compatibility is not the goal when it conflicts with a cleaner model.
+
+Prefer introducing dedicated types, traits, and other explicit abstractions when they make behavior easier to
+describe, constrain, and verify. Do not hesitate to add new abstractions when they remove implicit coupling.
 
 Prefer to use structs to pack a group of useful functions; prefer methods over functions.
 Rust structs have better namespace-ish features than Rust modules.
