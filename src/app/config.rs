@@ -21,7 +21,7 @@
 //! These live in the `[tasks.*]` TOML tables. Providers themselves (URL + API
 //! key) are stored separately in `llm.toml`.
 
-use crate::llm;
+use crate::llm::{self, TaskKind};
 use crate::paths::AppPaths;
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -206,6 +206,28 @@ impl Default for TaskSettings {
             distill: TaskConfig::default_distill(),
             atomize: TaskConfig::default_atomize(),
             probe: TaskConfig::default_probe(),
+        }
+    }
+}
+
+impl TaskSettings {
+    /// Borrow the config for one [`TaskKind`].
+    pub fn config(&self, kind: TaskKind) -> &TaskConfig {
+        match kind {
+            | TaskKind::Amplify => &self.amplify,
+            | TaskKind::Distill => &self.distill,
+            | TaskKind::Atomize => &self.atomize,
+            | TaskKind::Probe => &self.probe,
+        }
+    }
+
+    /// Mutably borrow the config for one [`TaskKind`].
+    pub fn config_mut(&mut self, kind: TaskKind) -> &mut TaskConfig {
+        match kind {
+            | TaskKind::Amplify => &mut self.amplify,
+            | TaskKind::Distill => &mut self.distill,
+            | TaskKind::Atomize => &mut self.atomize,
+            | TaskKind::Probe => &mut self.probe,
         }
     }
 }

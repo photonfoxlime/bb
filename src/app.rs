@@ -607,8 +607,16 @@ impl AppState {
     }
 
     /// Persist app config to `<config_dir>/app.toml`. Call when config changes (e.g. locale from settings).
+    ///
+    /// Note: test instances can disable writes via `persistence_write_disabled`
+    /// so settings handlers still exercise the persistence path without
+    /// touching the real config directory.
     #[allow(dead_code)]
     pub fn save_app_config(&self) -> Result<(), crate::app::config::SaveError> {
+        if self.persistence_write_disabled {
+            tracing::debug!("skipped app config save because persistence writes are disabled");
+            return Ok(());
+        }
         crate::app::config::save(&self.config)
     }
 

@@ -36,8 +36,10 @@
 //!   until the user explicitly saves.
 //! - [`SettingsMessage`] variants drive all settings interactions through the
 //!   standard Elm-architecture `update` cycle.
+//! - Provider edits remain explicit-save, while per-task text fields debounce
+//!   persistence so typing does not rewrite `app.toml` on every keystroke.
 
-use super::config::{self, AppConfig, MaxTokens, TaskConfig};
+use super::config::{AppConfig, MaxTokens, TaskConfig};
 use super::{AppState, Message, ViewMode};
 use crate::component::icon_button::IconButton;
 use crate::component::text_button::TextButton;
@@ -53,6 +55,11 @@ use iced::{Alignment, Element, Fill, Length, Task};
 use lucide_icons::iced as icons;
 use rust_i18n::t;
 use std::collections::BTreeSet;
+use std::fmt;
+use std::time::Duration;
+
+/// Delay after the last task-settings text edit before persisting `app.toml`.
+const TASK_SETTINGS_PERSIST_DEBOUNCE_MS: u64 = 400;
 
 /// Draft form values for the settings screen.
 ///
@@ -61,7 +68,11 @@ use std::collections::BTreeSet;
 /// provider's URL and API key are being edited.
 ///
 /// Per-task settings (provider, model, token limit) are managed independently
-/// via `task_drafts` and saved immediately on change.
+/// via `task_drafts`.
+///
+/// Provider changes and explicit system toggles persist immediately. Text-field
+/// edits use a short debounce so the live config mirrors stay current without
+/// rewriting `app.toml` on every keystroke.
 #[derive(Debug, Clone)]
 pub struct SettingsState {
     /// Name of the provider currently being edited in the provider config form.
@@ -96,12 +107,17 @@ pub struct SettingsState {
     pub system_prompt_hints_expanded: BTreeSet<TaskKind>,
     /// Which tasks have the user-prompt default hint expanded.
     pub user_prompt_hints_expanded: BTreeSet<TaskKind>,
+    /// Debounce revisions for per-task text-field persistence.
+    ///
+    /// Each text edit advances the matching task revision. Delayed persistence
+    /// tasks only write when their revision still matches the current one.
+    task_persist_revisions: TaskPersistRevisions,
 }
 
 /// Per-task draft values for the settings UI.
 ///
 /// Each [`TaskKind`] has its own draft provider selection, model text input,
-/// and token limit text input, mirroring the persisted [`TaskConfig`].
+/// and token limit state, mirroring the persisted [`TaskConfig`].
 #[derive(Debug, Clone)]
 pub struct TaskDrafts {
     pub amplify: TaskDraft,
@@ -117,6 +133,11 @@ pub struct TaskDraft {
     pub provider: String,
     /// Draft model identifier text input.
     pub model: String,
+    /// Current token-limit mode mirrored from the persisted config.
+    ///
+    /// `UNLIMITED` is controlled by the dedicated checkbox; the text field only
+    /// edits a finite numeric value.
+    pub token_limit: MaxTokens,
     /// Draft text for the token-limit input. Empty when unlimited.
     pub max_tokens_text: String,
     /// Custom system prompt.
@@ -131,6 +152,7 @@ impl TaskDraft {
         Self {
             provider: config.provider.clone(),
             model: config.model.clone(),
+            token_limit: config.token_limit,
             max_tokens_text: if config.token_limit.is_unlimited() {
                 String::new()
             } else {
@@ -146,15 +168,25 @@ impl TaskDrafts {
     /// Create from persisted task settings.
     pub fn from_config(config: &AppConfig) -> Self {
         Self {
-            amplify: TaskDraft::from_config(&config.tasks.amplify),
-            distill: TaskDraft::from_config(&config.tasks.distill),
-            atomize: TaskDraft::from_config(&config.tasks.atomize),
-            probe: TaskDraft::from_config(&config.tasks.probe),
+            amplify: TaskDraft::from_config(config.tasks.config(TaskKind::Amplify)),
+            distill: TaskDraft::from_config(config.tasks.config(TaskKind::Distill)),
+            atomize: TaskDraft::from_config(config.tasks.config(TaskKind::Atomize)),
+            probe: TaskDraft::from_config(config.tasks.config(TaskKind::Probe)),
+        }
+    }
+
+    /// Get an immutable reference to the draft for a specific [`TaskKind`].
+    pub fn get(&self, kind: TaskKind) -> &TaskDraft {
+        match kind {
+            | TaskKind::Amplify => &self.amplify,
+            | TaskKind::Distill => &self.distill,
+            | TaskKind::Atomize => &self.atomize,
+            | TaskKind::Probe => &self.probe,
         }
     }
 
     /// Get a mutable reference to the draft for a specific [`TaskKind`].
-    pub fn get_mut(&mut self, kind: &TaskKind) -> &mut TaskDraft {
+    pub fn get_mut(&mut self, kind: TaskKind) -> &mut TaskDraft {
         match kind {
             | TaskKind::Amplify => &mut self.amplify,
             | TaskKind::Distill => &mut self.distill,
@@ -279,6 +311,66 @@ impl std::fmt::Display for FirstLineEnterBehavior {
     }
 }
 
+/// Typed locale choice for the settings locale picker.
+///
+/// This keeps the picker data stable even though the rendered labels are
+/// localized at runtime.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LocaleChoice {
+    /// Follow environment/default locale resolution.
+    SystemDefault,
+    /// Force English (`en-US`).
+    EnUs,
+    /// Force Simplified Chinese (`zh-CN`).
+    ZhCn,
+    /// Force Japanese (`ja`).
+    Ja,
+}
+
+impl LocaleChoice {
+    /// All locale choices shown in the picker, in UI order.
+    const ALL: [Self; 4] = [Self::SystemDefault, Self::EnUs, Self::ZhCn, Self::Ja];
+
+    /// Convert persisted config locale text into a typed picker value.
+    fn from_config_locale(locale: Option<&str>) -> Self {
+        match locale {
+            | Some("en-US") => Self::EnUs,
+            | Some("zh-CN") => Self::ZhCn,
+            | Some("ja") => Self::Ja,
+            | Some(other) => {
+                tracing::warn!(
+                    locale = other,
+                    "unknown locale in settings config; using system default"
+                );
+                Self::SystemDefault
+            }
+            | None => Self::SystemDefault,
+        }
+    }
+
+    /// Convert the picker value into the persisted locale override.
+    fn into_config_locale(self) -> Option<String> {
+        match self {
+            | Self::SystemDefault => None,
+            | Self::EnUs => Some("en-US".to_string()),
+            | Self::ZhCn => Some("zh-CN".to_string()),
+            | Self::Ja => Some("ja".to_string()),
+        }
+    }
+}
+
+impl fmt::Display for LocaleChoice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let label = match self {
+            | Self::SystemDefault => t!("settings_system_default").to_string(),
+            | Self::EnUs => t!("settings_locale_en_us").to_string(),
+            | Self::ZhCn => t!("settings_locale_zh_cn").to_string(),
+            | Self::Ja => t!("settings_locale_ja").to_string(),
+        };
+        f.write_str(&label)
+    }
+}
+
 /// Messages produced by the settings view.
 #[derive(Debug, Clone)]
 pub enum SettingsMessage {
@@ -316,16 +408,24 @@ pub enum SettingsMessage {
     TaskProviderChanged(TaskKind, String),
     /// Change the model text for a specific [`TaskKind`].
     ///
-    /// Immediately persisted to `app.toml`.
+    /// Persisted to `app.toml` after a short debounce.
     TaskModelChanged(TaskKind, String),
     /// Update the max-tokens text input for a specific [`TaskKind`].
+    ///
+    /// Valid finite values are persisted after a short debounce.
     MaxTokensChanged(TaskKind, String),
     /// Toggle the "unlimited" checkbox for a specific [`TaskKind`].
     ToggleMaxTokensUnlimited(TaskKind, bool),
     /// Change the custom system prompt for a specific [`TaskKind`].
+    ///
+    /// Persisted to `app.toml` after a short debounce.
     TaskSystemPromptChanged(TaskKind, String),
     /// Change the custom user prompt for a specific [`TaskKind`].
+    ///
+    /// Persisted to `app.toml` after a short debounce.
     TaskUserPromptChanged(TaskKind, String),
+    /// Debounced persistence tick for one task text field.
+    PersistTaskDraft(TaskKind, u64),
     /// Toggle expansion of the system-prompt default hint for a task.
     ToggleSystemPromptHintExpanded(TaskKind),
     /// Toggle expansion of the user-prompt default hint for a task.
@@ -354,6 +454,7 @@ impl SettingsState {
             config: config.clone(),
             system_prompt_hints_expanded: BTreeSet::new(),
             user_prompt_hints_expanded: BTreeSet::new(),
+            task_persist_revisions: TaskPersistRevisions::default(),
         }
     }
 
@@ -376,6 +477,145 @@ impl SettingsState {
     fn max_tokens_display_text(mt: MaxTokens) -> String {
         if mt.is_unlimited() { String::new() } else { mt.raw().to_string() }
     }
+
+    /// Toggle whether the system-prompt default hint is expanded for one task.
+    fn toggle_system_prompt_hint(&mut self, kind: TaskKind) {
+        if !self.system_prompt_hints_expanded.remove(&kind) {
+            self.system_prompt_hints_expanded.insert(kind);
+        }
+    }
+
+    /// Toggle whether the user-prompt default hint is expanded for one task.
+    fn toggle_user_prompt_hint(&mut self, kind: TaskKind) {
+        if !self.user_prompt_hints_expanded.remove(&kind) {
+            self.user_prompt_hints_expanded.insert(kind);
+        }
+    }
+
+    /// Advance the debounce revision for one task text field.
+    fn bump_task_persist_revision(&mut self, kind: TaskKind) -> u64 {
+        self.task_persist_revisions.bump(kind)
+    }
+
+    /// Whether a delayed persist task is still current for `kind`.
+    fn is_current_task_persist_revision(&self, kind: TaskKind, revision: u64) -> bool {
+        self.task_persist_revisions.is_current(kind, revision)
+    }
+}
+
+/// Per-task debounce revision counters for delayed settings persistence.
+#[derive(Debug, Clone, Default)]
+struct TaskPersistRevisions {
+    amplify: u64,
+    distill: u64,
+    atomize: u64,
+    probe: u64,
+}
+
+impl TaskPersistRevisions {
+    /// Advance and return the revision for one task.
+    fn bump(&mut self, kind: TaskKind) -> u64 {
+        let revision = self.revision_mut(kind);
+        *revision = revision.wrapping_add(1);
+        *revision
+    }
+
+    /// Whether `revision` still matches the current value for `kind`.
+    fn is_current(&self, kind: TaskKind, revision: u64) -> bool {
+        self.revision(kind) == revision
+    }
+
+    /// Borrow the current revision for one task.
+    fn revision(&self, kind: TaskKind) -> u64 {
+        match kind {
+            | TaskKind::Amplify => self.amplify,
+            | TaskKind::Distill => self.distill,
+            | TaskKind::Atomize => self.atomize,
+            | TaskKind::Probe => self.probe,
+        }
+    }
+
+    /// Mutably borrow the current revision for one task.
+    fn revision_mut(&mut self, kind: TaskKind) -> &mut u64 {
+        match kind {
+            | TaskKind::Amplify => &mut self.amplify,
+            | TaskKind::Distill => &mut self.distill,
+            | TaskKind::Atomize => &mut self.atomize,
+            | TaskKind::Probe => &mut self.probe,
+        }
+    }
+}
+
+/// Mutable access to one task's draft and both config mirrors.
+///
+/// The settings screen keeps the live app config and the settings-screen draft
+/// config in sync so the view re-renders immediately while persistence still
+/// writes through the canonical app config object.
+struct TaskSettingsBinding<'a> {
+    draft: &'a mut TaskDraft,
+    app_config: &'a mut TaskConfig,
+    settings_config: &'a mut TaskConfig,
+}
+
+impl<'a> TaskSettingsBinding<'a> {
+    /// Apply one mutation to the draft and a mirrored mutation to both configs.
+    fn update(
+        &mut self, update_draft: impl FnOnce(&mut TaskDraft),
+        update_config: impl Fn(&mut TaskConfig),
+    ) {
+        update_draft(self.draft);
+        update_config(self.app_config);
+        update_config(self.settings_config);
+    }
+}
+
+/// Shared settings persistence helper.
+///
+/// Note: settings writes use the top-level app config file only. Provider
+/// settings are persisted separately in `llm.toml`.
+struct SettingsPersistence;
+
+impl SettingsPersistence {
+    /// Persist `app.toml`, updating UI error state on failure.
+    fn save_app_config(state: &mut AppState, failure_log: &'static str) -> bool {
+        if let Err(err) = state.save_app_config() {
+            state.settings.status = Some(SettingsStatus::Error(
+                t!("error_config_save_failed", error = err.to_string()).to_string(),
+            ));
+            tracing::error!(%err, message = failure_log);
+            false
+        } else {
+            true
+        }
+    }
+}
+
+impl AppState {
+    /// Borrow one task's draft and both config mirrors for the settings screen.
+    fn settings_task_binding(&mut self, kind: TaskKind) -> TaskSettingsBinding<'_> {
+        let settings = &mut self.settings;
+        let draft = settings.task_drafts.get_mut(kind);
+        let settings_config = settings.config.tasks.config_mut(kind);
+        let app_config = self.config.tasks.config_mut(kind);
+        TaskSettingsBinding { draft, app_config, settings_config }
+    }
+}
+
+/// Debounced persistence scheduler for task text fields in settings.
+struct TaskSettingsPersistenceScheduler;
+
+impl TaskSettingsPersistenceScheduler {
+    /// Schedule a delayed `app.toml` write for one task text field.
+    fn schedule(state: &mut AppState, kind: TaskKind) -> Task<Message> {
+        let revision = state.settings.bump_task_persist_revision(kind);
+        Task::perform(
+            async move {
+                tokio::time::sleep(Duration::from_millis(TASK_SETTINGS_PERSIST_DEBOUNCE_MS)).await;
+                (kind, revision)
+            },
+            |(kind, revision)| Message::Settings(SettingsMessage::PersistTaskDraft(kind, revision)),
+        )
+    }
 }
 
 /// Handle a settings message, returning any follow-up task.
@@ -388,6 +628,10 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             Task::none()
         }
         | SettingsMessage::Close => {
+            let _ = SettingsPersistence::save_app_config(
+                state,
+                "failed to persist task settings while closing settings view",
+            );
             state.ui_mut().active_view = ViewMode::Document;
             tracing::info!("settings view closed");
             Task::none()
@@ -532,12 +776,10 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             state.ui_mut().is_dark = is_dark;
             state.config.dark_mode = dark_mode;
             state.settings.config.dark_mode = dark_mode;
-            if let Err(err) = config::save(&state.config) {
-                state.settings.status = Some(SettingsStatus::Error(
-                    t!("error_config_save_failed", error = err.to_string()).to_string(),
-                ));
-                tracing::error!(%err, ?preference, "failed to persist appearance mode preference");
-            } else {
+            if SettingsPersistence::save_app_config(
+                state,
+                "failed to persist appearance mode preference",
+            ) {
                 tracing::info!(?preference, is_dark, "appearance mode changed and persisted");
             }
             Task::none()
@@ -546,16 +788,10 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             let first_line_enter_add_child = behavior.as_flag();
             state.config.first_line_enter_add_child = first_line_enter_add_child;
             state.settings.config.first_line_enter_add_child = first_line_enter_add_child;
-            if let Err(err) = config::save(&state.config) {
-                state.settings.status = Some(SettingsStatus::Error(
-                    t!("error_config_save_failed", error = err.to_string()).to_string(),
-                ));
-                tracing::error!(
-                    %err,
-                    ?behavior,
-                    "failed to persist first-line enter behavior setting"
-                );
-            } else {
+            if SettingsPersistence::save_app_config(
+                state,
+                "failed to persist first-line enter behavior setting",
+            ) {
                 tracing::info!(?behavior, "first-line enter behavior changed and persisted");
             }
             Task::none()
@@ -566,12 +802,7 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             state.config.locale = locale.clone();
             state.settings.config.locale = locale.clone();
             // Save config to disk.
-            if let Err(err) = config::save(&state.config) {
-                state.settings.status = Some(SettingsStatus::Error(
-                    t!("error_config_save_failed", error = err.to_string()).to_string(),
-                ));
-                tracing::error!(%err, "failed to save app config");
-            } else {
+            if SettingsPersistence::save_app_config(state, "failed to save app config") {
                 // Apply the new locale immediately for the current session.
                 let effective = i18n::resolved_locale_from_config(&state.config);
                 i18n::set_app_locale(&effective);
@@ -584,100 +815,39 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
             iced::clipboard::write(path)
         }
         | SettingsMessage::TaskProviderChanged(kind, provider) => {
-            // Update draft and persist immediately.
-            state.settings.task_drafts.get_mut(&kind).provider = provider.clone();
-            let task_cfg = match kind {
-                | TaskKind::Amplify => &mut state.config.tasks.amplify,
-                | TaskKind::Distill => &mut state.config.tasks.distill,
-                | TaskKind::Atomize => &mut state.config.tasks.atomize,
-                | TaskKind::Probe => &mut state.config.tasks.probe,
-            };
-            task_cfg.provider = provider.clone();
-            // Mirror in settings config.
-            match kind {
-                | TaskKind::Amplify => {
-                    state.settings.config.tasks.amplify.provider = provider.clone()
-                }
-                | TaskKind::Distill => {
-                    state.settings.config.tasks.distill.provider = provider.clone()
-                }
-                | TaskKind::Atomize => {
-                    state.settings.config.tasks.atomize.provider = provider.clone()
-                }
-                | TaskKind::Probe => state.settings.config.tasks.probe.provider = provider.clone(),
-            }
-            if let Err(err) = config::save(&state.config) {
-                state.settings.status = Some(SettingsStatus::Error(
-                    t!("error_config_save_failed", error = err.to_string()).to_string(),
-                ));
-                tracing::error!(%err, ?kind, %provider, "failed to persist task provider change");
-            } else {
+            state.settings_task_binding(kind).update(
+                |draft| draft.provider = provider.clone(),
+                |task_config| task_config.provider = provider.clone(),
+            );
+            if SettingsPersistence::save_app_config(state, "failed to persist task provider change")
+            {
                 tracing::info!(?kind, %provider, "task provider changed and persisted");
             }
             Task::none()
         }
         | SettingsMessage::TaskModelChanged(kind, model) => {
-            state.settings.task_drafts.get_mut(&kind).model = model.clone();
-            let task_cfg = match kind {
-                | TaskKind::Amplify => &mut state.config.tasks.amplify,
-                | TaskKind::Distill => &mut state.config.tasks.distill,
-                | TaskKind::Atomize => &mut state.config.tasks.atomize,
-                | TaskKind::Probe => &mut state.config.tasks.probe,
-            };
-            task_cfg.model = model.clone();
-            match kind {
-                | TaskKind::Amplify => state.settings.config.tasks.amplify.model = model.clone(),
-                | TaskKind::Distill => state.settings.config.tasks.distill.model = model.clone(),
-                | TaskKind::Atomize => state.settings.config.tasks.atomize.model = model.clone(),
-                | TaskKind::Probe => state.settings.config.tasks.probe.model = model.clone(),
-            }
-            if let Err(err) = config::save(&state.config) {
-                state.settings.status = Some(SettingsStatus::Error(
-                    t!("error_config_save_failed", error = err.to_string()).to_string(),
-                ));
-                tracing::error!(%err, ?kind, %model, "failed to persist task model change");
-            } else {
-                tracing::info!(?kind, %model, "task model changed and persisted");
-            }
-            Task::none()
+            state.settings_task_binding(kind).update(
+                |draft| draft.model = model.clone(),
+                |task_config| task_config.model = model.clone(),
+            );
+            tracing::debug!(?kind, "scheduled debounced task model persistence");
+            TaskSettingsPersistenceScheduler::schedule(state, kind)
         }
         | SettingsMessage::MaxTokensChanged(kind, value) => {
             // Update the draft text field regardless of validity.
-            state.settings.task_drafts.get_mut(&kind).max_tokens_text = value.clone();
+            state.settings.task_drafts.get_mut(kind).max_tokens_text = value.clone();
             if let Ok(n) = value.parse::<u32>() {
                 if n > 0 {
                     let mt = MaxTokens::new(n);
-                    let task_cfg = match kind {
-                        | TaskKind::Distill => &mut state.config.tasks.distill,
-                        | TaskKind::Atomize => &mut state.config.tasks.atomize,
-                        | TaskKind::Amplify => &mut state.config.tasks.amplify,
-                        | TaskKind::Probe => &mut state.config.tasks.probe,
-                    };
-                    task_cfg.token_limit = mt;
-                    match kind {
-                        | TaskKind::Amplify => {
-                            state.settings.config.tasks.amplify.token_limit = mt;
-                        }
-                        | TaskKind::Distill => {
-                            state.settings.config.tasks.distill.token_limit = mt;
-                        }
-                        | TaskKind::Atomize => {
-                            state.settings.config.tasks.atomize.token_limit = mt;
-                        }
-                        | TaskKind::Probe => {
-                            state.settings.config.tasks.probe.token_limit = mt;
-                        }
-                    }
-                    if let Err(err) = config::save(&state.config) {
-                        state.settings.status = Some(SettingsStatus::Error(
-                            t!("error_config_save_failed", error = err.to_string()).to_string(),
-                        ));
-                        tracing::error!(%err, ?kind, n, "failed to persist token limit");
-                    } else {
-                        tracing::info!(?kind, n, "token limit changed and persisted");
-                    }
+                    state.settings_task_binding(kind).update(
+                        |draft| draft.token_limit = mt,
+                        |task_config| task_config.token_limit = mt,
+                    );
+                    tracing::debug!(?kind, n, "scheduled debounced token-limit persistence");
+                    return TaskSettingsPersistenceScheduler::schedule(state, kind);
                 }
             }
+            let _ = state.settings.bump_task_persist_revision(kind);
             Task::none()
         }
         | SettingsMessage::ToggleMaxTokensUnlimited(kind, unlimited) => {
@@ -688,120 +858,53 @@ pub fn handle(state: &mut AppState, message: SettingsMessage) -> Task<Message> {
                 // visually unchecks and the user can adjust from there.
                 MaxTokens::FALLBACK_LIMIT
             };
-            // Update both configs.
-            let task_cfg = match kind {
-                | TaskKind::Amplify => &mut state.config.tasks.amplify,
-                | TaskKind::Distill => &mut state.config.tasks.distill,
-                | TaskKind::Atomize => &mut state.config.tasks.atomize,
-                | TaskKind::Probe => &mut state.config.tasks.probe,
-            };
-            task_cfg.token_limit = mt;
-            match kind {
-                | TaskKind::Distill => {
-                    state.settings.config.tasks.distill.token_limit = mt;
-                }
-                | TaskKind::Atomize => {
-                    state.settings.config.tasks.atomize.token_limit = mt;
-                }
-                | TaskKind::Amplify => {
-                    state.settings.config.tasks.amplify.token_limit = mt;
-                }
-                | TaskKind::Probe => {
-                    state.settings.config.tasks.probe.token_limit = mt;
-                }
-            }
-            state.settings.task_drafts.get_mut(&kind).max_tokens_text =
-                SettingsState::max_tokens_display_text(mt);
-            if let Err(err) = config::save(&state.config) {
-                state.settings.status = Some(SettingsStatus::Error(
-                    t!("error_config_save_failed", error = err.to_string()).to_string(),
-                ));
-                tracing::error!(%err, ?kind, unlimited, "failed to persist token limit toggle");
-            } else {
+            state.settings_task_binding(kind).update(
+                |draft| {
+                    draft.token_limit = mt;
+                    draft.max_tokens_text = SettingsState::max_tokens_display_text(mt);
+                },
+                |task_config| task_config.token_limit = mt,
+            );
+            if SettingsPersistence::save_app_config(state, "failed to persist token limit toggle") {
                 tracing::info!(?kind, unlimited, "token limit unlimited toggled and persisted");
             }
             Task::none()
         }
         | SettingsMessage::TaskSystemPromptChanged(kind, prompt) => {
-            let task_draft = state.settings.task_drafts.get_mut(&kind);
-            task_draft.system_prompt = prompt.clone();
-            let task_cfg = match kind {
-                | TaskKind::Amplify => &mut state.config.tasks.amplify,
-                | TaskKind::Distill => &mut state.config.tasks.distill,
-                | TaskKind::Atomize => &mut state.config.tasks.atomize,
-                | TaskKind::Probe => &mut state.config.tasks.probe,
-            };
-            task_cfg.system_prompt = prompt.clone();
-            match kind {
-                | TaskKind::Amplify => {
-                    state.settings.config.tasks.amplify.system_prompt = prompt.clone()
-                }
-                | TaskKind::Distill => {
-                    state.settings.config.tasks.distill.system_prompt = prompt.clone()
-                }
-                | TaskKind::Atomize => {
-                    state.settings.config.tasks.atomize.system_prompt = prompt.clone()
-                }
-                | TaskKind::Probe => {
-                    state.settings.config.tasks.probe.system_prompt = prompt.clone()
-                }
-            }
-            if let Err(err) = config::save(&state.config) {
-                state.settings.status = Some(SettingsStatus::Error(
-                    t!("error_config_save_failed", error = err.to_string()).to_string(),
-                ));
-                tracing::error!(%err, ?kind, "failed to persist system prompt");
-            } else {
-                tracing::info!(?kind, "system prompt changed and persisted");
-            }
-            Task::none()
+            state.settings_task_binding(kind).update(
+                |draft| draft.system_prompt = prompt.clone(),
+                |task_config| task_config.system_prompt = prompt.clone(),
+            );
+            tracing::debug!(?kind, "scheduled debounced system-prompt persistence");
+            TaskSettingsPersistenceScheduler::schedule(state, kind)
         }
         | SettingsMessage::TaskUserPromptChanged(kind, prompt) => {
-            let task_draft = state.settings.task_drafts.get_mut(&kind);
-            task_draft.user_prompt = prompt.clone();
-            let task_cfg = match kind {
-                | TaskKind::Amplify => &mut state.config.tasks.amplify,
-                | TaskKind::Distill => &mut state.config.tasks.distill,
-                | TaskKind::Atomize => &mut state.config.tasks.atomize,
-                | TaskKind::Probe => &mut state.config.tasks.probe,
-            };
-            task_cfg.user_prompt = prompt.clone();
-            match kind {
-                | TaskKind::Amplify => {
-                    state.settings.config.tasks.amplify.user_prompt = prompt.clone()
-                }
-                | TaskKind::Distill => {
-                    state.settings.config.tasks.distill.user_prompt = prompt.clone()
-                }
-                | TaskKind::Atomize => {
-                    state.settings.config.tasks.atomize.user_prompt = prompt.clone()
-                }
-                | TaskKind::Probe => state.settings.config.tasks.probe.user_prompt = prompt.clone(),
+            state.settings_task_binding(kind).update(
+                |draft| draft.user_prompt = prompt.clone(),
+                |task_config| task_config.user_prompt = prompt.clone(),
+            );
+            tracing::debug!(?kind, "scheduled debounced user-prompt persistence");
+            TaskSettingsPersistenceScheduler::schedule(state, kind)
+        }
+        | SettingsMessage::PersistTaskDraft(kind, revision) => {
+            if !state.settings.is_current_task_persist_revision(kind, revision) {
+                tracing::debug!(?kind, revision, "ignored stale debounced task-settings persist");
+                return Task::none();
             }
-            if let Err(err) = config::save(&state.config) {
-                state.settings.status = Some(SettingsStatus::Error(
-                    t!("error_config_save_failed", error = err.to_string()).to_string(),
-                ));
-                tracing::error!(%err, ?kind, "failed to persist user prompt");
-            } else {
-                tracing::info!(?kind, "user prompt changed and persisted");
+            if SettingsPersistence::save_app_config(
+                state,
+                "failed to persist debounced task settings",
+            ) {
+                tracing::info!(?kind, revision, "persisted debounced task settings");
             }
             Task::none()
         }
         | SettingsMessage::ToggleSystemPromptHintExpanded(kind) => {
-            if state.settings.system_prompt_hints_expanded.contains(&kind) {
-                state.settings.system_prompt_hints_expanded.remove(&kind);
-            } else {
-                state.settings.system_prompt_hints_expanded.insert(kind);
-            }
+            state.settings.toggle_system_prompt_hint(kind);
             Task::none()
         }
         | SettingsMessage::ToggleUserPromptHintExpanded(kind) => {
-            if state.settings.user_prompt_hints_expanded.contains(&kind) {
-                state.settings.user_prompt_hints_expanded.remove(&kind);
-            } else {
-                state.settings.user_prompt_hints_expanded.insert(kind);
-            }
+            state.settings.toggle_user_prompt_hint(kind);
             Task::none()
         }
     }
@@ -892,53 +995,11 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     // ── System Settings section ─────────────────────────────────────
     let language_label =
         text(t!("settings_language").to_string()).size(theme::INPUT_TEXT_SIZE).font(theme::INTER);
-
-    // Build locale labels: System default, then English, 中文，日本語
-    let locale_labels: Vec<String> = vec![t!("settings_system_default").to_string()]
-        .into_iter()
-        .chain([
-            t!("settings_locale_en_us").to_string(),
-            t!("settings_locale_zh_cn").to_string(),
-            t!("settings_locale_ja").to_string(),
-        ])
-        .collect();
-
-    // Map locale codes to their index in the labels list
-    let locale_code_to_idx = |locale: &str| -> Option<usize> {
-        match locale {
-            | "en-US" => Some(1),
-            | "zh-CN" => Some(2),
-            | "ja" => Some(3),
-            | _ => None,
-        }
-    };
-
-    let current_locale_idx =
-        state.settings.config.locale.as_ref().and_then(|loc| locale_code_to_idx(loc)).unwrap_or(0);
-
-    // Map from label back to locale code for saving
-    let label_to_locale = |label: &str| -> Option<String> {
-        if label == t!("settings_system_default").to_string() {
-            None
-        } else if label == t!("settings_locale_en_us").to_string() {
-            Some("en-US".to_string())
-        } else if label == t!("settings_locale_zh_cn").to_string() {
-            Some("zh-CN".to_string())
-        } else if label == t!("settings_locale_ja").to_string() {
-            Some("ja".to_string())
-        } else {
-            None
-        }
-    };
-
-    let locale_picker = pick_list(
-        locale_labels.clone(),
-        Some(locale_labels[current_locale_idx].clone()),
-        move |label| {
-            let locale = label_to_locale(&label);
-            Message::Settings(SettingsMessage::SetLocale(locale))
-        },
-    )
+    let locale_choices = LocaleChoice::ALL.to_vec();
+    let selected_locale = LocaleChoice::from_config_locale(state.settings.config.locale.as_deref());
+    let locale_picker = pick_list(locale_choices, Some(selected_locale), |choice| {
+        Message::Settings(SettingsMessage::SetLocale(choice.into_config_locale()))
+    })
     .text_size(theme::INPUT_TEXT_SIZE)
     .padding(theme::PANEL_PAD_V);
     let locale_row = row![
@@ -1113,7 +1174,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         palette,
         t!("settings_task_amplify").to_string(),
         TaskKind::Amplify,
-        &settings.task_drafts.amplify,
+        settings.task_drafts.get(TaskKind::Amplify),
         &settings.provider_names,
         settings.system_prompt_hints_expanded.contains(&TaskKind::Amplify),
         settings.user_prompt_hints_expanded.contains(&TaskKind::Amplify),
@@ -1122,7 +1183,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         palette,
         t!("settings_task_distill").to_string(),
         TaskKind::Distill,
-        &settings.task_drafts.distill,
+        settings.task_drafts.get(TaskKind::Distill),
         &settings.provider_names,
         settings.system_prompt_hints_expanded.contains(&TaskKind::Distill),
         settings.user_prompt_hints_expanded.contains(&TaskKind::Distill),
@@ -1131,7 +1192,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         palette,
         t!("settings_task_atomize").to_string(),
         TaskKind::Atomize,
-        &settings.task_drafts.atomize,
+        settings.task_drafts.get(TaskKind::Atomize),
         &settings.provider_names,
         settings.system_prompt_hints_expanded.contains(&TaskKind::Atomize),
         settings.user_prompt_hints_expanded.contains(&TaskKind::Atomize),
@@ -1140,7 +1201,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         palette,
         t!("settings_task_probe").to_string(),
         TaskKind::Probe,
-        &settings.task_drafts.probe,
+        settings.task_drafts.get(TaskKind::Probe),
         &settings.provider_names,
         settings.system_prompt_hints_expanded.contains(&TaskKind::Probe),
         settings.user_prompt_hints_expanded.contains(&TaskKind::Probe),
@@ -1344,8 +1405,7 @@ fn task_settings_section(
     .width(Fill);
 
     // Token limit input + unlimited checkbox.
-    let is_unlimited = draft.max_tokens_text.is_empty()
-        || draft.max_tokens_text.parse::<u32>().ok().is_some_and(|n| n == 0);
+    let is_unlimited = draft.token_limit.is_unlimited();
     let input_field: Element<'static, Message> = if is_unlimited {
         text_input("", "")
             .size(theme::INPUT_TEXT_SIZE)
@@ -1524,7 +1584,8 @@ fn path_row(
 
 #[cfg(test)]
 mod tests {
-    use super::{FirstLineEnterBehavior, ThemePreference};
+    use super::*;
+    use crate::app::{AppState, Message};
 
     #[test]
     fn theme_preference_roundtrips_dark_mode_override() {
@@ -1555,5 +1616,50 @@ mod tests {
 
         assert!(FirstLineEnterBehavior::AddChild.as_flag());
         assert!(!FirstLineEnterBehavior::InsertNewline.as_flag());
+    }
+
+    #[test]
+    fn locale_choice_roundtrips_config_locale() {
+        assert_eq!(LocaleChoice::from_config_locale(None), LocaleChoice::SystemDefault);
+        assert_eq!(LocaleChoice::from_config_locale(Some("en-US")), LocaleChoice::EnUs);
+        assert_eq!(LocaleChoice::from_config_locale(Some("zh-CN")), LocaleChoice::ZhCn);
+        assert_eq!(LocaleChoice::from_config_locale(Some("ja")), LocaleChoice::Ja);
+
+        assert_eq!(LocaleChoice::SystemDefault.into_config_locale(), None);
+        assert_eq!(LocaleChoice::EnUs.into_config_locale().as_deref(), Some("en-US"));
+        assert_eq!(LocaleChoice::ZhCn.into_config_locale().as_deref(), Some("zh-CN"));
+        assert_eq!(LocaleChoice::Ja.into_config_locale().as_deref(), Some("ja"));
+    }
+
+    #[test]
+    fn task_persist_revisions_track_current_revision_per_task() {
+        let mut revisions = TaskPersistRevisions::default();
+
+        let amplify_revision = revisions.bump(TaskKind::Amplify);
+        let distill_revision = revisions.bump(TaskKind::Distill);
+        let amplify_next_revision = revisions.bump(TaskKind::Amplify);
+
+        assert!(revisions.is_current(TaskKind::Distill, distill_revision));
+        assert!(!revisions.is_current(TaskKind::Amplify, amplify_revision));
+        assert!(revisions.is_current(TaskKind::Amplify, amplify_next_revision));
+    }
+
+    #[test]
+    fn blank_token_text_does_not_flip_task_into_unlimited_mode() {
+        let (mut state, _) = AppState::test_state();
+        let kind = TaskKind::Amplify;
+        let previous_limit = MaxTokens::new(1234);
+        state.config.tasks.config_mut(kind).token_limit = previous_limit;
+        state.settings = SettingsState::from_providers(&state.providers, &state.config);
+
+        let _ = AppState::update(
+            &mut state,
+            Message::Settings(SettingsMessage::MaxTokensChanged(kind, String::new())),
+        );
+
+        let draft = state.settings.task_drafts.get(kind);
+        assert_eq!(draft.max_tokens_text, "");
+        assert_eq!(draft.token_limit, previous_limit);
+        assert!(!draft.token_limit.is_unlimited());
     }
 }
