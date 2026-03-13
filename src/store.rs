@@ -379,6 +379,22 @@ impl BlockStore {
         }
     }
 
+    /// Set the optional perspective for one link attached to a block's point.
+    ///
+    /// Returns `true` when the target link exists and was updated.
+    pub fn set_link_perspective(
+        &mut self, id: &BlockId, index: usize, perspective: Option<String>,
+    ) -> bool {
+        let Some(content) = self.points.get_mut(id) else {
+            return false;
+        };
+        let Some(link) = content.links.get_mut(index) else {
+            return false;
+        };
+        link.perspective = perspective;
+        true
+    }
+
     /// Construct a minimal one-root workspace for startup recovery mode.
     ///
     /// Used when persisted data cannot be loaded safely. This intentionally

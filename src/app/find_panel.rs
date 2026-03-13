@@ -164,13 +164,12 @@ pub fn handle(state: &mut AppState, message: FindMessage) -> Task<Message> {
                 return Task::none();
             }
 
-            let friend_escape_active =
-                state.ui().reference_panel.editing_friend_perspective.is_some()
-                    || state.ui().document_mode == DocumentMode::PickFriend;
-            if friend_escape_active {
+            let reference_escape_active = state.ui().reference_panel.editing_perspective.is_some()
+                || state.ui().document_mode == DocumentMode::PickFriend;
+            if reference_escape_active {
                 return AppState::update(
                     state,
-                    Message::ReferencePanel(ReferencePanelMessage::CancelEditingFriendPerspective),
+                    Message::ReferencePanel(ReferencePanelMessage::CancelEditingPerspective),
                 );
             }
 

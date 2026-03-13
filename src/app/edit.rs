@@ -100,6 +100,13 @@ pub fn handle(state: &mut AppState, message: EditMessage) -> Task<Message> {
             state.store.remove_link_from_point(&block_id, index);
             // Collapse any expanded chip for this block whose index is now stale.
             state.ui_mut().reference_panel.expanded_links.remove(&block_id);
+            if matches!(
+                state.ui().reference_panel.editing_perspective,
+                Some(super::state::ReferencePerspectiveEditState::Link { target, .. })
+                    if target == block_id
+            ) {
+                state.ui_mut().reference_panel.editing_perspective = None;
+            }
             state.clear_expanded_markdown_preview(&block_id);
             state.persist_with_context("remove link");
             Task::none()

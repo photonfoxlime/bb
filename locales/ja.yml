@@ -31,6 +31,8 @@ doc_friend_empty_hint: "+ をクリックして他のブロックから友ブロ
 doc_perspective: "視点：%{label}"
 doc_friend_as: "として"
 doc_friend_perspective_placeholder: "視点を追加..."
+doc_reference_as: "として"
+doc_reference_perspective_placeholder: "視点を追加..."
 doc_friend_telescope_parent: "コンテキストに親の系譜を含む"
 doc_friend_telescope_children: "コンテキストに子を含む"
 ui_remove: "削除"

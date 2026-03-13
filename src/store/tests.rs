@@ -1711,6 +1711,30 @@ fn friend_perspective_empty_string_vs_none() {
 }
 
 #[test]
+fn set_link_perspective_updates_existing_link() {
+    let (mut store, root, _child_a, _child_b) = simple_store();
+    store.add_link_to_point(&root, PointLink::infer("notes.md"));
+
+    let changed = store.set_link_perspective(&root, 0, Some("background".to_string()));
+
+    assert!(changed);
+    let links = &store.point_content(&root).unwrap().links;
+    assert_eq!(links[0].perspective.as_deref(), Some("background"));
+}
+
+#[test]
+fn set_link_perspective_clears_existing_link_perspective() {
+    let (mut store, root, _child_a, _child_b) = simple_store();
+    store.add_link_to_point(&root, PointLink::infer("notes.md").with_perspective("background"));
+
+    let changed = store.set_link_perspective(&root, 0, None);
+
+    assert!(changed);
+    let links = &store.point_content(&root).unwrap().links;
+    assert_eq!(links[0].perspective, None);
+}
+
+#[test]
 fn friend_perspective_survives_serde_roundtrip() {
     let (mut store, root, child_a, child_b) = simple_store();
     store.set_friend_blocks_for(

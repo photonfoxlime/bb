@@ -11,24 +11,25 @@
 //! - action bars are projected per-row via `action_bar` view-model pipeline,
 //! - rewrite/distill drafts render inline word-level diff panels.
 //!
-//! # Friend blocks UI
+//! # Reference Panel UI
 //!
-//! Friend blocks are shown per block that has at least one friend:
-//! - A "Friends" panel is rendered below the block row (same pattern as
-//!   amplify/distill draft panels), listing each friend's point text and
-//!   optional perspective, with a remove button per friend.
+//! A per-block reference panel is rendered below the block row when opened:
+//! - point links use the same row shell as friend relations and may carry an
+//!   optional perspective,
+//! - friend relations still provide optional perspective plus telescope toggles.
 //!
 //! ## Inline Perspective Editor
 //!
-//! Each friend in the panel has an editable "perspective" field. This is a
-//! user-authored framing string that describes how the source block should
-//! interpret that friend block. For example, a friend might be viewed from
-//! "historical lens", "skeptical counterpoint", or "supporting evidence" perspective.
+//! Each reference row in the panel may have an editable "perspective" field.
+//! This is a user-authored framing string that describes how the source block
+//! should interpret that friend or linked resource. For example, a reference
+//! might be viewed from "historical lens", "skeptical counterpoint", or
+//! "supporting evidence" perspective.
 //!
-//! The perspective is rendered as a secondary line below the friend's point text.
+//! The perspective is rendered as a secondary line below the reference summary.
 //! When empty, a localized placeholder invites the user to "add perspective...".
 //! Clicking the perspective area toggles an inline text input field. On blur
-//! (or Enter key), the new perspective is saved via `StructureMessage::SetFriendPerspective`.
+//! (or Enter key), the new perspective is saved by the reference panel handler.
 //!
 //! Design rationale:
 //! - Inline editing avoids navigating to a separate modal/dialog, keeping context visible.

@@ -81,6 +81,51 @@ pub struct LinkPanelState {
     pub selected_index: usize,
 }
 
+/// Active inline perspective editor in the reference panel.
+///
+/// Only one reference perspective editor may be open at a time. The enum keeps
+/// the target identity and current input buffer coupled so callers cannot
+/// accidentally update the wrong row type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ReferencePerspectiveEditState {
+    /// Inline perspective editor for one friend relation.
+    Friend {
+        /// Block whose reference panel owns the relation.
+        target: BlockId,
+        /// Friend block being described.
+        friend_id: BlockId,
+        /// Current transient input buffer.
+        input: String,
+    },
+    /// Inline perspective editor for one point link.
+    Link {
+        /// Block whose reference panel owns the link.
+        target: BlockId,
+        /// Link index inside the point content.
+        link_index: usize,
+        /// Current transient input buffer.
+        input: String,
+    },
+}
+
+impl ReferencePerspectiveEditState {
+    /// Replace the transient input buffer while preserving the edited target.
+    pub fn set_input(&mut self, input: String) {
+        match self {
+            | Self::Friend { input: current, .. } | Self::Link { input: current, .. } => {
+                *current = input;
+            }
+        }
+    }
+
+    /// Return the current transient input buffer.
+    pub fn input(&self) -> &str {
+        match self {
+            | Self::Friend { input, .. } | Self::Link { input, .. } => input,
+        }
+    }
+}
+
 /// Transient UI state owned by friend and link reference surfaces.
 ///
 /// The Friends panel and the link-input panel are converging toward a shared
@@ -104,10 +149,8 @@ pub struct ReferencePanelUiState {
     /// If the friend is hidden, no visual feedback is shown to avoid confusing
     /// the user with a highlight that points to nothing visible.
     pub hovered_friend_block: Option<BlockId>,
-    /// `(target_block_id, friend_block_id)` currently being edited inline.
-    pub editing_friend_perspective: Option<(BlockId, BlockId)>,
-    /// Current text input value for friend perspective inline editing.
-    pub editing_friend_perspective_input: Option<String>,
+    /// The currently active inline perspective editor, if any.
+    pub editing_perspective: Option<ReferencePerspectiveEditState>,
     /// State for the link-input panel (filesystem search).
     pub link_panel: LinkPanelState,
     /// Per-block expanded link chip index (showing inline preview).

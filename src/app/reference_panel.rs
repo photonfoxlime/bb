@@ -16,25 +16,29 @@
 //!
 //! ## Inline Perspective Editor
 //!
-//! Each friend in the panel has an editable "perspective" field. This is a
-//! user-authored framing string that describes how the source block should
-//! interpret that friend block. For example, a friend might be viewed from
-//! "historical lens", "skeptical counterpoint", or "supporting evidence" perspective.
+//! Friend rows and point-link rows can both expose an editable "perspective"
+//! field. This is a user-authored framing string that describes how the source
+//! block should interpret that reference. For example, a reference might be
+//! viewed from "historical lens", "skeptical counterpoint", or "supporting evidence"
+//! perspective.
 //!
-//! The perspective is rendered as a secondary line below the friend's point text.
+//! The perspective is rendered as a secondary line below the reference summary.
 //! When empty, a localized placeholder invites the user to "add perspective...".
 //! Clicking the perspective area toggles an inline text input field. On blur
-//! (or Enter key), the new perspective is saved via `StructureMessage::SetFriendPerspective`.
+//! (or Enter key), the panel saves the new perspective directly to the owning
+//! friend relation or point link.
 //!
 //! Design rationale:
 //! - Inline editing avoids navigating to a separate modal/dialog, keeping context visible.
 //! - Immediate save on blur provides instant feedback without requiring explicit save actions.
 //! - Empty state with placeholder makes the affordance discoverable without cluttering the UI.
 
+use crate::app::state::ReferencePerspectiveEditState;
 use crate::app::{AppState, DocumentMode, EditMessage, LinkModeMessage, Message, StructureMessage};
 use crate::component::{
-    friend_row::{FriendRow, friend_perspective_input_id},
+    friend_row::FriendRow,
     reference_list_row::ReferenceListRow,
+    reference_perspective::{ReferencePerspectiveEditor, reference_perspective_input_id},
     text_button::TextButton,
 };
 use crate::store::{BlockId, BlockPanelBarState, LinkKind, PointLink};
@@ -52,14 +56,20 @@ pub enum ReferencePanelMessage {
     StartFriendPicker(BlockId),
     /// Start inline editing the perspective for a specific friend.
     StartEditingFriendPerspective { target: BlockId, friend_id: BlockId },
-    /// Cancel inline editing of friend perspective (uses state to find target).
-    CancelEditingFriendPerspective,
-    /// Update the input buffer while editing friend perspective.
-    UpdateFriendPerspectiveInput(String),
+    /// Start inline editing the perspective for a specific point link.
+    StartEditingLinkPerspective { target: BlockId, link_index: usize },
+    /// Cancel inline editing of the active reference perspective.
+    CancelEditingPerspective,
+    /// Update the input buffer while editing a reference perspective.
+    UpdatePerspectiveInput(String),
     /// Clear/remove the perspective for a friend.
     ClearFriendPerspective { target: BlockId, friend_id: BlockId },
     /// Accept the perspective and exit editing mode.
     AcceptFriendPerspective { target: BlockId, friend_id: BlockId },
+    /// Clear/remove the perspective for a point link.
+    ClearLinkPerspective { target: BlockId, link_index: usize },
+    /// Accept the perspective and exit editing mode for a point link.
+    AcceptLinkPerspective { target: BlockId, link_index: usize },
     /// Toggle whether parent lineage telescope is enabled for a friend in LLM context.
     ToggleParentLineageTelescope { target: BlockId, friend_id: BlockId },
     /// Toggle whether children telescope is enabled for a friend in LLM context.
@@ -86,6 +96,7 @@ pub fn handle(state: &mut AppState, msg: ReferencePanelMessage) -> Task<Message>
                         state.store.set_block_panel_state(&block_id, None);
                         // Clear hover state when closing the friends panel
                         state.ui_mut().reference_panel.hovered_friend_block = None;
+                        state.ui_mut().reference_panel.editing_perspective = None;
                     }
                     | _ => {
                         state
@@ -112,23 +123,42 @@ pub fn handle(state: &mut AppState, msg: ReferencePanelMessage) -> Task<Message>
                 .find(|f| f.block_id == friend_id)
                 .and_then(|f| f.perspective.clone())
                 .unwrap_or_default();
-            state.ui_mut().reference_panel.editing_friend_perspective = Some((target, friend_id));
-            state.ui_mut().reference_panel.editing_friend_perspective_input =
-                Some(current_perspective);
+            state.ui_mut().reference_panel.editing_perspective =
+                Some(ReferencePerspectiveEditState::Friend {
+                    target,
+                    friend_id,
+                    input: current_perspective,
+                });
             // Focus the text input
-            focus(friend_perspective_input_id())
+            focus(reference_perspective_input_id())
         }
-        | ReferencePanelMessage::CancelEditingFriendPerspective => {
+        | ReferencePanelMessage::StartEditingLinkPerspective { target, link_index } => {
+            let current_perspective = state
+                .store
+                .point_content(&target)
+                .and_then(|content| content.links.get(link_index))
+                .and_then(|link| link.perspective.clone())
+                .unwrap_or_default();
+            state.ui_mut().reference_panel.editing_perspective =
+                Some(ReferencePerspectiveEditState::Link {
+                    target,
+                    link_index,
+                    input: current_perspective,
+                });
+            focus(reference_perspective_input_id())
+        }
+        | ReferencePanelMessage::CancelEditingPerspective => {
             // Clear editing state regardless of what's being edited
-            state.ui_mut().reference_panel.editing_friend_perspective = None;
-            state.ui_mut().reference_panel.editing_friend_perspective_input = None;
+            state.ui_mut().reference_panel.editing_perspective = None;
             if state.ui().document_mode == DocumentMode::PickFriend {
                 state.ui_mut().document_mode = DocumentMode::Normal;
             }
             Task::none()
         }
-        | ReferencePanelMessage::UpdateFriendPerspectiveInput(text) => {
-            state.ui_mut().reference_panel.editing_friend_perspective_input = Some(text);
+        | ReferencePanelMessage::UpdatePerspectiveInput(text) => {
+            if let Some(editing) = state.ui_mut().reference_panel.editing_perspective.as_mut() {
+                editing.set_input(text);
+            }
             Task::none()
         }
         | ReferencePanelMessage::ClearFriendPerspective { target, friend_id } => {
@@ -146,19 +176,20 @@ pub fn handle(state: &mut AppState, msg: ReferencePanelMessage) -> Task<Message>
                 }
             });
             // Also clear the editing state
-            state.ui_mut().reference_panel.editing_friend_perspective = None;
-            state.ui_mut().reference_panel.editing_friend_perspective_input = None;
+            state.ui_mut().reference_panel.editing_perspective = None;
             Task::none()
         }
         | ReferencePanelMessage::AcceptFriendPerspective { target, friend_id } => {
-            // Get current input value
-            let perspective = state.ui().reference_panel.editing_friend_perspective_input.clone();
+            let Some(perspective) = active_friend_perspective_input(state, target, friend_id)
+            else {
+                return Task::none();
+            };
             // Save to store
             state.mutate_with_undo_and_persist("after setting friend perspective", |state| {
                 let mut friends = state.store.friend_blocks_for(&target).to_vec();
                 let friend = friends.iter_mut().find(|f| f.block_id == friend_id);
                 if let Some(friend) = friend {
-                    friend.perspective = perspective.clone();
+                    friend.perspective = Some(perspective.clone());
                     state.store.set_friend_blocks_for(&target, friends);
                     tracing::info!(target = ?target, friend_id = ?friend_id, "set friend perspective");
                     true
@@ -167,8 +198,36 @@ pub fn handle(state: &mut AppState, msg: ReferencePanelMessage) -> Task<Message>
                 }
             });
             // Exit editing state
-            state.ui_mut().reference_panel.editing_friend_perspective = None;
-            state.ui_mut().reference_panel.editing_friend_perspective_input = None;
+            state.ui_mut().reference_panel.editing_perspective = None;
+            Task::none()
+        }
+        | ReferencePanelMessage::ClearLinkPerspective { target, link_index } => {
+            state.mutate_with_undo_and_persist("after clearing link perspective", |state| {
+                let changed = state.store.set_link_perspective(&target, link_index, None);
+                if changed {
+                    tracing::info!(target = ?target, link_index, "cleared link perspective");
+                }
+                changed
+            });
+            state.ui_mut().reference_panel.editing_perspective = None;
+            Task::none()
+        }
+        | ReferencePanelMessage::AcceptLinkPerspective { target, link_index } => {
+            let Some(perspective) = active_link_perspective_input(state, target, link_index) else {
+                return Task::none();
+            };
+            state.mutate_with_undo_and_persist("after setting link perspective", |state| {
+                let changed = state.store.set_link_perspective(
+                    &target,
+                    link_index,
+                    Some(perspective.clone()),
+                );
+                if changed {
+                    tracing::info!(target = ?target, link_index, "set link perspective");
+                }
+                changed
+            });
+            state.ui_mut().reference_panel.editing_perspective = None;
             Task::none()
         }
         | ReferencePanelMessage::ToggleParentLineageTelescope { target, friend_id } => {
@@ -279,6 +338,7 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
 
     for (index, link) in links.iter().enumerate() {
         panel = panel.push(view_link_row(
+            state,
             target_block_id,
             index,
             link,
@@ -296,15 +356,20 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
         let friend_id = friend.block_id;
         let target = target_block_id;
 
-        let is_editing_this =
-            state.ui().reference_panel.editing_friend_perspective == Some((target, friend_id));
-        let placeholder = rust_i18n::t!("doc_friend_perspective_placeholder").to_string();
-        let relation_label = rust_i18n::t!("doc_friend_as").to_string();
+        let is_editing_this = matches!(
+            state.ui().reference_panel.editing_perspective,
+            Some(ReferencePerspectiveEditState::Friend {
+                target: editing_target,
+                friend_id: editing_friend_id,
+                ..
+            }) if editing_target == target && editing_friend_id == friend_id
+        );
+        let placeholder = rust_i18n::t!("doc_reference_perspective_placeholder").to_string();
+        let relation_label = rust_i18n::t!("doc_reference_as").to_string();
         let parent_toggle_tooltip = rust_i18n::t!("doc_friend_telescope_parent").to_string();
         let children_toggle_tooltip = rust_i18n::t!("doc_friend_telescope_children").to_string();
         let remove_label = rust_i18n::t!("ui_remove").to_string();
-        let current_input =
-            state.ui().reference_panel.editing_friend_perspective_input.clone().unwrap_or_default();
+        let current_input = active_editor_input(state);
 
         panel = panel.push(
             FriendRow {
@@ -331,18 +396,9 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
                 on_accept_perspective: Message::ReferencePanel(
                     ReferencePanelMessage::AcceptFriendPerspective { target, friend_id },
                 ),
-                on_submit_input: Message::Structure(StructureMessage::SetFriendPerspective {
-                    target,
-                    friend_id,
-                    perspective: Some(
-                        state
-                            .ui()
-                            .reference_panel
-                            .editing_friend_perspective_input
-                            .clone()
-                            .unwrap_or_default(),
-                    ),
-                }),
+                on_submit_input: Message::ReferencePanel(
+                    ReferencePanelMessage::AcceptFriendPerspective { target, friend_id },
+                ),
                 on_toggle_parent_lineage: Message::ReferencePanel(
                     ReferencePanelMessage::ToggleParentLineageTelescope { target, friend_id },
                 ),
@@ -354,7 +410,7 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
                     friend_id,
                 }),
                 on_update_input: |s| {
-                    Message::ReferencePanel(ReferencePanelMessage::UpdateFriendPerspectiveInput(s))
+                    Message::ReferencePanel(ReferencePanelMessage::UpdatePerspectiveInput(s))
                 },
             }
             .view(),
@@ -369,7 +425,7 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
 
 /// Render one point-link row using the same shell as friend rows.
 fn view_link_row<'a>(
-    target_block_id: BlockId, index: usize, link: &'a PointLink,
+    state: &'a AppState, target_block_id: BlockId, index: usize, link: &'a PointLink,
     expanded_link_index: Option<usize>, expanded_markdown_preview: Option<&'a [markdown::Item]>,
     is_dark_mode: bool,
 ) -> Element<'a, Message> {
@@ -386,14 +442,46 @@ fn view_link_row<'a>(
         Message::LinkChipToggle(target_block_id, index),
     );
 
-    let detail = container(
-        text(link_kind_label(link.kind))
-            .style(theme::spine_text)
-            .font(theme::INTER)
-            .size(theme::FRIEND_PERSPECTIVE_SIZE),
-    )
-    .width(Length::Fill)
-    .into();
+    let is_editing_this = matches!(
+        state.ui().reference_panel.editing_perspective,
+        Some(ReferencePerspectiveEditState::Link {
+            target,
+            link_index,
+            ..
+        }) if target == target_block_id && link_index == index
+    );
+    let detail = ReferencePerspectiveEditor {
+        perspective_label: link.perspective.clone().unwrap_or_default(),
+        is_editing: is_editing_this,
+        current_input: active_editor_input(state),
+        perspective_placeholder: rust_i18n::t!("doc_reference_perspective_placeholder").to_string(),
+        on_start_editing: Message::ReferencePanel(
+            ReferencePanelMessage::StartEditingLinkPerspective {
+                target: target_block_id,
+                link_index: index,
+            },
+        ),
+        on_clear_perspective: Message::ReferencePanel(
+            ReferencePanelMessage::ClearLinkPerspective {
+                target: target_block_id,
+                link_index: index,
+            },
+        ),
+        on_accept_perspective: Message::ReferencePanel(
+            ReferencePanelMessage::AcceptLinkPerspective {
+                target: target_block_id,
+                link_index: index,
+            },
+        ),
+        on_submit_input: Message::ReferencePanel(ReferencePanelMessage::AcceptLinkPerspective {
+            target: target_block_id,
+            link_index: index,
+        }),
+        on_update_input: |s| {
+            Message::ReferencePanel(ReferencePanelMessage::UpdatePerspectiveInput(s))
+        },
+    }
+    .view();
 
     let controls =
         TextButton::destructive(rust_i18n::t!("ui_remove").to_string(), theme::FRIEND_POINT_SIZE)
@@ -402,7 +490,13 @@ fn view_link_row<'a>(
             .on_press(Message::Edit(EditMessage::RemoveLink { block_id: target_block_id, index }))
             .into();
 
-    let row = ReferenceListRow { primary, relation_label: None, detail, controls }.view();
+    let row = ReferenceListRow {
+        primary,
+        relation_label: Some(rust_i18n::t!("doc_reference_as").to_string()),
+        detail,
+        controls,
+    }
+    .view();
 
     if expanded_link_index == Some(index) {
         return column![
@@ -453,11 +547,41 @@ fn link_kind_icon(kind: LinkKind) -> Element<'static, Message> {
     }
 }
 
-/// Return the localized display label for a point-link kind.
-fn link_kind_label(kind: LinkKind) -> String {
-    match kind {
-        | LinkKind::Image => rust_i18n::t!("link_kind_image").to_string(),
-        | LinkKind::Markdown => rust_i18n::t!("link_kind_markdown").to_string(),
-        | LinkKind::Path => rust_i18n::t!("link_kind_path").to_string(),
+/// Return the current input buffer of the active reference perspective editor.
+fn active_editor_input(state: &AppState) -> String {
+    state
+        .ui()
+        .reference_panel
+        .editing_perspective
+        .as_ref()
+        .map(|editing| editing.input().to_string())
+        .unwrap_or_default()
+}
+
+/// Return the active friend perspective input if it matches the given row.
+fn active_friend_perspective_input(
+    state: &AppState, target: BlockId, friend_id: BlockId,
+) -> Option<String> {
+    match state.ui().reference_panel.editing_perspective.as_ref() {
+        | Some(ReferencePerspectiveEditState::Friend {
+            target: editing_target,
+            friend_id: editing_friend_id,
+            input,
+        }) if *editing_target == target && *editing_friend_id == friend_id => Some(input.clone()),
+        | _ => None,
+    }
+}
+
+/// Return the active link perspective input if it matches the given row.
+fn active_link_perspective_input(
+    state: &AppState, target: BlockId, link_index: usize,
+) -> Option<String> {
+    match state.ui().reference_panel.editing_perspective.as_ref() {
+        | Some(ReferencePerspectiveEditState::Link {
+            target: editing_target,
+            link_index: editing_link_index,
+            input,
+        }) if *editing_target == target && *editing_link_index == link_index => Some(input.clone()),
+        | _ => None,
     }
 }

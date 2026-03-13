@@ -71,7 +71,9 @@ impl LinkKind {
 ///
 /// Created via [`PointLink::infer`] which derives [`LinkKind`] from the href's
 /// file extension. The optional `label` is user-provided display text; when
-/// absent, the UI should show the href directly.
+/// absent, the UI should show the href directly. The optional `perspective`
+/// stores user-authored framing for how the source block should interpret the
+/// linked resource inside the reference panel.
 ///
 /// # Invariants
 ///
@@ -87,6 +89,9 @@ pub struct PointLink {
     /// Optional human-readable label. When `None`, the UI displays `href`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
+    /// Optional framing string for how the source block should use this link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub perspective: Option<String>,
 }
 
 impl PointLink {
@@ -100,7 +105,7 @@ impl PointLink {
             .and_then(|ext| ext.to_str())
             .and_then(LinkKind::from_extension)
             .unwrap_or(LinkKind::Path);
-        Self { href, kind, label: None }
+        Self { href, kind, label: None, perspective: None }
     }
 
     /// Create a link with an explicit label.
@@ -110,6 +115,16 @@ impl PointLink {
     #[allow(dead_code)]
     pub fn with_label(mut self, label: impl Into<String>) -> Self {
         self.label = Some(label.into());
+        self
+    }
+
+    /// Create a link with an explicit perspective.
+    ///
+    /// Note: currently only used in tests. Kept as public API for future
+    /// callers that create pre-framed link references.
+    #[allow(dead_code)]
+    pub fn with_perspective(mut self, perspective: impl Into<String>) -> Self {
+        self.perspective = Some(perspective.into());
         self
     }
 
@@ -275,7 +290,7 @@ impl<'de> Visitor<'de> for PointContentVisitor {
         if let Some(href) = legacy_href {
             // Old Link variant: migrate to PointContent with one link.
             let kind = legacy_kind.unwrap_or(LinkKind::Path);
-            let link = PointLink { href, kind, label: legacy_label };
+            let link = PointLink { href, kind, label: legacy_label, perspective: None };
             Ok(PointContent { text: String::new(), links: vec![link] })
         } else {
             // Current format (or partial).
@@ -363,7 +378,11 @@ mod tests {
     #[test]
     fn serde_with_links_round_trip() {
         let mut original = PointContent { text: "my note".into(), links: vec![] };
-        original.add_link(PointLink::infer("diagram.png").with_label("Diagram"));
+        original.add_link(
+            PointLink::infer("diagram.png")
+                .with_label("Diagram")
+                .with_perspective("supporting visual"),
+        );
         let json = serde_json::to_string(&original).unwrap();
         let parsed: PointContent = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed, original);
@@ -386,6 +405,7 @@ mod tests {
         assert_eq!(parsed.links[0].href, "/path/to/photo.png");
         assert_eq!(parsed.links[0].kind, LinkKind::Image);
         assert_eq!(parsed.links[0].label.as_deref(), Some("Photo"));
+        assert_eq!(parsed.links[0].perspective, None);
     }
 
     #[test]
@@ -396,6 +416,18 @@ mod tests {
         assert_eq!(parsed.links.len(), 1);
         assert_eq!(parsed.links[0].kind, LinkKind::Markdown);
         assert!(parsed.links[0].label.is_none());
+        assert!(parsed.links[0].perspective.is_none());
+    }
+
+    #[test]
+    fn link_perspective_survives_serde_roundtrip() {
+        let original = PointContent {
+            text: "context".into(),
+            links: vec![PointLink::infer("notes.md").with_perspective("background")],
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let parsed: PointContent = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.links[0].perspective.as_deref(), Some("background"));
     }
 
     #[test]

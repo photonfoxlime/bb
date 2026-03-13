@@ -6,24 +6,15 @@
 //! message/state routing, which is the seam needed for future merged
 //! friend-plus-link panel work.
 
+use crate::component::icon_button::IconButton;
 use crate::component::reference_list_row::ReferenceListRow;
-use crate::component::{icon_button::IconButton, text_button::TextButton};
+use crate::component::reference_perspective::ReferencePerspectiveEditor;
+use crate::component::text_button::TextButton;
 use crate::text::truncate_for_display;
 use crate::theme;
-use iced::widget::{Id, button, row, text, text_input, tooltip};
+use iced::widget::{row, text, tooltip};
 use iced::{Element, Length, Padding};
 use lucide_icons::iced as icons;
-
-/// Widget id used by the inline perspective editor.
-///
-/// Note: only one friend perspective editor may be active at a time, so one
-/// stable id is sufficient for focus transfer.
-pub const FRIEND_PERSPECTIVE_INPUT_ID: &str = "friend-perspective-input";
-
-/// Return the widget [`Id`] for the inline perspective editor.
-pub fn friend_perspective_input_id() -> Id {
-    Id::new(FRIEND_PERSPECTIVE_INPUT_ID)
-}
 
 /// Per-friend relation row for the inline friends panel.
 ///
@@ -98,17 +89,18 @@ impl<Message: Clone + 'static> FriendRow<Message> {
             on_update_input,
         } = self;
 
-        let relation_content = Self::view_relation_content(
+        let relation_content = ReferencePerspectiveEditor {
+            perspective_label,
             is_editing,
-            &current_input,
-            &perspective_label,
-            &perspective_placeholder,
+            current_input,
+            perspective_placeholder,
             on_start_editing,
             on_clear_perspective,
             on_accept_perspective,
             on_submit_input,
             on_update_input,
-        );
+        }
+        .view();
         let point_text_element = Self::view_point_button(&point_text, on_press_point);
         let controls = Self::view_controls(
             parent_lineage_telescope,
@@ -137,86 +129,6 @@ impl<Message: Clone + 'static> FriendRow<Message> {
             text(truncated_point).font(theme::INTER).size(theme::FRIEND_POINT_SIZE),
             on_press,
         )
-    }
-
-    /// Render the perspective area in either read or edit mode.
-    fn view_relation_content(
-        is_editing: bool, current_input: &str, perspective_label: &str,
-        perspective_placeholder: &str, on_start_editing: Message, on_clear_perspective: Message,
-        on_accept_perspective: Message, on_submit_input: Message,
-        on_update_input: fn(String) -> Message,
-    ) -> Element<'static, Message> {
-        if is_editing {
-            let input = text_input(perspective_placeholder, current_input)
-                .id(friend_perspective_input_id())
-                .font(theme::INTER)
-                .size(theme::FRIEND_PERSPECTIVE_SIZE)
-                .padding(Padding::ZERO)
-                .width(Length::Fill)
-                .on_input(on_update_input)
-                .on_submit(on_submit_input);
-
-            let accept_btn = IconButton::action_with_size(
-                icons::icon_check().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE).into(),
-                theme::FRIEND_PERSPECTIVE_HEIGHT,
-                theme::FRIEND_PERSPECTIVE_BUTTON_PAD,
-            )
-            .on_press(on_accept_perspective);
-
-            let clear_btn = IconButton::destructive_with_size(
-                icons::icon_x().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE).into(),
-                theme::FRIEND_PERSPECTIVE_HEIGHT,
-                theme::FRIEND_PERSPECTIVE_BUTTON_PAD,
-            )
-            .on_press(on_clear_perspective);
-
-            return row![]
-                .spacing(theme::INLINE_GAP)
-                .push(input)
-                .push(accept_btn)
-                .push(clear_btn)
-                .into();
-        }
-
-        if perspective_label.is_empty() {
-            return button(
-                text(perspective_placeholder.to_owned())
-                    .font(theme::INTER)
-                    .size(theme::FRIEND_PERSPECTIVE_SIZE)
-                    .style(theme::spine_text),
-            )
-            .style(theme::action_button)
-            .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-            .width(Length::Fill)
-            .padding(Padding::ZERO)
-            .on_press(on_start_editing)
-            .into();
-        }
-
-        row![]
-            .spacing(theme::FRIEND_ROW_GAP)
-            .push(
-                button(
-                    text(perspective_label.to_owned())
-                        .font(theme::INTER)
-                        .size(theme::FRIEND_PERSPECTIVE_SIZE)
-                        .style(theme::spine_text),
-                )
-                .style(theme::action_button)
-                .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-                .width(Length::Fill)
-                .padding(Padding::ZERO)
-                .on_press(on_start_editing),
-            )
-            .push(
-                IconButton::destructive_with_size(
-                    icons::icon_x().size(theme::FRIEND_PERSPECTIVE_ICON_SIZE).into(),
-                    theme::FRIEND_PERSPECTIVE_HEIGHT,
-                    theme::FRIEND_PERSPECTIVE_BUTTON_PAD,
-                )
-                .on_press(on_clear_perspective),
-            )
-            .into()
     }
 
     /// Render the telescope toggles and remove action.
