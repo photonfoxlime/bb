@@ -14,6 +14,7 @@ use crate::cli::{
     nav::{
         FindNextCommand, FindPrevCommand, LineageCommand, NavCommands, NextCommand, PrevCommand,
     },
+    point::PointCommands,
     query::{FindCommand, ShowCommand},
     results::CliResult,
     tree::{
@@ -458,13 +459,13 @@ fn friend_persists_after_move() {
     let child2 = store.append_child(&root_id, "child2".to_string()).unwrap();
 
     // Add friend
-    let cmd = Commands::Friend(FriendCommands::Add(AddFriendCommand {
+    let cmd = Commands::Point(PointCommands::Friend(FriendCommands::Add(AddFriendCommand {
         target_id: BlockId(fmt(child1)),
         friend_id: BlockId(fmt(child2)),
         perspective: Some("related".to_string()),
         telescope_lineage: false,
         telescope_children: false,
-    }));
+    })));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Success));
 
@@ -479,9 +480,9 @@ fn friend_persists_after_move() {
     let (store, _) = cmd.execute(store, &PathBuf::from("."));
 
     // Verify friend persists
-    let cmd = Commands::Friend(FriendCommands::List(ListFriendCommand {
+    let cmd = Commands::Point(PointCommands::Friend(FriendCommands::List(ListFriendCommand {
         target_id: BlockId(fmt(child1)),
-    }));
+    })));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
 
     match result {
@@ -885,22 +886,22 @@ fn multiple_friends_then_list_then_remove() {
 
     // Add friend relationships: child0 -> [child1, child2, child3]
     for i in 1..4 {
-        let cmd = Commands::Friend(FriendCommands::Add(AddFriendCommand {
+        let cmd = Commands::Point(PointCommands::Friend(FriendCommands::Add(AddFriendCommand {
             target_id: BlockId(fmt(child_ids[0])),
             friend_id: BlockId(fmt(child_ids[i])),
             perspective: Some(format!("relation{}", i)),
             telescope_lineage: i % 2 == 0,
             telescope_children: i > 2,
-        }));
+        })));
         let (s, result) = cmd.execute(store, &PathBuf::from("."));
         store = s;
         assert!(matches!(result, CliResult::Success));
     }
 
     // List friends of child0
-    let cmd = Commands::Friend(FriendCommands::List(ListFriendCommand {
+    let cmd = Commands::Point(PointCommands::Friend(FriendCommands::List(ListFriendCommand {
         target_id: BlockId(fmt(child_ids[0])),
-    }));
+    })));
     let (_store, result) = cmd.execute(store.clone(), &PathBuf::from("."));
 
     match result {
@@ -918,17 +919,17 @@ fn multiple_friends_then_list_then_remove() {
     }
 
     // Remove middle friend (child2)
-    let cmd = Commands::Friend(FriendCommands::Remove(RemoveFriendCommand {
+    let cmd = Commands::Point(PointCommands::Friend(FriendCommands::Remove(RemoveFriendCommand {
         target_id: BlockId(fmt(child_ids[0])),
         friend_id: BlockId(fmt(child_ids[1])),
-    }));
+    })));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Success));
 
     // Verify remaining friends
-    let cmd = Commands::Friend(FriendCommands::List(ListFriendCommand {
+    let cmd = Commands::Point(PointCommands::Friend(FriendCommands::List(ListFriendCommand {
         target_id: BlockId(fmt(child_ids[0])),
-    }));
+    })));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
 
     match result {
@@ -1149,13 +1150,13 @@ fn context_command_with_friends() {
     let child2 = store.append_child(&root_id, "child2".to_string()).unwrap();
 
     // Add friend
-    let cmd = Commands::Friend(FriendCommands::Add(AddFriendCommand {
+    let cmd = Commands::Point(PointCommands::Friend(FriendCommands::Add(AddFriendCommand {
         target_id: BlockId(fmt(child1)),
         friend_id: BlockId(fmt(child2)),
         perspective: Some("related".to_string()),
         telescope_lineage: false,
         telescope_children: false,
-    }));
+    })));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Success));
 
@@ -1348,20 +1349,20 @@ fn friend_with_telescope_options() {
     store.append_child(&child2, "grandchild".to_string()).unwrap();
 
     // Add friend with both telescopes enabled
-    let cmd = Commands::Friend(FriendCommands::Add(AddFriendCommand {
+    let cmd = Commands::Point(PointCommands::Friend(FriendCommands::Add(AddFriendCommand {
         target_id: BlockId(fmt(child1)),
         friend_id: BlockId(fmt(child2)),
         perspective: Some("telescoped".to_string()),
         telescope_lineage: true,
         telescope_children: true,
-    }));
+    })));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Success));
 
     // List friends and verify telescope flags
-    let cmd = Commands::Friend(FriendCommands::List(ListFriendCommand {
+    let cmd = Commands::Point(PointCommands::Friend(FriendCommands::List(ListFriendCommand {
         target_id: BlockId(fmt(child1)),
-    }));
+    })));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
 
     match result {

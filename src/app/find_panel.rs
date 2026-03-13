@@ -5,7 +5,9 @@
 //! navigation (`Cmd/Ctrl+F`, `Cmd/Ctrl+G`, `Esc`). Query updates are debounced
 //! to avoid running expensive searches while users are still typing.
 
-use crate::app::{AppState, DocumentMode, Message, SelectableList, reference_panel::ReferencePanelMessage};
+use crate::app::{
+    AppState, DocumentMode, Message, SelectableList, reference_panel::ReferencePanelMessage,
+};
 use crate::component::floating_panel::{self, FloatingPanelLayout, PanelHeader, SelectableRow};
 use crate::component::icon_button::IconButton;
 use crate::store::{BlockId, BlockStoreNavigateExt as _};

@@ -23,7 +23,7 @@ use crate::cli::{
     nav::{
         FindNextCommand, FindPrevCommand, LineageCommand, NavCommands, NextCommand, PrevCommand,
     },
-    point::EditPointCommand,
+    point::{PointCommands, SetPointCommand},
     print_result,
     query::{FindCommand, ShowCommand},
     results::CliResult,
@@ -86,11 +86,10 @@ fn find_command() {
 fn point_edit_command() {
     let store = create_test_store();
     let root_id = store.roots()[0];
-    let cmd = Commands::Point(EditPointCommand {
+    let cmd = Commands::Point(PointCommands::Set(SetPointCommand {
         block_id: BlockId(format_block_id(root_id)),
         text: "Updated text".to_string(),
-        link: false,
-    });
+    }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Success));
     assert_eq!(store.point(&root_id), Some("Updated text".to_string()));
@@ -99,11 +98,10 @@ fn point_edit_command() {
 #[test]
 fn point_edit_unknown_block() {
     let store = create_test_store();
-    let cmd = Commands::Point(EditPointCommand {
+    let cmd = Commands::Point(PointCommands::Set(SetPointCommand {
         block_id: BlockId("0v0".to_string()),
         text: "Should not work".to_string(),
-        link: false,
-    });
+    }));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::Error(msg) if msg.contains("Unknown block ID")));
 }
@@ -550,11 +548,10 @@ fn batch_point_continues_and_reports_errors() {
     let root_id = store.roots()[0];
     let batch = format!("{},0v0", format_block_id(root_id));
 
-    let cmd = Commands::Point(EditPointCommand {
+    let cmd = Commands::Point(PointCommands::Set(SetPointCommand {
         block_id: BlockId(batch),
         text: "batched update".to_string(),
-        link: false,
-    });
+    }));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
 
     match result {
@@ -647,13 +644,13 @@ fn batch_friend_add_remove_continues_and_reports_errors() {
     let friend = store.children(&root_id)[1];
 
     let targets = format!("{},0v0", format_block_id(target));
-    let cmd = Commands::Friend(FriendCommands::Add(AddFriendCommand {
+    let cmd = Commands::Point(PointCommands::Friend(FriendCommands::Add(AddFriendCommand {
         target_id: BlockId(targets.clone()),
         friend_id: BlockId(format_block_id(friend)),
         perspective: None,
         telescope_lineage: false,
         telescope_children: false,
-    }));
+    })));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
     match result {
         | CliResult::Batch(report) => {
@@ -664,16 +661,16 @@ fn batch_friend_add_remove_continues_and_reports_errors() {
         | _ => panic!("expected batch report"),
     }
 
-    let cmd = Commands::Friend(FriendCommands::List(ListFriendCommand {
+    let cmd = Commands::Point(PointCommands::Friend(FriendCommands::List(ListFriendCommand {
         target_id: BlockId(format_block_id(target)),
-    }));
+    })));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::FriendList(friends) if friends.len() == 1));
 
-    let cmd = Commands::Friend(FriendCommands::Remove(RemoveFriendCommand {
+    let cmd = Commands::Point(PointCommands::Friend(FriendCommands::Remove(RemoveFriendCommand {
         target_id: BlockId(targets),
         friend_id: BlockId(format_block_id(friend)),
-    }));
+    })));
     let (store, result) = cmd.execute(store, &PathBuf::from("."));
     match result {
         | CliResult::Batch(report) => {
@@ -684,9 +681,9 @@ fn batch_friend_add_remove_continues_and_reports_errors() {
         | _ => panic!("expected batch report"),
     }
 
-    let cmd = Commands::Friend(FriendCommands::List(ListFriendCommand {
+    let cmd = Commands::Point(PointCommands::Friend(FriendCommands::List(ListFriendCommand {
         target_id: BlockId(format_block_id(target)),
-    }));
+    })));
     let (_store, result) = cmd.execute(store, &PathBuf::from("."));
     assert!(matches!(result, CliResult::FriendList(friends) if friends.is_empty()));
 }

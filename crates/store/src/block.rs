@@ -13,9 +13,6 @@ use uuid::Uuid;
 /// New IDs are allocated with UUID v7 via [`Self::new_v7`]. UUID v7 preserves
 /// globally unique semantics while improving temporal locality for newly
 /// inserted keys.
-///
-/// Note: persisted stores using the legacy slot-style ids are not decoded by
-/// this type and require an explicit migration step.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Serialize, Deserialize,
 )]

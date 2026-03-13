@@ -420,8 +420,7 @@ pub fn build_action_bar_vm(ctx: &RowContext) -> ActionBarVm {
         ));
     }
 
-    if row_state.is_any_busy() && !ctx.has_draft
-    {
+    if row_state.is_any_busy() && !ctx.has_draft {
         vm.contextual.push(ActionDescriptor::new(
             ActionId::Cancel,
             ActionAvailability::Enabled,
@@ -645,25 +644,63 @@ fn toolbar_icon(icon: iced::widget::Text<'static>) -> Element<'static, Message> 
         .into()
 }
 
-fn action_icon_amplify() -> Element<'static, Message> { toolbar_icon(icons::icon_maximize_2()) }
-fn action_icon_distill() -> Element<'static, Message> { toolbar_icon(icons::icon_minimize_2()) }
-fn action_icon_atomize() -> Element<'static, Message> { toolbar_icon(icons::icon_maximize()) }
-fn action_icon_probe() -> Element<'static, Message> { toolbar_icon(icons::icon_message_circle()) }
-fn action_icon_cancel() -> Element<'static, Message> { toolbar_icon(icons::icon_circle_x()) }
-fn action_icon_add_link() -> Element<'static, Message> { toolbar_icon(icons::icon_link_2()) }
-fn action_icon_add_child() -> Element<'static, Message> { toolbar_icon(icons::icon_corner_down_right()) }
-fn action_icon_add_parent() -> Element<'static, Message> { toolbar_icon(icons::icon_corner_up_left()) }
-fn action_icon_accept_all() -> Element<'static, Message> { toolbar_icon(icons::icon_check_check()) }
-fn action_icon_retry() -> Element<'static, Message> { toolbar_icon(icons::icon_refresh_cw()) }
-fn action_icon_dismiss_draft() -> Element<'static, Message> { toolbar_icon(icons::icon_x()) }
-fn action_icon_collapse_branch() -> Element<'static, Message> { toolbar_icon(icons::icon_chevron_down()) }
-fn action_icon_expand_branch() -> Element<'static, Message> { toolbar_icon(icons::icon_chevron_right()) }
-fn action_icon_add_sibling() -> Element<'static, Message> { toolbar_icon(icons::icon_plus()) }
-fn action_icon_duplicate_block() -> Element<'static, Message> { toolbar_icon(icons::icon_copy()) }
-fn action_icon_archive_block() -> Element<'static, Message> { toolbar_icon(icons::icon_archive()) }
-fn action_icon_save_to_file() -> Element<'static, Message> { toolbar_icon(icons::icon_hard_drive_download()) }
-fn action_icon_load_from_file() -> Element<'static, Message> { toolbar_icon(icons::icon_hard_drive_upload()) }
-fn action_icon_enter_block() -> Element<'static, Message> { toolbar_icon(icons::icon_log_in()) }
+fn action_icon_amplify() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_maximize_2())
+}
+fn action_icon_distill() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_minimize_2())
+}
+fn action_icon_atomize() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_maximize())
+}
+fn action_icon_probe() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_message_circle())
+}
+fn action_icon_cancel() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_circle_x())
+}
+fn action_icon_add_link() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_link_2())
+}
+fn action_icon_add_child() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_corner_down_right())
+}
+fn action_icon_add_parent() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_corner_up_left())
+}
+fn action_icon_accept_all() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_check_check())
+}
+fn action_icon_retry() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_refresh_cw())
+}
+fn action_icon_dismiss_draft() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_x())
+}
+fn action_icon_collapse_branch() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_chevron_down())
+}
+fn action_icon_expand_branch() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_chevron_right())
+}
+fn action_icon_add_sibling() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_plus())
+}
+fn action_icon_duplicate_block() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_copy())
+}
+fn action_icon_archive_block() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_archive())
+}
+fn action_icon_save_to_file() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_hard_drive_download())
+}
+fn action_icon_load_from_file() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_hard_drive_upload())
+}
+fn action_icon_enter_block() -> Element<'static, Message> {
+    toolbar_icon(icons::icon_log_in())
+}
 
 #[cfg(test)]
 mod tests {
