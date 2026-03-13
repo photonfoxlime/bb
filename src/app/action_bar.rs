@@ -17,7 +17,7 @@ use super::{
 use crate::{store::BlockId, theme};
 use iced::{
     Element,
-    keyboard::{Key, Modifiers, key::Named},
+    keyboard::{Key, Modifiers},
 };
 use lucide_icons::iced as icons;
 
@@ -670,6 +670,7 @@ pub fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use iced::keyboard::key::Named;
 
     fn row_context() -> RowContext {
         RowContext {
