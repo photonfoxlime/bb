@@ -83,8 +83,8 @@ pub enum Direction {
 /// across app restarts. Unlike runtime UI state, this survives save/load.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BlockPanelBarState {
-    /// Friends panel - shows user-selected friend blocks for LLM context.
-    Friends,
+    /// References panel - shows point links and friend relations for a block.
+    References,
     /// Instruction panel - text editor for LLM instructions.
     Instruction,
 }

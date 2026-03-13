@@ -156,7 +156,7 @@ pub struct BlockStore {
     pub friend_blocks: FxHashMap<BlockId, Vec<FriendBlock>>,
     /// Persisted per-block block panel bar state (which panel is open).
     ///
-    /// Stores whether the Friends or Instruction panel is open for each block.
+    /// Stores whether the References or Instruction panel is open for each block.
     /// This survives reloads so the UI remembers which panel was last open.
     #[serde(default)]
     pub block_panel_state: FxHashMap<BlockId, BlockPanelBarState>,
@@ -333,7 +333,7 @@ impl BlockStore {
     /// Return a reference to the full [`PointContent`] for UI rendering.
     ///
     /// Use this when the caller needs access to the block's links as well
-    /// as its text (e.g., rendering link chips above the text editor).
+    /// as its text (e.g., rendering the reference panel).
     pub fn point_content(&self, id: &BlockId) -> Option<&PointContent> {
         self.points.get(id)
     }

@@ -133,10 +133,10 @@ impl std::str::FromStr for BlockPanelBarStateCli {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
-            | "friends" => Ok(Self(BlockPanelBarState::Friends)),
+            | "references" => Ok(Self(BlockPanelBarState::References)),
             | "instruction" => Ok(Self(BlockPanelBarState::Instruction)),
             | _ => Err(format!(
-                "Invalid block panel state: '{}'. Expected 'friends' or 'instruction'.",
+                "Invalid block panel state: '{}'. Expected 'references' or 'instruction'.",
                 s
             )),
         }
@@ -146,7 +146,7 @@ impl std::str::FromStr for BlockPanelBarStateCli {
 impl std::fmt::Display for BlockPanelBarStateCli {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.0 {
-            | BlockPanelBarState::Friends => write!(f, "friends"),
+            | BlockPanelBarState::References => write!(f, "references"),
             | BlockPanelBarState::Instruction => write!(f, "instruction"),
         }
     }

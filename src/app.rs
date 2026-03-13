@@ -201,12 +201,12 @@ pub struct AppState {
     /// This keeps call sites consistent and centralizes expectations for
     /// non-persisted UI state usage.
     transient_ui: TransientUiState,
-    /// Cached parsed markdown preview content for the expanded link chip per block.
+    /// Cached parsed markdown preview content for the expanded reference link per block.
     ///
-    /// We parse once when a chip is expanded and reuse the parsed items while
+    /// We parse once when a link row is expanded and reuse the parsed items while
     /// it stays open.
     ///
-    /// Note: the cache key is only `BlockId` because at most one link chip can
+    /// Note: the cache key is only `BlockId` because at most one link row can
     /// be expanded per block (`TransientUiState::reference_panel.expanded_links`
     /// invariant).
     expanded_markdown_previews: BTreeMap<BlockId, Vec<markdown::Item>>,
@@ -246,12 +246,12 @@ pub enum Message {
     Navigation(NavigationMessage),
     ContextMenu(ContextMenuMessage),
     LinkMode(LinkModeMessage),
-    /// Toggle inline preview for a link chip (expand / collapse).
+    /// Toggle inline preview for a reference-panel link row (expand / collapse).
     ///
     /// The `usize` is the index into the block's `links` vec.
     /// Toggling the same index collapses it; toggling a different index
-    /// replaces the previously expanded chip.
-    LinkChipToggle(BlockId, usize),
+    /// replaces the previously expanded row.
+    LinkPreviewToggle(BlockId, usize),
     /// A link inside an expanded markdown preview was clicked.
     ///
     /// Links are opened with the system-default handler (browser/file app).
@@ -286,7 +286,7 @@ impl AppState {
             | Message::Settings(message) => settings::handle(self, message),
             | Message::ContextMenu(message) => context_menu::handle(self, message),
             | Message::LinkMode(message) => link_panel::handle(self, message),
-            | Message::LinkChipToggle(block_id, index) => {
+            | Message::LinkPreviewToggle(block_id, index) => {
                 if self.ui().reference_panel.expanded_links.get(&block_id) == Some(&index) {
                     self.ui_mut().reference_panel.expanded_links.remove(&block_id);
                     self.clear_expanded_markdown_preview(&block_id);
@@ -691,7 +691,7 @@ impl AppState {
         }
     }
 
-    /// Load (or clear) parsed markdown items for a newly expanded link chip.
+    /// Load (or clear) parsed markdown items for a newly expanded reference link.
     ///
     /// For non-markdown links, this clears any stale cached markdown preview.
     ///
@@ -729,7 +729,7 @@ impl AppState {
     /// paths are passed through unchanged.
     ///
     /// Relative links are resolved against the directory of the currently
-    /// expanded markdown link chip for `block_id`.
+    /// expanded markdown reference link for `block_id`.
     ///
     /// Note: we intentionally keep unresolved relative links as-is when the
     /// source markdown path cannot be derived; this preserves current behavior
@@ -934,7 +934,7 @@ impl AppState {
         };
 
         self.store.set_block_panel_state(&block_id, None);
-        if panel_state == BlockPanelBarState::Friends {
+        if panel_state == BlockPanelBarState::References {
             self.ui_mut().reference_panel.hovered_friend_block = None;
         }
         self.persist_with_context("after closing focused block panel");

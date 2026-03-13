@@ -649,14 +649,14 @@ mod tests {
         let (mut state, root) = test_state();
         state.set_focus(root);
         state.ui_mut().document_mode = DocumentMode::PickFriend;
-        state.store.set_block_panel_state(&root, Some(BlockPanelBarState::Friends));
+        state.store.set_block_panel_state(&root, Some(BlockPanelBarState::References));
 
         let _ = AppState::update(&mut state, Message::Find(FindMessage::Escape));
 
         assert_eq!(state.ui().document_mode, DocumentMode::Normal);
         assert_eq!(
             state.store.block_panel_state(&root).copied(),
-            Some(BlockPanelBarState::Friends)
+            Some(BlockPanelBarState::References)
         );
     }
 }

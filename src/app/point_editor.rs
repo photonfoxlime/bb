@@ -1,27 +1,17 @@
 //! Point editor widget for individual block rows.
 //!
-//! Renders the editable content of a single block point. A point always has
-//! a text editor, optionally preceded by a row of link chips (one per entry
-//! in the block's `links` vec).
+//! Renders the editable content of a single block point.
 //!
 //! Three rendering modes:
 //! - `is_plain_text`: renders a static text container (friend-picker / multiselect).
-//! - standard: renders link chips (if any) above an interactive `text_editor`.
-//!
-//! # Link chip layout
-//!
-//! Link chips are rendered in a wrapping column above the text editor.
-//! Each chip shows a kind icon and the link's display text. An inline
-//! preview (image or markdown content) appears below the chip when expanded.
-//! An × button on each chip removes that link from the block's point.
+//! - standard: renders an interactive `text_editor`.
 //!
 //! The component is generic over the application `Message` type. All
 //! message construction is delegated to the caller via `fn` pointer
 //! fields so the component carries no dependency on application-level
 //! message enums.
 //!
-//! App-specific: couples to store types (BlockId, PointLink, LinkKind)
-//! and the block document domain.
+//! App-specific: couples to `BlockId` and the block document domain.
 //!
 //! # Key-binding layer
 //!
@@ -43,13 +33,12 @@
 
 use super::action_bar::{ActionId, shortcut_to_action};
 use super::{ContextMenuMessage, EditMessage, Message, ShortcutMessage};
-use crate::component::point_link_list::PointLinkList;
-use crate::store::{BlockId, PointLink};
+use crate::store::BlockId;
 use crate::theme;
 use iced::{
     Element, Fill, Length, Point,
     keyboard::{Key, key::Named},
-    widget::{self, column, container, markdown, mouse_area, text, text_editor},
+    widget::{self, container, mouse_area, text, text_editor},
 };
 use rust_i18n::t;
 
@@ -67,32 +56,15 @@ pub enum WordCursorDirection {
 ///
 /// Two visual modes (selected by inspecting `is_plain_text`):
 /// - `is_plain_text`: renders a static text container.
-/// - standard: renders link chips (if any) above the interactive text editor.
+/// - standard: renders the interactive text editor.
 pub struct PointTextEditor<'a, Message> {
     pub block_id: BlockId,
     pub is_plain_text: bool,
     pub point_text: String,
-    /// Links attached to this block's point, rendered as chips above the editor.
-    pub links: &'a [PointLink],
     pub editor_content: Option<&'a text_editor::Content>,
     pub widget_id: Option<&'a widget::Id>,
     pub cursor_position: Point,
-    pub is_dark_mode: bool,
-    /// Which link chip index is currently expanded (showing inline preview), if any.
-    pub expanded_link_index: Option<usize>,
-    /// Parsed markdown items for the currently expanded markdown link preview.
-    ///
-    /// Note: this is optional because expanded chips can also be image/path.
-    pub expanded_markdown_preview: Option<&'a [markdown::Item]>,
     pub placeholder: String,
-    /// Message to emit when a link chip is pressed (toggle expand).
-    ///
-    /// Arguments: `(block_id, link_index)`.
-    pub on_link_chip_toggle: fn(BlockId, usize) -> Message,
-    /// Message to emit when the × button on a chip is pressed.
-    ///
-    /// Arguments: `(block_id, link_index)`.
-    pub on_remove_link: fn(BlockId, usize) -> Message,
     /// Message to emit on a right-click anywhere in the editor.
     pub on_context_menu: fn(BlockId, Point) -> Message,
     /// Message wrapping a raw `text_editor::Action`.
@@ -102,8 +74,6 @@ pub struct PointTextEditor<'a, Message> {
     /// Called first in the key-binding pipeline; return `Some(msg)` to
     /// intercept the key press, `None` to fall through.
     pub on_shortcut_key: fn(BlockId, &text_editor::KeyPress) -> Option<Message>,
-    /// Message to emit when a link inside markdown preview is clicked.
-    pub on_markdown_preview_link: fn(BlockId, String) -> Message,
 }
 
 impl<'a, Message: Clone + 'static + 'a> PointTextEditor<'a, Message> {
@@ -113,21 +83,14 @@ impl<'a, Message: Clone + 'static + 'a> PointTextEditor<'a, Message> {
             block_id,
             is_plain_text,
             point_text,
-            links,
             editor_content,
             widget_id,
             cursor_position,
-            is_dark_mode,
-            expanded_link_index,
-            expanded_markdown_preview,
             placeholder,
-            on_link_chip_toggle,
-            on_remove_link,
             on_context_menu,
             on_edit_action,
             on_word_move,
             on_shortcut_key,
-            on_markdown_preview_link,
         } = self;
 
         if is_plain_text {
@@ -135,21 +98,6 @@ impl<'a, Message: Clone + 'static + 'a> PointTextEditor<'a, Message> {
             // the block wrapper can capture clicks.
             return container(text(point_text)).width(Fill).height(Length::Shrink).into();
         }
-
-        let mut outer_col = column![].width(Fill);
-        outer_col = outer_col.push(
-            PointLinkList {
-                block_id,
-                links,
-                expanded_link_index,
-                expanded_markdown_preview,
-                is_dark_mode,
-                on_link_chip_toggle,
-                on_remove_link,
-                on_markdown_preview_link,
-            }
-            .view(),
-        );
 
         // Text editor — always rendered.
         // Safety: editor_content is always Some for non-plain-text blocks.
@@ -168,7 +116,7 @@ impl<'a, Message: Clone + 'static + 'a> PointTextEditor<'a, Message> {
         let editor_el =
             mouse_area(editor).on_right_press(on_context_menu(block_id, cursor_position));
 
-        outer_col.push(editor_el).into()
+        editor_el.into()
     }
 }
 
@@ -234,27 +182,18 @@ pub fn word_cursor_direction_for_key_press(
 /// Delegates to [`PointTextEditor`] with application-specific message
 /// constructors and keyboard shortcut handling.
 pub(super) fn view<'a>(
-    block_id: BlockId, is_plain_text: bool, point_text: String, links: &'a [PointLink],
+    block_id: BlockId, is_plain_text: bool, point_text: String,
     editor_content: Option<&'a text_editor::Content>, widget_id: Option<&'a widget::Id>,
-    cursor_position: Point, is_dark_mode: bool, expanded_link_index: Option<usize>,
-    expanded_markdown_preview: Option<&'a [markdown::Item]>,
+    cursor_position: Point,
 ) -> Element<'a, Message> {
     PointTextEditor {
         block_id,
         is_plain_text,
         point_text,
-        links,
         editor_content,
         widget_id,
         cursor_position,
-        is_dark_mode,
-        expanded_link_index,
-        expanded_markdown_preview,
         placeholder: t!("doc_placeholder_point").to_string(),
-        on_link_chip_toggle: |bid, idx| Message::LinkChipToggle(bid, idx),
-        on_remove_link: |bid, idx| {
-            Message::Edit(EditMessage::RemoveLink { block_id: bid, index: idx })
-        },
         on_context_menu: |bid, position| {
             Message::ContextMenu(ContextMenuMessage::Show { block_id: bid, position })
         },
@@ -265,7 +204,6 @@ pub(super) fn view<'a>(
             Message::Edit(EditMessage::MoveCursorByWord { block_id: bid, direction })
         },
         on_shortcut_key: shortcut_key,
-        on_markdown_preview_link: |bid, uri| Message::MarkdownPreviewLinkClicked(bid, uri),
     }
     .view()
 }

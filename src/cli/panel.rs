@@ -9,8 +9,8 @@ use clap::Parser;
 pub enum PanelCommands {
     /// Set the block panel state for a block.
     ///
-    /// Persists which panel (Friends or Instruction) is open for a block.
-    /// Example: `bb panel set 1v1 friends`.
+    /// Persists which panel (References or Instruction) is open for a block.
+    /// Example: `bb panel set 1v1 references`.
     Set(SetPanelCommand),
 
     /// Get the block panel state for a block.
@@ -31,7 +31,7 @@ pub struct SetPanelCommand {
 
     /// Panel to show.
     ///
-    /// Use `friends` to show the friends panel or `instruction` to show the
+    /// Use `references` to show the references panel or `instruction` to show the
     /// instruction editor.
     #[arg(value_name = "PANEL")]
     pub panel: BlockPanelBarStateCli,
@@ -83,7 +83,7 @@ fn execute_get(store: BlockStore, cmd: &GetPanelCommand) -> (BlockStore, CliResu
         | None => (store, CliResult::Error("Unknown block ID".to_string())),
         | Some(block_id) => {
             let state = store.block_panel_state(&block_id).map(|s| match s {
-                | BlockPanelBarState::Friends => "friends",
+                | BlockPanelBarState::References => "references",
                 | BlockPanelBarState::Instruction => "instruction",
             });
             (store, CliResult::BlockPanelState(state.map(String::from)))

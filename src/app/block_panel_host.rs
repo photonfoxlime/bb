@@ -1,6 +1,6 @@
 //! Inline panel host for focused block-local panels.
 //!
-//! This module owns the chrome around block-local panels such as Friends and
+//! This module owns the chrome around block-local panels such as References and
 //! Instruction: the toggle bar that appears below the block row and the active
 //! panel body shown beneath it.
 //!
@@ -50,9 +50,9 @@ impl<'a> BlockPanelHost<'a> {
             return column![].into();
         }
 
-        let friends_panel_open = matches!(
+        let references_panel_open = matches!(
             self.state.store.block_panel_state(&self.block_id),
-            Some(BlockPanelBarState::Friends)
+            Some(BlockPanelBarState::References)
         );
         let instruction_panel_open = matches!(
             self.state.store.block_panel_state(&self.block_id),
@@ -63,9 +63,9 @@ impl<'a> BlockPanelHost<'a> {
             .spacing(theme::PANEL_BUTTON_GAP)
             .push(
                 TextButton::panel_toggle(
-                    t!("ui_friends").to_string(),
+                    t!("ui_references").to_string(),
                     theme::LABEL_TEXT_SIZE,
-                    friends_panel_open,
+                    references_panel_open,
                 )
                 .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
                 .on_press(Message::ReferencePanel(ReferencePanelMessage::Toggle(self.block_id))),
@@ -96,7 +96,7 @@ impl<'a> BlockPanelHost<'a> {
         }
 
         match self.state.store.block_panel_state(&self.block_id) {
-            | Some(BlockPanelBarState::Friends) => {
+            | Some(BlockPanelBarState::References) => {
                 container(reference_panel::view(self.state, self.block_id))
                     .width(Length::Fill)
                     .into()

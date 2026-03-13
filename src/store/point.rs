@@ -7,8 +7,8 @@
 //!
 //! [`PointContent`] is a struct with two fields:
 //! - `text` — the editable plain text of the block.
-//! - `links` — a `Vec<PointLink>` rendered as chips floating above the text
-//!   editor. Empty by default.
+//! - `links` — a `Vec<PointLink>` rendered in the reference panel. Empty by
+//!   default.
 //!
 //! # Serde contract
 //!
@@ -37,7 +37,7 @@ use std::path::Path;
 ///
 /// Inferred from the href's file extension by [`PointLink::infer`].
 /// The kind drives UI rendering (image preview, markdown preview, or
-/// generic clickable chip).
+/// generic clickable link).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LinkKind {
@@ -140,8 +140,8 @@ impl PointLink {
 
 /// The content of a block's point: always editable text plus zero or more links.
 ///
-/// Links are rendered as chips floating above the text editor. The text field
-/// is always independently editable regardless of link count.
+/// Links are rendered in the reference panel. The text field is always
+/// independently editable regardless of link count.
 ///
 /// # Invariants
 ///

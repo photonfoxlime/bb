@@ -90,7 +90,7 @@ use crate::{
     component::error_banner_view::{ErrorBannerContent, ErrorBannerEntry, ErrorBannerView},
     component::icon_button::IconButton,
     component::status_chip::StatusChip,
-    store::{BlockId, BlockPanelBarState},
+    store::BlockId,
     text::truncate_for_display,
     theme,
 };
@@ -530,7 +530,7 @@ impl<'a> TreeView<'a> {
         let is_target_block =
             is_pick_friend_mode && self.state.focus().is_some_and(|s| s.block_id != *block_id);
 
-        // Check if this block should be highlighted due to friend panel hover
+        // Check if this block should be highlighted due to reference panel hover.
         let is_hovered_friend =
             self.state.ui().reference_panel.hovered_friend_block.is_some_and(|hovered_id| {
                 hovered_id == *block_id
@@ -538,27 +538,13 @@ impl<'a> TreeView<'a> {
                     && self.state.navigation.is_in_current_view(&self.state.store, block_id)
             });
 
-        let links =
-            self.state.store.point_content(block_id).map(|pc| pc.links.as_slice()).unwrap_or(&[]);
-        let reference_panel_open = is_focused
-            && matches!(
-                self.state.store.block_panel_state(block_id),
-                Some(BlockPanelBarState::Friends)
-            );
-        let expanded_link_index =
-            self.state.ui().reference_panel.expanded_links.get(block_id).copied();
-        let expanded_markdown_preview = self.state.expanded_markdown_preview(block_id);
         let point_editor = point_editor::view(
             block_id_for_edit,
             is_target_block || is_multiselect_mode,
             self.state.store.point(block_id).unwrap_or_default(),
-            if reference_panel_open { &[] } else { links },
             editor_content,
             self.state.editor_buffers.widget_id(block_id),
             self.state.ui().cursor_position.unwrap_or(Point::ORIGIN),
-            self.state.is_dark_mode(),
-            expanded_link_index,
-            expanded_markdown_preview,
         );
 
         let row_content = row![]
@@ -685,7 +671,7 @@ impl<'a> TreeView<'a> {
                     | DocumentMode::Archive,
                     _,
                 ) if is_hovered_friend => {
-                    // Highlight block when friend panel hovers over it
+                    // Highlight block when the reference panel hovers over it
                     container(block).style(theme::friend_picker_hover).into()
                 }
                 | (

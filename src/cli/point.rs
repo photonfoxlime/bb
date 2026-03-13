@@ -1,7 +1,7 @@
 //! Point editing commands.
 //!
 //! This module provides CLI commands for modifying the text content (point) of blocks.
-//! Supports appending link chips via the `--link` flag.
+//! Supports appending reference links via the `--link` flag.
 
 use super::{
     BlockId, execute,

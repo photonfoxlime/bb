@@ -5,7 +5,6 @@ pub mod context_menu_button;
 pub mod floating_panel;
 pub mod error_banner_view;
 pub mod icon_button;
-pub mod point_link_list;
 pub mod reference_list_row;
 pub mod reference_perspective;
 pub mod reference_row;

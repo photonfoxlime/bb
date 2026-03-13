@@ -88,22 +88,22 @@ pub fn handle(state: &mut AppState, msg: ReferencePanelMessage) -> Task<Message>
             let current_state = state.store.block_panel_state(&block_id).copied();
             if state.focus().is_some_and(|s| s.block_id == block_id) {
                 match current_state {
-                    | Some(BlockPanelBarState::Friends) => {
+                    | Some(BlockPanelBarState::References) => {
                         state.store.set_block_panel_state(&block_id, None);
-                        // Clear hover state when closing the friends panel
+                        // Clear hover state when closing the references panel.
                         state.ui_mut().reference_panel.hovered_friend_block = None;
                         state.ui_mut().reference_panel.editing_perspective = None;
                     }
                     | _ => {
                         state
                             .store
-                            .set_block_panel_state(&block_id, Some(BlockPanelBarState::Friends));
+                            .set_block_panel_state(&block_id, Some(BlockPanelBarState::References));
                     }
                 }
             } else {
-                state.store.set_block_panel_state(&block_id, Some(BlockPanelBarState::Friends));
+                state.store.set_block_panel_state(&block_id, Some(BlockPanelBarState::References));
             }
-            state.persist_with_context("after toggling friends panel");
+            state.persist_with_context("after toggling references panel");
             Task::none()
         }
         | ReferencePanelMessage::StartFriendPicker(_block_id) => {
@@ -276,7 +276,7 @@ pub fn handle(state: &mut AppState, msg: ReferencePanelMessage) -> Task<Message>
 pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Message> {
     let is_picker_mode = matches!(
         state.store.block_panel_state(&target_block_id),
-        Some(BlockPanelBarState::Friends)
+        Some(BlockPanelBarState::References)
     );
 
     let links = state
@@ -429,7 +429,7 @@ fn view_link_row<'a>(
                     .font(theme::INTER)
                     .size(theme::FRIEND_POINT_SIZE),
             ),
-        Message::LinkChipToggle(target_block_id, index),
+        Message::LinkPreviewToggle(target_block_id, index),
     );
 
     let is_editing_this = matches!(

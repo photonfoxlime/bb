@@ -268,13 +268,13 @@ pub const INSTRUCTION_EDITOR_HEIGHT: f32 = 80.0;
 /// Timeout for LLM requests in instruction panel.
 pub const INSTRUCTION_LLM_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Point text truncation length in friends panel.
+/// Point text truncation length in the references panel.
 pub const FRIEND_POINT_TRUNCATE: usize = 30;
-/// Gap between point text and "as" label in friends panel.
+/// Gap between point text and "as" label in the references panel.
 pub const FRIEND_AS_GAP: f32 = 6.0;
-/// Font size for friend point text in friends panel.
+/// Font size for friend point text in the references panel.
 pub const FRIEND_POINT_SIZE: f32 = 12.0;
-/// Font size for friend perspective text in friends panel.
+/// Font size for friend perspective text in the references panel.
 pub const FRIEND_PERSPECTIVE_SIZE: f32 = 12.0;
 /// Height for friend perspective buttons and input.
 pub const FRIEND_PERSPECTIVE_HEIGHT: f32 = 16.0;
@@ -282,13 +282,13 @@ pub const FRIEND_PERSPECTIVE_HEIGHT: f32 = 16.0;
 pub const FRIEND_PERSPECTIVE_BUTTON_PAD: f32 = 2.0;
 /// Icon size for perspective accept/cancel buttons.
 pub const FRIEND_PERSPECTIVE_ICON_SIZE: f32 = 10.0;
-/// Spacing inside friend row in friends panel.
+/// Spacing inside a row in the references panel.
 pub const FRIEND_ROW_GAP: f32 = 4.0;
 /// Font size for friend visibility toggle icons.
 pub const FRIEND_TOGGLE_ICON_SIZE: f32 = 10.0;
 /// Font size for friend visibility toggle buttons.
 pub const FRIEND_TOGGLE_SIZE: f32 = 14.0;
-/// Gap between visibility toggles in friends panel.
+/// Gap between visibility toggles in the references panel.
 pub const FRIEND_TOGGLE_GAP: f32 = 8.0;
 
 /// Font size for find panel title text.
@@ -364,30 +364,16 @@ pub const CONTEXT_MENU_ICON_SIZE: f32 = 14.0;
 /// Horizontal padding for context menu button content.
 pub const CONTEXT_MENU_BUTTON_PAD_H: f32 = 8.0;
 
-// ── Link chip ──────────────────────────────────────────────────────
+// ── Reference Link ─────────────────────────────────────────────────
 
-/// Icon size inside the link chip.
+/// Icon size inside a reference-link summary.
 pub const LINK_CHIP_ICON_SIZE: f32 = 14.0;
-/// Text size inside the link chip.
-pub const LINK_CHIP_TEXT_SIZE: f32 = 13.0;
-/// Gap between icon and text in the link chip.
-pub const LINK_CHIP_ICON_GAP: f32 = 6.0;
-/// Inner padding of the link chip button.
+/// Inner padding of the markdown preview container for a reference link.
 pub const LINK_CHIP_PAD: f32 = 4.0;
-/// Border radius for the link chip button.
-pub const LINK_CHIP_BORDER_RADIUS: f32 = 4.0;
-/// Background opacity for the link chip in its default state.
-pub const LINK_CHIP_BG_OPACITY: f32 = 0.06;
-/// Link chip background opacity multiplier on hover.
-pub const LINK_CHIP_BG_HOVER_MULT: f32 = 2.0;
-/// Link chip background opacity multiplier when pressed.
-pub const LINK_CHIP_BG_PRESSED_MULT: f32 = 3.0;
-/// Link chip background opacity multiplier when disabled.
-pub const LINK_CHIP_BG_DISABLED_MULT: f32 = 0.5;
-/// Base text size used by inline markdown previews under expanded link chips.
+/// Base text size used by inline markdown previews under expanded reference links.
 pub const LINK_MARKDOWN_PREVIEW_TEXT_SIZE: f32 = 13.0;
 
-/// Build markdown renderer settings for inline link-chip previews.
+/// Build markdown renderer settings for inline reference-link previews.
 ///
 /// Note: previews follow app typography (`DEFAULT_FONT`) instead of the
 /// markdown widget defaults so mixed-script documents keep a consistent look.
@@ -878,23 +864,5 @@ pub fn context_menu_button(theme: &Theme, status: button::Status) -> button::Sty
             snap: false,
             ..Default::default()
         },
-    }
-}
-
-/// Button style for the link chip in block point rendering.
-pub fn link_chip_button(theme: &Theme, status: button::Status) -> button::Style {
-    let p = focused_palette(theme);
-    let bg_alpha = match status {
-        | button::Status::Active => LINK_CHIP_BG_OPACITY,
-        | button::Status::Hovered => LINK_CHIP_BG_OPACITY * LINK_CHIP_BG_HOVER_MULT,
-        | button::Status::Pressed => LINK_CHIP_BG_OPACITY * LINK_CHIP_BG_PRESSED_MULT,
-        | button::Status::Disabled => LINK_CHIP_BG_OPACITY * LINK_CHIP_BG_DISABLED_MULT,
-    };
-    button::Style {
-        background: Some(Color { a: bg_alpha, ..p.accent }.into()),
-        text_color: p.accent,
-        border: border::rounded(LINK_CHIP_BORDER_RADIUS).width(0),
-        snap: false,
-        ..Default::default()
     }
 }

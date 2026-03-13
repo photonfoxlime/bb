@@ -6,7 +6,7 @@
 //! panel with fuzzy filesystem search starting from `$HOME`.
 //!
 //! Confirming a directory drills into that directory (file-explorer style).
-//! Confirming a file appends a new link chip via [`PointLink::infer`]; the
+//! Confirming a file appends a new reference link via [`PointLink::infer`]; the
 //! block's text is unchanged.
 //!
 //! # User interaction flow
@@ -20,7 +20,7 @@
 //! 4. Typing narrows the candidates via filesystem-backed path completion.
 //! 5. **Confirm** (Enter or click):
 //!    - directories open in-place and refresh candidates,
-//!    - files are appended to the block's `links` vec as a new chip.
+//!    - files are appended to the block's `links` vec as a new reference link.
 //!    The text editor is unaffected.
 //! 6. **Cancel** (Escape): exits link mode with no changes.
 //! 7. **Double-`@`**: typing `@` as the first character in the search input
@@ -37,7 +37,7 @@
 //!   simplifies display and image loading but makes documents non-portable.
 //!   May be revisited with relative-path support later.
 //! - **No validation**: broken links are not detected or flagged.
-//!   The chip always renders, even if the target does not exist.
+//!   The reference row always renders, even if the target does not exist.
 
 use std::path::{Path, PathBuf};
 
@@ -251,7 +251,7 @@ fn append_file_link(state: &mut AppState, block_id: crate::store::BlockId, path:
     state.store.add_link_to_point(&block_id, link);
     state.persist_with_context("add link");
     tracing::info!(block_id = ?block_id, path = %path.display(), "link panel added file link");
-    // Editor buffer is kept: the text editor is always present alongside link chips.
+    // Editor buffer is kept: the text editor is always present alongside reference links.
     exit_link_mode(state);
 }
 

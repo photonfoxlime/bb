@@ -128,7 +128,7 @@ impl ReferencePerspectiveEditState {
 
 /// Transient UI state owned by friend and link reference surfaces.
 ///
-/// The Friends panel and the link-input panel are converging toward a shared
+/// The References panel and the link-input panel are converging toward a shared
 /// inline reference workflow, so their hover/edit/search/preview state lives in
 /// one subtree instead of being scattered across [`TransientUiState`].
 ///
@@ -136,11 +136,11 @@ impl ReferencePerspectiveEditState {
 /// only and have no durable document meaning.
 #[derive(Debug, Clone, Default)]
 pub struct ReferencePanelUiState {
-    /// The friend block currently being hovered in the Friends panel.
+    /// The friend block currently being hovered in the References panel.
     ///
     /// When `Some`, the corresponding block in the document tree is highlighted
     /// to help users identify the friend's location. The highlight is cleared
-    /// when hover exits or the friend panel is closed.
+    /// when hover exits or the references panel is closed.
     ///
     /// # Visibility Constraint
     ///
@@ -153,10 +153,10 @@ pub struct ReferencePanelUiState {
     pub editing_perspective: Option<ReferencePerspectiveEditState>,
     /// State for the link-input panel (filesystem search).
     pub link_panel: LinkPanelState,
-    /// Per-block expanded link chip index (showing inline preview).
+    /// Per-block expanded reference-link index (showing inline preview).
     ///
-    /// Maps a block id to the index of its currently expanded link chip.
-    /// At most one chip per block can be expanded at a time.
+    /// Maps a block id to the index of its currently expanded link row.
+    /// At most one link row per block can be expanded at a time.
     /// Transient: not persisted, reset on restart.
     pub expanded_links: BTreeMap<BlockId, usize>,
 }

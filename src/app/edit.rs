@@ -58,7 +58,7 @@ pub enum EditMessage {
     },
     /// Remove the link at `index` from a block's point.
     ///
-    /// Emitted by the × button on a link chip.
+    /// Emitted by the remove action in a reference-panel link row.
     RemoveLink {
         block_id: BlockId,
         index: usize,
@@ -98,7 +98,7 @@ pub fn handle(state: &mut AppState, message: EditMessage) -> Task<Message> {
         }
         | EditMessage::RemoveLink { block_id, index } => {
             state.store.remove_link_from_point(&block_id, index);
-            // Collapse any expanded chip for this block whose index is now stale.
+            // Collapse any expanded link row for this block whose index is now stale.
             state.ui_mut().reference_panel.expanded_links.remove(&block_id);
             if matches!(
                 state.ui().reference_panel.editing_perspective,
