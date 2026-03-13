@@ -3,8 +3,10 @@
 //! Renders a bottom-right overlay listing all supported shortcuts and editing
 //! gestures. Uses theme constants for layout; all user-facing text is i18n.
 //!
-//! App-specific: content reflects this application's shortcut inventory.
+//! The banner is a pure view over [`super::shortcut::ShortcutCatalog`], which
+//! keeps the shortcut inventory typed and close to the runtime routing code.
 
+use super::shortcut::ShortcutCatalog;
 use crate::theme;
 use iced::{
     Element, Length,
@@ -34,113 +36,41 @@ impl ShortcutHelpBanner {
         .align_y(iced::Alignment::Center)
         .width(Length::Fill);
 
-        let global_section = column![
-            text(t!("shortcut_help_section_global").to_string())
-                .font(theme::INTER)
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_global_find").to_string()).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_global_find_next").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_global_find_previous").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_global_undo").to_string()).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_global_redo").to_string()).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_global_escape").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-        ]
-        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
-
-        let structure_section = column![
-            text(t!("shortcut_help_section_structure").to_string())
-                .font(theme::INTER)
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_amplify").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_distill").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_atomize").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_add_child").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_add_sibling").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_structure_accept_all").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-        ]
-        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
-
-        #[cfg(target_os = "macos")]
-        let movement_word_cursor = t!("shortcut_help_movement_word_cursor_macos").to_string();
-        #[cfg(not(target_os = "macos"))]
-        let movement_word_cursor = t!("shortcut_help_movement_word_cursor").to_string();
-        #[cfg(target_os = "macos")]
-        let movement_focus = t!("shortcut_help_movement_focus_macos").to_string();
-        #[cfg(not(target_os = "macos"))]
-        let movement_focus = t!("shortcut_help_movement_focus").to_string();
-        #[cfg(target_os = "macos")]
-        let movement_reorder = t!("shortcut_help_movement_reorder_macos").to_string();
-        #[cfg(not(target_os = "macos"))]
-        let movement_reorder = t!("shortcut_help_movement_reorder").to_string();
-        #[cfg(target_os = "macos")]
-        let movement_outdent = t!("shortcut_help_movement_outdent_macos").to_string();
-        #[cfg(not(target_os = "macos"))]
-        let movement_outdent = t!("shortcut_help_movement_outdent").to_string();
-        #[cfg(target_os = "macos")]
-        let movement_indent = t!("shortcut_help_movement_indent_macos").to_string();
-        #[cfg(not(target_os = "macos"))]
-        let movement_indent = t!("shortcut_help_movement_indent").to_string();
-
-        let movement_section = column![
-            text(t!("shortcut_help_section_movement").to_string())
-                .font(theme::INTER)
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(movement_word_cursor).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(movement_focus).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(movement_reorder).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(movement_outdent).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(movement_indent).size(theme::SHORTCUT_HELP_TEXT_SIZE),
-        ]
-        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
-
-        let backspace_section = column![
-            text(t!("shortcut_help_section_backspace").to_string())
-                .font(theme::INTER)
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_backspace_enter_multiselect").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_backspace_delete_multiselect").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-        ]
-        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
-
-        let multiselect_section = column![
-            text(t!("shortcut_help_section_multiselect").to_string())
-                .font(theme::INTER)
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_multiselect_click").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_multiselect_shift_click").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-            text(t!("shortcut_help_multiselect_cmd_click").to_string())
-                .size(theme::SHORTCUT_HELP_TEXT_SIZE),
-        ]
-        .spacing(theme::SHORTCUT_HELP_ROW_GAP);
-
-        container(
-            column![
-                title,
-                rule::horizontal(theme::RULE_WIDTH),
-                global_section,
-                structure_section,
-                movement_section,
-                backspace_section,
-                multiselect_section,
+        let mut sections = column![title, rule::horizontal(theme::RULE_WIDTH)]
+            .spacing(theme::SHORTCUT_HELP_SECTION_GAP);
+        for section in ShortcutCatalog::banner_view_model() {
+            let mut section_content = column![
+                text(section.title).font(theme::INTER).size(theme::SHORTCUT_HELP_TEXT_SIZE)
             ]
-            .spacing(theme::SHORTCUT_HELP_SECTION_GAP),
-        )
-        .style(theme::shortcut_help_banner)
-        .max_width(theme::SHORTCUT_HELP_MAX_WIDTH)
-        .padding(theme::BANNER_PAD)
-        .into()
+            .spacing(theme::SHORTCUT_HELP_ROW_GAP);
+
+            for row_vm in section.rows {
+                section_content = section_content.push(
+                    row![
+                        container(
+                            text(row_vm.chord)
+                                .font(theme::INTER)
+                                .size(theme::SHORTCUT_HELP_TEXT_SIZE)
+                        )
+                        .width(Length::Fixed(theme::SHORTCUT_HELP_CHORD_WIDTH))
+                        .align_x(iced::alignment::Horizontal::Right),
+                        text(row_vm.description)
+                            .size(theme::SHORTCUT_HELP_TEXT_SIZE)
+                            .width(Length::Fill),
+                    ]
+                    .spacing(theme::SHORTCUT_HELP_COLUMN_GAP)
+                    .align_y(iced::Alignment::Start)
+                    .width(Length::Fill),
+                );
+            }
+
+            sections = sections.push(section_content);
+        }
+
+        container(sections)
+            .style(theme::shortcut_help_banner)
+            .max_width(theme::SHORTCUT_HELP_MAX_WIDTH)
+            .padding(theme::BANNER_PAD)
+            .into()
     }
 }

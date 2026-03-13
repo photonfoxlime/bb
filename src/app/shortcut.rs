@@ -1,5 +1,12 @@
+//! Keyboard shortcut dispatch and shortcut-help banner metadata.
+//!
+//! This module keeps runtime shortcut routing and the banner inventory close to
+//! each other so future refactors can converge on one source of truth without
+//! scattering shortcut semantics across unrelated UI modules.
+
 use super::*;
 use crate::store::Direction;
+use rust_i18n::t;
 
 /// Keyboard shortcuts for block focus navigation and structural movement.
 ///
@@ -38,6 +45,358 @@ pub enum ShortcutMessage {
     Trigger(ActionId),
     ForBlock { block_id: BlockId, action_id: ActionId },
     Movement(MovementShortcut),
+}
+
+/// Banner section grouping for the keyboard-shortcuts help surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ShortcutSection {
+    /// Global shortcuts that work outside one focused row action set.
+    Global,
+    /// Structure-changing shortcuts backed by [`ActionId`] values.
+    Structure,
+    /// Tree navigation and structural movement shortcuts.
+    Movement,
+    /// Backspace-driven mode transitions and destructive behavior.
+    BackspaceBehavior,
+    /// Click gestures available while multiselect mode is active.
+    Multiselect,
+}
+
+impl ShortcutSection {
+    /// Return the i18n key for this section title.
+    fn title_key(self) -> &'static str {
+        match self {
+            | Self::Global => "shortcut_help_section_global",
+            | Self::Structure => "shortcut_help_section_structure",
+            | Self::Movement => "shortcut_help_section_movement",
+            | Self::BackspaceBehavior => "shortcut_help_section_backspace",
+            | Self::Multiselect => "shortcut_help_section_multiselect",
+        }
+    }
+}
+
+/// Stable identifier for one banner row in the keyboard-shortcuts help surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ShortcutId {
+    /// Toggle the global find overlay.
+    GlobalToggleFind,
+    /// Jump to the next global find result.
+    GlobalFindNext,
+    /// Jump to the previous global find result.
+    GlobalFindPrevious,
+    /// Undo the most recent document mutation.
+    GlobalUndo,
+    /// Redo the most recently undone document mutation.
+    GlobalRedo,
+    /// Close the active overlay, settings screen, or block panel.
+    GlobalEscape,
+    /// Structure shortcut backed by an existing action identifier.
+    ///
+    /// Note: structure rows reuse [`ActionId`] so later dispatch unification can
+    /// point banner metadata at the same semantic action identity.
+    Action(ActionId),
+    /// Move the caret by word inside focused text editors.
+    MovementWordCursor,
+    /// Move focus to a related block without changing structure.
+    MovementFocus,
+    /// Reorder the focused block among its siblings.
+    MovementReorder,
+    /// Move the focused block after its parent.
+    MovementOutdent,
+    /// Move the focused block into the previous sibling as its first child.
+    MovementIndent,
+    /// Enter multiselect mode by backspacing on an empty point.
+    BackspaceEnterMultiselect,
+    /// Delete the current multiselect selection with backspace.
+    BackspaceDeleteMultiselect,
+    /// Select one block while multiselect mode is active.
+    MultiselectClick,
+    /// Select a contiguous multiselect range.
+    MultiselectRangeSelect,
+    /// Toggle one block in the multiselect set.
+    MultiselectToggle,
+}
+
+/// Platform-aware display formatting for one shortcut chord.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ShortcutChord {
+    /// Render the provided label exactly as-is.
+    Literal(&'static str),
+    /// Render a shared `Cmd/Ctrl + …` label.
+    ///
+    /// Note: this is intentionally banner-oriented formatting. Runtime dispatch
+    /// still owns the actual modifier parsing rules in this change.
+    CommandOrCtrl(&'static str),
+    /// Render one label on macOS and another elsewhere.
+    Platform {
+        /// Chord label shown on macOS builds.
+        macos: &'static str,
+        /// Chord label shown on non-macOS builds.
+        other: &'static str,
+    },
+}
+
+impl ShortcutChord {
+    /// Format this chord for the current target platform.
+    pub(crate) fn format(self) -> String {
+        match self {
+            | Self::Literal(label) => label.to_string(),
+            | Self::CommandOrCtrl(key) => format!("Cmd/Ctrl + {key}"),
+            | Self::Platform { macos, other } => {
+                #[cfg(target_os = "macos")]
+                {
+                    let _ = other;
+                    macos.to_string()
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    let _ = macos;
+                    other.to_string()
+                }
+            }
+        }
+    }
+}
+
+/// One banner row specification in the shortcut-help registry.
+///
+/// The spec keeps only stable identity, grouping, and display metadata.
+/// Runtime dispatch continues to live in the existing key-routing code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct ShortcutSpec {
+    /// Stable row identifier used by tests and future dispatch convergence.
+    pub id: ShortcutId,
+    /// Section that should contain this row.
+    pub section: ShortcutSection,
+    /// Chord formatting descriptor for the row's left column.
+    pub chord: ShortcutChord,
+    /// I18n key for the row description shown in the right column.
+    pub description_key: &'static str,
+}
+
+/// Fully formatted banner row ready for rendering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ShortcutRowVm {
+    /// Stable identity preserved from the source spec.
+    pub id: ShortcutId,
+    /// Rendered chord label for the left column.
+    pub chord: String,
+    /// Localized description for the right column.
+    pub description: String,
+}
+
+/// Fully formatted banner section ready for rendering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ShortcutSectionVm {
+    /// Stable section identity preserved from the source spec.
+    pub section: ShortcutSection,
+    /// Localized section title.
+    pub title: String,
+    /// Ordered rows for this section.
+    pub rows: Vec<ShortcutRowVm>,
+}
+
+/// Namespace for the banner-first shortcut metadata registry.
+///
+/// `ShortcutCatalog` currently exists to drive the shortcut-help banner only.
+/// `movement_shortcut_from_key()` and the global key handlers remain the
+/// runtime source of truth for actual dispatch.
+///
+/// Note: keeping the catalog in this module makes the next convergence step
+/// mechanical instead of architectural.
+pub(crate) struct ShortcutCatalog;
+
+impl ShortcutCatalog {
+    /// Ordered section list for the shortcut-help banner.
+    pub(crate) fn banner_sections() -> &'static [ShortcutSection] {
+        const SECTIONS: &[ShortcutSection] = &[
+            ShortcutSection::Global,
+            ShortcutSection::Structure,
+            ShortcutSection::Movement,
+            ShortcutSection::BackspaceBehavior,
+            ShortcutSection::Multiselect,
+        ];
+        SECTIONS
+    }
+
+    /// Ordered row specifications for the shortcut-help banner.
+    pub(crate) fn banner_specs() -> &'static [ShortcutSpec] {
+        const SPECS: &[ShortcutSpec] = &[
+            ShortcutSpec {
+                id: ShortcutId::GlobalToggleFind,
+                section: ShortcutSection::Global,
+                chord: ShortcutChord::Platform { macos: "Cmd + F", other: "Ctrl + F" },
+                description_key: "shortcut_help_desc_toggle_find",
+            },
+            ShortcutSpec {
+                id: ShortcutId::GlobalFindNext,
+                section: ShortcutSection::Global,
+                chord: ShortcutChord::Platform { macos: "Cmd + G", other: "Ctrl + G" },
+                description_key: "shortcut_help_desc_next_find_result",
+            },
+            ShortcutSpec {
+                id: ShortcutId::GlobalFindPrevious,
+                section: ShortcutSection::Global,
+                chord: ShortcutChord::Platform {
+                    macos: "Cmd + Shift + G",
+                    other: "Ctrl + Shift + G",
+                },
+                description_key: "shortcut_help_desc_previous_find_result",
+            },
+            ShortcutSpec {
+                id: ShortcutId::GlobalUndo,
+                section: ShortcutSection::Global,
+                chord: ShortcutChord::Platform { macos: "Cmd + Z", other: "Ctrl + Z" },
+                description_key: "ctx_undo",
+            },
+            ShortcutSpec {
+                id: ShortcutId::GlobalRedo,
+                section: ShortcutSection::Global,
+                chord: ShortcutChord::Platform {
+                    macos: "Cmd + Shift + Z",
+                    other: "Ctrl + Shift + Z",
+                },
+                description_key: "ctx_redo",
+            },
+            ShortcutSpec {
+                id: ShortcutId::GlobalEscape,
+                section: ShortcutSection::Global,
+                chord: ShortcutChord::Literal("Escape"),
+                description_key: "shortcut_help_desc_escape",
+            },
+            ShortcutSpec {
+                id: ShortcutId::Action(ActionId::Amplify),
+                section: ShortcutSection::Structure,
+                chord: ShortcutChord::CommandOrCtrl("."),
+                description_key: "action_amplify",
+            },
+            ShortcutSpec {
+                id: ShortcutId::Action(ActionId::Distill),
+                section: ShortcutSection::Structure,
+                chord: ShortcutChord::CommandOrCtrl(","),
+                description_key: "action_distill",
+            },
+            ShortcutSpec {
+                id: ShortcutId::Action(ActionId::Atomize),
+                section: ShortcutSection::Structure,
+                chord: ShortcutChord::CommandOrCtrl("/"),
+                description_key: "action_atomize",
+            },
+            ShortcutSpec {
+                id: ShortcutId::Action(ActionId::AddChild),
+                section: ShortcutSection::Structure,
+                chord: ShortcutChord::CommandOrCtrl("Enter"),
+                description_key: "action_add_child",
+            },
+            ShortcutSpec {
+                id: ShortcutId::Action(ActionId::AddSibling),
+                section: ShortcutSection::Structure,
+                chord: ShortcutChord::CommandOrCtrl("Shift + Enter"),
+                description_key: "action_add_sibling",
+            },
+            ShortcutSpec {
+                id: ShortcutId::Action(ActionId::AcceptAll),
+                section: ShortcutSection::Structure,
+                chord: ShortcutChord::CommandOrCtrl("Shift + A"),
+                description_key: "action_accept_all",
+            },
+            ShortcutSpec {
+                id: ShortcutId::MovementWordCursor,
+                section: ShortcutSection::Movement,
+                chord: ShortcutChord::Platform {
+                    macos: "Option + ←/→", other: "Ctrl + ←/→"
+                },
+                description_key: "shortcut_help_desc_move_cursor_by_word",
+            },
+            ShortcutSpec {
+                id: ShortcutId::MovementFocus,
+                section: ShortcutSection::Movement,
+                chord: ShortcutChord::Platform {
+                    macos: "Ctrl + ←/↑/→/↓", other: "Alt + ←/↑/→/↓"
+                },
+                description_key: "shortcut_help_desc_focus_relative_block",
+            },
+            ShortcutSpec {
+                id: ShortcutId::MovementReorder,
+                section: ShortcutSection::Movement,
+                chord: ShortcutChord::Platform {
+                    macos: "Ctrl + Shift + ↑/↓",
+                    other: "Alt + Shift + ↑/↓",
+                },
+                description_key: "shortcut_help_desc_move_block_among_siblings",
+            },
+            ShortcutSpec {
+                id: ShortcutId::MovementOutdent,
+                section: ShortcutSection::Movement,
+                chord: ShortcutChord::Platform {
+                    macos: "Ctrl + Shift + ← / Cmd + [",
+                    other: "Alt + Shift + ← / Ctrl + [",
+                },
+                description_key: "shortcut_help_desc_move_block_after_parent",
+            },
+            ShortcutSpec {
+                id: ShortcutId::MovementIndent,
+                section: ShortcutSection::Movement,
+                chord: ShortcutChord::Platform {
+                    macos: "Ctrl + Shift + → / Cmd + ]",
+                    other: "Alt + Shift + → / Ctrl + ]",
+                },
+                description_key: "shortcut_help_desc_move_to_previous_sibling_first_child",
+            },
+            ShortcutSpec {
+                id: ShortcutId::BackspaceEnterMultiselect,
+                section: ShortcutSection::BackspaceBehavior,
+                chord: ShortcutChord::Literal("Backspace"),
+                description_key: "shortcut_help_desc_backspace_enter_multiselect",
+            },
+            ShortcutSpec {
+                id: ShortcutId::BackspaceDeleteMultiselect,
+                section: ShortcutSection::BackspaceBehavior,
+                chord: ShortcutChord::Literal("Backspace"),
+                description_key: "shortcut_help_desc_backspace_delete_multiselect",
+            },
+            ShortcutSpec {
+                id: ShortcutId::MultiselectClick,
+                section: ShortcutSection::Multiselect,
+                chord: ShortcutChord::Literal("Click"),
+                description_key: "shortcut_help_desc_multiselect_click",
+            },
+            ShortcutSpec {
+                id: ShortcutId::MultiselectRangeSelect,
+                section: ShortcutSection::Multiselect,
+                chord: ShortcutChord::Literal("Shift + Click"),
+                description_key: "shortcut_help_desc_multiselect_range_select",
+            },
+            ShortcutSpec {
+                id: ShortcutId::MultiselectToggle,
+                section: ShortcutSection::Multiselect,
+                chord: ShortcutChord::CommandOrCtrl("Click"),
+                description_key: "shortcut_help_desc_multiselect_toggle",
+            },
+        ];
+        SPECS
+    }
+
+    /// Build localized banner view models for rendering.
+    pub(crate) fn banner_view_model() -> Vec<ShortcutSectionVm> {
+        Self::banner_sections()
+            .iter()
+            .copied()
+            .map(|section| ShortcutSectionVm {
+                section,
+                title: t!(section.title_key()).to_string(),
+                rows: Self::banner_specs()
+                    .iter()
+                    .filter(|spec| spec.section == section)
+                    .map(|spec| ShortcutRowVm {
+                        id: spec.id,
+                        chord: spec.chord.format(),
+                        description: t!(spec.description_key).to_string(),
+                    })
+                    .collect(),
+            })
+            .collect()
+    }
 }
 
 /// Direction for sibling traversal and reordering helpers.
@@ -491,6 +850,94 @@ fn run_shortcut_for_block(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashSet;
+
+    fn banner_section(section: ShortcutSection) -> ShortcutSectionVm {
+        ShortcutCatalog::banner_view_model()
+            .into_iter()
+            .find(|candidate| candidate.section == section)
+            .expect("banner section exists")
+    }
+
+    #[test]
+    fn banner_specs_are_grouped_in_declared_section_order() {
+        let expected_sections = ShortcutCatalog::banner_sections();
+        let mut current_section_index = 0;
+
+        for spec in ShortcutCatalog::banner_specs() {
+            while expected_sections
+                .get(current_section_index)
+                .is_some_and(|section| *section != spec.section)
+            {
+                current_section_index += 1;
+            }
+
+            assert_eq!(expected_sections.get(current_section_index), Some(&spec.section));
+        }
+    }
+
+    #[test]
+    fn banner_specs_do_not_repeat_shortcut_ids() {
+        let ids = ShortcutCatalog::banner_specs().iter().map(|spec| spec.id).collect::<Vec<_>>();
+        let unique_ids = ids.iter().copied().collect::<HashSet<_>>();
+        assert_eq!(ids.len(), unique_ids.len());
+    }
+
+    #[test]
+    fn command_or_ctrl_chords_format_with_shared_modifier_label() {
+        assert_eq!(ShortcutChord::CommandOrCtrl("Enter").format(), "Cmd/Ctrl + Enter");
+    }
+
+    #[test]
+    fn platform_chords_format_for_the_current_target() {
+        let formatted = ShortcutChord::Platform { macos: "Cmd + F", other: "Ctrl + F" }.format();
+
+        #[cfg(target_os = "macos")]
+        assert_eq!(formatted, "Cmd + F");
+        #[cfg(not(target_os = "macos"))]
+        assert_eq!(formatted, "Ctrl + F");
+    }
+
+    #[test]
+    fn structure_section_preserves_current_action_order() {
+        let row_ids = banner_section(ShortcutSection::Structure)
+            .rows
+            .into_iter()
+            .map(|row| row.id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            row_ids,
+            vec![
+                ShortcutId::Action(ActionId::Amplify),
+                ShortcutId::Action(ActionId::Distill),
+                ShortcutId::Action(ActionId::Atomize),
+                ShortcutId::Action(ActionId::AddChild),
+                ShortcutId::Action(ActionId::AddSibling),
+                ShortcutId::Action(ActionId::AcceptAll),
+            ]
+        );
+    }
+
+    #[test]
+    fn movement_section_includes_the_current_five_rows() {
+        let row_ids = banner_section(ShortcutSection::Movement)
+            .rows
+            .into_iter()
+            .map(|row| row.id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(
+            row_ids,
+            vec![
+                ShortcutId::MovementWordCursor,
+                ShortcutId::MovementFocus,
+                ShortcutId::MovementReorder,
+                ShortcutId::MovementOutdent,
+                ShortcutId::MovementIndent,
+            ]
+        );
+    }
 
     fn movement_with_unidentified_physical(
         key: keyboard::Key, modifiers: keyboard::Modifiers,

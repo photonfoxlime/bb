@@ -228,6 +228,10 @@ pub const SHORTCUT_HELP_TEXT_SIZE: f32 = 13.0;
 pub const SHORTCUT_HELP_SECTION_GAP: f32 = 8.0;
 /// Vertical gap between shortcut rows inside one section.
 pub const SHORTCUT_HELP_ROW_GAP: f32 = 4.0;
+/// Horizontal gap between the chord and description columns in one shortcut row.
+pub const SHORTCUT_HELP_COLUMN_GAP: f32 = 12.0;
+/// Fixed width of the shortcut-chord column in the help banner.
+pub const SHORTCUT_HELP_CHORD_WIDTH: f32 = 190.0;
 
 /// Page title font size.
 pub const PAGE_TITLE_SIZE: f32 = 20.0;
