@@ -9,16 +9,18 @@
 //!
 //! Keep module docs broad; pipeline and interaction semantics are documented on
 //! owning VM types and builder/projection functions below.
+//!
+//! [`ActionSpec`] is the canonical metadata source for user-visible action
+//! identity: label i18n key, toolbar icon, and optional error-status copy.
+//! Keeping this metadata in one place reduces drift between renderers and
+//! follow-on UI such as shortcut/help surfaces.
 
 use super::{
     AppState, LinkModeMessage, Message, MountFileMessage, StructureMessage,
     patch::{PatchKind, PatchMessage},
 };
 use crate::{store::BlockId, theme};
-use iced::{
-    Element,
-    keyboard::{Key, Modifiers},
-};
+use iced::Element;
 use lucide_icons::iced as icons;
 
 /// Identifier for a user-visible action in the action bar.
@@ -117,38 +119,98 @@ impl ActionDescriptor {
     }
 }
 
-/// Get the i18n translation key for an action.
-pub fn action_i18n_key(id: ActionId) -> &'static str {
-    match id {
-        | ActionId::Amplify => "action_amplify",
-        | ActionId::Distill => "action_distill",
-        | ActionId::Atomize => "action_atomize",
-        | ActionId::Probe => "action_probe",
-        | ActionId::AddLink => "action_add_link",
-        | ActionId::AddChild => "action_add_child",
-        | ActionId::AddParent => "action_add_parent",
-        | ActionId::AcceptAll => "action_accept_all",
-        | ActionId::Retry => "action_retry",
-        | ActionId::DismissDraft => "action_dismiss",
-        | ActionId::Cancel => "action_cancel",
-        | ActionId::CollapseBranch => "action_collapse_branch",
-        | ActionId::ExpandBranch => "action_expand_branch",
-        | ActionId::AddSibling => "action_add_sibling",
-        | ActionId::DuplicateBlock => "action_duplicate",
-        | ActionId::ArchiveBlock => "action_archive",
-        | ActionId::SaveToFile => "action_save_to_file",
-        | ActionId::LoadFromFile => "action_load_from_file",
-        | ActionId::EnterBlock => "action_enter_block",
+/// Static metadata for one user-visible action.
+///
+/// This keeps toolbar and status presentation data close to [`ActionId`].
+/// Message dispatch stays separate because it depends on live row and app state.
+#[derive(Debug, Clone, Copy)]
+pub struct ActionSpec {
+    label_i18n_key: &'static str,
+    status_error_i18n_key: Option<&'static str>,
+    icon: fn() -> Element<'static, Message>,
+}
+
+impl ActionSpec {
+    /// Build one static action specification.
+    const fn new(
+        label_i18n_key: &'static str, status_error_i18n_key: Option<&'static str>,
+        icon: fn() -> Element<'static, Message>,
+    ) -> Self {
+        Self { label_i18n_key, status_error_i18n_key, icon }
+    }
+
+    /// The i18n key for the action label shown in tooltips and menus.
+    pub fn label_i18n_key(self) -> &'static str {
+        self.label_i18n_key
+    }
+
+    /// The i18n key for status-chip failure copy, if this action reports one.
+    pub fn status_error_i18n_key(self) -> Option<&'static str> {
+        self.status_error_i18n_key
+    }
+
+    /// Build the toolbar icon element for the action.
+    pub fn icon(self) -> Element<'static, Message> {
+        (self.icon)()
     }
 }
 
-/// Get the i18n translation key for a status error message based on the action that failed.
-pub fn status_error_i18n_key(op: ActionId) -> &'static str {
-    match op {
-        | ActionId::Amplify => "status_amplify_failed",
-        | ActionId::Distill => "status_distill_failed",
-        | ActionId::Atomize => "status_atomize_failed",
-        | _ => "status_amplify_failed",
+const AMPLIFY_SPEC: ActionSpec =
+    ActionSpec::new("action_amplify", Some("status_amplify_failed"), action_icon_amplify);
+const DISTILL_SPEC: ActionSpec =
+    ActionSpec::new("action_distill", Some("status_distill_failed"), action_icon_distill);
+const ATOMIZE_SPEC: ActionSpec =
+    ActionSpec::new("action_atomize", Some("status_atomize_failed"), action_icon_atomize);
+const PROBE_SPEC: ActionSpec = ActionSpec::new("action_probe", None, action_icon_probe);
+const CANCEL_SPEC: ActionSpec = ActionSpec::new("action_cancel", None, action_icon_cancel);
+const ADD_LINK_SPEC: ActionSpec = ActionSpec::new("action_add_link", None, action_icon_add_link);
+const ADD_CHILD_SPEC: ActionSpec = ActionSpec::new("action_add_child", None, action_icon_add_child);
+const ADD_PARENT_SPEC: ActionSpec =
+    ActionSpec::new("action_add_parent", None, action_icon_add_parent);
+const ACCEPT_ALL_SPEC: ActionSpec =
+    ActionSpec::new("action_accept_all", None, action_icon_accept_all);
+const RETRY_SPEC: ActionSpec = ActionSpec::new("action_retry", None, action_icon_retry);
+const DISMISS_DRAFT_SPEC: ActionSpec =
+    ActionSpec::new("action_dismiss", None, action_icon_dismiss_draft);
+const COLLAPSE_BRANCH_SPEC: ActionSpec =
+    ActionSpec::new("action_collapse_branch", None, action_icon_collapse_branch);
+const EXPAND_BRANCH_SPEC: ActionSpec =
+    ActionSpec::new("action_expand_branch", None, action_icon_expand_branch);
+const ADD_SIBLING_SPEC: ActionSpec =
+    ActionSpec::new("action_add_sibling", None, action_icon_add_sibling);
+const DUPLICATE_BLOCK_SPEC: ActionSpec =
+    ActionSpec::new("action_duplicate", None, action_icon_duplicate_block);
+const ARCHIVE_BLOCK_SPEC: ActionSpec =
+    ActionSpec::new("action_archive", None, action_icon_archive_block);
+const SAVE_TO_FILE_SPEC: ActionSpec =
+    ActionSpec::new("action_save_to_file", None, action_icon_save_to_file);
+const LOAD_FROM_FILE_SPEC: ActionSpec =
+    ActionSpec::new("action_load_from_file", None, action_icon_load_from_file);
+const ENTER_BLOCK_SPEC: ActionSpec =
+    ActionSpec::new("action_enter_block", None, action_icon_enter_block);
+
+/// Return the canonical metadata specification for an [`ActionId`].
+pub fn action_spec(id: ActionId) -> &'static ActionSpec {
+    match id {
+        | ActionId::Amplify => &AMPLIFY_SPEC,
+        | ActionId::Distill => &DISTILL_SPEC,
+        | ActionId::Atomize => &ATOMIZE_SPEC,
+        | ActionId::Probe => &PROBE_SPEC,
+        | ActionId::Cancel => &CANCEL_SPEC,
+        | ActionId::AddLink => &ADD_LINK_SPEC,
+        | ActionId::AddChild => &ADD_CHILD_SPEC,
+        | ActionId::AddParent => &ADD_PARENT_SPEC,
+        | ActionId::AcceptAll => &ACCEPT_ALL_SPEC,
+        | ActionId::Retry => &RETRY_SPEC,
+        | ActionId::DismissDraft => &DISMISS_DRAFT_SPEC,
+        | ActionId::CollapseBranch => &COLLAPSE_BRANCH_SPEC,
+        | ActionId::ExpandBranch => &EXPAND_BRANCH_SPEC,
+        | ActionId::AddSibling => &ADD_SIBLING_SPEC,
+        | ActionId::DuplicateBlock => &DUPLICATE_BLOCK_SPEC,
+        | ActionId::ArchiveBlock => &ARCHIVE_BLOCK_SPEC,
+        | ActionId::SaveToFile => &SAVE_TO_FILE_SPEC,
+        | ActionId::LoadFromFile => &LOAD_FROM_FILE_SPEC,
+        | ActionId::EnterBlock => &ENTER_BLOCK_SPEC,
     }
 }
 
@@ -489,25 +551,6 @@ pub fn project_for_viewport(mut vm: ActionBarVm, bucket: ViewportBucket) -> Acti
     }
 }
 
-/// Map a key press to an action shortcut, if any.
-///
-/// Primary modifier policy uses `Modifiers::command()` so the same shortcut set
-/// works as `Cmd+...` on macOS and `Ctrl+...` on other platforms.
-///
-/// The resolver also accepts `control()` as a compatibility fallback for event
-/// paths that surface Command through the control bit.
-///
-/// Design decision: destructive archive is intentionally excluded from keyboard
-/// shortcuts. `Cmd/Ctrl+Backspace` is left to editor-native deletion semantics
-/// to avoid accidental structural mutation.
-///
-/// Note: this function is now a compatibility wrapper. The canonical shortcut
-/// inventory and matching rules live in `shortcut.rs`, but action bar tests and
-/// editor call sites still use this entry point.
-pub fn shortcut_to_action(key: Key, modifiers: Modifiers) -> Option<ActionId> {
-    super::shortcut::action_shortcut_from_key(key, modifiers)
-}
-
 /// Convert an action descriptor to a message, returning `None` if disabled.
 pub fn action_to_message(
     state: &AppState, block_id: &BlockId, descriptor: &ActionDescriptor,
@@ -639,30 +682,135 @@ fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Messa
     None
 }
 
-/// Icon element for a toolbar action.
-pub fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
-    let icon = match id {
-        | ActionId::Amplify => icons::icon_maximize_2(),
-        | ActionId::Distill => icons::icon_minimize_2(),
-        | ActionId::Atomize => icons::icon_maximize(),
-        | ActionId::Probe => icons::icon_message_circle(),
-        | ActionId::Cancel => icons::icon_circle_x(),
-        | ActionId::AddLink => icons::icon_link_2(),
-        | ActionId::AddChild => icons::icon_corner_down_right(),
-        | ActionId::AddParent => icons::icon_corner_up_left(),
-        | ActionId::AcceptAll => icons::icon_check_check(),
-        | ActionId::Retry => icons::icon_refresh_cw(),
-        | ActionId::DismissDraft => icons::icon_x(),
-        | ActionId::CollapseBranch => icons::icon_chevron_down(),
-        | ActionId::ExpandBranch => icons::icon_chevron_right(),
-        | ActionId::AddSibling => icons::icon_plus(),
-        | ActionId::DuplicateBlock => icons::icon_copy(),
-        | ActionId::ArchiveBlock => icons::icon_archive(),
-        | ActionId::SaveToFile => icons::icon_hard_drive_download(),
-        | ActionId::LoadFromFile => icons::icon_hard_drive_upload(),
-        | ActionId::EnterBlock => icons::icon_log_in(),
-    };
-    icon.size(theme::TOOLBAR_ICON_SIZE)
+fn action_icon_amplify() -> Element<'static, Message> {
+    icons::icon_maximize_2()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_distill() -> Element<'static, Message> {
+    icons::icon_minimize_2()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_atomize() -> Element<'static, Message> {
+    icons::icon_maximize()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_probe() -> Element<'static, Message> {
+    icons::icon_message_circle()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_cancel() -> Element<'static, Message> {
+    icons::icon_circle_x()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_add_link() -> Element<'static, Message> {
+    icons::icon_link_2()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_add_child() -> Element<'static, Message> {
+    icons::icon_corner_down_right()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_add_parent() -> Element<'static, Message> {
+    icons::icon_corner_up_left()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_accept_all() -> Element<'static, Message> {
+    icons::icon_check_check()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_retry() -> Element<'static, Message> {
+    icons::icon_refresh_cw()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_dismiss_draft() -> Element<'static, Message> {
+    icons::icon_x()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_collapse_branch() -> Element<'static, Message> {
+    icons::icon_chevron_down()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_expand_branch() -> Element<'static, Message> {
+    icons::icon_chevron_right()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_add_sibling() -> Element<'static, Message> {
+    icons::icon_plus()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_duplicate_block() -> Element<'static, Message> {
+    icons::icon_copy()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_archive_block() -> Element<'static, Message> {
+    icons::icon_archive()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_save_to_file() -> Element<'static, Message> {
+    icons::icon_hard_drive_download()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_load_from_file() -> Element<'static, Message> {
+    icons::icon_hard_drive_upload()
+        .size(theme::TOOLBAR_ICON_SIZE)
+        .line_height(iced::widget::text::LineHeight::Relative(1.0))
+        .into()
+}
+
+fn action_icon_enter_block() -> Element<'static, Message> {
+    icons::icon_log_in()
+        .size(theme::TOOLBAR_ICON_SIZE)
         .line_height(iced::widget::text::LineHeight::Relative(1.0))
         .into()
 }
@@ -670,7 +818,6 @@ pub fn action_icon<'a>(id: ActionId) -> Element<'a, Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iced::keyboard::key::Named;
 
     fn row_context() -> RowContext {
         RowContext {
@@ -899,93 +1046,5 @@ mod tests {
 
         assert_eq!(projected.primary.len(), original_count);
         assert_eq!(projected.primary.len(), 6);
-    }
-
-    #[test]
-    fn shortcut_command_dot_expands() {
-        let key = Key::Character(".".into());
-        let modifiers = Modifiers::COMMAND;
-        let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, Some(ActionId::Amplify));
-    }
-
-    #[test]
-    fn shortcut_command_slash_atomizes() {
-        let key = Key::Character("/".into());
-        let modifiers = Modifiers::COMMAND;
-        let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, Some(ActionId::Atomize));
-    }
-
-    #[test]
-    fn shortcut_command_comma_reduces() {
-        let key = Key::Character(",".into());
-        let modifiers = Modifiers::COMMAND;
-        let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, Some(ActionId::Distill));
-    }
-
-    #[test]
-    fn shortcut_command_enter_adds_child() {
-        let key = Key::Named(Named::Enter);
-        let modifiers = Modifiers::COMMAND;
-        let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, Some(ActionId::AddChild));
-    }
-
-    #[test]
-    fn shortcut_command_backspace_is_unbound() {
-        let key = Key::Named(Named::Backspace);
-        let modifiers = Modifiers::COMMAND;
-        let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, None);
-    }
-
-    #[test]
-    fn shortcut_ctrl_backspace_is_unbound() {
-        let key = Key::Named(Named::Backspace);
-        let modifiers = Modifiers::CTRL;
-        let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, None);
-    }
-
-    #[test]
-    fn shortcut_command_shift_enter_adds_sibling() {
-        let key = Key::Named(Named::Enter);
-        let modifiers = Modifiers::COMMAND | Modifiers::SHIFT;
-        let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, Some(ActionId::AddSibling));
-    }
-
-    #[test]
-    fn shortcut_command_shift_a_accepts_all() {
-        let key = Key::Character("a".into());
-        let modifiers = Modifiers::COMMAND | Modifiers::SHIFT;
-        let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, Some(ActionId::AcceptAll));
-    }
-
-    #[test]
-    fn shortcut_no_modifier_returns_none() {
-        let key = Key::Character(".".into());
-        let modifiers = Modifiers::empty();
-        let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, None);
-    }
-
-    #[test]
-    fn shortcut_ctrl_dot_is_supported() {
-        let key = Key::Character(".".into());
-        let modifiers = Modifiers::CTRL;
-        let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, Some(ActionId::Amplify));
-    }
-
-    #[test]
-    fn shortcut_unknown_key_returns_none() {
-        let key = Key::Character("x".into());
-        let modifiers = Modifiers::COMMAND;
-        let action = shortcut_to_action(key, modifiers);
-        assert_eq!(action, None);
     }
 }

@@ -36,7 +36,8 @@
 //! dedicated `EditMessage::AddEmptyFirstChild` path so the focused editor owns
 //! first-child insertion end to end.
 
-use super::action_bar::{ActionId, shortcut_to_action};
+use super::action_bar::ActionId;
+use super::shortcut::action_shortcut_from_key;
 use super::{ContextMenuMessage, EditMessage, Message, ShortcutMessage};
 use crate::store::BlockId;
 use crate::theme;
@@ -213,7 +214,7 @@ pub(super) fn view<'a>(
     .view()
 }
 
-/// Resolve a key press to an application message using `shortcut_to_action`.
+/// Resolve a key press to an application message using the shared shortcut registry.
 ///
 /// Returns `Some(msg)` when the key chord matches a known action, `None`
 /// otherwise. Plugged into the component as the `on_shortcut_key` callback.
@@ -222,12 +223,12 @@ pub(super) fn view<'a>(
 /// instead of `ShortcutMessage::ForBlock` so Enter-based child creation remains
 /// editor-owned and cannot race the global subscription.
 fn shortcut_key(block_id: BlockId, key_press: &text_editor::KeyPress) -> Option<Message> {
-    shortcut_to_action(key_press.key.clone(), key_press.modifiers).map(
-        |action_id| match action_id {
+    action_shortcut_from_key(key_press.key.clone(), key_press.modifiers).map(|action_id| {
+        match action_id {
             | ActionId::AddChild => Message::Edit(EditMessage::AddEmptyFirstChild { block_id }),
             | _ => Message::Shortcut(ShortcutMessage::ForBlock { block_id, action_id }),
-        },
-    )
+        }
+    })
 }
 
 #[cfg(test)]

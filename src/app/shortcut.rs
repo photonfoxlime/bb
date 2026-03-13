@@ -1228,6 +1228,42 @@ mod tests {
     }
 
     #[test]
+    fn action_shortcut_registry_resolves_amplify() {
+        let action = action_shortcut_from_key(
+            keyboard::Key::Character(".".into()),
+            keyboard::Modifiers::COMMAND,
+        );
+        assert_eq!(action, Some(ActionId::Amplify));
+    }
+
+    #[test]
+    fn action_shortcut_registry_resolves_add_child() {
+        let action = action_shortcut_from_key(
+            keyboard::Key::Named(keyboard::key::Named::Enter),
+            keyboard::Modifiers::COMMAND,
+        );
+        assert_eq!(action, Some(ActionId::AddChild));
+    }
+
+    #[test]
+    fn action_shortcut_registry_accepts_ctrl_fallback() {
+        let action = action_shortcut_from_key(
+            keyboard::Key::Character(".".into()),
+            keyboard::Modifiers::CTRL,
+        );
+        assert_eq!(action, Some(ActionId::Amplify));
+    }
+
+    #[test]
+    fn action_shortcut_registry_rejects_unbound_keys() {
+        let action = action_shortcut_from_key(
+            keyboard::Key::Named(keyboard::key::Named::Backspace),
+            keyboard::Modifiers::COMMAND,
+        );
+        assert_eq!(action, None);
+    }
+
+    #[test]
     fn trigger_uses_edit_session_when_focus_is_missing() {
         let (mut state, root) = AppState::test_state();
         assert!(state.focus().is_none());

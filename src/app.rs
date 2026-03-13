@@ -495,7 +495,7 @@ impl AppState {
                         return Some(global_shortcut);
                     }
 
-                    let action_shortcut = action_bar::shortcut_to_action(key, modifiers)
+                    let action_shortcut = shortcut::action_shortcut_from_key(key, modifiers)
                         .filter(|action_id| AppState::allow_global_action_shortcut(*action_id));
 
                     if status == event::Status::Captured {

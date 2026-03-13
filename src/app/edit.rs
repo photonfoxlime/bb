@@ -385,7 +385,7 @@ fn next_word_cursor_column(
 }
 
 fn is_shortcut_modifier(modifiers: keyboard::Modifiers) -> bool {
-    // Keep this aligned with `action_bar::shortcut_to_action`: some
+    // Keep this aligned with `shortcut::action_shortcut_from_key`: some
     // text-editor input paths may surface the Command key via `control()`.
     modifiers.command() || modifiers.control()
 }

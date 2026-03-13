@@ -98,8 +98,7 @@ use super::{
     Message, MountFileMessage, NavigationMessage, OverlayMessage, StructureMessage,
     action_bar::{
         ActionAvailability, ActionBarVm, ActionDescriptor, ActionId, RowContext, StatusChipVm,
-        ViewportBucket, action_i18n_key, action_icon, action_to_message, build_action_bar_vm,
-        project_for_viewport, status_error_i18n_key,
+        ViewportBucket, action_spec, action_to_message, build_action_bar_vm, project_for_viewport,
     },
     archive_panel,
     block_panel_host::BlockPanelHost,
@@ -358,8 +357,9 @@ impl<'a> DocumentView<'a> {
         for chunk in enabled_actions.chunks(theme::CONTEXT_MENU_ACTIONS_PER_ROW) {
             let mut row_buttons = row![].spacing(theme::CONTEXT_MENU_ACTION_GAP);
             for (action_id, message) in chunk {
-                let btn: Element<'a, Message> =
-                    IconButton::action(action_icon(*action_id)).on_press(message.clone()).into();
+                let btn: Element<'a, Message> = IconButton::action(action_spec(*action_id).icon())
+                    .on_press(message.clone())
+                    .into();
                 row_buttons = row_buttons.push(btn);
             }
             action_buttons_column = action_buttons_column.push(row_buttons.width(Fill));
@@ -522,7 +522,7 @@ impl<'a> TreeView<'a> {
             } else {
                 Message::Structure(StructureMessage::ToggleFold(*block_id))
             };
-            IconButton::action(action_icon(icon)).on_press(msg).into()
+            IconButton::action(action_spec(icon).icon()).on_press(msg).into()
         } else {
             let ring_icon: Element<'a, Message> = icons::icon_circle()
                 .size(theme::LEAF_RING_ICON_SIZE)
@@ -552,16 +552,14 @@ impl<'a> TreeView<'a> {
             is_pick_friend_mode && self.state.focus().is_some_and(|s| s.block_id != *block_id);
 
         // Check if this block should be highlighted from the reference panel.
-        let is_highlighted_friend = self
-            .state
-            .ui()
-            .reference_panel
-            .highlighted_friend_block
-            .is_some_and(|highlighted_id| {
-                highlighted_id == *block_id
-                    && self.state.store.is_visible(block_id)
-                    && self.state.navigation.is_in_current_view(&self.state.store, block_id)
-            });
+        let is_highlighted_friend =
+            self.state.ui().reference_panel.highlighted_friend_block.is_some_and(
+                |highlighted_id| {
+                    highlighted_id == *block_id
+                        && self.state.store.is_visible(block_id)
+                        && self.state.navigation.is_in_current_view(&self.state.store, block_id)
+                },
+            );
 
         let point_editor = point_editor::view(
             block_id_for_edit,
@@ -775,7 +773,10 @@ impl<'a> TreeView<'a> {
                 t!("doc_status_distilling").to_string()
             }
             | Some(StatusChipVm::Loading { .. }) => t!("doc_status_working").to_string(),
-            | Some(StatusChipVm::Error { op, .. }) => t!(status_error_i18n_key(*op)).to_string(),
+            | Some(StatusChipVm::Error { op, .. }) => t!(action_spec(*op)
+                .status_error_i18n_key()
+                .expect("error status actions define error copy"))
+            .to_string(),
             | Some(StatusChipVm::DraftActive { suggestion_count }) if *suggestion_count > 0 => {
                 t!("doc_status_draft_ready").to_string()
             }
@@ -900,9 +901,9 @@ impl<'a> TreeView<'a> {
         &self, block_id: &BlockId, descriptor: &ActionDescriptor,
     ) -> Element<'a, Message> {
         let base = if descriptor.destructive {
-            IconButton::destructive(action_icon(descriptor.id))
+            IconButton::destructive(action_spec(descriptor.id).icon())
         } else {
-            IconButton::action(action_icon(descriptor.id))
+            IconButton::action(action_spec(descriptor.id).icon())
         };
         let btn = if descriptor.availability == ActionAvailability::Enabled {
             if let Some(message) = action_to_message(self.state, block_id, descriptor) {
@@ -913,7 +914,7 @@ impl<'a> TreeView<'a> {
         } else {
             base
         };
-        let label = t!(action_i18n_key(descriptor.id)).to_string();
+        let label = t!(action_spec(descriptor.id).label_i18n_key()).to_string();
         tooltip(
             btn,
             text(label).size(theme::SMALL_TEXT_SIZE).font(theme::INTER),
