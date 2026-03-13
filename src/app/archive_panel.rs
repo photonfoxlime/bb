@@ -12,7 +12,7 @@
 //! Escape closes it via the global escape chain in `app.rs`.
 
 use crate::app::{AppState, DocumentMode, Message};
-use crate::component::floating_panel::{self, PanelHeader};
+use crate::component::floating_panel::{self, FloatingPanelLayout, PanelHeader};
 use crate::component::icon_button::IconButton;
 use crate::text::truncate_for_display;
 use crate::theme;
@@ -131,6 +131,15 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     let archive_ids = state.store.archive().to_vec();
     let focused_block_id = state.focus().map(|focus| focus.block_id);
 
+    let viewport_width = state.ui().window_size.width;
+    let viewport_height = state.ui().window_size.height;
+    let layout = FloatingPanelLayout::new(viewport_width, viewport_height);
+    let result_list_height = layout.list_height(
+        theme::FIND_RESULT_LIST_HEIGHT,
+        theme::FIND_TITLE_SIZE.max(theme::FIND_CONTROL_BUTTON_SIZE)
+            + theme::FLOATING_PANEL_SECTION_GAP,
+    );
+
     let content: Element<'a, Message> = if archive_ids.is_empty() {
         text(t!("archive_empty").to_string())
             .size(theme::FIND_RESULT_META_SIZE)
@@ -230,15 +239,12 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
                 .width(Length::Fill),
             );
         }
-        scrollable(rows).height(Length::Fixed(theme::FIND_RESULT_LIST_HEIGHT)).into()
+        scrollable(rows).height(Length::Fixed(result_list_height)).into()
     };
-
-    let viewport_width = state.ui().window_size.width;
-    let viewport_height = state.ui().window_size.height;
 
     let content = column![].spacing(theme::FLOATING_PANEL_SECTION_GAP).push(header).push(content);
 
-    floating_panel::wrap(content, viewport_width, viewport_height)
+    floating_panel::wrap(content, layout)
 }
 
 #[cfg(test)]

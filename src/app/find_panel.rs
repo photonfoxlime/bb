@@ -6,7 +6,7 @@
 //! to avoid running expensive searches while users are still typing.
 
 use crate::app::{AppState, DocumentMode, Message, reference_panel::ReferencePanelMessage};
-use crate::component::floating_panel::{self, PanelHeader, SelectableRow};
+use crate::component::floating_panel::{self, FloatingPanelLayout, PanelHeader, SelectableRow};
 use crate::component::icon_button::IconButton;
 use crate::store::BlockId;
 use crate::text::truncate_for_display;
@@ -303,6 +303,17 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
         .size(theme::FIND_QUERY_SIZE)
         .padding(theme::FIND_QUERY_PAD);
 
+    let viewport_width = state.ui().window_size.width;
+    let viewport_height = state.ui().window_size.height;
+    let layout = FloatingPanelLayout::new(viewport_width, viewport_height);
+    let result_list_height = layout.list_height(
+        theme::FIND_RESULT_LIST_HEIGHT,
+        theme::FIND_TITLE_SIZE.max(theme::FIND_CONTROL_BUTTON_SIZE)
+            + theme::FIND_QUERY_SIZE
+            + (theme::FIND_QUERY_PAD * 2.0)
+            + (theme::FLOATING_PANEL_SECTION_GAP * 2.0),
+    );
+
     let result_list: Element<'a, Message> = if state.ui().find_ui.query().trim().is_empty() {
         text(t!("find_hint_empty").to_string())
             .size(theme::FIND_RESULT_META_SIZE)
@@ -339,11 +350,8 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
             ));
         }
 
-        scrollable(rows).height(Length::Fixed(theme::FIND_RESULT_LIST_HEIGHT)).into()
+        scrollable(rows).height(Length::Fixed(result_list_height)).into()
     };
-
-    let viewport_width = state.ui().window_size.width;
-    let viewport_height = state.ui().window_size.height;
 
     let content = column![]
         .spacing(theme::FLOATING_PANEL_SECTION_GAP)
@@ -351,7 +359,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
         .push(query_input)
         .push(result_list);
 
-    floating_panel::wrap(content, viewport_width, viewport_height)
+    floating_panel::wrap(content, layout)
 }
 
 fn refresh_matches(state: &mut AppState) {

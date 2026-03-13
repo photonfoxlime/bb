@@ -49,7 +49,7 @@ use iced::widget::{
 use iced::{Element, Length, Task};
 
 use crate::app::{AppState, DocumentMode, EditMessage, LinkModeMessage, Message};
-use crate::component::floating_panel::{self, PanelHeader, SelectableRow};
+use crate::component::floating_panel::{self, FloatingPanelLayout, PanelHeader, SelectableRow};
 use crate::component::icon_button::IconButton;
 use crate::store::PointLink;
 use crate::theme;
@@ -266,6 +266,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     let filesystem = LinkFilesystem::new();
     let viewport_width = state.ui().window_size.width;
     let viewport_height = state.ui().window_size.height;
+    let layout = FloatingPanelLayout::new(viewport_width, viewport_height);
 
     // --- Title row ---
     let title = text(t!("link_panel_title")).size(theme::FIND_QUERY_SIZE);
@@ -300,7 +301,15 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
         ));
     }
 
-    let result_list = scrollable(rows).height(Length::Fixed(theme::LINK_PANEL_LIST_HEIGHT));
+    let result_list_height = layout.list_height(
+        theme::LINK_PANEL_LIST_HEIGHT,
+        theme::FIND_QUERY_SIZE.max(theme::FIND_CONTROL_BUTTON_SIZE)
+            + theme::FIND_QUERY_SIZE
+            + (theme::FIND_QUERY_PAD * 2.0)
+            + theme::FIND_RESULT_META_SIZE
+            + (theme::FLOATING_PANEL_SECTION_GAP * 3.0),
+    );
+    let result_list = scrollable(rows).height(Length::Fixed(result_list_height));
 
     // --- Hint ---
     let hint =
@@ -309,7 +318,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     let panel_content =
         column![title_row, input, result_list, hint].spacing(theme::FLOATING_PANEL_SECTION_GAP);
 
-    floating_panel::wrap(panel_content, viewport_width, viewport_height)
+    floating_panel::wrap(panel_content, layout)
 }
 
 // ---------------------------------------------------------------------------
