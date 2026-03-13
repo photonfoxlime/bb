@@ -29,7 +29,6 @@
 //! ```
 
 use crate::store::{BlockPanelBarState, MountFormat as StoreMountFormat};
-use clap::ValueEnum;
 
 pub mod commands;
 pub mod context;
@@ -159,7 +158,7 @@ impl From<BlockPanelBarStateCli> for BlockPanelBarState {
 }
 
 /// Output format for query commands.
-#[derive(Debug, Clone, Copy, ValueEnum)]
+#[derive(Debug, Clone, Copy)]
 pub enum OutputFormat {
     /// JSON output for scripting.
     Json,

@@ -58,6 +58,7 @@ impl BloomingBlockery {
         #[cfg(feature = "log")]
         Self::init_tracing()?;
 
+        let output = cli.output();
         match cli.command {
             | None | Some(Commands::Gui) => Self::gui(),
             | Some(Commands::GenerateCompletion { shell }) => {
@@ -91,7 +92,7 @@ impl BloomingBlockery {
                 if !matches!(result, CliResult::Error(_)) {
                     let () = store.save()?;
                 }
-                print_result(&result, cli.output);
+                print_result(&result, output);
                 Ok(())
             }
         }

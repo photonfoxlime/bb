@@ -23,7 +23,7 @@
 //!
 //! # Design Principles
 //!
-//! - Global flags: `--store`, `--verbose`, and `--output` apply to all commands
+//! - Global flags: `--store`, `--verbose`, `--json`, and `--human` apply to all commands
 //! - Subcommand organization: Related operations are grouped by domain for discoverability
 //! - Type-safe arguments: Custom types like `BlockId` and `OutputFormat` enforce validity at parse time
 //!
@@ -31,7 +31,7 @@
 //!
 //! ```bash
 //! # Query with JSON output
-//! bb --output json roots
+//! bb --json roots
 //!
 //! # Tree operations
 //! bb tree add-child 018f44f1-6f5a-7a0e-9bc5-8c7a4d7d6b20 "New idea"
@@ -85,8 +85,19 @@ pub struct Cli {
     #[arg(short, long, global = true)]
     pub verbose: bool,
 
-    #[arg(long, global = true, value_name = "FORMAT", default_value = "table")]
-    pub output: OutputFormat,
+    /// Output as JSON (default).
+    #[arg(long, global = true, conflicts_with = "human")]
+    pub json: bool,
+
+    /// Output as human-readable table.
+    #[arg(long, global = true, conflicts_with = "json")]
+    pub human: bool,
+}
+
+impl Cli {
+    pub fn output(&self) -> OutputFormat {
+        if self.human { OutputFormat::Table } else { OutputFormat::Json }
+    }
 }
 
 /// Commands: GUI launch or Basic Block CLI subcommands.
