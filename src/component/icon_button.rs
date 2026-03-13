@@ -8,6 +8,7 @@ use iced::{
     Element, Length,
     widget::{button, container},
 };
+use lucide_icons::iced as icons;
 
 /// Namespace for icon-only button constructors.
 ///
@@ -70,6 +71,21 @@ impl IconButton {
             .padding(iced::Padding::ZERO)
             .width(Length::Fixed(button_size))
             .height(Length::Fixed(button_size))
+    }
+
+    /// Build a standard close button with an `x` glyph and custom footprint.
+    ///
+    /// Note: centralizing this keeps close affordances visually consistent
+    /// across floating panels, inline probe panels, and compact header rows.
+    pub(crate) fn close_with_size<'a, Message: 'a>(
+        icon_size: f32, button_size: f32, icon_padding: f32,
+    ) -> button::Button<'a, Message> {
+        Self::action_with_size(icons::icon_x().size(icon_size).into(), button_size, icon_padding)
+    }
+
+    /// Build a standard close button with the default icon-button footprint.
+    pub(crate) fn close<'a, Message: 'a>(icon_size: f32) -> button::Button<'a, Message> {
+        Self::close_with_size(icon_size, theme::ICON_BUTTON_SIZE, theme::BUTTON_PAD)
     }
 
     /// Build a destructive-style icon button with custom footprint and padding.

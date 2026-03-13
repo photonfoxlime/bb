@@ -270,8 +270,8 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
     // --- Title row ---
     let title = text(t!("link_panel_title")).size(theme::FIND_QUERY_SIZE);
     let close_btn = tooltip(
-        IconButton::action_with_size(
-            lucide_icons::iced::icon_x().size(theme::FIND_CONTROL_ICON_SIZE).into(),
+        IconButton::close_with_size(
+            theme::FIND_CONTROL_ICON_SIZE,
             theme::FIND_CONTROL_BUTTON_SIZE,
             theme::FIND_CONTROL_BUTTON_PAD,
         )

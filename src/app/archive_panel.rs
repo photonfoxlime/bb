@@ -119,8 +119,8 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
 
     let title = text(t!("ui_archive").to_string()).font(theme::INTER).size(theme::FIND_TITLE_SIZE);
     let close_btn = tooltip(
-        IconButton::action_with_size(
-            icons::icon_x().size(theme::FIND_CONTROL_ICON_SIZE).into(),
+        IconButton::close_with_size(
+            theme::FIND_CONTROL_ICON_SIZE,
             theme::FIND_CONTROL_BUTTON_SIZE,
             theme::FIND_CONTROL_BUTTON_PAD,
         )

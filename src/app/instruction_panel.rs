@@ -51,6 +51,7 @@
 //! the result remains an explicit action.
 
 use crate::app::{AppState, BlockPanelBarState, Message, RequestSignature};
+use crate::component::floating_panel::PanelHeader;
 use crate::component::icon_button::IconButton;
 use crate::component::text_button::TextButton;
 use crate::llm;
@@ -606,25 +607,18 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
             continue;
         }
 
-        let header = row![]
-            .spacing(theme::PANEL_BUTTON_GAP)
-            .align_y(iced::Alignment::Center)
-            .push(
-                container(
-                    text(t!("action_probe").to_string())
-                        .font(theme::INTER)
-                        .size(theme::INSTRUCTION_BUTTON_SIZE),
-                )
-                .width(iced::Length::Fill),
-            )
-            .push(
-                IconButton::action(icons::icon_x().size(theme::TOOLBAR_ICON_SIZE).into()).on_press(
-                    Message::InstructionPanel(
-                        target_block_id,
-                        InstructionPanelMessage::ClosePanel { panel_id: panel.id },
-                    ),
-                ),
-            );
+        let title = container(
+            text(t!("action_probe").to_string())
+                .font(theme::INTER)
+                .size(theme::INSTRUCTION_BUTTON_SIZE),
+        )
+        .padding(iced::Padding::from([theme::COMPACT_PAD_V, theme::COMPACT_PAD_H]));
+        let close_btn =
+            IconButton::close(theme::TOOLBAR_ICON_SIZE).on_press(Message::InstructionPanel(
+                target_block_id,
+                InstructionPanelMessage::ClosePanel { panel_id: panel.id },
+            ));
+        let header = PanelHeader::new(title, close_btn);
 
         let editor = container(
             text_editor(&panel.instruction)
