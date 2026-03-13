@@ -682,138 +682,32 @@ fn retry_message_for_block(state: &AppState, block_id: &BlockId) -> Option<Messa
     None
 }
 
-fn action_icon_amplify() -> Element<'static, Message> {
-    icons::icon_maximize_2()
-        .size(theme::TOOLBAR_ICON_SIZE)
+/// Apply the standard toolbar icon size and line height to a lucide icon.
+fn toolbar_icon(icon: iced::widget::Text<'static>) -> Element<'static, Message> {
+    icon.size(theme::TOOLBAR_ICON_SIZE)
         .line_height(iced::widget::text::LineHeight::Relative(1.0))
         .into()
 }
 
-fn action_icon_distill() -> Element<'static, Message> {
-    icons::icon_minimize_2()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_atomize() -> Element<'static, Message> {
-    icons::icon_maximize()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_probe() -> Element<'static, Message> {
-    icons::icon_message_circle()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_cancel() -> Element<'static, Message> {
-    icons::icon_circle_x()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_add_link() -> Element<'static, Message> {
-    icons::icon_link_2()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_add_child() -> Element<'static, Message> {
-    icons::icon_corner_down_right()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_add_parent() -> Element<'static, Message> {
-    icons::icon_corner_up_left()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_accept_all() -> Element<'static, Message> {
-    icons::icon_check_check()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_retry() -> Element<'static, Message> {
-    icons::icon_refresh_cw()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_dismiss_draft() -> Element<'static, Message> {
-    icons::icon_x()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_collapse_branch() -> Element<'static, Message> {
-    icons::icon_chevron_down()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_expand_branch() -> Element<'static, Message> {
-    icons::icon_chevron_right()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_add_sibling() -> Element<'static, Message> {
-    icons::icon_plus()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_duplicate_block() -> Element<'static, Message> {
-    icons::icon_copy()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_archive_block() -> Element<'static, Message> {
-    icons::icon_archive()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_save_to_file() -> Element<'static, Message> {
-    icons::icon_hard_drive_download()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_load_from_file() -> Element<'static, Message> {
-    icons::icon_hard_drive_upload()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
-
-fn action_icon_enter_block() -> Element<'static, Message> {
-    icons::icon_log_in()
-        .size(theme::TOOLBAR_ICON_SIZE)
-        .line_height(iced::widget::text::LineHeight::Relative(1.0))
-        .into()
-}
+fn action_icon_amplify() -> Element<'static, Message> { toolbar_icon(icons::icon_maximize_2()) }
+fn action_icon_distill() -> Element<'static, Message> { toolbar_icon(icons::icon_minimize_2()) }
+fn action_icon_atomize() -> Element<'static, Message> { toolbar_icon(icons::icon_maximize()) }
+fn action_icon_probe() -> Element<'static, Message> { toolbar_icon(icons::icon_message_circle()) }
+fn action_icon_cancel() -> Element<'static, Message> { toolbar_icon(icons::icon_circle_x()) }
+fn action_icon_add_link() -> Element<'static, Message> { toolbar_icon(icons::icon_link_2()) }
+fn action_icon_add_child() -> Element<'static, Message> { toolbar_icon(icons::icon_corner_down_right()) }
+fn action_icon_add_parent() -> Element<'static, Message> { toolbar_icon(icons::icon_corner_up_left()) }
+fn action_icon_accept_all() -> Element<'static, Message> { toolbar_icon(icons::icon_check_check()) }
+fn action_icon_retry() -> Element<'static, Message> { toolbar_icon(icons::icon_refresh_cw()) }
+fn action_icon_dismiss_draft() -> Element<'static, Message> { toolbar_icon(icons::icon_x()) }
+fn action_icon_collapse_branch() -> Element<'static, Message> { toolbar_icon(icons::icon_chevron_down()) }
+fn action_icon_expand_branch() -> Element<'static, Message> { toolbar_icon(icons::icon_chevron_right()) }
+fn action_icon_add_sibling() -> Element<'static, Message> { toolbar_icon(icons::icon_plus()) }
+fn action_icon_duplicate_block() -> Element<'static, Message> { toolbar_icon(icons::icon_copy()) }
+fn action_icon_archive_block() -> Element<'static, Message> { toolbar_icon(icons::icon_archive()) }
+fn action_icon_save_to_file() -> Element<'static, Message> { toolbar_icon(icons::icon_hard_drive_download()) }
+fn action_icon_load_from_file() -> Element<'static, Message> { toolbar_icon(icons::icon_hard_drive_upload()) }
+fn action_icon_enter_block() -> Element<'static, Message> { toolbar_icon(icons::icon_log_in()) }
 
 #[cfg(test)]
 mod tests {
