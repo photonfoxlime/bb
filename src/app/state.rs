@@ -10,6 +10,55 @@ use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use super::find_panel::FindUiState;
 
+/// Common selection behavior for search/browse panels that maintain a query and
+/// a list of candidates with a highlighted entry.
+///
+/// Implementors must provide three primitive operations; `select_next`,
+/// `select_previous`, and `select_index` are supplied as default methods.
+pub trait SelectableList {
+    /// Total number of items currently available.
+    fn item_count(&self) -> usize;
+    /// Index of the currently highlighted item, or `None` when the list is empty.
+    fn selection(&self) -> Option<usize>;
+    /// Set the highlighted index. Receives `None` when the list becomes empty.
+    fn set_selection(&mut self, index: Option<usize>);
+
+    /// Advance to the next item, wrapping from the last item back to the first.
+    fn select_next(&mut self) {
+        let count = self.item_count();
+        if count == 0 {
+            self.set_selection(None);
+            return;
+        }
+        let next = match self.selection() {
+            | Some(i) => (i + 1) % count,
+            | None => 0,
+        };
+        self.set_selection(Some(next));
+    }
+
+    /// Advance to the previous item, wrapping from the first item back to the last.
+    fn select_previous(&mut self) {
+        let count = self.item_count();
+        if count == 0 {
+            self.set_selection(None);
+            return;
+        }
+        let prev = match self.selection() {
+            | Some(0) | None => count - 1,
+            | Some(i) => i - 1,
+        };
+        self.set_selection(Some(prev));
+    }
+
+    /// Highlight a specific item by index, if it is in range.
+    fn select_index(&mut self, index: usize) {
+        if index < self.item_count() {
+            self.set_selection(Some(index));
+        }
+    }
+}
+
 /// Document interaction mode: normal editing vs picking a friend block.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum DocumentMode {
@@ -79,7 +128,33 @@ pub struct LinkPanelState {
     /// Candidate filesystem paths matching the query.
     pub candidates: Vec<std::path::PathBuf>,
     /// Index of the currently highlighted candidate.
-    pub selected_index: usize,
+    pub selected: usize,
+}
+
+impl SelectableList for LinkPanelState {
+    fn item_count(&self) -> usize {
+        self.candidates.len()
+    }
+
+    fn selection(&self) -> Option<usize> {
+        if self.candidates.is_empty() { None } else { Some(self.selected) }
+    }
+
+    fn set_selection(&mut self, index: Option<usize>) {
+        self.selected = index.unwrap_or(0);
+    }
+
+    /// Saturate at the last item rather than wrapping (file-browser feel).
+    fn select_next(&mut self) {
+        if !self.candidates.is_empty() {
+            self.selected = (self.selected + 1).min(self.candidates.len() - 1);
+        }
+    }
+
+    /// Saturate at 0 rather than wrapping.
+    fn select_previous(&mut self) {
+        self.selected = self.selected.saturating_sub(1);
+    }
 }
 
 /// Stable identifier for one transient probe panel instance.

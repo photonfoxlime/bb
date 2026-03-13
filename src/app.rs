@@ -106,8 +106,8 @@ use self::{
     settings::{SettingsMessage, SettingsState},
     shortcut::ShortcutMessage,
     state::{
-        DocumentMode, FocusState, LinkModeMessage, LinkPanelState, TransientUiState, ViewMode,
-        WindowSize,
+        DocumentMode, FocusState, LinkModeMessage, LinkPanelState, SelectableList, TransientUiState,
+        ViewMode, WindowSize,
     },
     structure::StructureMessage,
     undo_redo::{UndoRedoMessage, UndoSnapshot},

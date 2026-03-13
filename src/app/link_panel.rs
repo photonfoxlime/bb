@@ -48,7 +48,7 @@ use iced::widget::{
 };
 use iced::{Element, Length, Task};
 
-use crate::app::{AppState, DocumentMode, EditMessage, LinkModeMessage, Message};
+use crate::app::{AppState, DocumentMode, EditMessage, LinkModeMessage, Message, SelectableList};
 use crate::component::floating_panel::{self, FloatingPanelLayout, PanelHeader, SelectableRow};
 use crate::component::icon_button::IconButton;
 use crate::store::PointLink;
@@ -74,7 +74,7 @@ pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
                 block_id: Some(block_id),
                 query: String::new(),
                 candidates: filesystem.list_home_entries(),
-                selected_index: 0,
+                selected: 0,
             };
             // Auto-focus the search input.
             focus(link_query_input_id())
@@ -99,23 +99,17 @@ pub fn handle(state: &mut AppState, message: LinkModeMessage) -> Task<Message> {
 
             let filesystem = LinkFilesystem::new();
             let candidates = filesystem.search(&query);
-            state.ui_mut().reference_panel.link_panel.selected_index = 0;
+            state.ui_mut().reference_panel.link_panel.selected = 0;
             state.ui_mut().reference_panel.link_panel.candidates = candidates;
             state.ui_mut().reference_panel.link_panel.query = query;
             Task::none()
         }
         | LinkModeMessage::SelectPrevious => {
-            let panel = &mut state.ui_mut().reference_panel.link_panel;
-            if panel.selected_index > 0 {
-                panel.selected_index -= 1;
-            }
+            state.ui_mut().reference_panel.link_panel.select_previous();
             Task::none()
         }
         | LinkModeMessage::SelectNext => {
-            let panel = &mut state.ui_mut().reference_panel.link_panel;
-            if !panel.candidates.is_empty() {
-                panel.selected_index = (panel.selected_index + 1).min(panel.candidates.len() - 1);
-            }
+            state.ui_mut().reference_panel.link_panel.select_next();
             Task::none()
         }
         | LinkModeMessage::Confirm => confirm_selection(state, None),
@@ -182,7 +176,7 @@ fn refocus_point_editor_at_end(
 fn confirm_selection(state: &mut AppState, requested_index: Option<usize>) -> Task<Message> {
     let (block_id, query, candidates, selected_index) = {
         let panel = &state.ui().reference_panel.link_panel;
-        (panel.block_id, panel.query.clone(), panel.candidates.clone(), panel.selected_index)
+        (panel.block_id, panel.query.clone(), panel.candidates.clone(), panel.selected)
     };
 
     let Some(block_id) = block_id else {
@@ -239,7 +233,7 @@ fn open_directory(
     let panel = &mut state.ui_mut().reference_panel.link_panel;
     panel.query = query;
     panel.candidates = candidates;
-    panel.selected_index = 0;
+    panel.selected = 0;
     tracing::info!(path = %directory.display(), "link panel opened directory");
     Task::batch([focus(link_query_input_id()), move_cursor_to_end(link_query_input_id())])
 }
@@ -296,7 +290,7 @@ pub fn floating_overlay<'a>(state: &'a AppState) -> Element<'a, Message> {
         let label = text(display).size(theme::FIND_RESULT_POINT_SIZE);
         rows = rows.push(SelectableRow::new(
             label,
-            i == panel.selected_index,
+            i == panel.selected,
             Message::LinkMode(LinkModeMessage::ConfirmCandidate(i)),
         ));
     }

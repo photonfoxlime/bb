@@ -5,7 +5,7 @@
 //! navigation (`Cmd/Ctrl+F`, `Cmd/Ctrl+G`, `Esc`). Query updates are debounced
 //! to avoid running expensive searches while users are still typing.
 
-use crate::app::{AppState, DocumentMode, Message, reference_panel::ReferencePanelMessage};
+use crate::app::{AppState, DocumentMode, Message, SelectableList, reference_panel::ReferencePanelMessage};
 use crate::component::floating_panel::{self, FloatingPanelLayout, PanelHeader, SelectableRow};
 use crate::component::icon_button::IconButton;
 use crate::store::{BlockId, BlockStoreNavigateExt as _};
@@ -45,11 +45,6 @@ impl FindUiState {
         &self.matches
     }
 
-    /// Current selected match index.
-    pub fn selected_index(&self) -> Option<usize> {
-        self.selected
-    }
-
     /// Replace the query text and advance the debounce revision.
     ///
     /// The returned revision is attached to delayed refresh tasks so stale
@@ -74,40 +69,28 @@ impl FindUiState {
             .or_else(|| (!self.matches.is_empty()).then_some(0));
     }
 
-    /// Select the next match, wrapping at the end.
-    pub fn select_next(&mut self) {
-        if self.matches.is_empty() {
-            self.selected = None;
-            return;
-        }
-        self.selected = Some(match self.selected {
-            | Some(index) => (index + 1) % self.matches.len(),
-            | None => 0,
-        });
-    }
-
-    /// Select the previous match, wrapping at the start.
-    pub fn select_previous(&mut self) {
-        if self.matches.is_empty() {
-            self.selected = None;
-            return;
-        }
-        self.selected = Some(match self.selected {
-            | Some(0) | None => self.matches.len() - 1,
-            | Some(index) => index - 1,
-        });
-    }
-
-    /// Select a concrete match index if it exists.
-    pub fn select_index(&mut self, index: usize) {
-        if index < self.matches.len() {
-            self.selected = Some(index);
-        }
+    /// Currently highlighted match index (alias for [`SelectableList::selection`]).
+    pub fn selected_index(&self) -> Option<usize> {
+        self.selected
     }
 
     /// Selected block id, if any.
     pub fn selected_block_id(&self) -> Option<BlockId> {
         self.selected.and_then(|index| self.matches.get(index).copied())
+    }
+}
+
+impl SelectableList for FindUiState {
+    fn item_count(&self) -> usize {
+        self.matches.len()
+    }
+
+    fn selection(&self) -> Option<usize> {
+        self.selected
+    }
+
+    fn set_selection(&mut self, index: Option<usize>) {
+        self.selected = index;
     }
 }
 
