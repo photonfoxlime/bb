@@ -9,7 +9,28 @@
 //! Rendering semantics:
 //! - mount and fold state are represented through disclosure marker behavior,
 //! - action bars are projected per-row via `action_bar` view-model pipeline,
-//! - rewrite/distill drafts render inline word-level diff panels.
+//! - inline draft-like surfaces (probe, amplify, atomize, distill) render
+//!   beneath the row without using the toggle-panel host.
+//!
+//! ## Inline Panel Lifecycle Split
+//!
+//! `DocumentView` is the composition point for the repository's two block-local
+//! inline surface families:
+//! - `BlockPanelHost` renders persisted toggle panels such as References.
+//! - `render_inline_draft_panels()` renders transient draft-like surfaces such
+//!   as Probe and the LLM patch results.
+//!
+//! This split is not cosmetic. Toggle panels model "show me auxiliary context
+//! for this block" and are allowed to persist across reloads. Draft-like
+//! panels model "there is a pending local workflow/result attached to this
+//! block" and only close through explicit actions inside the panel. Rendering
+//! both families here keeps their visual stacking consistent while preserving
+//! their different ownership and persistence rules.
+//!
+//! Note: Probe intentionally lives with the patch panels instead of the toggle
+//! host even though it has its own editor phase. The defining lifecycle rule is
+//! close-from-inside and coexistence with References, not whether the panel has
+//! editable input.
 //!
 //! # Reference Panel UI
 //!
@@ -592,27 +613,7 @@ impl<'a> TreeView<'a> {
                     .padding(Padding::ZERO.left(theme::INDENT)),
             );
         }
-        if let Some(draft) = self.state.store.atomization_draft(block_id) {
-            own_content = own_content.push(super::patch::render_patch_panel(
-                self.state,
-                block_id,
-                super::patch::PatchDraft::Atomize(draft),
-            ));
-        }
-        if let Some(draft) = self.state.store.amplification_draft(block_id) {
-            own_content = own_content.push(super::patch::render_patch_panel(
-                self.state,
-                block_id,
-                super::patch::PatchDraft::Amplify(draft),
-            ));
-        }
-        if let Some(draft) = self.state.store.distillation_draft(block_id) {
-            own_content = own_content.push(super::patch::render_patch_panel(
-                self.state,
-                block_id,
-                super::patch::PatchDraft::Distill(draft),
-            ));
-        }
+        own_content = self.render_inline_draft_panels(own_content, block_id);
 
         let is_ancestor = self.state.focus().is_some_and(|s| s.ancestor_ids.contains(block_id));
 
@@ -778,6 +779,53 @@ impl<'a> TreeView<'a> {
             | None => return Element::from(iced::widget::Space::new()),
         };
         StatusChip::view(label)
+    }
+
+    /// Append patch-style inline draft surfaces for one block.
+    ///
+    /// Probe shares the same close-from-inside lifecycle as patch drafts, so
+    /// these panels render together here instead of going through the
+    /// toggle-panel host used by References.
+    ///
+    /// Ordering is intentional:
+    /// - transient probe panels first, because they are user-authored entry
+    ///   points into LLM actions and should stay visually close to the row that
+    ///   created them;
+    /// - persisted patch drafts afterward, because they represent downstream
+    ///   results that are already staged in the store.
+    ///
+    /// Note: this method is the practical definition of the repository's
+    /// "draft-like inline panel" abstraction. It is currently expressed as a
+    /// renderer rather than a dedicated trait/type because Probe and patch
+    /// drafts still differ materially in state ownership and message routing.
+    fn render_inline_draft_panels(
+        &self, mut content: iced::widget::Column<'a, Message>, block_id: &BlockId,
+    ) -> iced::widget::Column<'a, Message> {
+        if self.state.ui().probe_panels.contains_key(block_id) {
+            content = content.push(super::instruction_panel::view(self.state, *block_id));
+        }
+        if let Some(draft) = self.state.store.atomization_draft(block_id) {
+            content = content.push(super::patch::render_patch_panel(
+                self.state,
+                block_id,
+                super::patch::PatchDraft::Atomize(draft),
+            ));
+        }
+        if let Some(draft) = self.state.store.amplification_draft(block_id) {
+            content = content.push(super::patch::render_patch_panel(
+                self.state,
+                block_id,
+                super::patch::PatchDraft::Amplify(draft),
+            ));
+        }
+        if let Some(draft) = self.state.store.distillation_draft(block_id) {
+            content = content.push(super::patch::render_patch_panel(
+                self.state,
+                block_id,
+                super::patch::PatchDraft::Distill(draft),
+            ));
+        }
+        content
     }
 
     fn render_action_buttons(&self, block_id: &BlockId, vm: &ActionBarVm) -> Element<'a, Message> {

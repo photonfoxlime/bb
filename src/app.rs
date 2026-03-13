@@ -920,11 +920,21 @@ impl AppState {
         }
     }
 
-    /// Close the focused block panel, if one is currently open.
+    /// Close the focused persisted toggle panel, if one is currently open.
     ///
     /// Returns `true` when Escape consumed this fallback by closing a panel.
     /// This is intentionally side-effecting because panel-open state is
     /// persisted per block.
+    ///
+    /// Note: probe no longer uses the persisted toggle-panel slot. The legacy
+    /// `Probe` enum variant is ignored here for backward-compatible state
+    /// loading, and probe panels must be closed by their own inline controls.
+    ///
+    /// Note: this asymmetry is deliberate. Escape remains a lightweight
+    /// "dismiss toggle chrome" affordance for persisted panels like References,
+    /// but draft-like workflows such as Probe keep explicit close/apply/discard
+    /// controls inside the panel so the user cannot accidentally destroy a
+    /// transient authoring surface with a global fallback key.
     fn close_focused_block_panel(&mut self) -> bool {
         let Some(block_id) = self.focus().map(|state| state.block_id) else {
             return false;

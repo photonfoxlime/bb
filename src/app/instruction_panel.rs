@@ -13,8 +13,31 @@
 //!
 //! Probe panels are intentionally decoupled from the persisted block-panel bar
 //! selection. The reference panel still uses that single-select persisted slot,
-//! while probe panels stack independently so opening a probe never collapses an
-//! already-open reference panel.
+//! while probe panels stack independently and render alongside patch drafts in
+//! `document.rs` so opening a probe never collapses an already-open reference
+//! panel.
+//!
+//! ## Why Probe Is Transient
+//!
+//! Probe has an input editor, but it still behaves more like a patch workflow
+//! than like References:
+//! - each toolbar click may create a new independent panel instance;
+//! - panels are scoped to the current editing session rather than being
+//!   something users "leave open" across restarts;
+//! - the meaningful durable artifacts are the downstream instruction draft
+//!   consumed by amplify/distill and the probe result actions, not the mere fact
+//!   that a panel shell is visible.
+//!
+//! Keeping the panel shell transient avoids polluting persisted block state
+//! with ephemeral UI structure, and it lets References remain a simple
+//! single-select toggle panel.
+//!
+//! ## Compatibility Boundary
+//!
+//! Older saves may still deserialize `BlockPanelBarState::Probe` (or the older
+//! `instruction` alias). The current implementation treats that value as a
+//! compatibility artifact only. Probe rendering is driven exclusively by
+//! transient `ProbePanelState` instances.
 //!
 //! A panel's visible context is the union of:
 //! - the block point itself,
@@ -51,9 +74,10 @@
 //! - add response as a new child under the target.
 //!
 //! Note: the editor phase has an explicit close button that clears the current
-//! panel-local input draft. Once a probe request is pending or a probe result
-//! exists, that header close affordance is intentionally hidden so dismissing
-//! the result remains an explicit action.
+//! panel-local input draft and also discards any stale persisted
+//! `instruction_draft` left from the older design. Once a probe request is
+//! pending or a probe result exists, that header close affordance is
+//! intentionally hidden so dismissing the result remains an explicit action.
 
 use crate::app::{AppState, Message, RequestSignature};
 use crate::component::floating_panel::PanelHeader;
@@ -131,11 +155,13 @@ pub fn handle(
                 .entry(target_block_id)
                 .or_default()
                 .push(ProbePanelState::new(panel_id));
-            state.persist_with_context("after opening probe panel");
             iced::Task::none()
         }
         | InstructionPanelMessage::ClosePanel { panel_id } => {
             remove_probe_panel(state, target_block_id, panel_id);
+            if state.store.remove_instruction_draft(&target_block_id).is_some() {
+                state.persist_with_context("after discarding legacy instruction draft");
+            }
             iced::Task::none()
         }
         | InstructionPanelMessage::TextEdited { panel_id, action } => {
@@ -454,7 +480,6 @@ fn remove_probe_panel(state: &mut AppState, block_id: BlockId, panel_id: ProbePa
 
     if became_empty {
         state.ui_mut().probe_panels.remove(&block_id);
-        state.persist_with_context("after removing last probe panel");
     }
 }
 
@@ -742,6 +767,21 @@ mod tests {
         );
 
         assert!(state.ui().probe_panels.get(&root).is_none());
+    }
+
+    #[test]
+    fn close_panel_discards_legacy_instruction_draft() {
+        let (mut state, root) = test_state();
+        state.set_focus(root);
+        let panel_id = open_panel(&mut state, root);
+        state.store.set_instruction_draft(root, "stale".to_string());
+
+        let _ = AppState::update(
+            &mut state,
+            Message::InstructionPanel(root, InstructionPanelMessage::ClosePanel { panel_id }),
+        );
+
+        assert!(state.store.instruction_draft(&root).is_none());
     }
 
     #[test]

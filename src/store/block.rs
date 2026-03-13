@@ -77,10 +77,21 @@ pub enum Direction {
     Under,
 }
 
-/// Persisted block panel bar state: which panel (if any) is open for a block.
+/// Persisted block panel bar state: which toggle panel (if any) is open.
 ///
-/// This is stored per-block so each block remembers its own panel state
-/// across app restarts. Unlike runtime UI state, this survives save/load.
+/// References still use this persisted single-select slot across restarts.
+/// Probe moved to a patch-style transient inline lifecycle, but its enum
+/// variant remains as a compatibility shim for older saved data and CLI input.
+///
+/// The repository keeps this compatibility shim instead of migrating old saved
+/// values on load for two reasons:
+/// - deserialization stays backward-compatible without requiring a dedicated
+///   store migration step;
+/// - older CLI or persisted payloads can still round-trip through the parser
+///   without hard failure.
+///
+/// Note: new runtime code should not treat `Probe` as the authority for visible
+/// probe panels. That authority now lives in transient UI state.
 ///
 /// Note: the probe panel used to be serialized as `instruction`. Keep a
 /// deserialization alias so older persisted stores still load cleanly while new
@@ -90,7 +101,7 @@ pub enum BlockPanelBarState {
     /// References panel - shows point links and friend relations for a block.
     #[serde(rename = "references", alias = "References")]
     References,
-    /// Probe panel - text editor for probe/amplify/distill instructions.
+    /// Legacy probe panel state kept for backward-compatible loading.
     #[serde(rename = "probe", alias = "Probe", alias = "instruction", alias = "Instruction")]
     Probe,
 }

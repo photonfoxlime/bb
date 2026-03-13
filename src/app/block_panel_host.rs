@@ -1,20 +1,36 @@
-//! Inline panel host for focused block-local panels.
+//! Inline panel host for focused block-local toggle panels.
 //!
-//! This module owns the chrome around block-local panels such as References and
-//! Probe: the toggle bar that appears below the block row and the panel bodies
-//! shown beneath it.
+//! This module owns the chrome around block-local toggle panels such as
+//! References: the toggle bar that appears below the block row and the toggle
+//! panel body shown beneath it.
 //!
-//! References still use the persisted single-select `BlockPanelBarState`,
-//! whereas probe panels are transient and may coexist with the references
-//! panel. The host therefore renders these surfaces independently instead of
-//! assuming a single active body.
+//! Probe uses patch-style lifecycle semantics instead of toggle-panel
+//! semantics, so it is rendered by `document.rs` alongside other inline draft
+//! surfaces rather than through this host.
+//!
+//! ## Why This Host Is Intentionally Narrow
+//!
+//! The repository now distinguishes two UI lifecycle classes:
+//! - persisted single-select toggle panels, currently References;
+//! - transient draft-like panels, currently Probe plus LLM patch results.
+//!
+//! The earlier design pushed Probe through the same persisted enum slot as
+//! References. That created coupling where opening one panel implicitly closed
+//! the other because the host could only project one active panel body. The
+//! current split is intentional: this host stays small and opinionated around
+//! toggle panels, while draft-like panels are rendered by the document's inline
+//! draft stack.
+//!
+//! Note: if a future panel should coexist with patch/probe-style surfaces and
+//! only close from controls inside itself, it likely does not belong in this
+//! host.
 //!
 //! Keeping this host separate from `document.rs` narrows the future merge seam
 //! for reference-style panels. `DocumentView` can treat the panel area as one
 //! composable block instead of owning panel-specific button wiring.
 
 use super::{
-    AppState, Message, instruction_panel,
+    AppState, Message,
     reference_panel::{self, ReferencePanelMessage},
 };
 use crate::{
@@ -28,11 +44,15 @@ use iced::{
 };
 use rust_i18n::t;
 
-/// Focused block-local panel host rendered below a block row.
+/// Focused block-local toggle-panel host rendered below a block row.
 ///
 /// The host is intentionally state-less beyond borrowed app state and the
-/// current row identity. It only projects persisted panel selection and emits
-/// panel-toggle messages.
+/// current row identity. It only projects persisted toggle-panel selection and
+/// emits panel-toggle messages.
+///
+/// Note: the host deliberately does not know how to render probe panels even
+/// though `BlockPanelBarState` still carries a legacy `Probe` variant for
+/// compatibility.
 pub struct BlockPanelHost<'a> {
     state: &'a AppState,
     block_id: BlockId,
@@ -71,33 +91,22 @@ impl<'a> BlockPanelHost<'a> {
         container(button_row).padding(Padding::ZERO.right(theme::INDENT)).into()
     }
 
-    /// Render the currently visible panel bodies.
+    /// Render the currently visible toggle-panel body.
     ///
     /// Returns an empty element for non-focused rows or when no block-local
-    /// panel is open. Probe panels are rendered independently from the
-    /// persisted reference-panel selection so they can stack together.
+    /// toggle panel is open.
     pub fn body(&self) -> Element<'a, Message> {
         if !self.is_focused {
             return column![].into();
         }
 
-        let mut body = column![].spacing(theme::PANEL_INNER_GAP);
-
-        if matches!(
-            self.state.store.block_panel_state(&self.block_id),
-            Some(BlockPanelBarState::References)
-        ) {
-            body = body.push(
-                container(reference_panel::view(self.state, self.block_id)).width(Length::Fill),
-            );
+        match self.state.store.block_panel_state(&self.block_id) {
+            | Some(BlockPanelBarState::References) => {
+                container(reference_panel::view(self.state, self.block_id))
+                    .width(Length::Fill)
+                    .into()
+            }
+            | Some(BlockPanelBarState::Probe) | None => column![].into(),
         }
-
-        if self.state.ui().probe_panels.contains_key(&self.block_id) {
-            body = body.push(
-                container(instruction_panel::view(self.state, self.block_id)).width(Length::Fill),
-            );
-        }
-
-        body.into()
     }
 }

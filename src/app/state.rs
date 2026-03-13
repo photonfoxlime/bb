@@ -86,6 +86,10 @@ pub struct LinkPanelState {
 ///
 /// Each click on the `Probe` toolbar action allocates a fresh id so repeated
 /// clicks can append multiple independent probe panels under the same block.
+///
+/// Note: this id is intentionally local to one runtime session. It is not
+/// serialized and does not need cross-restart stability because probe panel
+/// shells are transient UI objects.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ProbePanelId(pub u64);
 
@@ -95,6 +99,17 @@ pub struct ProbePanelId(pub u64);
 /// store data. This keeps repeated toolbar clicks cheap and allows multiple
 /// panels to coexist for the same block without complicating on-disk draft
 /// schemas.
+///
+/// The struct models only the shell lifecycle of the probe surface:
+/// - `instruction` is the editor-phase buffer;
+/// - `inquiry` marks the transition into result/progress phase;
+/// - `response` accumulates streamed or completed output;
+/// - `is_probing` marks exclusive ownership of the in-flight request state for
+///   that panel.
+///
+/// Note: persisted `instruction_draft` and `probe_draft` records still exist in
+/// the store for workflow interoperability and backward compatibility, but
+/// those records are not the source of truth for whether a probe panel is open.
 #[derive(Debug, Clone)]
 pub struct ProbePanelState {
     /// Stable id used to route panel-local messages and streamed probe results.
@@ -333,6 +348,11 @@ pub struct TransientUiState {
     /// Transient state for friend and link reference panels.
     pub reference_panel: ReferencePanelUiState,
     /// Transient probe panels keyed by owning block.
+    ///
+    /// This map is the source of truth for visible probe panels. A block may
+    /// simultaneously have an open References toggle panel and one or more
+    /// probe panels because the two panel families now live in different
+    /// lifecycle systems.
     pub probe_panels: BTreeMap<BlockId, Vec<ProbePanelState>>,
     /// Monotonic id source for allocating new probe panels.
     pub next_probe_panel_id: u64,
