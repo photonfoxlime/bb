@@ -4,7 +4,7 @@
 
 use crate::theme;
 use iced::widget::{button, row, text};
-use iced::{Element, Length};
+use iced::{Color, Element, Length, Theme, border};
 use lucide_icons::iced as icons;
 
 /// Icon identifiers for context menu actions.
@@ -47,9 +47,50 @@ impl ContextMenuButton {
                 .align_y(iced::Alignment::Center),
         )
         .padding(iced::Padding::from([theme::CONTEXT_MENU_PAD, theme::CONTEXT_MENU_BUTTON_PAD_H]))
-        .style(theme::context_menu_button)
+        .style(context_menu_button_style)
         .on_press(on_press)
         .width(Length::Fill)
         .into()
+    }
+}
+
+/// Context-menu row button style used only by [`ContextMenuButton`].
+///
+/// Note: this stays local to the component because the row chrome is an
+/// implementation detail of this specific menu layout rather than a shared app
+/// semantic surface.
+fn context_menu_button_style(theme: &Theme, status: button::Status) -> button::Style {
+    let p = theme::focused_palette(theme);
+    match status {
+        | button::Status::Active => button::Style {
+            background: None,
+            text_color: p.ink,
+            border: border::rounded(theme::CONTEXT_MENU_BUTTON_BORDER_RADIUS).width(0),
+            snap: false,
+            ..Default::default()
+        },
+        | button::Status::Hovered => button::Style {
+            background: Some(Color { a: theme::CONTEXT_MENU_BUTTON_HOVER_OPACITY, ..p.ink }.into()),
+            text_color: p.ink,
+            border: border::rounded(theme::CONTEXT_MENU_BUTTON_BORDER_RADIUS).width(0),
+            snap: false,
+            ..Default::default()
+        },
+        | button::Status::Pressed => button::Style {
+            background: Some(
+                Color { a: theme::CONTEXT_MENU_BUTTON_PRESSED_OPACITY, ..p.ink }.into(),
+            ),
+            text_color: p.ink,
+            border: border::rounded(theme::CONTEXT_MENU_BUTTON_BORDER_RADIUS).width(0),
+            snap: false,
+            ..Default::default()
+        },
+        | button::Status::Disabled => button::Style {
+            background: None,
+            text_color: p.spine_light,
+            border: border::rounded(theme::CONTEXT_MENU_BUTTON_BORDER_RADIUS).width(0),
+            snap: false,
+            ..Default::default()
+        },
     }
 }

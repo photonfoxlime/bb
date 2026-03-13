@@ -9,24 +9,19 @@
 
 mod button_styles;
 mod container_styles;
-mod context_menu_styles;
 mod editor_styles;
-mod markdown_styles;
 mod rule_styles;
 mod text_styles;
 
-pub(crate) use self::markdown_styles::markdown_preview_settings;
 pub use self::{
     button_styles::{
         action_button, close_button, destructive_button, mode_button, panel_toggle_button,
         toggle_button,
     },
     container_styles::{
-        canvas, context_menu, draft_panel, error_banner, focused_block, friend_picker_hover,
-        lineage_highlight, multiselect_selected, overlay_bar, shortcut_help_banner, tooltip,
-        transparent,
+        canvas, draft_panel, error_banner, focused_block, friend_picker_hover, lineage_highlight,
+        multiselect_selected, overlay_bar, shortcut_help_banner, tooltip,
     },
-    context_menu_styles::context_menu_button,
     editor_styles::point_editor,
     rule_styles::spine_rule,
     text_styles::{spine_text, status_text},

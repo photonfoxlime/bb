@@ -508,12 +508,10 @@ fn view_link_preview<'a>(
         }
         | LinkKind::Markdown => {
             if let Some(markdown_preview) = expanded_markdown_preview {
-                let markdown_widget: Element<'a, Message> = markdown::view(
-                    markdown_preview,
-                    theme::markdown_preview_settings(is_dark_mode),
-                )
-                .map(move |uri| Message::MarkdownPreviewLinkClicked(target_block_id, uri))
-                .into();
+                let markdown_widget: Element<'a, Message> =
+                    markdown::view(markdown_preview, markdown_preview_settings(is_dark_mode))
+                        .map(move |uri| Message::MarkdownPreviewLinkClicked(target_block_id, uri))
+                        .into();
                 container(markdown_widget).padding(theme::LINK_CHIP_PAD).width(Length::Fill).into()
             } else {
                 iced::widget::Space::new().height(Length::Shrink).into()
@@ -530,6 +528,29 @@ fn link_kind_icon(kind: LinkKind) -> Element<'static, Message> {
         | LinkKind::Markdown => icons::icon_file_text().size(theme::LINK_CHIP_ICON_SIZE).into(),
         | LinkKind::Path => icons::icon_link().size(theme::LINK_CHIP_ICON_SIZE).into(),
     }
+}
+
+/// Build markdown renderer settings for inline reference-link previews.
+///
+/// Note: this preview styling lives with the reference panel because it exists
+/// only for the expanded link-row preview workflow. The shared theme still
+/// owns the palette and text-size tokens used here.
+fn markdown_preview_settings(is_dark_mode: bool) -> markdown::Settings {
+    let palette = theme::palette_for_mode(is_dark_mode);
+    let mut style = markdown::Style::from_palette(iced::theme::Palette {
+        background: palette.paper,
+        text: palette.ink,
+        primary: palette.accent,
+        success: palette.success,
+        danger: palette.danger,
+        warning: palette.warning,
+    });
+    style.font = theme::DEFAULT_FONT;
+    style.inline_code_font = theme::DEFAULT_FONT;
+    style.code_block_font = theme::DEFAULT_FONT;
+    style.inline_code_color = palette.ink;
+    style.inline_code_highlight.background = palette.tint.into();
+    markdown::Settings::with_text_size(theme::LINK_MARKDOWN_PREVIEW_TEXT_SIZE, style)
 }
 
 /// Return the current input buffer of the active reference perspective editor.

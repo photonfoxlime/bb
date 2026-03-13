@@ -115,7 +115,7 @@ use crate::{
     theme,
 };
 use iced::{
-    Element, Fill, Length, Padding, Point,
+    Color, Element, Fill, Length, Padding, Point, Theme, border,
     widget::{button, column, container, mouse_area, row, rule, scrollable, stack, text, tooltip},
 };
 use lucide_icons::iced as icons;
@@ -414,7 +414,7 @@ impl<'a> DocumentView<'a> {
 
         // Width should fit content but have reasonable bounds
         let menu = container(content)
-            .style(theme::context_menu)
+            .style(context_menu_style)
             .width(Length::Fixed(theme::CONTEXT_MENU_WIDTH));
 
         // Use stack to position menu at cursor location
@@ -423,7 +423,7 @@ impl<'a> DocumentView<'a> {
             container(iced::widget::Space::new())
                 .width(Fill)
                 .height(Fill)
-                .style(theme::transparent),
+                .style(transparent_overlay_style),
         )
         .on_press(Message::ContextMenu(ContextMenuMessage::Hide))
         .into();
@@ -435,6 +435,38 @@ impl<'a> DocumentView<'a> {
             .padding(iced::Padding::new(0.0).left(position.x as f32).top(position.y as f32));
 
         stack![background, menu_container].into()
+    }
+}
+
+/// Elevated container style for the document-owned context menu surface.
+///
+/// Note: this stays next to `render_context_menu()` because the chrome is only
+/// used by that renderer.
+fn context_menu_style(theme: &Theme) -> container::Style {
+    let p = theme::focused_palette(theme);
+    container::Style {
+        background: Some(p.paper.into()),
+        text_color: Some(p.ink),
+        border: border::rounded(theme::CONTEXT_MENU_BORDER_RADIUS)
+            .width(1)
+            .color(Color { a: theme::CONTEXT_MENU_BORDER_OPACITY, ..p.ink }),
+        shadow: iced::Shadow {
+            color: Color { a: theme::CONTEXT_MENU_SHADOW_OPACITY, ..Color::BLACK },
+            offset: iced::Vector { x: 0.0, y: theme::CONTEXT_MENU_SHADOW_OFFSET_Y },
+            blur_radius: theme::CONTEXT_MENU_SHADOW_BLUR,
+        },
+        snap: false,
+    }
+}
+
+/// Transparent style for the click-to-dismiss context-menu backdrop.
+fn transparent_overlay_style(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: None,
+        text_color: None,
+        border: border::rounded(0).width(0),
+        snap: false,
+        ..Default::default()
     }
 }
 

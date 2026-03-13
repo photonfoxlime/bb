@@ -1,10 +1,9 @@
 //! Container style functions re-exported through [`crate::theme`].
 
 use super::{
-    BORDER_RADIUS_BANNER, BORDER_RADIUS_PANEL, CONTEXT_MENU_BORDER_OPACITY,
-    CONTEXT_MENU_BORDER_RADIUS, CONTEXT_MENU_SHADOW_BLUR, CONTEXT_MENU_SHADOW_OFFSET_Y,
-    CONTEXT_MENU_SHADOW_OPACITY, ERROR_BANNER_BG_OPACITY, ERROR_BANNER_BORDER_OPACITY,
-    SHORTCUT_HELP_BG_OPACITY, SHORTCUT_HELP_BORDER_OPACITY, focused_palette,
+    BORDER_RADIUS_BANNER, BORDER_RADIUS_PANEL, ERROR_BANNER_BG_OPACITY,
+    ERROR_BANNER_BORDER_OPACITY, SHORTCUT_HELP_BG_OPACITY, SHORTCUT_HELP_BORDER_OPACITY,
+    focused_palette,
 };
 use iced::widget::container;
 use iced::{Color, Theme, border};
@@ -112,35 +111,6 @@ pub fn tooltip(theme: &Theme) -> container::Style {
         background: Some(p.ink.into()),
         text_color: Some(p.paper),
         border: border::rounded(BORDER_RADIUS_PANEL).width(0),
-        ..Default::default()
-    }
-}
-
-/// Context menu container shown as an elevated surface with subtle border.
-pub fn context_menu(theme: &Theme) -> container::Style {
-    let p = focused_palette(theme);
-    container::Style {
-        background: Some(p.paper.into()),
-        text_color: Some(p.ink),
-        border: border::rounded(CONTEXT_MENU_BORDER_RADIUS)
-            .width(1)
-            .color(Color { a: CONTEXT_MENU_BORDER_OPACITY, ..p.ink }),
-        shadow: iced::Shadow {
-            color: Color { a: CONTEXT_MENU_SHADOW_OPACITY, ..Color::BLACK },
-            offset: iced::Vector { x: 0.0, y: CONTEXT_MENU_SHADOW_OFFSET_Y },
-            blur_radius: CONTEXT_MENU_SHADOW_BLUR,
-        },
-        snap: false,
-    }
-}
-
-/// Transparent container style for click-through overlays.
-pub fn transparent(_theme: &Theme) -> container::Style {
-    container::Style {
-        background: None,
-        text_color: None,
-        border: border::rounded(0).width(0),
-        snap: false,
         ..Default::default()
     }
 }
