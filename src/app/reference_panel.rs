@@ -6,13 +6,9 @@
 //! All user-facing text must be internationalized via `rust_i18n::t!`. Never
 //! hardcode UI strings; add keys to the locale files instead.
 //!
-//! The panel currently contains two sections:
+//! The panel contains one merged list of block-local references:
 //! - point links attached to the block,
 //! - friend relations used as additional context.
-//!
-//! Note: the naming is intentionally broader than the current behavior because
-//! point links are expected to converge here as part of the reference-panel
-//! merge.
 //!
 //! ## Inline Perspective Editor
 //!
@@ -36,14 +32,14 @@
 use crate::app::state::ReferencePerspectiveEditState;
 use crate::app::{AppState, DocumentMode, EditMessage, LinkModeMessage, Message, StructureMessage};
 use crate::component::{
-    friend_row::FriendRow,
-    reference_list_row::ReferenceListRow,
-    reference_perspective::{ReferencePerspectiveEditor, reference_perspective_input_id},
+    icon_button::IconButton, reference_list_row::ReferenceListRow,
+    reference_perspective::reference_perspective_input_id, reference_row::ReferenceRow,
     text_button::TextButton,
 };
 use crate::store::{BlockId, BlockPanelBarState, LinkKind, PointLink};
+use crate::text::truncate_for_display;
 use crate::theme;
-use iced::widget::{column, container, markdown, operation::focus, row, text};
+use iced::widget::{column, container, markdown, operation::focus, row, text, tooltip};
 use iced::{Element, Length, Padding, Task};
 use lucide_icons::iced as icons;
 
@@ -273,7 +269,7 @@ pub fn handle(state: &mut AppState, msg: ReferencePanelMessage) -> Task<Message>
     }
 }
 
-/// Render the friends panel for `target_block_id`.
+/// Render the reference panel for `target_block_id`.
 ///
 /// Note: the target is explicit so document-level panel hosts can decide which
 /// block owns the panel without requiring this view to read global focus.
@@ -293,48 +289,42 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
     let expanded_markdown_preview = state.expanded_markdown_preview(&target_block_id);
     let friends = state.store.friend_blocks_for(&target_block_id);
 
-    let link_header = row![].spacing(theme::PANEL_BUTTON_GAP).push(
+    let mut action_bar = row![].spacing(theme::PANEL_BUTTON_GAP);
+    action_bar = action_bar.push(
+        TextButton::action(
+            rust_i18n::t!("action_add_friend").to_string(),
+            theme::FRIEND_POINT_SIZE,
+        )
+        .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
+        .on_press(Message::ReferencePanel(ReferencePanelMessage::StartFriendPicker(
+            target_block_id,
+        ))),
+    );
+    action_bar = action_bar.push(
         TextButton::action(rust_i18n::t!("action_add_link").to_string(), theme::FRIEND_POINT_SIZE)
             .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
             .on_press(Message::LinkMode(LinkModeMessage::Enter(target_block_id))),
     );
 
-    // Header with "+" button to start friend picker
-    let mut friend_header = row![].spacing(theme::PANEL_BUTTON_GAP);
-    friend_header = friend_header.push(
-        TextButton::action(rust_i18n::t!("ui_add").to_string(), theme::FRIEND_POINT_SIZE)
-            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .on_press(Message::ReferencePanel(ReferencePanelMessage::StartFriendPicker(
-                target_block_id,
-            ))),
-    );
-
     let message_text = if is_picker_mode {
         Some(rust_i18n::t!("doc_friend_picker_hint").to_string())
-    } else if friends.is_empty() {
-        Some(rust_i18n::t!("doc_friend_empty_hint").to_string())
+    } else if friends.is_empty() && links.is_empty() {
+        Some(rust_i18n::t!("doc_reference_empty_hint").to_string())
     } else {
         None
     };
-    // Show message based on state
-    if let Some(message_text) = message_text {
-        friend_header = friend_header.push(
-            container(
-                text(message_text)
-                    .style(theme::spine_text)
-                    .font(theme::INTER)
-                    .size(theme::FRIEND_POINT_SIZE)
-                    .align_y(iced::alignment::Alignment::Center),
-            )
-            .align_y(iced::alignment::Alignment::Center)
-            .height(Length::Fixed(theme::ICON_BUTTON_SIZE))
-            .width(Length::Fill)
-            .padding(Padding::ZERO.left(theme::FRIEND_ROW_GAP)),
-        )
-    }
 
     let mut panel =
-        column![].spacing(theme::PANEL_INNER_GAP).push(container(link_header).width(Length::Fill));
+        column![].spacing(theme::PANEL_INNER_GAP).push(container(action_bar).width(Length::Fill));
+
+    if let Some(message_text) = message_text {
+        panel = panel.push(
+            text(message_text)
+                .style(theme::spine_text)
+                .font(theme::INTER)
+                .size(theme::FRIEND_POINT_SIZE),
+        );
+    }
 
     for (index, link) in links.iter().enumerate() {
         panel = panel.push(view_link_row(
@@ -347,8 +337,6 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
             state.is_dark_mode(),
         ));
     }
-
-    panel = panel.push(container(friend_header).width(Length::Fill));
 
     for friend in friends {
         let point_text = state.store.point(&friend.block_id).unwrap_or_default();
@@ -370,23 +358,35 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
         let children_toggle_tooltip = rust_i18n::t!("doc_friend_telescope_children").to_string();
         let remove_label = rust_i18n::t!("ui_remove").to_string();
         let current_input = active_editor_input(state);
+        let controls = view_friend_controls(
+            friend.parent_lineage_telescope,
+            friend.children_telescope,
+            &parent_toggle_tooltip,
+            &children_toggle_tooltip,
+            &remove_label,
+            Message::ReferencePanel(ReferencePanelMessage::ToggleParentLineageTelescope {
+                target,
+                friend_id,
+            }),
+            Message::ReferencePanel(ReferencePanelMessage::ToggleChildrenTelescope {
+                target,
+                friend_id,
+            }),
+            Message::Structure(StructureMessage::RemoveFriendBlock { target, friend_id }),
+        );
 
         panel = panel.push(
-            FriendRow {
-                point_text,
+            ReferenceRow {
+                primary: ReferenceRow::text_summary_button(
+                    truncate_for_display(&point_text, theme::FRIEND_POINT_TRUNCATE),
+                    Message::ReferencePanel(ReferencePanelMessage::HoverFriend(friend_id)),
+                ),
                 perspective_label: perspective_label.to_string(),
                 is_editing: is_editing_this,
                 current_input,
-                parent_lineage_telescope: friend.parent_lineage_telescope,
-                children_telescope: friend.children_telescope,
                 perspective_placeholder: placeholder,
                 relation_label,
-                parent_toggle_tooltip,
-                children_toggle_tooltip,
-                remove_label,
-                on_press_point: Message::ReferencePanel(ReferencePanelMessage::HoverFriend(
-                    friend_id,
-                )),
+                controls,
                 on_start_editing: Message::ReferencePanel(
                     ReferencePanelMessage::StartEditingFriendPerspective { target, friend_id },
                 ),
@@ -399,16 +399,6 @@ pub fn view<'a>(state: &'a AppState, target_block_id: BlockId) -> Element<'a, Me
                 on_submit_input: Message::ReferencePanel(
                     ReferencePanelMessage::AcceptFriendPerspective { target, friend_id },
                 ),
-                on_toggle_parent_lineage: Message::ReferencePanel(
-                    ReferencePanelMessage::ToggleParentLineageTelescope { target, friend_id },
-                ),
-                on_toggle_children: Message::ReferencePanel(
-                    ReferencePanelMessage::ToggleChildrenTelescope { target, friend_id },
-                ),
-                on_remove_friend: Message::Structure(StructureMessage::RemoveFriendBlock {
-                    target,
-                    friend_id,
-                }),
                 on_update_input: |s| {
                     Message::ReferencePanel(ReferencePanelMessage::UpdatePerspectiveInput(s))
                 },
@@ -450,11 +440,21 @@ fn view_link_row<'a>(
             ..
         }) if target == target_block_id && link_index == index
     );
-    let detail = ReferencePerspectiveEditor {
+    let controls =
+        TextButton::destructive(rust_i18n::t!("ui_remove").to_string(), theme::FRIEND_POINT_SIZE)
+            .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+            .padding(Padding::ZERO)
+            .on_press(Message::Edit(EditMessage::RemoveLink { block_id: target_block_id, index }))
+            .into();
+
+    let row = ReferenceRow {
+        primary,
         perspective_label: link.perspective.clone().unwrap_or_default(),
         is_editing: is_editing_this,
         current_input: active_editor_input(state),
         perspective_placeholder: rust_i18n::t!("doc_reference_perspective_placeholder").to_string(),
+        relation_label: rust_i18n::t!("doc_reference_as").to_string(),
+        controls,
         on_start_editing: Message::ReferencePanel(
             ReferencePanelMessage::StartEditingLinkPerspective {
                 target: target_block_id,
@@ -480,21 +480,6 @@ fn view_link_row<'a>(
         on_update_input: |s| {
             Message::ReferencePanel(ReferencePanelMessage::UpdatePerspectiveInput(s))
         },
-    }
-    .view();
-
-    let controls =
-        TextButton::destructive(rust_i18n::t!("ui_remove").to_string(), theme::FRIEND_POINT_SIZE)
-            .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
-            .padding(Padding::ZERO)
-            .on_press(Message::Edit(EditMessage::RemoveLink { block_id: target_block_id, index }))
-            .into();
-
-    let row = ReferenceListRow {
-        primary,
-        relation_label: Some(rust_i18n::t!("doc_reference_as").to_string()),
-        detail,
-        controls,
     }
     .view();
 
@@ -584,4 +569,59 @@ fn active_link_perspective_input(
         }) if *editing_target == target && *editing_link_index == link_index => Some(input.clone()),
         | _ => None,
     }
+}
+
+/// Render friend-only telescope controls plus the shared remove action.
+fn view_friend_controls(
+    parent_lineage_telescope: bool, children_telescope: bool, parent_toggle_tooltip: &str,
+    children_toggle_tooltip: &str, remove_label: &str, on_toggle_parent_lineage: Message,
+    on_toggle_children: Message, on_remove_friend: Message,
+) -> Element<'static, Message> {
+    row![]
+        .spacing(theme::FRIEND_TOGGLE_GAP)
+        .padding(Padding::ZERO.left(theme::TOOLTIP_PAD))
+        .align_y(iced::alignment::Vertical::Center)
+        .push(
+            tooltip(
+                IconButton::toggle_with_size(
+                    icons::icon_corner_up_left().size(theme::FRIEND_TOGGLE_ICON_SIZE).into(),
+                    parent_lineage_telescope,
+                    theme::FRIEND_TOGGLE_SIZE,
+                    0.0,
+                )
+                .on_press(on_toggle_parent_lineage),
+                text(parent_toggle_tooltip.to_owned())
+                    .size(theme::SMALL_TEXT_SIZE)
+                    .font(theme::INTER),
+                tooltip::Position::Bottom,
+            )
+            .style(theme::tooltip)
+            .padding(theme::TOOLTIP_PAD)
+            .gap(theme::TOOLTIP_GAP),
+        )
+        .push(
+            tooltip(
+                IconButton::toggle_with_size(
+                    icons::icon_corner_down_right().size(theme::FRIEND_TOGGLE_ICON_SIZE).into(),
+                    children_telescope,
+                    theme::FRIEND_TOGGLE_SIZE,
+                    0.0,
+                )
+                .on_press(on_toggle_children),
+                text(children_toggle_tooltip.to_owned())
+                    .size(theme::SMALL_TEXT_SIZE)
+                    .font(theme::INTER),
+                tooltip::Position::Bottom,
+            )
+            .style(theme::tooltip)
+            .padding(theme::TOOLTIP_PAD)
+            .gap(theme::TOOLTIP_GAP),
+        )
+        .push(
+            TextButton::destructive(remove_label.to_string(), theme::FRIEND_POINT_SIZE)
+                .height(Length::Fixed(theme::FRIEND_PERSPECTIVE_HEIGHT))
+                .padding(Padding::ZERO)
+                .on_press(on_remove_friend),
+        )
+        .into()
 }

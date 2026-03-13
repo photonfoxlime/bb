@@ -14,8 +14,8 @@
 //! # Reference Panel UI
 //!
 //! A per-block reference panel is rendered below the block row when opened:
-//! - point links use the same row shell as friend relations and may carry an
-//!   optional perspective,
+//! - the top of the panel exposes both "add friend" and "add link" actions,
+//! - point links and friend relations share one merged row list and one row shell,
 //! - friend relations still provide optional perspective plus telescope toggles.
 //!
 //! ## Inline Perspective Editor
