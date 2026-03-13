@@ -531,6 +531,10 @@ impl AppState {
     /// dispatched exactly once with the focused block id from that editor.
     /// The global subscription intentionally ignores these actions to avoid
     /// duplicate block creation from overlapping global/editor key paths.
+    ///
+    /// Note: punctuation-based structure shortcuts such as Amplify and Distill
+    /// stay eligible for the global path because some text-editor event flows
+    /// can capture those keys while still leaking insert actions.
     fn allow_global_action_shortcut(action_id: ActionId) -> bool {
         !matches!(action_id, ActionId::AddChild | ActionId::AddSibling)
     }

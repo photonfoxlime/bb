@@ -30,6 +30,11 @@
 //!
 //! See the top-level `document` module doc for the invariants around
 //! structural Enter shortcuts and focused-editor-only dispatch.
+//!
+//! `shortcut_key()` resolves the shared structure shortcut inventory from
+//! `shortcut.rs`, then applies one editor-specific rule: `AddChild` maps to the
+//! dedicated `EditMessage::AddEmptyFirstChild` path so the focused editor owns
+//! first-child insertion end to end.
 
 use super::action_bar::{ActionId, shortcut_to_action};
 use super::{ContextMenuMessage, EditMessage, Message, ShortcutMessage};
@@ -212,6 +217,10 @@ pub(super) fn view<'a>(
 ///
 /// Returns `Some(msg)` when the key chord matches a known action, `None`
 /// otherwise. Plugged into the component as the `on_shortcut_key` callback.
+///
+/// Note: `AddChild` is translated to [`EditMessage::AddEmptyFirstChild`]
+/// instead of `ShortcutMessage::ForBlock` so Enter-based child creation remains
+/// editor-owned and cannot race the global subscription.
 fn shortcut_key(block_id: BlockId, key_press: &text_editor::KeyPress) -> Option<Message> {
     shortcut_to_action(key_press.key.clone(), key_press.modifiers).map(
         |action_id| match action_id {

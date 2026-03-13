@@ -3,6 +3,26 @@
 //! This module keeps runtime shortcut routing and the banner inventory close to
 //! each other so future refactors can converge on one source of truth without
 //! scattering shortcut semantics across unrelated UI modules.
+//!
+//! # Current shortcut design
+//!
+//! Shortcut handling is intentionally split across three event paths:
+//!
+//! - The global subscription in `app.rs` handles document-wide shortcuts such
+//!   as find, undo/redo, and movement chords.
+//! - Focused point editors resolve structure shortcuts in `point_editor.rs` so
+//!   Enter-based mutations carry the exact focused block id and do not double
+//!   fire through the global path.
+//! - Plain `Backspace` and multiselect click gestures are still handled by
+//!   dedicated event paths even though the help banner documents them.
+//!
+//! The registry in this module therefore serves both display and dispatch:
+//!
+//! - [`ShortcutCatalog`] is the canonical inventory used by the help banner.
+//! - Matching helpers such as [`global_shortcut_message_from_key`],
+//!   [`action_shortcut_from_key`], and [`movement_shortcut_from_key`] convert
+//!   raw key events into semantic runtime messages while preserving the event
+//!   ownership split above.
 
 use super::*;
 use crate::store::Direction;
@@ -42,8 +62,11 @@ pub enum MovementShortcut {
 /// Messages for keyboard shortcut dispatch.
 #[derive(Debug, Clone)]
 pub enum ShortcutMessage {
+    /// Trigger one action shortcut against the currently active block.
     Trigger(ActionId),
+    /// Trigger one action shortcut for the concrete block chosen by the caller.
     ForBlock { block_id: BlockId, action_id: ActionId },
+    /// Execute one tree navigation or structural movement command.
     Movement(MovementShortcut),
 }
 
@@ -468,6 +491,11 @@ impl ShortcutId {
 /// runtime dispatch stay aligned. The matching policy remains unchanged:
 /// `Cmd` and `Ctrl` are both accepted to tolerate backend differences in editor
 /// key events.
+///
+/// Note: this resolver intentionally returns only row-scoped structure actions.
+/// Global shortcuts such as find and undo/redo resolve through
+/// [`global_shortcut_message_from_key`] so the editor-owned Enter shortcuts can
+/// stay isolated from the global subscription path.
 pub fn action_shortcut_from_key(
     key: keyboard::Key, modifiers: keyboard::Modifiers,
 ) -> Option<ActionId> {
@@ -479,6 +507,9 @@ pub fn action_shortcut_from_key(
 /// Note: this intentionally excludes `Escape`, multiselect click gestures, and
 /// the backspace behavior rows because those are handled by specialized event
 /// paths rather than one shared shortcut dispatch entry point.
+///
+/// Note: matching still requires `modifiers.command()` so runtime behavior
+/// stays consistent with the existing global subscription semantics.
 pub fn global_shortcut_message_from_key(
     key: &keyboard::Key, modifiers: keyboard::Modifiers,
 ) -> Option<Message> {
@@ -610,6 +641,10 @@ enum SiblingDirection {
 /// global commands, independent of editor widget internals. The edit module
 /// filters leaked editor actions so this parser remains the single source
 /// of truth for movement dispatch.
+///
+/// Note: the help banner groups several arrow-key variants under one displayed
+/// row. This resolver expands those grouped rows back into concrete
+/// [`MovementShortcut`] variants based on the pressed arrow key.
 pub fn movement_shortcut_from_key(
     key: &keyboard::Key, modified_key: &keyboard::Key, physical_key: keyboard::key::Physical,
     modifiers: keyboard::Modifiers,
@@ -688,6 +723,11 @@ fn movement_shortcut_id_from_bracket_key(
         .or_else(|| movement_shortcut_id_from_bracket_physical_key(physical_key))
 }
 
+/// Resolve logical-key bracket aliases back to movement shortcut ids.
+///
+/// Note: some backends report browser-history logical keys instead of literal
+/// bracket characters for `Cmd/Ctrl + [` and `Cmd/Ctrl + ]`, so the parser
+/// accepts both forms and normalizes them to the same movement ids.
 fn movement_shortcut_id_from_bracket_logical_key(key: &keyboard::Key) -> Option<ShortcutId> {
     match key {
         | keyboard::Key::Character(value) if value == "[" => Some(ShortcutId::MovementOutdent),
@@ -717,6 +757,11 @@ fn movement_shortcut_id_from_bracket_physical_key(
     }
 }
 
+/// Execute one previously resolved shortcut message against application state.
+///
+/// Parsing and ownership decisions happen in the key-routing helpers. This
+/// handler applies the semantic shortcut operation once the caller has already
+/// decided which block and which shortcut variant should run.
 pub fn handle(state: &mut AppState, message: ShortcutMessage) -> Task<Message> {
     match message {
         | ShortcutMessage::Trigger(action_id) => {

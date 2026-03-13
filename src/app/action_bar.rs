@@ -500,6 +500,10 @@ pub fn project_for_viewport(mut vm: ActionBarVm, bucket: ViewportBucket) -> Acti
 /// Design decision: destructive archive is intentionally excluded from keyboard
 /// shortcuts. `Cmd/Ctrl+Backspace` is left to editor-native deletion semantics
 /// to avoid accidental structural mutation.
+///
+/// Note: this function is now a compatibility wrapper. The canonical shortcut
+/// inventory and matching rules live in `shortcut.rs`, but action bar tests and
+/// editor call sites still use this entry point.
 pub fn shortcut_to_action(key: Key, modifiers: Modifiers) -> Option<ActionId> {
     super::shortcut::action_shortcut_from_key(key, modifiers)
 }
